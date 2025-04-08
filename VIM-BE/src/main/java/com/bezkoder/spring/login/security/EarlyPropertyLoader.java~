@@ -1,0 +1,20 @@
+package com.bezkoder.spring.login.security;
+
+import org.springframework.stereotype.Component;
+
+import javax.annotation.PostConstruct;
+
+@Component
+public class EarlyPropertyLoader {
+
+    @PostConstruct
+    public void loadProperties() {
+        // Open security and timestamp modules
+        System.setProperty("java.base/java.security", "ALL-UNNAMED");
+        System.setProperty("java.base/java.lang", "ALL-UNNAMED");
+        System.setProperty("java.base/java.sql", "ALL-UNNAMED"); 
+        System.setProperty("java.base/java.time", "ALL-UNNAMED");
+        // Log or verify properties
+        System.out.println("System properties for unnamed modules set.");
+    }
+}

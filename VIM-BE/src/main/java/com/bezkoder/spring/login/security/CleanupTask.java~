@@ -1,0 +1,18 @@
+package com.bezkoder.spring.login.security;
+
+
+import javax.annotation.PreDestroy;
+
+import com.mysql.cj.jdbc.AbandonedConnectionCleanupThread;
+import org.springframework.stereotype.Component;
+
+@Component
+public class CleanupTask {
+
+    @PreDestroy
+    public void cleanup() {
+        AbandonedConnectionCleanupThread.checkedShutdown();
+        System.out.println("MySQL Abandoned Connection Cleanup Thread stopped.");
+    }
+}
+
