@@ -17,6 +17,14 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
+    - name: Validate project structure
+      run: |
+        echo "Workspace: ${{ github.workspace }}"
+        echo "VIM-BE contents:"
+        ls -la VIM-BE/
+        echo "Current directory:"
+        pwd
+
     - name: Verify directory structure
       run: |
         echo "Current directory:"
@@ -40,6 +48,17 @@ jobs:
     - name: Build with Maven
       run: mvn clean package
     
+    - name: Find and verify WAR file
+      id: find-war
+      run: |
+        WAR_PATH=$(find VIM-BE/target -name "*.war" | head -1)
+        if [ -z "$WAR_PATH" ]; then
+          echo "::error::No WAR file found in target directory!"
+          exit 1
+        fi
+        echo "Found WAR file at: $WAR_PATH"
+        echo "war_path=$WAR_PATH" >> $GITHUB_OUTPUT
+
     - name: Verify WAR file creation
       run: |
         echo "Checking for WAR file..."
@@ -52,6 +71,6 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: webapp-artifact
-        path: VIM-BE/target/*.war
+        path: ${{ steps.find-war.outputs.war_path }}
         if-no-files-found: error
-        retention-days: 5
+        
