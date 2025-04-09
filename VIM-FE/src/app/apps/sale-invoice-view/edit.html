@@ -1,0 +1,131 @@
+<div class="mt-8">
+    <div class="flex flex-col gap-6 xl:flex-row">
+        <div class="panel flex-1 px-6 py-6 ltr:xl:mr-6 rtl:xl:ml-6">
+            <div class="mb-6 flex flex-wrap items-center justify-between">
+                <button type="button" class="btn btn-primary" (click)="goBack()">Back</button>
+            </div>
+
+            <div class="flex flex-col gap-6 lg:flex-row">
+                <div class="flex-1">
+                    <div class="space-y-2 text-gray-700">
+                        <div class="text-lg font-semibold">Service Order No:</div>
+                        <div class="text-xl font-bold text-black dark:text-white">{{ slsTblDeal.txtDealNo }}</div>
+                        <div class="text-sm">
+                            <div class="font-semibold">Date From:</div>
+                            <div>{{ slsTblDeal.dte_date_from | date: 'shortDate' }}</div>
+                        </div>
+                        <div class="text-sm">
+                            <div class="font-semibold">Date To:</div>
+                            <div>{{ slsTblDeal.dte_date_to | date: 'shortDate' }}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col gap-4 sm:flex-row lg:w-2/3">
+                    <div class="flex-1 lg:w-2/5">
+                        <div class="space-y-2">
+                            <div class="text-sm">
+                                <div class="font-semibold">Sap No:</div>
+                                <div>{{ slsTblDeal.txtSapNo }}</div>
+                            </div>
+                            <div class="text-sm">
+                                <div class="font-semibold">GST:</div>
+                                <!--<div>{{ slsTblDeal.numSalesTax || 'N/A' }}</div>-->
+                                <div *ngIf="slsTblDeal.numSalesTaxSap; else fallback">
+                                    {{ slsTblDeal.numSalesTaxSap }}
+                                </div>
+                                <ng-template #fallback>
+                                    <div *ngIf="slsTblDeal.numSalesTax; else notFound">
+                                        {{ slsTblDeal.numSalesTax }}
+                                    </div>
+                                </ng-template>
+                                <ng-template #notFound>
+                                    N/A
+                                </ng-template>
+                            </div>
+                            <div class="text-sm">
+                                <div class="font-semibold">Media House:</div>
+                                <div>{{ slsTblDeal.cfgTblDealer?.txtCustomerName || 'N/A' }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Table for items -->
+            <div class="mt-8">
+                <div class="table-responsive">
+                    <table class="min-w-full bg-white border border-gray-200">
+                        <thead>
+                        <tr class="bg-gray-100 text-gray-700">
+                            <th class="px-4 py-2">Service No</th>
+                            <th class="px-4 py-2">Product Name</th>
+                            <th class="px-4 py-2">Sap Line Item</th>
+                            <th class="w-1 px-4 py-2">Quantity</th>
+                            <th class="w-1 px-4 py-2">Cost Price</th>
+                            <th class="px-4 py-2">Total</th>
+                            <!--<th class="w-1 px-4 py-2"></th>-->
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <ng-container *ngIf="items.length <= 0">
+                            <tr>
+                                <td colspan="7" class="text-center font-semibold">No Item Available</td>
+                            </tr>
+                        </ng-container>
+                        <ng-container *ngFor="let item of items; index as i">
+                            <tr class="align-top hover:bg-gray-50 transition">
+                                <td class="px-4 py-2">{{ item.txtSapCode }}</td>
+                                <td class="px-4 py-2">{{ item.txtProductName }}</td>
+                                <td class="px-4 py-2">{{ item.sapLineItem }}</td>
+                                <td class="px-4 py-2">{{ item.numQuantity }}</td>
+                                <td class="px-4 py-2">{{ item.numItemPrice  }}</td>
+                                <td class="px-4 py-2">{{ item.numTotalPrice }}</td>
+                            </tr>
+                        </ng-container>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Audit Items Table -->
+            <div class="mt-8" ><!--*ngIf="optionalParam"-->
+                <h2 class="text-lg font-semibold mb-4">Audit Status Summary</h2>
+                <div class="table-responsive">
+                    <table class="min-w-full bg-white border border-gray-200">
+                        <thead>
+                        <tr class="bg-gray-100 text-gray-700">
+                            <th class="px-4 py-2">Deal No</th>
+                            <th class="px-4 py-2"  *ngIf="txtRoleName !== 'VENDOR'" >Department</th>
+                            <th class="px-4 py-2"  *ngIf="txtRoleName !== 'VENDOR'" >Stage</th>
+                            <th class="px-4 py-2">Remarks</th>
+                            <th class="px-4 py-2">Status</th>
+                            <th class="px-4 py-2">Date</th>
+                            <th class="px-4 py-2"  *ngIf="txtRoleName !== 'VENDOR'">Created By</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <ng-container *ngIf="auditItems.length <= 0">
+                            <tr>
+                                <td colspan="5" class="text-center font-semibold">No Item Available</td>
+                            </tr>
+                        </ng-container>
+                        <ng-container *ngFor="let item of auditItems; index as i">
+                            <tr class="align-top hover:bg-gray-50 transition">
+                                <td class="px-4 py-2">{{ slsTblDeal.txtDealNo }}</td>
+                                <td class="px-4 py-2" *ngIf="txtRoleName !== 'VENDOR'">{{ item.txtDepartment }}</td>
+                                <td class="px-4 py-2"  *ngIf="txtRoleName !== 'VENDOR'" >{{ item.txtLevel }}</td>
+                                <td class="px-4 py-2">{{ item.txtRemarks }}</td>
+                                <td class="px-4 py-2">{{ item.txtStatus }}</td>
+                                <td class="px-4 py-2">{{ item.dteChangedDate | date: 'short' }}</td>
+                                <td class="px-4 py-2"  *ngIf="txtRoleName !== 'VENDOR'">{{ item.approvedNAME }}</td>
+                            </tr>
+                        </ng-container>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>

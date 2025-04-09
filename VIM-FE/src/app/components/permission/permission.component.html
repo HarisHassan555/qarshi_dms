@@ -1,0 +1,61 @@
+<div class="container mx-auto p-5 pl-0">
+    <div class="panel border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg p-4">
+        <div class="datatable invoice-table">
+            <div class="mb-4 flex flex-col md:items-start">
+                <h5 class="text-2xl font-bold dark:text-white mb-4">Permission</h5>
+                <div class="flex flex-col md:flex-row md:gap-4 md:justify-start">
+                    <div class="flex flex-col">
+                        <label for="role" class="font-semibold">Select Role:</label>
+                        <select id="role" (change)="onRoleChange($event)" class="custom-select">
+                            <option value="" disabled selected>Select a role</option>
+                            <option *ngFor="let role of roles" [value]="role.serRoleId">{{ role.txtRoleName }}</option>
+                        </select>
+                    </div>
+                    <div class="flex flex-col">
+                        <label for="user" class="font-semibold">Select User:</label>
+                        <select id="user" (change)="onUserChange($event)" class="custom-select">
+                            <option value="" disabled selected>Select a user</option>
+                            <option *ngFor="let user of filteredUsers" [value]="user.serUserId">{{ user.txtUserName }}</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <table class="min-w-full bg-white border border-gray-300 rounded-lg shadow-lg">
+                <thead class="bg-gray-100">
+                <tr>
+                    <th class="p-3 border-b text-left">Menu</th>
+                    <th class="p-3 border-b text-left">Submenu</th>
+                    <th class="p-3 border-b text-left">Enabled</th>
+                    <th class="p-3 border-b text-left">Can View</th>
+                    <th class="p-3 border-b text-left">Can Approve</th>
+                    <th class="p-3 border-b text-left">Can Update</th>
+                </tr>
+                </thead>
+                <tbody>
+                <ng-container *ngFor="let menu of menus">
+                    <ng-container *ngFor="let subMenu of menu.subMenus">
+                        <tr class="hover:bg-gray-50 transition duration-200">
+                            <td class="p-3 border-b">{{ menu.menuName }}</td>
+                            <td class="p-3 border-b">{{ subMenu.subMenuName }}</td>
+                            <td class="p-3 border-b">
+                                <input type="checkbox" [(ngModel)]="subMenu.canEnabled" (change)="updatePermission(subMenu, 'canEnabled', subMenu.canEnabled)" />
+                            </td>
+                            <td class="p-3 border-b">
+                                <input type="checkbox" [(ngModel)]="subMenu.canView" (change)="updatePermission(subMenu, 'canView', subMenu.canView)" />
+                            </td>
+                            <td class="p-3 border-b">
+                                <input type="checkbox" [(ngModel)]="subMenu.canAdd" (change)="updatePermission(subMenu, 'canAdd', subMenu.canAdd)" />
+                            </td>
+                            <td class="p-3 border-b">
+                                <input type="checkbox" [(ngModel)]="subMenu.canEdit" (change)="updatePermission(subMenu, 'canEdit', subMenu.canEdit)" />
+                            </td>
+                        </tr>
+                    </ng-container>
+                </ng-container>
+                </tbody>
+            </table>
+            <button type="button" (click)="savePermissions()" class="btn btn-primary ml-auto mt-4">Save</button>
+        </div>
+    </div>
+</div>

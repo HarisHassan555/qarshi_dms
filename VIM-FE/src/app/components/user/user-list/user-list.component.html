@@ -1,0 +1,144 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="datatable invoice-table">
+            <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+                <div class="flex items-center gap-2">
+                    <!-- <button type="button" class="btn btn-danger gap-2" (click)="delete()">
+                        <icon-trash-lines />
+                        Delete
+                    </button> -->
+                    <h5 class="text-xl font-bold dark:text-white-light">Users</h5>
+                </div>
+                <div class="ltr:ml-auto rtl:mr-auto flex gap-2">
+                    <div>
+                        <a (click)="add()" class="btn btn-primary gap-2">
+                            <icon-plus />
+                            Add New
+                        </a>
+                    </div>
+                    <div>
+                        <input [(ngModel)]="search" type="text" class="form-input" placeholder="Search..." />
+                    </div>
+                </div>
+            </div>
+            <ng-datatable #datatable [rows]="users" [columns]="cols" [hasCheckbox]="true" [sortable]="true"
+                [search]="search" skin="whitespace-nowrap bh-table-hover"
+                firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                lastArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M11 19L17 12L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M6.99976 19L12.9998 12L6.99976 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg> '
+                previousArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M15 5L9 12L15 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                nextArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M9 5L15 12L9 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'>
+                <ng-template slot="blnStatus" let-value="data">
+                    <span class="badge"
+                        [ngClass]="[value.blnStatus === true ? 'badge-outline-success' : 'badge-outline-danger']">
+                        {{ value.blnStatus ? 'Active' : 'Inactive' }}
+                    </span>
+                </ng-template>
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-4">
+                        <a (click)="edit(value)" class="hover:text-info">
+                            <icon-edit class="h-4.5 w-4.5" />
+                        </a>
+                        <!-- <button type="button" class="hover:text-danger" (click)="delete(value.serProductId)">
+                            <icon-trash-lines />
+                        </button> -->
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<modal #modal>
+    <ng-template #modalHeader> <div>{{form.controls['serUserId'].value ? 'Edit' : 'Add'}} User </div> </ng-template>
+    <ng-template #modalBody>
+        <form class="space-y-5 text-sm" [formGroup]="form" novalidate>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="username">Username*</label>
+                    <input formControlName="txtUserName" id="username" type="text" placeholder="Enter Username" class="form-input" />
+                    <ng-container *ngIf="isSubmit && form.controls['txtUserName'].invalid">
+                        <p class="mt-1 text-danger">Username is required</p>
+                    </ng-container>
+                </div>
+                <div>
+                    <label for="email">Email*</label>
+                    <input formControlName="txtAddress" id="email" type="email" placeholder="Enter Email" class="form-input" />
+                    <ng-container *ngIf="isSubmit && form.controls['txtAddress'].invalid">
+                        <p class="mt-1 text-danger" *ngIf="form.controls['txtAddress'].errors?.['required']">Email is required</p>
+                        <p class="mt-1 text-danger" *ngIf="form.controls['txtAddress'].errors?.['email']">Invalid email format</p>
+                    </ng-container>
+                    <!--<ng-container *ngIf="isSubmit && form.controls['txtAddress'].invalid">
+                        <p class="mt-1 text-danger">Email is required</p>
+                    </ng-container>-->
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="cnic">CNIC*</label>
+                    <input formControlName="txtCnic" id="cnic" type="text" placeholder="CNIC Code" class="form-input" />
+                    <ng-container *ngIf="isSubmit && form.controls['txtCnic'].invalid">
+                        <p class="mt-1 text-danger" *ngIf="form.controls['txtCnic'].errors?.['required']">CNIC is required</p>
+                        <p class="mt-1 text-danger" *ngIf="form.controls['txtCnic'].errors?.['pattern']">Invalid CNIC format. Please use the format: 12345-1234567-1</p>
+                        <p class="mt-1 text-danger" *ngIf="form.controls['txtCnic'].errors?.['uniqueCnic']">CNIC is already in use</p>
+                    </ng-container>
+                    <!--<ng-container *ngIf="isSubmit && form.controls['txtCnic'].invalid">
+                        <p class="mt-1 text-danger">CNIC is required</p>
+                    </ng-container>-->
+                </div>
+                <div [formGroup]="cfgTblRole">
+                    <label for="role">Role*</label>
+                    <select id="role" class="form-select text-white-dark" formControlName="serRoleId" (change)="onChangeRole($event)">
+                        <option value="null">Select Role</option>
+                        <option *ngFor="let role of roles" value="{{role.serRoleId}}">
+                            {{role.txtRoleName}}
+                        </option>
+                    </select>
+                    <ng-container *ngIf="isSubmit && cfgTblRole.controls['serRoleId'].invalid">
+                        <p class="mt-1 text-danger">Role is required</p>
+                    </ng-container>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="contactNumber">Contact Number</label>
+                    <input formControlName="txtContactNo" id="contactNumber" type="text" placeholder="Enter Contact Number" class="form-input" />
+                    <ng-container *ngIf="isSubmit && form.controls['txtContactNo'].invalid">
+                        <p class="mt-1 text-danger" *ngIf="form.controls['txtContactNo'].errors?.['required']">Contact Number is required</p>
+                        <p class="mt-1 text-danger" *ngIf="form.controls['txtContactNo'].errors?.['pattern']">Invalid Contact Number format. Must be 10 digits.</p>
+                    </ng-container>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div *ngIf="!isRoleVendor" [formGroup]="cfgTblManager">
+                    <label for="manager">Manager*</label>
+                    <select id="manager" class="form-select text-white-dark" formControlName="serUserId">
+                        <option value="null">Select Manager</option>
+                        <option *ngFor="let user of users" value="{{user.serUserId}}">
+                            {{user.txtUserName}}
+                        </option>
+                    </select>
+                    <!--<ng-container *ngIf="isSubmit && cfgTblManager.controls['serUserId'].invalid">
+                        <p class="mt-1 text-danger">Manager is required</p>
+                    </ng-container>-->
+                </div>
+                <div *ngIf="isRoleVendor" [formGroup]="cfgTblCustomer">
+                    <label for="role">Vendor*</label>
+                    <select id="customer" class="form-select text-white-dark" formControlName="serCustomerId">
+                        <option value="null">Select Vendor</option>
+                        <option *ngFor="let customer of customers" value="{{customer.serCustomerId}}">
+                            {{customer.txtCustomerName}}
+                        </option>
+                    </select>
+                    <ng-container *ngIf="isSubmit && cfgTblCustomer.controls['serCustomerId'].invalid">
+                        <p class="mt-1 text-danger">Vendor is required</p>
+                    </ng-container>
+                </div>
+            </div>
+        </form>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="modal.close()" class="btn btn-outline-danger">Close</button>
+        <button type="button" (click)="submit()" class="btn btn-primary ltr:ml-4 rtl:mr-4">Save</button>
+    </ng-template>
+</modal>

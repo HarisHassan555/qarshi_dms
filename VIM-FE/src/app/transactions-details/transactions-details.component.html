@@ -1,0 +1,47 @@
+<div class="container mx-auto p-4">
+    <h1 class="text-2xl font-bold mb-4">{{title}}</h1>
+    <div class="mb-6 flex flex-wrap items-center justify-between">
+        <button type="button" class="btn btn-primary" (click)="goBack()">Back</button>
+    </div>
+    <div *ngIf="transactions && transactions.length; else noData">
+        <table class="min-w-full bg-white border border-gray-300 rounded-lg shadow-lg">
+            <thead class="bg-gray-100">
+            <tr>
+                <th class="p-3 border-b text-left text-gray-600">Service Order No</th>
+                <th class="p-3 border-b text-left text-gray-600">Customer Name</th>
+                <th class="p-3 border-b text-left text-gray-600">Date</th>
+                <th class="p-3 border-b text-left text-gray-600">Amount</th>
+                <!--<th class="p-3 border-b text-left text-gray-600">Status</th>-->
+            </tr>
+            </thead>
+            <tbody>
+            <tr *ngFor="let transaction of transactions">
+
+                <td class="p-3 border-b">
+                    <a
+                        [routerLink]="['/order-details/edit', transaction.serSaleOrderId]"
+                        class="font-semibold text-primary underline hover:no-underline">
+                        #{{ transaction.slsTblDeal?.txtDealNo }}
+                    </a>
+                    <!--{{ transaction.slsTblDeal?.txtSapNo }}-->
+                </td>
+                <!--<td class="p-3 border-b">
+                    <ng-template  let-value="data">
+                    &lt;!&ndash;<a routerLink="/apps/order/preview" class="font-semibold text-primary underline hover:no-underline">#{{ value.serDealId }}</a>&ndash;&gt;
+                    <a [routerLink]="['/order-details/edit', value.serSaleOrderId]" [queryParams]="{ optionalParam: value.blIsVendor }"
+                       class="font-semibold text-primary underline hover:no-underline">
+                        #{{ transaction.slsTblDeal?.txtDealNo }}
+                    </a>
+                </ng-template>{{ transaction.slsTblDeal?.txtSapNo }}</td>-->
+                <td class="p-3 border-b">{{ transaction.slsTblDeal?.cfgTblDealer?.txtCustomerName || 'N/A' }}</td>
+                <td class="p-3 border-b">{{ transaction.dteDate | date: 'MM-dd-yyyy' }}</td>
+                <td class="p-3 border-b">Rs {{ transaction.numAmount | number:'1.0-0'}}</td>
+               <!-- <td class="p-3 border-b">{{ transaction.txtStatus }}</td>-->
+            </tr>
+            </tbody>
+        </table>
+    </div>
+    <ng-template #noData>
+        <p class="text-gray-500">No  transactions available.</p>
+    </ng-template>
+</div>

@@ -1,0 +1,206 @@
+<div>
+    <div class="flex flex-col gap-2.5 xl:flex-row">
+        <div class="panel flex-1 px-0 py-6 ltr:xl:mr-6 rtl:xl:ml-6">
+            <div class="px-4">
+                <h5 class="text-xl font-bold dark:text-white-light">Service Order</h5>
+            </div>
+            <form [formGroup]="form">
+                <div class="px-4">
+                    <div class="flex flex-col justify-between lg:flex-row">
+                        <div class="mb-6 w-full lg:w-1/2 ltr:lg:mr-6 rtl:lg:ml-6">
+                            <!-- <div class="text-lg">Bill To :-</div> -->
+                            <div class="mt-4 flex items-center">
+                                <label for="dateNow" class="mb-0 w-1/3 ltr:mr-2 rtl:ml-2">Date*</label>
+                                <div class="flex flex-col flex-1">
+                                    <input id="dateNow" type="date" name="dateNow" class="form-input flex-1"
+                                         formControlName="dtedate" />
+                                    <ng-container *ngIf="isSubmit && form.controls['dtedate'].invalid">
+                                        <p class="mt-1 text-danger">Date is required</p>
+                                    </ng-container>
+                                </div>
+                            </div>
+                            <div [formGroup]="cfgTblDealer" class="mt-4 flex items-center">
+                                <label for="mediaHouse" class="mb-0 w-1/3 ltr:mr-2 rtl:ml-2">Media House*</label>
+                                <div class="flex flex-col flex-1">
+                                    <select formControlName="serCustomerId" id="mediaHouse" name="mediaHouse" class="form-select flex-1">
+                                        <option value="">Select Media House</option>
+                                        <option *ngFor="let dealer of dealers" value="{{dealer.serCustomerId}}">
+                                            {{dealer.txtCustomerName}}
+                                        </option>
+                                    </select>
+                                    <ng-container *ngIf="isSubmit && cfgTblDealer.controls['serCustomerId'].invalid">
+                                        <p class="mt-1 text-danger">Media House is required</p>
+                                    </ng-container>
+                                </div>
+                            </div>
+                            <div class="mt-4 flex items-center">
+                                <label for="startDate" class="mb-0 w-1/3 ltr:mr-2 rtl:ml-2">Start Date</label>
+                                <div class="flex flex-col flex-1">
+                                    <input id="startDate" type="date" name="startDate" class="form-input flex-1" formControlName="dteStartDate" />
+                                    <ng-container *ngIf="isSubmit && form.controls['dteStartDate'].invalid">
+                                        <p class="mt-1 text-danger">Start Date is required</p>
+                                    </ng-container>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-4 flex items-center">
+                                <label for="sapNo" class="mb-0 w-1/3 ltr:mr-2 rtl:ml-2">SAP No.*</label>
+                                <div class="flex flex-col flex-1">
+                                    <input id="sapNo" type="text" name="sapNo" class="form-input flex-1" formControlName="txtSapNo"
+                                        placeholder="Enter SAP No." />
+                                    <ng-container *ngIf="isSubmit && form.controls['txtSapNo'].invalid">
+                                        <p class="mt-1 text-danger">SAP No. is required</p>
+                                    </ng-container>
+                                </div>
+                            </div>
+                            <div class="mt-4 flex items-center">
+                                <label for="product" class="mb-0 w-1/3 ltr:mr-2 rtl:ml-2">Product*</label>
+                                <div class="flex flex-col flex-1">
+                                    <!-- <select formControlName="serProductId" id="product" name="product" class="form-select flex-1" (change)="onChangeProduct($event)">
+                                        <option value="">Select Product</option>
+                                        <option *ngFor="let product of products" value="{{product.serProductId}}">
+                                            {{product.txtProductName}}
+                                        </option>
+                                    </select> -->
+                                    <!-- <ng-select [items]="products" [(ngModel)]="input5" [clearable]="false" placeholder="Select an option"
+                                        class="custom-multiselect">
+                                    </ng-select> -->
+                                    <!-- [loading]="peopleLoading" -->
+                                    <ng-select [items]="products" bindLabel="txtProductName" bindValue="serProductId" formControlName="serProductId" placeholder="Select Product" [clearable]="true">
+                                    </ng-select>
+
+                                    <ng-container *ngIf="isSubmit && form.controls['serProductId'].invalid">
+                                        <p class="mt-1 text-danger">Product is required</p>
+                                    </ng-container>
+                                </div>
+                            </div>
+                            
+                        </div>
+                        <div class="w-full lg:w-1/2">
+                            <!-- <div class="text-lg">Payment Details :-</div> -->
+                            <div class="mt-4 flex items-center">
+                                <label for="serviceOrderNo" class="mb-0 w-1/3 ltr:mr-2 rtl:ml-2">Service Order No.*</label>
+                                <div class="flex flex-col flex-1">
+                                    <input id="serviceOrderNo" type="text" name="serviceOrderNo" class="form-input flex-1"
+                                        formControlName="txtdealno" placeholder="Enter Service Order No." />
+                                    <ng-container *ngIf="isSubmit && form.controls['txtdealno'].invalid">
+                                        <p class="mt-1 text-danger">Service Order No. is required</p>
+                                    </ng-container>
+                                </div>
+                            </div>
+                            <div [formGroup]="cfgTblCustomer" class="mt-4 flex items-center">
+                                <label for="channel" class="mb-0 w-1/3 ltr:mr-2 rtl:ml-2">Channel*</label>
+                                <div class="flex flex-col flex-1">
+                                    <select formControlName="serCustomerId" id="channel" name="channel" class="form-select flex-1">
+                                        <option value="">Select Channel</option>
+                                        <option *ngFor="let customer of customers" value="{{customer.serCustomerId}}">
+                                            {{customer.txtCustomerName}}
+                                        </option>
+                                    </select>
+                                    <ng-container *ngIf="isSubmit && cfgTblCustomer.controls['serCustomerId'].invalid">
+                                        <p class="mt-1 text-danger">Channel is required</p>
+                                    </ng-container>
+                                </div>
+                            </div>
+                            <div class="mt-4 flex items-center">
+                                <label for="endDate" class="mb-0 w-1/3 ltr:mr-2 rtl:ml-2">End Date*</label>
+                                <div class="flex flex-col flex-1">
+                                    <input id="endDate" type="date" name="endDate" class="form-input flex-1" formControlName="dteEndDate" />
+                                    <ng-container *ngIf="isSubmit && form.controls['dteEndDate'].invalid">
+                                        <p class="mt-1 text-danger">End Date is required</p>
+                                    </ng-container>
+                                </div>
+                            </div>
+                            <div class="mt-4 flex items-center">
+                                <label for="gst" class="mb-0 w-1/3 ltr:mr-2 rtl:ml-2">GST</label>
+                                <select formControlName="tax" id="mediaHouse" name="mediaHouse" class="form-select flex-1">
+                                    <option value="">Select Tax</option>
+                                    <option *ngFor="let tax of taxes" value="{{tax.numTaxPercentage}}">
+                                        {{tax.txtTaxOrganization}}
+                                    </option>
+                                </select>
+                            </div>
+                            <div class="mt-4 flex items-center">
+                                <label for="amount" class="mb-0 w-1/3 ltr:mr-2 rtl:ml-2">Amount*</label>
+                                <div class="flex flex-col flex-1">
+                                    <input id="amount" type="text" name="amount" class="form-input flex-1" formControlName="numItemPrice"
+                                        placeholder="Enter Amount" />
+                                    <ng-container *ngIf="isSubmit && form.controls['numItemPrice'].invalid">
+                                        <p class="mt-1 text-danger">Amount is required</p>
+                                    </ng-container>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <button type="button" class="btn btn-primary" (click)="addSO()">Add</button>
+                    </div>
+                </div>
+            </form>
+            <div class="mt-8">
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th class="w-2">Category</th>
+                                <th class="w-2">Description</th>
+                                <th class="w-2">Code</th>
+                                <th class="w-2">Amount</th>
+                                <th class="w-2">Quantity</th>
+                                <th class="w-2">Total</th>
+                                <th class="w-1"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <ng-container *ngIf="slsTblDealDetails.length <= 0">
+                                <tr>
+                                    <td colspan="7" class="!text-center font-semibold">No Item Available</td>
+                                </tr>
+                            </ng-container>
+                            <ng-container *ngFor="let so of slsTblDealDetails; index as i">
+                                <tr class="align-top">
+                                    <td>
+                                        {{so.cfgTblProductCategory ? so.cfgTblProductCategory.txtProductCategoryName : 'N/A'}}
+                                    </td>
+                                    <td>
+                                        {{so.cfgTblProduct.txtProductName}}
+                                    </td>
+                                    <td>
+                                        {{so.cfgTblProduct.txtProductCode}}
+                                    </td>
+                                    <td>
+                                        <input id="invoiceLabel" type="text" name="inv-label" class="form-input w-3/2"
+                                            [(ngModel)]="so.numItemPrice" placeholder="Quantity" name="title" />
+                                    </td>
+                                    <td>
+                                        <input id="invoiceLabel" type="text" name="inv-label" class="form-input w-3/2"
+                                            [(ngModel)]="so.numQuantity" placeholder="Amount" name="title" />
+                                    </td>
+                                    <td>
+                                        {{so.numItemPrice * so.numQuantity}}
+                                    </td>
+                                    <td>
+                                        <button type="button" (click)="deleteSO(so)">
+                                            <icon-x class="h-5 w-5" />
+                                        </button>
+                                    </td>
+                                </tr>
+                            </ng-container>
+                            <ng-container *ngIf="slsTblDealDetails && slsTblDealDetails.length > 0">
+                                <tr> 
+                                    <td colspan="3"></td>
+                                    <td>Total</td>
+                                    <td>{{getTotalQuantity()}}</td>
+                                    <td colspan="2"></td>
+                                </tr>
+                            </ng-container>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="flex justify-end p-4">
+                    <button type="button" class="btn btn-primary" (click)="save()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,95 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="datatable invoice-table">
+            <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+                <div class="flex items-center gap-2">
+                    <!-- <button type="button" class="btn btn-danger gap-2" (click)="delete()">
+                        <icon-trash-lines />
+                        Delete
+                    </button> -->
+                    <h5 class="text-xl font-bold dark:text-white-light">Product Category</h5>
+                </div>
+                <div class="ltr:ml-auto rtl:mr-auto flex gap-2">
+                    <div>
+                        <a (click)="add()" class="btn btn-primary gap-2">
+                            <icon-plus />
+                            Add New
+                        </a>
+                    </div>
+                    <div>
+                        <input [(ngModel)]="search" type="text" class="form-input" placeholder="Search..." />
+                    </div>
+                </div>
+            </div>
+            <ng-datatable #datatable [rows]="productCategories" [columns]="cols" [hasCheckbox]="true" [sortable]="true"
+                [search]="search" skin="whitespace-nowrap bh-table-hover"
+                firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                lastArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M11 19L17 12L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M6.99976 19L12.9998 12L6.99976 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg> '
+                previousArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M15 5L9 12L15 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                nextArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M9 5L15 12L9 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'>
+                <ng-template slot="blnStatus" let-value="data">
+                    <span class="badge"
+                        [ngClass]="[value.blnStatus === true ? 'badge-outline-success' : 'badge-outline-danger']">
+                        {{ value.blnStatus ? 'Active' : 'Inactive' }}
+                    </span>
+                </ng-template>
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-4">
+                        <a (click)="edit(value)" class="hover:text-info">
+                            <icon-edit class="h-4.5 w-4.5" />
+                        </a>
+                        <!-- <button type="button" class="hover:text-danger" (click)="delete(value.serCityId)">
+                            <icon-trash-lines />
+                        </button> -->
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<modal #modal>
+    <ng-template #modalHeader> <div>{{form.controls['serProductCategoryId'].value ? 'Edit' : 'Add'}} Product Category </div> </ng-template>
+    <ng-template #modalBody>
+        <form class="space-y-5 text-sm" [formGroup]="form" novalidate>
+            <div class="grid grid-cols-1 gap-4">
+                <div>
+                    <label for="categoryCode">Product Category Code*</label>
+                    <input formControlName="txtProductCategoryCode" id="categoryCode" type="text" placeholder="Enter Product Category Code" class="form-input" />
+                    <ng-container *ngIf="isSubmit && form.controls['txtProductCategoryCode'].invalid">
+                        <p class="mt-1 text-danger">Product Category Code is required</p>
+                    </ng-container>
+                </div>
+                <div>
+                    <label for="categoryName">Product Category Name*</label>
+                    <input formControlName="txtProductCategoryName" id="categoryName" type="text" placeholder="Enter Product Category Name" class="form-input" />
+                    <ng-container *ngIf="isSubmit && form.controls['txtProductCategoryName'].invalid">
+                        <p class="mt-1 text-danger">Product Category Name is required</p>
+                    </ng-container>
+                </div>
+                <div>
+                    <label for="sapCode">SAP Code*</label>
+                    <input formControlName="txtSAPCode" id="sapCode" type="text" placeholder="Enter SAP Code" class="form-input" />
+                    <ng-container *ngIf="isSubmit && form.controls['txtSAPCode'].invalid">
+                        <p class="mt-1 text-danger">SAP Code is required</p>
+                    </ng-container>
+                </div>
+                <div>
+                    <label for="description">Description</label>
+                    <textarea formControlName="txtDescription" id="description" rows="3" class="form-textarea" placeholder="Enter Description"></textarea>
+                </div>
+                <div *ngIf="form.controls['serProductCategoryId'].value">
+                    <label class="inline-flex">
+                        <input type="checkbox" class="form-checkbox" [(ngModel)]="blnStatus" [ngModelOptions]="{standalone: true}"/>
+                        <span>Active</span>
+                    </label>
+                </div>
+            </div>
+        </form>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="modal.close()" class="btn btn-outline-danger">Close</button>
+        <button type="button" (click)="submit()" class="btn btn-primary ltr:ml-4 rtl:mr-4">Save</button>
+    </ng-template>
+</modal>

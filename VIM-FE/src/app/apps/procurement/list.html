@@ -1,0 +1,334 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="px-5 mb-3">
+            <h5 class="text-xl font-bold dark:text-white-light">Procurement</h5>
+        </div>
+        <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+            <!-- <div class="flex items-center gap-2">
+            </div> -->
+            <div>
+                <input [(ngModel)]="dateFrom" type="date" class="form-input" placeholder="Select Start Date"
+                       (change)="validateDates()"/>
+            </div>
+            <div>
+                <input [(ngModel)]="dateTo" type="date" class="form-input" placeholder="Select End Date"
+                       (change)="validateDates()"/>
+            </div>
+
+                <button type="button" class="btn btn-primary" [disabled]="!areDatesValid"
+                        (click)="searchSaleInvoice(dateFrom, dateTo)">Search
+                </button>
+
+
+            <div class="ltr:ml-auto rtl:mr-auto">
+                <input [(ngModel)]="search" type="text" class="form-input" placeholder="Search..." />
+            </div>
+        </div>
+        <div class="datatable invoice-table">
+            <ng-datatable
+                #datatable
+                [rows]="items"
+                [columns]="cols"
+                [hasCheckbox]="true"
+                [sortable]="true"
+                [search]="search"
+                skin="whitespace-nowrap bh-table-hover"
+                firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                lastArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M11 19L17 12L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M6.99976 19L12.9998 12L6.99976 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                previousArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M15 5L9 12L15 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                nextArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M9 5L15 12L9 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+            >
+
+                <ng-template slot="txtSaleOrderNo" let-value="data">
+                    <a [routerLink]="['/apps/sale-invoice-view/edit', value.serSaleOrderId]" class="font-semibold text-primary underline hover:no-underline">
+                        #{{ value.txtSaleOrderNo }}
+                    </a>
+                </ng-template>
+
+                <ng-template slot="txtStatus1" let-value="data">
+                  <span
+                      class="badge"
+                      [ngClass]="[value.txtStatus2 ? 'badge-outline-success' : 'badge-outline-danger']">
+                    {{ value.txtStatus2 ? 'Pending' : 'Pending' }}
+                  </span>
+                </ng-template>
+
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-4">
+
+
+                        <button *ngIf="(isProcurementHead && value.txtStatus2 !== 'Hold') ||
+                                (value.txtStatus2 !== 'Hold' && value.dteApproveddate2 !== null && value.txtProcurementHeadApproved !== null)"
+                                (click)="prepareStatusChange(value, 'approve')"
+                                class="px-4 py-2 rounded-full bg-blue-500 text-white font-bold hover:bg-blue-600">
+                            Approve
+                        </button>
+
+                        <!-- Approve Button for Non-Marketing Head -->
+                        <a *ngIf="shouldShowApprove() && value.dteApproveddate2 === null && !isProcurementHead && value.txtStatus2 !== 'Hold'"
+                           (click)="prepareStatusChange(value, 'approve')"
+                           class="px-4 py-2 rounded-full bg-blue-500 text-white font-bold hover:bg-blue-600">
+                            Approve
+                        </a>
+
+                        <!-- Status Badge -->
+                        <span *ngIf="value.dteApproveddate2 !== null && value.txtProcurementHeadApproved !== null"
+                              class="badge"
+                              [ngClass]="value.dteApproveddate2 ? 'badge-outline-success' : 'badge-outline-danger'">
+                                {{ value.txtStatus2 ? 'Pending' : 'Pending' }}
+                        </span>
+
+
+
+                        <!-- Hold/Unhold Button -->
+                        <a *ngIf="(shouldShowHold() || shouldShowUnhold()) && isProcurementHead"
+                           (click)="prepareStatusChange(value, value.txtStatus2 === 'Hold' ? 'Unhold' : 'Hold')"
+                           class="px-4 py-2 rounded-full"
+                           [ngClass]="value.txtStatus2 === 'Hold' ? 'bg-green-500 hover:bg-green-600' : 'bg-teal-500 hover:bg-teal-600'">
+                            {{ value.txtStatus2 === 'Hold' ? 'Unhold' : 'Hold' }}
+                        </a>
+
+
+                        <button *ngIf="(isProcurementHead && value.txtStatus2 !== 'Hold') ||
+                                (value.txtStatus2 !== 'Hold' && value.dteApproveddate2 !== null && value.txtProcurementHeadApproved !== null)"
+                                (click)="prepareStatusChange(value, 'send')"
+                                class="px-4 py-2 rounded-full bg-red-500 text-white font-bold hover:bg-blue-600">
+                            Send Back
+                        </button>
+
+                        <!-- Approve Button for Non-Marketing Head -->
+                        <a *ngIf="shouldShowApprove() && value.dteApproveddate2 === null && !isProcurementHead && value.txtStatus2 !== 'Hold'"
+                           (click)="prepareStatusChange(value, 'send')"
+                           class="px-4 py-2 rounded-full bg-red-500 text-white font-bold hover:bg-blue-600">
+                            Send Back
+                        </a>
+                        <!--<a *ngIf="value.txtStatus2 !== 'Hold'"
+                           (click)="prepareStatusChange(value, 'send')"
+                           class="px-4 py-2 rounded-full bg-blue-500 text-white font-bold hover:bg-red-600">
+                            Send Back
+                        </a>-->
+
+
+                        <a *ngIf="(shouldShowHold() || shouldShowUnhold()) && (!isProcurementHead && value.dteApproveddate2 === null)"
+                           (click)="prepareStatusChange(value, value.txtStatus2 === 'Hold' ? 'Unhold' : 'Hold')"
+                           class="px-4 py-2 rounded-full"
+                           [ngClass]="value.txtStatus2 === 'Hold' ? 'bg-green-500 hover:bg-green-600' : 'bg-teal-500 hover:bg-teal-600'">
+                            {{ value.txtStatus2 === 'Hold' ? 'Unhold' : 'Hold' }}
+                        </a>
+
+
+                        <!-- Cancel Button -->
+                        <a *ngIf="isProcurementHead || (shouldShowCancel() && !(value.dteApproveddate2 !== null && value.txtStatus2 === 'Pending'))"
+                           (click)="prepareStatusChange(value, 'cancel')"
+                           class="px-4 py-2 rounded-full bg-yellow-500 text-white font-bold hover:bg-yellow-600">
+                            Cancel
+                        </a>
+
+                        <!-- Attachments Button -->
+                        <a *ngIf="shouldShowCancel()"
+                           (click)="openDocumentModal(value)"
+                           class="px-4 py-2 rounded-full bg-gray-500 text-white font-bold hover:bg-gray-600">
+                            Attachments
+                        </a>
+
+                        <!-- Approve Button -->
+                        <!--<button *ngIf="isProcurementHead && value.dteApproveddate2 !== null"
+                                (click)="prepareStatusChange(value, 'approve')"
+                                class="px-4 py-2 rounded-full bg-blue-500 text-white font-bold hover:bg-blue-600">
+                            Approve
+                        </button>-->
+                       <!-- <button *ngIf="(isProcurementHead || value.txtStatus2 !== 'Hold') && value.dteApproveddate2 !== null"
+                                (click)="prepareStatusChange(value, 'approve')"
+                                class="px-4 py-2 rounded-full bg-blue-500 text-white font-bold hover:bg-blue-600">
+                            Approve
+                        </button>-->
+
+                        <!--<button *ngIf="(isProcurementHead && value.txtStatus2 !== 'Hold') || (value.txtStatus2 !== 'Hold' && value.dteApproveddate2 !== null)"
+                                (click)="prepareStatusChange(value, 'approve')"
+                                class="px-4 py-2 rounded-full bg-blue-500 text-white font-bold hover:bg-blue-600">
+                            Approve
+                        </button>
+
+
+                        <span *ngIf="value.dteApproveddate2 !== null && value.txtProcurementHeadApproved !== null" class="badge" [ngClass]="[value.dteApproveddate2 ? 'badge-outline-success' : 'badge-outline-danger']">
+                                    {{ value.txtStatus2 ? 'Pending' : 'Pending' }}
+                        </span>
+
+                       &lt;!&ndash; <span class="badge" [ngClass]="[value.dteApproveddate2 ? 'badge-outline-success' : 'badge-outline-danger']">
+                                    {{ value.txtStatus2 ? 'Pending' : 'Pending' }}
+                        </span>&ndash;&gt;
+
+                        &lt;!&ndash; Approve Button &ndash;&gt;
+                        <a *ngIf="shouldShowApprove() && value.dteApproveddate2 === null && !isProcurementHead"
+                           (click)="prepareStatusChange(value, 'approve')"
+                           class="px-4 py-2 rounded-full bg-blue-500 text-white font-bold hover:bg-blue-600">
+                            Approve
+                        </a>
+
+
+                        &lt;!&ndash;<a *ngIf="shouldShowApprove() || shouldShowUnhold() && value.txtStatus2 !== 'Hold'"
+                           (click)="prepareStatusChange(value, 'send')"
+                           class="px-4 py-2 rounded-full bg-blue-500 text-white font-bold hover:bg-red-600">
+                            Send Back
+                        </a>&ndash;&gt;
+                       &lt;!&ndash; <a *ngIf="shouldShowApprove()"
+                           (click)="prepareStatusChange(value, 'approve')"
+                           class="px-4 py-2 rounded-full bg-blue-500 text-white font-bold hover:bg-blue-600">
+                            Approve
+                        </a>&ndash;&gt;
+
+                        &lt;!&ndash; Hold Button &ndash;&gt;
+                        <a *ngIf="shouldShowHold() || shouldShowUnhold()"
+                           (click)="prepareStatusChange(value, value.txtStatus2 === 'Hold' ? 'Unhold' : 'Hold')"
+                           class="px-4 py-2 rounded-full"
+                           [ngClass]="value.txtStatus2 === 'Hold' ? 'bg-green-500 hover:bg-green-600' : 'bg-teal-500 hover:bg-teal-600'">
+                            {{ value.txtStatus2 === 'Hold' ? 'Unhold' : 'Hold' }}
+                        </a>
+                       &lt;!&ndash; <a *ngIf="shouldShowHold()"
+                           (click)="prepareStatusChange(value, 'Hold')"
+                           class="px-4 py-2 rounded-full bg-teal-500 text-white font-bold hover:bg-teal-600">
+                            Hold
+                        </a>
+
+                        &lt;!&ndash; Unhold Button &ndash;&gt;
+                        <a *ngIf="shouldShowUnhold()"
+                           (click)="prepareStatusChange(value, 'Unhold')"
+                           class="px-4 py-2 rounded-full bg-green-500 text-white font-bold hover:bg-green-600">
+                            Unhold
+                        </a>&ndash;&gt;
+
+                        &lt;!&ndash; Cancel Button &ndash;&gt;
+                        <a *ngIf="shouldShowCancel()"
+                           (click)="prepareStatusChange(value, 'cancel')"
+                           class="px-4 py-2 rounded-full bg-yellow-500 text-white font-bold hover:bg-yellow-600">
+                            Cancel
+                        </a>
+
+                        <a *ngIf="shouldShowCancel()" (click)="openDocumentModal(value)" class="px-4 py-2 rounded-full bg-gray-500 text-white font-bold hover:bg-gray-600">
+                            Attachments
+                        </a>-->
+
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+    </div>
+
+    <div>
+
+
+        <modal #documentModal style="max-width: 800px; width: 90%;">
+            <ng-template #modalHeader>
+                <h5 class="text-lg font-bold">Uploaded Documents</h5>
+            </ng-template>
+            <ng-template #modalBody>
+                <div class="space-y-6">
+                    <!-- Document Name Input -->
+                    <div>
+                        <label for="documentName" class="block text-sm font-medium text-gray-700">Document Name</label>
+                        <input type="text" id="documentName" [(ngModel)]="documentName"
+                               class="form-input mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500"
+                               placeholder="Enter document name" />
+                    </div>
+
+
+
+
+                    <div class="flex items-center">
+                        <input type="file" (change)="onFileChange($event)"
+                               class="form-input border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500" />
+                        <button class="btn btn-primary ml-4" (click)="uploadDocument()">Upload</button>
+                    </div>
+
+                    <!-- Document Table -->
+                    <div class="overflow-x-auto mt-4">
+                        <table class="min-w-full bg-white border border-gray-300 rounded-lg shadow-lg">
+                            <thead class="bg-gray-100">
+                            <tr>
+                                <th class="p-3 border-b text-left text-gray-600">Document Name</th>
+                             <!--   <th class="p-3 border-b text-left text-gray-600">Format</th>-->
+                                <th class="p-3 border-b text-left text-gray-600">Original Name</th>
+                                <th class="p-3 border-b text-left text-gray-600">Uploaded Date</th>
+                                <th class="p-3 border-b text-left text-gray-600">Created By</th>
+                                <th class="p-3 border-b text-left text-gray-600">Actions</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            <tr *ngFor="let document of uploadedDocuments">
+                                <td class="p-3 border-b">{{ document.documentName }}</td>
+                               <!-- <td class="p-3 border-b">{{ document.documentType }}</td>-->
+                                <td class="p-3 border-b">{{ document.originalName }}</td>
+                                <td class="p-3 border-b">{{ this.formatDateLocale(document.dteCreateddate) }}</td>
+                                <td class="p-3 border-b">{{ document.createdUserName }}</td>
+                                <td class="p-3 border-b flex space-x-2">
+                                     <span class="cursor-pointer text-blue-500" (click)="downloadDocument(document.documentId)">
+                                            <icon-eye />
+                                    </span>
+                                    <span class="cursor-pointer text-blue-500" (click)="openPdfEditor(document.documentId)">
+                                        <icon-file />
+                                    </span>
+                                    <!--<span class="cursor-pointer text-red-500" (click)="removeDocument(document.documentId)">
+                                            <icon-trash-lines />
+                                    </span>-->
+                                    <!--<button class="btn btn-primary" (click)="downloadDocument(document.documentId)">
+                                        <icon-eye />
+                                    </button>
+                                    <button class="btn btn-danger" (click)="removeDocument(document.documentId)">
+                                        <icon-trash-lines />
+                                    </button>-->
+                                </td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </ng-template>
+        </modal>
+
+        <modal #modal [closeOnOutsideClick]="false">
+            <ng-template #modalHeader> <div></div> </ng-template>
+            <div class="modal-backdrop" (click)="$event.stopPropagation()"></div>
+            <ng-template #modalBody>
+                <form class="space-y-5 text-sm"  novalidate>
+                    <div class="grid grid-cols-1 gap-4">
+                        <textarea *ngIf="isApproveClicked" [(ngModel)]="txtSapInvoiceNo" [ngModelOptions]="{standalone: true}" placeholder="Enter Procurement No ..." class="form-control" [ngClass]="{'is-invalid': txtSapInvoiceNo && (txtSapInvoiceNo.length !== 10)}"></textarea>
+                        <ng-container *ngIf="isInvalidProcurementNo()">
+                            <p class="mt-1 text-danger">Procurement No is required</p>
+                        </ng-container>
+                        <ng-container *ngIf="txtSapInvoiceNo && txtSapInvoiceNo.length !== 10" class="text-danger">
+                            <p class="mt-1 text-danger">The Procurement No. must be exactly 10 characters long.</p>
+                        </ng-container>
+                        <textarea [(ngModel)]="remarks" [ngModelOptions]="{standalone: true}" placeholder="Enter remarks here..." class="form-control"></textarea>
+                    </div>
+                </form>
+            </ng-template>
+            <ng-template #modalFooter>
+                <button type="button" class="btn btn-primary" (click)="submitStatusChange()">Submit</button>
+            </ng-template>
+        </modal>
+
+
+        <!-- cancel button-->
+        <modal #modalCancel [closeOnOutsideClick]="false">
+            <ng-template #modalHeader> <div></div> </ng-template>
+            <div class="modal-backdrop" (click)="$event.stopPropagation()"></div>
+            <ng-template #modalBody>
+                <form class="space-y-5 text-sm"  novalidate>
+                    <div class="grid grid-cols-1 gap-4">
+                        <div  class="mt-4 p-2 rounded bg-gray-200">
+                            <label>
+                                <input type="checkbox" [(ngModel)]="statusChecked" [ngModelOptions]="{standalone: true}" />
+                                Is Vendor
+                            </label>
+                        </div>
+                        <textarea [(ngModel)]="remarks" [ngModelOptions]="{standalone: true}" placeholder="Enter remarks here..." class="form-control"></textarea>
+                    </div>
+                </form>
+            </ng-template>
+            <ng-template #modalFooter>
+                <button type="button" class="btn btn-primary" (click)="submitStatusChange()">Submit</button>
+            </ng-template>
+        </modal>
+
+    </div>
+</div>

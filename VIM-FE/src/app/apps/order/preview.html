@@ -1,0 +1,90 @@
+<div>
+    <div class="mb-6 flex flex-wrap items-center justify-center gap-4 lg:justify-end">
+        <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+            <div class="flex items-center gap-2">
+            </div>
+
+            <button type="button" class="btn btn-primary" (click)="goBack()">Back</button>
+        </div>
+    </div>
+    <div class="panel">
+        <div class="flex flex-wrap justify-between gap-4 px-4">
+            <div class="text-2xl font-semibold uppercase">Sale Order View</div>
+            <div class="shrink-0">
+                <img src="assets/images/qarshi-logo.png" alt="" class="w-14 ltr:ml-auto rtl:mr-auto" />
+            </div>
+        </div>
+
+        <hr class="my-6 border-[#e0e6ed] dark:border-[#1b2e4b]" />
+        <div class="flex flex-col lg:flex-row gap-6">
+            <!-- Section 1: Service Order Details -->
+            <div class="flex-1">
+                <div class="space-y-2 text-gray-700">
+                    <div class="text-lg font-semibold">Service Order No:</div>
+                    <div class="text-xl font-bold text-black dark:text-white">{{ slsTblDeal?.txtDealNo || 'N/A' }}</div>
+                    <div class="text-sm">
+                        <div class="font-semibold">Date From:</div>
+                        <div>{{ slsTblDeal?.dte_date_from || 'N/A' }}</div>
+                    </div>
+                    <div class="text-sm">
+                        <div class="font-semibold">Date To:</div>
+                        <div>{{ slsTblDeal?.dte_date_to || 'N/A' }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 2: Additional Details -->
+            <div class="flex-1 lg:w-2/3">
+                <div class="space-y-4">
+                    <div class="text-sm">
+                        <div class="font-semibold">Sap No:</div>
+                        <div>{{ slsTblDeal?.txtSapNo || 'N/A' }}</div>
+                    </div>
+
+                    <div class="text-sm">
+                        <div class="font-semibold">GST:</div>
+                        <div *ngIf="slsTblDeal?.numSalesTaxSap; else fallback">
+                            {{ slsTblDeal?.numSalesTaxSap }}
+                        </div>
+                        <ng-template #fallback>
+                            <div *ngIf="slsTblDeal?.numSalesTax; else notFound">
+                                {{ slsTblDeal?.numSalesTax }}
+                            </div>
+                        </ng-template>
+                        <ng-template #notFound>
+                            N/A
+                        </ng-template>
+                    </div>
+
+                    <div class="text-sm">
+                        <div class="font-semibold">Media House:</div>
+                        <div>{{ slsTblDeal?.cfgTblDealer?.txtCustomerName || 'N/A' }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="table-responsive mt-6">
+            <table class="table-striped">
+                <thead>
+                <tr>
+                    <ng-container *ngFor="let item of columns">
+                        <th [ngClass]="item.class">{{ item.label || 'N/A' }}</th>
+                    </ng-container>
+                </tr>
+                </thead>
+                <tbody>
+                <ng-container *ngFor="let item of items">
+                    <tr>
+                        <td>{{ item?.txtSapCode || 'N/A' }}</td>
+                        <td>{{ item?.txtProductName || 'N/A' }}</td>
+                        <td>{{ item?.numQuantity || 'N/A' }}</td>
+                        <td class="ltr:text-right rtl:text-left">{{ item?.numItemPrice || 'N/A' }}</td>
+                        <td class="ltr:text-right rtl:text-left">{{ item?.numTotalPrice || 'N/A' }}</td>
+                    </tr>
+                </ng-container>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

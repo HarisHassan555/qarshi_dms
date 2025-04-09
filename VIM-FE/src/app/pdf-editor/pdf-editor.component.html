@@ -1,0 +1,97 @@
+<!--<p>pdf-editor works!</p>-->
+<p class="text-lg font-semibold">PDF Editor</p>
+
+<div *ngIf="isUserHead" class="mt-6 w-full max-w-3xl mx-auto">
+    <div class="panel bg-white p-4 rounded-lg shadow-md">
+        <div  class="grid grid-cols-1 gap-6">
+           <!-- <div class="mb-4">
+                &lt;!&ndash;<label for="image-url" class="font-semibold">Enter Signature Image URL (.jpg, .jpeg):</label>
+                <input
+                    type="file"
+                    id="image-url"
+                    (change)="onFileSelected($event)"
+                    accept=".jpg, .jpeg"
+                    class="form-input border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 w-full"
+                />&ndash;&gt;
+                &lt;!&ndash;<input
+                    id="image-url"
+                    type="text"
+                    class="form-input border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 w-full"
+                    placeholder="Enter Signature Image URL"
+                />&ndash;&gt;
+            </div>-->
+            <div *ngIf="isUserHead" class="flex justify-between space-x-2">
+                <button (click)="onAddImageClick()" class="btn btn-primary w-full">
+                    Add Signature
+                </button>
+                <button type="button" class="btn btn-success w-full" (click)="onSavePdfClick()">
+                    <icon-save class="shrink-0 ltr:mr-2 rtl:ml-2" />
+                    Save PDF
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="mt-6">
+    <iframe id="pdf-viewer" width="100%" height="500px" class="border border-gray-300 rounded-lg"></iframe>
+</div>
+
+    <!--<input type="text" id="image-url" [(ngModel)]="signatureUrl" placeholder="Enter Signature Image URL"
+           class="form-input border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500" />
+    <button class="btn btn-primary ml-4" (click)="addSignature(signatureUrl)">Add Signature</button>
+    <button class="btn btn-primary ml-4" (click)="uploadDocument()">Upload</button>-->
+    <!--<div>
+        <input type="text" id="image-url" placeholder="Image URL" />
+        <button (click)="onAddImageClick()">Add Image to PDF</button>
+        <button (click)="onSavePdfClick()">Save PDF</button>
+
+        <div>
+            <iframe id="pdf-viewer" width="100%" height="500px"></iframe>
+        </div>
+    </div>-->
+
+<!--<div class="mt-6 w-full xl:mt-0 xl:w-96">
+    &lt;!&ndash;<div class="panel">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-1">
+            <button type="button" class="btn btn-success w-full gap-2" (click)="addItem()">
+                <icon-save class="shrink-0 ltr:mr-2 rtl:ml-2"/>
+                Save
+            </button>
+        </div>
+    </div>&ndash;&gt;
+
+</div>
+<div class="panel">
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-1">
+        <div class="mt-8 px-4">
+            &lt;!&ndash;<div class="mb-4">
+                <label for="file-upload" class="font-semibold">Upload Files (Max 35MB per file):</label>
+                <input
+                    id="file-upload"
+                    type="file"
+                    class="form-input"
+                    multiple
+                    (change)="handleFileUpload($event)"
+                />
+            </div>&ndash;&gt;
+
+            <div class="mb-4">
+                <label for="image-url" class="font-semibold">Enter Signature Image URL:</label>
+                <input
+                    id="image-url"
+                    type="text"
+                    class="form-input" placeholder="Enter Signature Image URL"/>
+
+            </div>
+            <button (click)="onAddImageClick()" class="btn btn-primary w-full gap-2" >Add Signature</button>
+            <button type="button" class="btn btn-success w-full gap-2" (click)="onSavePdfClick()">
+                <icon-save class="shrink-0 ltr:mr-2 rtl:ml-2"/>
+                Save PDF
+            </button>
+        </div>
+    </div>
+</div>
+<div>
+    <iframe id="pdf-viewer" width="100%" height="500px"></iframe>
+</div>-->

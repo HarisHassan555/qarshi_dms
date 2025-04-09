@@ -1,0 +1,67 @@
+.custom-select {
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem;
+    padding: 0.5rem 1rem;
+    appearance: none;
+    background-color: white;
+    color: #374151;
+    transition: border-color 0.3s;
+}
+
+.custom-select:focus {
+    border-color: #2563eb; /* Change border color on focus */
+    outline: none; /* Remove outline */
+    box-shadow: 0 0 0 1px #2563eb; /* Add a shadow for focus effect */
+}
+
+.custom-select option {
+    background-color: white; /* White background for options */
+    color: #374151; /* Dark text color */
+}
+
+/* Adding a custom arrow for the dropdown */
+.custom-select::after {
+    content: '▼'; /* Arrow character */
+    position: absolute; /* Positioning */
+    right: 1rem; /* Position from the right */
+    pointer-events: none; /* Ignore pointer events */
+}
+.custom-select {
+    width: 200px; /* Set a standard width */
+    height: 40px; /* Set a standard height */
+    border: 1px solid #d1d5db; /* Gray border */
+    border-radius: 0.375rem; /* Rounded corners */
+    padding: 0.5rem 1rem; /* Padding */
+    appearance: none; /* Remove default arrow */
+    background-color: white; /* White background */
+    color: #374151; /* Dark text color */
+    transition: border-color 0.3s; /* Smooth transition for border color */
+    font-size: 1rem; /* Standard font size */
+}
+
+.custom-select:focus {
+    border-color: #2563eb; /* Change border color on focus */
+    outline: none; /* Remove outline */
+    box-shadow: 0 0 0 1px #2563eb; /* Add a shadow for focus effect */
+}
+
+.custom-select option {
+    background-color: white; /* White background for options */
+    color: #374151; /* Dark text color */
+}
+
+/* Adding a custom arrow for the dropdown */
+.custom-select::after {
+    content: '▼'; /* Arrow character */
+    position: absolute; /* Positioning */
+    right: 1rem; /* Position from the right */
+    pointer-events: none; /* Ignore pointer events */
+}
+.container {
+    padding-left: 0 !important; /* Removes left padding */
+}
+.mx-auto {
+    margin-left: -5px !important;
+    margin-right: auto;
+
+}

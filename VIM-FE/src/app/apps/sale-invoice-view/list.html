@@ -1,0 +1,262 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="px-5 mb-3">
+            <h5 class="text-xl font-bold dark:text-white-light">Invoice View</h5>
+        </div>
+        <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+            <!-- <div class="flex items-center gap-2">
+            </div> -->
+
+            <!--<div class="flex flex-wrap items-center">
+                <button type="button" class="btn btn-primary btn-sm m-1" (click)="exportTable('csv')">
+                    <icon-file class="h-5 w-5 ltr:mr-2 rtl:ml-2" />
+                    CSV
+                </button>
+                &lt;!&ndash;<button type="button" class="btn btn-primary btn-sm m-1" (click)="exportTable('txt')">
+                    <icon-txt-file class="h-5 w-5 ltr:mr-2 rtl:ml-2" />
+                    TXT
+                </button>&ndash;&gt;
+                &lt;!&ndash;<div class="relative m-1">
+                    <ang-json2excel-btn [json]="jsonData" fileName="table" sheetName="tablesheet"></ang-json2excel-btn>
+                    <div class="btn btn-primary btn-sm absolute left-0 top-0">
+                        <icon-code-file class="ltr:mr-2 rtl:ml-2" />
+
+                        EXCEL
+                    </div>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm m-1" (click)="exportTable('print')">
+                    <icon-printer class="ltr:mr-2 rtl:ml-2" />
+                    PRINT
+                </button>&ndash;&gt;
+            </div>-->
+
+            <div>
+                <input [(ngModel)]="dateFrom" type="date" class="form-input" placeholder="Select Start Date"
+                       (change)="validateDates()"/>
+
+            </div>
+
+            <div>
+                <input [(ngModel)]="dateTo" type="date" class="form-input" placeholder="Select End Date"
+                       (change)="validateDates()"/>
+
+            </div>
+
+
+                <button type="button" class="btn btn-primary" [disabled]="!areDatesValid"
+                        (click)="searchSaleInvoice(dateFrom, dateTo)">Search
+                </button>
+
+
+
+            <div class="ltr:ml-auto rtl:mr-auto">
+                <input [(ngModel)]="search" type="text" class="form-input" placeholder="Search..."/>
+            </div>
+        </div>
+        <div class="datatable invoice-table">
+            <ng-datatable
+                #datatable
+                [rows]="items"
+                [columns]="cols"
+                [hasCheckbox]="true"
+                [sortable]="true"
+                [search]="search"
+                skin="whitespace-nowrap bh-table-hover"
+                firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                lastArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M11 19L17 12L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M6.99976 19L12.9998 12L6.99976 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg> '
+                previousArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M15 5L9 12L15 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                nextArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M9 5L15 12L9 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+            >
+                <ng-template slot="txtSaleOrderNo" let-value="data">
+                    <!--<a routerLink="/apps/order/preview" class="font-semibold text-primary underline hover:no-underline">#{{ value.serDealId }}</a>-->
+                    <a [routerLink]="['/apps/sale-invoice-view/edit', value.serSaleOrderId]" [queryParams]="{ optionalParam: value.blIsVendor }"
+                       class="font-semibold text-primary underline hover:no-underline">
+                        #{{ value.slsTblDeal.txtDealNo }}
+                    </a>
+                </ng-template>
+                <ng-template slot="txtStatus1" let-value="data">
+                      <!--<span
+                          class="badge"
+                          [ngClass]="[
+                          value.txtStatus1 === 'Pending' ? 'badge-outline-danger' : 'badge-outline-success',
+                          !value.txtStatus1 ? 'badge-outline-danger' : ''
+                        ]">
+                        {{ value.txtStatus1 ? value.txtStatus1 : 'Pending' }}
+                      </span>-->
+                    <span
+                        class="badge"
+                        [ngClass]="[
+                            value.txtStatus1 === 'Pending' ? 'badge-outline-danger' :
+                            value.txtStatus1 === 'Hold' ? 'badge-outline-warning' : 'badge-outline-success',
+                            !value.txtStatus1 ? 'badge-outline-danger' : ''
+                    ]">
+                    {{ value.txtStatus1 ? value.txtStatus1 : 'Pending' }}
+                    </span>
+                </ng-template>
+
+                <ng-template slot="txtStatus2" let-value="data">
+                <span
+      class="badge"
+      [ngClass]="[
+                            value.txtStatus2 === 'Pending' ? 'badge-outline-danger' :
+                            value.txtStatus2 === 'Hold' ? 'badge-outline-warning' : 'badge-outline-success',
+                            !value.txtStatus2 ? 'badge-outline-danger' : ''
+                    ]">
+                    {{ value.txtStatus2 ? value.txtStatus2 : 'Pending' }}
+                    </span>
+                </ng-template>
+
+                <ng-template slot="txtStatus3" let-value="data">
+  <span
+      class="badge"
+      [ngClass]="[
+                            value.txtStatus3 === 'Pending' ? 'badge-outline-danger' :
+                            value.txtStatus3 === 'Hold' ? 'badge-outline-warning' : 'badge-outline-success',
+                            !value.txtStatus3 ? 'badge-outline-danger' : ''
+                    ]">
+                    {{ value.txtStatus3 ? value.txtStatus3 : 'Pending' }}
+                    </span>
+                </ng-template>
+
+                <ng-template slot="txtStatus4" let-value="data">
+  <span
+      class="badge"
+      [ngClass]="[
+                            value.txtStatus4 === 'Pending' ? 'badge-outline-danger' :
+                            value.txtStatus4 === 'Hold' ? 'badge-outline-warning' : 'badge-outline-success',
+                            !value.txtStatus4 ? 'badge-outline-danger' : ''
+                    ]">
+                    {{ value.txtStatus4 ? value.txtStatus4 : 'Pending' }}
+                    </span>
+                </ng-template>
+
+                <ng-template slot="txtStatus5" let-value="data">
+  <span
+      class="badge"
+      [ngClass]="[
+                            value.txtStatus5 === 'Pending' ? 'badge-outline-danger' :
+                            value.txtStatus5 === 'Hold' ? 'badge-outline-warning' : 'badge-outline-success',
+                            !value.txtStatus5 ? 'badge-outline-danger' : ''
+                    ]">
+                    {{ value.txtStatus5 ? value.txtStatus5 : 'Pending' }}
+                    </span>
+
+
+
+
+                </ng-template>
+
+                <ng-template slot="txtStatus6" let-value="data">
+
+                   <span
+                       class="badge"
+                       [ngClass]="[
+                            value.txtStatus6 === 'Pending' ? 'badge-outline-danger' :
+                            value.txtStatus6 === 'Hold' ? 'badge-outline-warning' : 'badge-outline-success',
+                            !value.txtStatus6 ? 'badge-outline-danger' : ''
+                    ]">
+                    {{ value.txtStatus6 ? value.txtStatus6 : 'Pending' }}
+                    </span>
+
+                </ng-template>
+
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-4">
+                        <a routerLink="/apps/invoice/edit" class="hover:text-info">
+                            <icon-edit class="h-4.5 w-4.5"/>
+                        </a>
+                        <a routerLink="/apps/order/preview" class="hover:text-primary">
+                            <icon-eye/>
+                        </a>
+
+                    </div>
+                </ng-template>
+
+
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-4">
+
+                        <a
+                           (click)="openDocumentModal(value)"
+                           class="px-4 py-2 rounded-full bg-gray-500 text-white font-bold hover:bg-gray-600">
+                            Attachments
+                        </a>
+
+                    </div>
+                </ng-template>
+
+            </ng-datatable>
+        </div>
+    </div>
+
+</div>
+
+<div>
+
+    <modal #documentModal style="max-width: 1000px; width: 90%;" >
+        <ng-template #modalHeader>
+            <h5 class="text-lg font-bold">Uploaded Documents</h5>
+        </ng-template>
+        <ng-template #modalBody>
+            <div class="space-y-6">
+                <!-- Document Name Input -->
+                <div *ngIf="isHead">
+                    <label for="documentName" class="block text-sm font-medium text-gray-700">Document Name</label>
+                    <input type="text" id="documentName" [(ngModel)]="documentName"
+                           class="form-input mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500"
+                           placeholder="Enter document name" />
+                </div>
+
+                <!-- &lt;!&ndash; File Input &ndash;&gt;-->
+                <div class="flex items-center" *ngIf="isHead" >
+                    <input type="file" (change)="onFileChange($event)"
+                           class="form-input border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500" />
+                    <button class="btn btn-primary ml-4" (click)="uploadDocument()">Upload</button>
+                </div>
+
+                <!-- Document Table -->
+                <div class="overflow-x-auto mt-4">
+                    <table class="min-w-full bg-white border border-gray-300 rounded-lg shadow-lg">
+                        <thead class="bg-gray-100">
+                        <tr>
+                            <th class="p-3 border-b text-left text-gray-600">Document Name</th>
+                            <!-- <th class="p-3 border-b text-left text-gray-600">Format</th>-->
+                            <th class="p-3 border-b text-left text-gray-600">Original Name</th>
+                            <th class="p-3 border-b text-left text-gray-600">Uploaded Date</th>
+                            <th class="p-3 border-b text-left text-gray-600">Created By</th>
+                            <th class="p-3 border-b text-left text-gray-600">Actions</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr *ngFor="let document of uploadedDocuments">
+                            <td class="p-3 border-b">{{ document.documentName }}</td>
+                            <!-- <td class="p-3 border-b">{{ document.documentType }}</td>-->
+                            <td class="p-3 border-b">{{ document.originalName }}</td>
+                            <td class="p-3 border-b">{{ this.formatDateLocale(document.dteCreateddate) }}</td>
+                            <td class="p-3 border-b">{{ document.createdUserName }}</td>
+                            <td class="p-3 border-b flex space-x-2">
+                                     <span class="cursor-pointer text-blue-500" (click)="downloadDocument(document.documentId)">
+                                            <icon-eye/>
+                                    </span>
+                                <!--<span class="cursor-pointer text-blue-500" (click)="openPdfEditor(document.documentId)">
+                                        <icon-file />
+                                    </span>-->
+                                <!--<span class="cursor-pointer text-red-500" (click)="removeDocument(document.documentId)">
+                                        <icon-trash-lines />
+                                </span>-->
+                                <!--<button class="btn btn-primary" (click)="downloadDocument(document.documentId)">
+                                    <icon-eye />
+                                </button>
+                                <button class="btn btn-danger" (click)="removeDocument(document.documentId)">
+                                    <icon-trash-lines  />
+                                </button>-->
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </ng-template>
+    </modal>
+
+</div>
