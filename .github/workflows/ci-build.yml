@@ -16,7 +16,17 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
+    
+    - name: Verify directory structure
+      run: |
+        echo "Current directory:"
+        cd
+        dir
+        echo "VIM-BE contents:"
+        dir VIM-BE
+        echo "VIM-BE/target (before build):"
+        dir VIM-BE/target || echo "No target directory yet"
+    
     - name: Set up JDK
       uses: actions/setup-java@v3
       with:
@@ -29,7 +39,15 @@ jobs:
       
     - name: Build with Maven
       run: mvn clean package
-
+    
+    - name: Verify WAR file creation
+      run: |
+        echo "Checking for WAR file..."
+        dir VIM-BE/target\*.war /s
+        if not exist "VIM-BE\target\*.war" (
+          echo "Error: WAR file not found!"
+          exit 1
+        )
     - name: Upload Artifact
       uses: actions/upload-artifact@v3
       with:
