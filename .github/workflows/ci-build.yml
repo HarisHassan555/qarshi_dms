@@ -33,6 +33,7 @@ jobs:
     - name: Upload Artifact
       uses: actions/upload-artifact@v3
       with:
-        name: war-file
+        name: webapp-artifact
         path: VIM-BE/target/*.war
+        if-no-files-found: error
         retention-days: 5
