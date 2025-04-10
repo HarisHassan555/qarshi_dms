@@ -12,9 +12,21 @@ jobs:
         working-directory: ./VIM-BE
 
     steps:
+
+    - name: GitHub Login
+      uses: actions/github-script@v6
+      with:
+        github-token: ${{ secrets.KEY }}
+        script: |
+          console.log(`Authenticated as ${context.actor}`)
+
     - name: Checkout code
       uses: actions/checkout@v4
- 
+      with:
+        token: ${{ secrets.KEY }}
+        fetch-depth: 0  # Get full history
+        persist-credentials: true
+
     - name: Set up JDK
       uses: actions/setup-java@v3
       with:
