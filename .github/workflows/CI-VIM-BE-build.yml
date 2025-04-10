@@ -1,10 +1,11 @@
-name: VIM CI Pipeline
+name: VIM BACKEND CI Pipeline
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    paths:
+      - 'VIM-BE/**'
+      - '!VIM-FE/**'
 
 jobs:
   build:
@@ -16,7 +17,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+      with:
+        path: 'VIM-BE'
  
     - name: Set up JDK
       uses: actions/setup-java@v3
@@ -25,9 +27,6 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
         
-    - name: Verify Java version
-      run: java -version
-      
     - name: Build with Maven
       run: mvn clean package
     
