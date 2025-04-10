@@ -1,11 +1,8 @@
-name: VIM BACKEND CI Pipeline
+name: VIM CI Pipeline
 
 on:
   push:
     branches: [ "main" ]
-    paths:
-      - 'VIM-BE/**'
-      - '!VIM-FE/**'
 
 jobs:
   build:
