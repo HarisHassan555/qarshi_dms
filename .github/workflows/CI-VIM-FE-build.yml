@@ -28,6 +28,11 @@ jobs:
         fetch-depth: 0
         persist-credentials: true
 
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
     - name: Install Dependencies
       run: npm ci
 
