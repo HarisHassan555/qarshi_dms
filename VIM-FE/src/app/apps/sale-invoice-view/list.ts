@@ -28,8 +28,38 @@ export class SaleInvoiceViewListComponent {
         { field: 'serSaleOrderId', title: 'Sr No' },
         { field: 'txtSaleOrderNo', title: 'Invoice No' },
         { field: 'slsTblDeal.cfgTblDealer.txtCustomerName', title: 'Media House' },
-        { field: 'dteDate', title: 'Start Date' },
-        { field: 'dteCreateddate', title: 'Date' },
+        /* { field: 'dteDate', title: 'Start Date' },
+        { field: 'dteCreateddate', title: 'Date' },*/
+        {
+            field: 'dteDate',
+            title: 'Start Date',
+            formatter: function(value: string | number | Date) {
+                if (!value) return ''; // Handle null or undefined
+                const date = new Date(value);
+                // @ts-ignore
+                if (isNaN(date)) return value; // Return original if invalid
+                return date.toLocaleDateString('en-GB', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                }).split('/').join('-'); // Outputs DD-MM-YYYY
+            }
+        },
+        {
+            field: 'dteCreateddate',
+            title: 'Date',
+            formatter: function(value: string | number | Date) {
+                if (!value) return '';
+                const date = new Date(value);
+                // @ts-ignore
+                if (isNaN(date)) return value;
+                return date.toLocaleDateString('en-GB', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                }).split('/').join('-');
+            }
+        },
         { field: 'numAmount', title: 'Invoice Amount' },
         { field: 'fbrinvoiceno', title: 'Sale tax Invoice No' },
         { field: 'txtSapInvoiceNo', title: 'Procurement No' },
