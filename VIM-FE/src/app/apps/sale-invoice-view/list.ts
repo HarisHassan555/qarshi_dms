@@ -34,15 +34,15 @@ export class SaleInvoiceViewListComponent {
             field: 'dteDate',
             title: 'Start Date',
             formatter: function(value: string | number | Date) {
-                if (!value) return ''; // Handle null or undefined
+                if (!value) return '';
                 const date = new Date(value);
                 // @ts-ignore
-                if (isNaN(date)) return value; // Return original if invalid
+                if (isNaN(date)) return value; 
                 return date.toLocaleDateString('en-GB', {
                     day: '2-digit',
                     month: '2-digit',
                     year: 'numeric'
-                }).split('/').join('-'); // Outputs DD-MM-YYYY
+                }).split('/').join('-'); 
             }
         },
         {
