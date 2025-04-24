@@ -6,7 +6,7 @@ import { BehaviorSubject, Observable } from 'rxjs';
 })
 export class SharedDataService {
   private user = new BehaviorSubject(null);
-  
+
   constructor() { }
 
   getUser(): Observable<any> {
@@ -16,4 +16,5 @@ export class SharedDataService {
   saveUser(user: any) {
     this.user.next(user);
   }
+
 }

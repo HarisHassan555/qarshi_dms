@@ -64,7 +64,7 @@ public class UserController {
 			List<?> lstUser = userService.searchUser(cfgTblUser);
 			if (lstUser != null && !lstUser.isEmpty()) {
 				response.put("status", "AX");
-				return ResponseEntity.status(HttpStatus.CONFLICT).body(response); // 409 Conflict
+				return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
 			} else {
 				userService.addNewUser(cfgTblUser);
 				response.put("status", "Success");
@@ -109,10 +109,7 @@ public class UserController {
 			return "Failure";
 		}
 	}
-	
-	
-	
-		
+
 		@RequestMapping(value = "/getCurrentUser", method = RequestMethod.GET)
 		public CfgTblUser getCurrentUser(HttpServletRequest request, HttpServletResponse response) {
 		try {
@@ -121,11 +118,9 @@ public class UserController {
 			return null;
 		}
 	}
-	
-	
+
 //	
-	
-	
+
 	@RequestMapping(value = "/UpdatePasswordReconfirm",   method = RequestMethod.POST)
 	public String UpdatePasswordReconfirm(@RequestBody ChangePasswordDTO  jsonStr, HttpServletRequest request, HttpServletResponse response)
 			throws Exception {
@@ -133,16 +128,8 @@ public class UserController {
          String msg;
 		 msg=userService.userPasswordUpdate(jsonStr.getUserId(), jsonStr.getNewPass(),jsonStr.getOldPass());
 		 System.out.println(msg);
-		 
 		 return msg;
-//		 if(msg.equals("Success")){
-//			 return "Success";
-//		 }else{
-//			return  "Failure";
-//		 }
-		 
-		
-		
+
 	}
 	
 	
@@ -183,12 +170,8 @@ public class UserController {
 //			 }else{
 //				return  "Failure";
 //			 }
-			 
-			
-			
+
 		}
-
-
 
 
 }

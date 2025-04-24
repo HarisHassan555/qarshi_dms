@@ -124,14 +124,26 @@
                 </div>
                 <div *ngIf="isRoleVendor" [formGroup]="cfgTblCustomer">
                     <label for="role">Vendor*</label>
-                    <select id="customer" class="form-select text-white-dark" formControlName="serCustomerId">
+                    <!--<select id="customer" class="form-select text-white-dark" formControlName="serCustomerId">
                         <option value="null">Select Vendor</option>
                         <option *ngFor="let customer of customers" value="{{customer.serCustomerId}}">
                             {{customer.txtCustomerName}}
                         </option>
-                    </select>
+                    </select>-->
+                    <ng-select [items]="customers" bindLabel="txtCustomerName" bindValue="serCustomerId" formControlName="serCustomerId" placeholder="Select Vendor" [clearable]="true">
+                    </ng-select>
                     <ng-container *ngIf="isSubmit && cfgTblCustomer.controls['serCustomerId'].invalid">
                         <p class="mt-1 text-danger">Vendor is required</p>
+                    </ng-container>
+                </div>
+                <div>
+                    <label for="blnStatus">Status*</label>
+                    <div class="flex items-center mt-2">
+                        <input formControlName="blnStatus" id="blnStatus" type="checkbox" class="form-checkbox" />
+                        <label for="blnStatus" class="ml-2">{{ form.controls['blnStatus'].value ? 'Active' : 'Inactive' }}</label>
+                    </div>
+                    <ng-container *ngIf="isSubmit && form.controls['blnStatus'].invalid">
+                        <p class="mt-1 text-danger">Status is required</p>
                     </ng-container>
                 </div>
             </div>

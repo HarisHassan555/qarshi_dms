@@ -155,7 +155,7 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 		EntityManager entityManager = getEntityManager();
 		try {
 			entityManager.getTransaction().begin();
-			CfgTblUser.setBlnStatus(true);
+			//CfgTblUser.setBlnStatus(true);
 			CfgTblUser.setBlIsDeleted(false);
 			CfgTblUser.setBlIsActive(true);
 			CfgTblUser.setBlIsPasswordChang(true);
@@ -193,21 +193,20 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			entityManager.persist(CfgTblUser);
 			entityManager.getTransaction().commit();
 
-			// Send email
 			emailService.sendPassordinMail(CfgTblUser.getTxtAddress(), CfgTblUser.getTxtUserName(), plaintText);
 
 			return "{\"status\":\"Success\"}";
 
 		} catch (Exception e) {
 			if (entityManager.getTransaction().isActive()) {
-				entityManager.getTransaction().rollback();  // Rollback if an error occurs
+				entityManager.getTransaction().rollback();
 			}
 			log.error("Error adding user: ", e);
 			return "{\"status\":\"Failure\"}";
 
 		} finally {
 			if (entityManager != null && entityManager.isOpen()) {
-				entityManager.close();  // Ensure EntityManager is closed
+				entityManager.close();
 			}
 		}
 	}
@@ -450,80 +449,20 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 		public String userPasswordUpdate(int id,String NewPassword,String oldPassword) {
 			EntityManager entityManager = getEntityManager();
 		    entityManager.getTransaction().begin();
-		    String status="";
-		  //  Key aesKey = new SecretKeySpec(key.getBytes(), "AES");
-		  //  byte[] oldPasswordByte=Base64.decode(oldPassword.getBytes());
-		    
-		  //  id=commonService.getCurrentUserVoId();
 	        CfgTblUser CfgTblUserObject = entityManager.find(CfgTblUser.class, (id));
-			// String currentPassword=new String(oldPasswordByte);
-	    /*byte[]   encryptedoldPassword = Base64.encode(oldPassword.getBytes());*/
-			CfgTblUserObject.setTxtPassword(passwordEncoder.encode(NewPassword));
+			if(NewPassword.equals(null) || oldPassword.equals(null)){
+				String plaintText = generateRandomPassword(PASSWORD_LENGTH);
+				CfgTblUserObject.setTxtPassword(passwordEncoder.encode(plaintText));
+			}else{
+				CfgTblUserObject.setTxtPassword(passwordEncoder.encode(oldPassword));
+			}
+		//	CfgTblUserObject.setTxtPassword(passwordEncoder.encode(NewPassword));
 			entityManager.merge(CfgTblUserObject);
-
-
 			entityManager.getTransaction().commit();
 			emailService.sendPassordinMail(CfgTblUserObject.getTxtAddress(),CfgTblUserObject.getTxtUserName(),NewPassword);
 			entityManager.close();
-			return status="Success";
-	  
-	    /*if(new String(encryptedoldPassword).equals(CfgTblUserObject.getTxtPassword())){
-	    	
-	    	if(CfgTblUserObject !=null || CfgTblUserObject.getSerUserId()>0){
-		    try{
-		       byte[]   encrypted = Base64.encode(NewPassword.getBytes());
-		       if(CfgTblUserObject.getCfgTblPasswordPolicy()!=null && CfgTblUserObject.getCfgTblPasswordPolicy().getNumHistoryCount().doubleValue() >0)
-		       {
-		    	   List lstPH=getAllPasswordHistory(CfgTblUserObject.getSerUserId());
-		    	   int loopSize=0;
-		    	   if(lstPH.size() >=CfgTblUserObject.getCfgTblPasswordPolicy().getNumHistoryCount().doubleValue())
-		    	   	loopSize=CfgTblUserObject.getCfgTblPasswordPolicy().getNumHistoryCount().intValue();
-		    	   else
-		    		   loopSize=lstPH.size();
-		    	   
-		    	   
-			       if(lstPH!=null && lstPH.size() >0)
-		            {
-		            	CfgTblPasswordHistory dtoPH;
-		            	for (int i=0;i <loopSize;i++)
-		            	 {
-		            		dtoPH=(CfgTblPasswordHistory)lstPH.get(i);
-		            		if(dtoPH.getTxtPassword().equals(new String(encrypted)))
-		            			return "PAU";
-		            	 }
-		            }
-		       }
-		       
-		       CfgTblUserObject.setTxtPassword(new String(encrypted));
-		       CfgTblUserObject.setBlIsPasswordChang(false);
-		       entityManager.merge(CfgTblUserObject);
-		       
-		      
-		       entityManager.getTransaction().commit();
-		       
-		       CfgTblPasswordHistory cfgTblPasswordHistory=new CfgTblPasswordHistory();
-		       cfgTblPasswordHistory.setSerUserId(CfgTblUserObject.getSerUserId());
-		       cfgTblPasswordHistory.setTxtPassword(CfgTblUserObject.getTxtPassword());
-		       
-		       addNewPasswordHistory(cfgTblPasswordHistory);
-		       
-		       return status="Success";
-		       
-		    }
-		    
-		    catch(Exception ex){
-		    	log.error(ex.getMessage(),ex);
-		    }
-		    entityManager.close();
-			status="Failure";
+			return "Success";
 
-		}
-	 }else{
-		entityManager.close();
-		status="CPNM";
-		}*/
-		//return status;
-	    
 	}
 		
 		

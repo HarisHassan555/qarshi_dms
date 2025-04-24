@@ -228,7 +228,8 @@ import { OrderDetailComponent } from './order-detail/edit';
         SesLogComponent,
         TransactionsDetailsComponent,
         ReportViewComponent,
-        OrderDetailComponent
+        OrderDetailComponent,
+        SidebarComponent
 
     ],
 

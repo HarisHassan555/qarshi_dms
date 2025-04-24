@@ -238,8 +238,7 @@ public class CfgTblSubMenu implements Serializable,Comparable<CfgTblSubMenu> {
 	
 	@Column(name="bl_is_delete")
 	private Boolean blIsDelete;
-	
-	
+
 	@Column(name="bl_is_update")
 	private Boolean blIsUpdate;
 	
@@ -247,29 +246,6 @@ public class CfgTblSubMenu implements Serializable,Comparable<CfgTblSubMenu> {
 	private Boolean blIsApprove;
 	
 
-	
-	/*public List<CfgTblSubMenuRole> getCfgTblSubMenuRoles() {
-		return this.cfgTblSubMenuRoles;
-	}
-
-	public void setCfgTblSubMenuRoles(List<CfgTblSubMenuRole> cfgTblSubMenuRoles) {
-		this.cfgTblSubMenuRoles = cfgTblSubMenuRoles;
-	}
-
-	public CfgTblSubMenuRole addCfgTblSubMenuRole(CfgTblSubMenuRole cfgTblSubMenuRole) {
-		getCfgTblSubMenuRoles().add(cfgTblSubMenuRole);
-		cfgTblSubMenuRole.setCfgTblSubMenu(this);
-
-		return cfgTblSubMenuRole;
-	}
-
-	public CfgTblSubMenuRole removeCfgTblSubMenuRole(CfgTblSubMenuRole cfgTblSubMenuRole) {
-		getCfgTblSubMenuRoles().remove(cfgTblSubMenuRole);
-		cfgTblSubMenuRole.setCfgTblSubMenu(null);
-
-		return cfgTblSubMenuRole;
-	}*/
-	
 	@Override
 	public int compareTo(CfgTblSubMenu subMenu) {
 			if(subMenu.getIntSubMenuOrder()>this.intSubMenuOrder){
@@ -281,8 +257,6 @@ public class CfgTblSubMenu implements Serializable,Comparable<CfgTblSubMenu> {
 		return 0;
 	}
 
-	
-	
 	private Integer serSubMenuRoleId;
 
 	public Integer getSerSubMenuRoleId() {

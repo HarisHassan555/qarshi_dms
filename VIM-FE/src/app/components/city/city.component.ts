@@ -4,6 +4,7 @@ import { NotificationService } from 'src/app/NotificationService';
 import { CityService } from 'src/app/services/city/city.service';
 import { CountryService } from 'src/app/services/country/country.service';
 import {alphabetOnlyAsyncValidator} from "../../utils/alphabetOnlyAsyncValidator";
+import {PermissionService} from "../../services/shared-data/permission-service";
 
 @Component({
   selector: 'app-city',
@@ -34,7 +35,8 @@ export class CityComponent implements OnInit {
     private fb: FormBuilder,
     private cityService: CityService,
     private countryService: CountryService,
-    private notificationService: NotificationService
+    private notificationService: NotificationService,
+    private permissionService: PermissionService
   ) { }
 
   ngOnInit() {
@@ -46,8 +48,26 @@ export class CityComponent implements OnInit {
       txtCityCode: ['', Validators.required],
       txtCityName: ['', Validators.required,alphabetOnlyAsyncValidator()],
     });
-    this.getCountries();
-    this.getCities();
+
+      const userJson = localStorage.getItem('user');
+      let user: {
+          cfgTblRole: number | undefined;
+          serUserId: number;
+      };
+
+      if (userJson) {
+          // @ts-ignore
+          user = JSON.parse(userJson) as CfgTblUser;
+      }
+      /* this.selectedRoleId = 1; // Mock value; replace with actual roleId
+       this.selectedUserId = 3; // Mock value; replace with actual userId*/
+      // @ts-ignore
+      this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
+          this.getCountries();
+          this.getCities();
+      });
+
+
   }
 
   getCountries() {
@@ -73,13 +93,50 @@ export class CityComponent implements OnInit {
   }
 
   add() {
-    this.isSubmit = false;
+
+      const userJson = localStorage.getItem('user');
+      let user: {
+          cfgTblRole: number | undefined;
+          serUserId: number;
+      };
+
+      if (userJson) {
+          // @ts-ignore
+          user = JSON.parse(userJson) as CfgTblUser;
+      }
+      // @ts-ignore
+      this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
+          // @ts-ignore
+          this.permissionService.canAdd('City').subscribe(canAdd => {
+              if (canAdd == true) {
+                  /* this.notificationService.showMessage('You do not have permission to add new countries', 'danger');*/
+                  /*this.isSubmit = false;
+                  this.countryForm.reset();
+                  this.blnStatus = false;
+                  this.modal.open();*/
+                  this.isSubmit = false;
+                  this.form.reset();
+                  this.blnStatus = false;
+                  this.modal.open();
+                  return;
+              }else{
+                  this.notificationService.showMessage('You do not have permission to add new Cities', 'danger');
+                  return;
+              }
+
+          });
+      });
+    /*this.isSubmit = false;
     this.form.reset();
     this.blnStatus = false;
-    this.modal.open();
+    this.modal.open();*/
   }
 
   edit(country: any) {
+      if (!this.permissionService.canUpdate('City')) {
+          this.notificationService.showMessage('You do not have permission to edit countries', 'danger');
+          return;
+      }
     this.form.reset();
     this.modal.open();
     this.form.patchValue(country);

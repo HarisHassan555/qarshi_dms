@@ -518,9 +518,6 @@ export class MarketingListComponent {
         this.saleOrderService.getUploadedFile(candidateId).subscribe(
             (data) => {
                 this.uploadedDocuments = data;
-                // @ts-ignore
-                /*this.uploadedDocuments.dteCreateddate = this.formatDateLocale(new Date(this.uploadedDocuments[0].dteCreateddate))*/
-                //console.log('Documents:', this.uploadedDocuments[0].dteCreateddate);
             },
             (error) => {
                 console.error('Error fetching documents:', error);

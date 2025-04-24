@@ -28,7 +28,7 @@ export class SaleInvoiceViewListComponent {
         { field: 'serSaleOrderId', title: 'Sr No' },
         { field: 'txtSaleOrderNo', title: 'Invoice No' },
         { field: 'slsTblDeal.cfgTblDealer.txtCustomerName', title: 'Media House' },
-        /* { field: 'dteDate', title: 'Start Date' },
+       /* { field: 'dteDate', title: 'Start Date' },
         { field: 'dteCreateddate', title: 'Date' },*/
         {
             field: 'dteDate',
@@ -37,12 +37,12 @@ export class SaleInvoiceViewListComponent {
                 if (!value) return '';
                 const date = new Date(value);
                 // @ts-ignore
-                if (isNaN(date)) return value; 
+                if (isNaN(date)) return value;
                 return date.toLocaleDateString('en-GB', {
                     day: '2-digit',
                     month: '2-digit',
                     year: 'numeric'
-                }).split('/').join('-'); 
+                }).split('/').join('-');
             }
         },
         {

@@ -6,6 +6,8 @@ public class ChangePasswordDTO {
 	private int userId;
 	private String oldPass;
 	private String newPass;
+
+
 	public int getUserId() {
 		return userId;
 	}

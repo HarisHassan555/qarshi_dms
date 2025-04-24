@@ -85,6 +85,43 @@ public class CfgTblSubMenuRole implements Serializable {
 	@Column(name="bl_is_enabled")
 	private Boolean blIsEnabled;
 
+	@Column(name="bl_is_create")
+	private Boolean blIsNewCreate;
+
+	@Column(name="bl_is_NewView")
+	private Boolean blIsNewView;
+
+	@Column(name="bl_is_NewUpdate")
+	private Boolean blIsNewUpdate;
+
+
+	public Boolean getBlIsNewCreate() {
+		return blIsNewCreate;
+	}
+
+	public void setBlIsNewCreate(Boolean blIsNewCreate) {
+		this.blIsNewCreate = blIsNewCreate;
+	}
+
+	public Boolean getBlIsNewView() {
+		return blIsNewView;
+	}
+
+	public void setBlIsNewView(Boolean blIsNewView) {
+		this.blIsNewView = blIsNewView;
+	}
+
+
+	public Boolean getBlIsNewUpdate() {
+		return blIsNewUpdate;
+	}
+
+	public void setBlIsNewUpdate(Boolean blIsNewUpdate) {
+		this.blIsNewUpdate = blIsNewUpdate;
+	}
+
+
+
 	public CfgTblSubMenuRole() {
 	}
 

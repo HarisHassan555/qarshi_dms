@@ -4,6 +4,7 @@ import { NotificationService } from 'src/app/NotificationService';
 import { CustomerService } from 'src/app/services/customer/customer.service';
 import { UserService } from 'src/app/services/user/user.service';
 import {map, Observable, of} from "rxjs";
+import {PermissionService} from "../../../services/shared-data/permission-service";
 
 @Component({
   selector: 'app-user-list',
@@ -41,7 +42,8 @@ export class UserListComponent implements OnInit {
     private fb: FormBuilder,
     private userService: UserService,
     private customerService: CustomerService,
-    private notificationService: NotificationService
+    private notificationService: NotificationService,
+    private permissionService: PermissionService
   ) { }
 
   ngOnInit() {
@@ -57,12 +59,28 @@ export class UserListComponent implements OnInit {
           cfgTblManager: [''],
           cfgTblCustomer: this.fb.group({
               serCustomerId: ['']
-          })
+          }),
+          blnStatus: [true, Validators.requiredTrue],
       });
-      this.getRoles();
-      this.getUsers();
-      this.getPasswordPolicies();
-        this.getCustomers();
+      const userJson = localStorage.getItem('user');
+      let user: {
+          cfgTblRole: number | undefined;
+          serUserId: number;
+      };
+
+      if (userJson) {
+          // @ts-ignore
+          user = JSON.parse(userJson) as CfgTblUser;
+      }
+      // @ts-ignore
+      this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
+
+          this.getRoles();
+          this.getUsers();
+          this.getPasswordPolicies();
+          this.getCustomers();
+      });
+
   }
 
   getUsers() {
@@ -85,11 +103,6 @@ export class UserListComponent implements OnInit {
 
           console.log(this.users);
 
-
-          /*this.users = this.users.filter((user: { cfgTblRole: { id: number; name: string } }) => {
-                // Apply your filter condition
-                return user.cfgTblRole && user.cfgTblRole.id === this.selectedRoleId;
-          });*/
       });
   }
 
@@ -121,16 +134,52 @@ export class UserListComponent implements OnInit {
   }
 
   add() {
-    this.isSubmit = false;
-    this.form.reset();
-    this.blnStatus = false;
-    this.modal.open();
+
+      const userJson = localStorage.getItem('user');
+      let user: {
+          cfgTblRole: number | undefined;
+          serUserId: number;
+      };
+
+      if (userJson) {
+          // @ts-ignore
+          user = JSON.parse(userJson) as CfgTblUser;
+      }
+      // @ts-ignore
+      this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
+          // @ts-ignore
+          this.permissionService.canAdd('user').subscribe(canAdd => {
+              if (canAdd == true) {
+                  /* this.notificationService.showMessage('You do not have permission to add new countries', 'danger');*/
+                  /*this.isSubmit = false;
+                  this.countryForm.reset();
+                  this.blnStatus = false;
+                  this.modal.open();*/
+                  this.isSubmit = false;
+                  this.form.reset();
+                  this.blnStatus = false;
+                  this.modal.open();
+                  return;
+              }else{
+                  this.notificationService.showMessage('You do not have permission to add New user', 'danger');
+                  return;
+              }
+
+          });
+      });
+
+
   }
 
   edit(user: any) {
+      if (!this.permissionService.canUpdate('user')) {
+          this.notificationService.showMessage('You do not have permission to edit user', 'danger');
+          return;
+      }
     console.log(user);
     this.form.reset();
     this.modal.open();
+    debugger;
     this.form.patchValue(user);
     this.blnStatus = user.blnStatus;
     if (user.cfgTblRole && user.cfgTblRole.txtRoleName) {
@@ -145,7 +194,7 @@ export class UserListComponent implements OnInit {
     let payload = this.form.value;
 
     if (payload.serUserId) {
-      payload.blnStatus = this.blnStatus;
+     // payload.blnStatus = this.blnStatus;
       payload.blIsDeleted = false;
     } else {
       delete payload.serUserId;
