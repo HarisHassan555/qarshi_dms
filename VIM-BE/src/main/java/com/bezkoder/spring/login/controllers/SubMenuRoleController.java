@@ -75,8 +75,7 @@ public class SubMenuRoleController {
 			System.out.println(userId + "" + roleId);
 			if(lstcfgTblSubMenuRole!=null && lstcfgTblSubMenuRole.size() >0)
 			{
-
-				 subMenuRoleService.addNewSubMenuRoleinList(lstcfgTblSubMenuRole);
+				subMenuRoleService.addNewSubMenuRoleinList(lstcfgTblSubMenuRole);
 			}
 			
 			return "{\"status\":\"Success\"}";
@@ -114,7 +113,5 @@ public class SubMenuRoleController {
 			return "Failure";
 		}
 	}
-
-	
 
 }

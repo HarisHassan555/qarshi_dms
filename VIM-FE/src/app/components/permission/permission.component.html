@@ -3,58 +3,142 @@
         <div class="datatable invoice-table">
             <div class="mb-4 flex flex-col md:items-start">
                 <h5 class="text-2xl font-bold dark:text-white mb-4">Permission</h5>
-                <div class="flex flex-col md:flex-row md:gap-4 md:justify-start">
-                    <div class="flex flex-col">
-                        <label for="role" class="font-semibold">Select Role:</label>
-                        <select id="role" (change)="onRoleChange($event)" class="custom-select">
-                            <option value="" disabled selected>Select a role</option>
-                            <option *ngFor="let role of roles" [value]="role.serRoleId">{{ role.txtRoleName }}</option>
-                        </select>
+                <div class="flex flex-col md:flex-row md:gap-4 md:justify-between w-full">
+                    <div class="flex flex-col md:flex-row md:gap-4">
+                        <div class="flex flex-col">
+                            <label for="role" class="font-semibold">Select Role:</label>
+                            <select id="role" (change)="onRoleChange($event)" class="custom-select">
+                                <option value="" disabled selected>Select a role</option>
+                                <option *ngFor="let role of roles" [value]="role.serRoleId">{{ role.txtRoleName }}</option>
+                            </select>
+                        </div>
+                        <div class="flex flex-col">
+                            <label for="user" class="font-semibold">Select User:</label>
+                            <select id="user" (change)="onUserChange($event)" class="custom-select">
+                                <option value="" disabled selected>Select a user</option>
+                                <option *ngFor="let user of filteredUsers" [value]="user.serUserId">{{ user.txtUserName }}</option>
+                            </select>
+                        </div>
                     </div>
-                    <div class="flex flex-col">
-                        <label for="user" class="font-semibold">Select User:</label>
-                        <select id="user" (change)="onUserChange($event)" class="custom-select">
-                            <option value="" disabled selected>Select a user</option>
-                            <option *ngFor="let user of filteredUsers" [value]="user.serUserId">{{ user.txtUserName }}</option>
-                        </select>
+                    <div class="flex flex-col mt-4 md:mt-0">
+                        <label for="search" class="font-semibold">Search Menus:</label>
+                        <input id="search" type="text" [(ngModel)]="search" (input)="filterMenus()" placeholder="Search by menu or submenu..." class="custom-input" />
                     </div>
                 </div>
             </div>
 
-            <table class="min-w-full bg-white border border-gray-300 rounded-lg shadow-lg">
-                <thead class="bg-gray-100">
-                <tr>
-                    <th class="p-3 border-b text-left">Menu</th>
-                    <th class="p-3 border-b text-left">Submenu</th>
-                    <th class="p-3 border-b text-left">Enabled</th>
-                    <th class="p-3 border-b text-left">Can View</th>
-                    <th class="p-3 border-b text-left">Can Approve</th>
-                    <th class="p-3 border-b text-left">Can Update</th>
-                </tr>
-                </thead>
-                <tbody>
-                <ng-container *ngFor="let menu of menus">
-                    <ng-container *ngFor="let subMenu of menu.subMenus">
-                        <tr class="hover:bg-gray-50 transition duration-200">
-                            <td class="p-3 border-b">{{ menu.menuName }}</td>
-                            <td class="p-3 border-b">{{ subMenu.subMenuName }}</td>
-                            <td class="p-3 border-b">
-                                <input type="checkbox" [(ngModel)]="subMenu.canEnabled" (change)="updatePermission(subMenu, 'canEnabled', subMenu.canEnabled)" />
-                            </td>
-                            <td class="p-3 border-b">
-                                <input type="checkbox" [(ngModel)]="subMenu.canView" (change)="updatePermission(subMenu, 'canView', subMenu.canView)" />
-                            </td>
-                            <td class="p-3 border-b">
-                                <input type="checkbox" [(ngModel)]="subMenu.canAdd" (change)="updatePermission(subMenu, 'canAdd', subMenu.canAdd)" />
-                            </td>
-                            <td class="p-3 border-b">
-                                <input type="checkbox" [(ngModel)]="subMenu.canEdit" (change)="updatePermission(subMenu, 'canEdit', subMenu.canEdit)" />
-                            </td>
-                        </tr>
+            <div class="table-wrapper overflow-x-auto">
+                <table class="min-w-full bg-white border border-gray-300 rounded-lg shadow-lg">
+                    <thead class="bg-gray-100">
+                    <tr>
+                        <th class="p-3 border-b text-left">Menu</th>
+                        <th class="p-3 border-b text-left">Submenu</th>
+                        <th class="p-3 border-b text-center">
+                            Active
+                            <div class="flex gap-2 mt-1">
+                                <button (click)="toggleAllPermissions('canEnabled', true)" class="text-xs text-blue-600 hover:underline">Check All</button>
+                                <button (click)="toggleAllPermissions('canEnabled', false)" class="text-xs text-red-600 hover:underline">Uncheck All</button>
+                            </div>
+                        </th>
+
+                        <th class="p-3 border-b text-center">
+                             Can Create
+                            <div class="flex gap-2 mt-1">
+                                <button (click)="toggleAllPermissions('newCanCreate', true)" class="text-xs text-blue-600 hover:underline">Check All</button>
+                                <button (click)="toggleAllPermissions('newCanCreate', false)" class="text-xs text-red-600 hover:underline">Uncheck All</button>
+                            </div>
+                        </th>
+                        <th class="p-3 border-b text-center">
+                             Can View
+                            <div class="flex gap-2 mt-1">
+                                <button (click)="toggleAllPermissions('newCanView', true)" class="text-xs text-blue-600 hover:underline">Check All</button>
+                                <button (click)="toggleAllPermissions('newCanView', false)" class="text-xs text-red-600 hover:underline">Uncheck All</button>
+                            </div>
+                        </th>
+
+                        <th class="p-3 border-b text-center">
+                            Can Update
+                            <div class="flex gap-2 mt-1">
+                                <button (click)="toggleAllPermissions('newCanUpdate', true)" class="text-xs text-blue-600 hover:underline">Check All</button>
+                                <button (click)="toggleAllPermissions('newCanUpdate', false)" class="text-xs text-red-600 hover:underline">Uncheck All</button>
+                            </div>
+                        </th>
+                        <!--<th class="p-3 border-b text-center">
+                             Can Execute(Approved)
+                            <div class="flex gap-2 mt-1">
+                                <button (click)="toggleAllPermissions('newCanExecute', true)" class="text-xs text-blue-600 hover:underline">Check All</button>
+                                <button (click)="toggleAllPermissions('newCanExecute', false)" class="text-xs text-red-600 hover:underline">Uncheck All</button>
+                            </div>
+                        </th>-->
+                        <th class="p-3 border-b text-center">
+                            Can Executed
+                            <div class="flex gap-2 mt-1">
+                                <button (click)="toggleAllPermissions('canAdd', true)" class="text-xs text-blue-600 hover:underline">Check All</button>
+                                <button (click)="toggleAllPermissions('canAdd', false)" class="text-xs text-red-600 hover:underline">Uncheck All</button>
+                            </div>
+                        </th>
+                        <th class="p-3 border-b text-center">
+                            Can Hold/Cancel/Send Back
+                            <div class="flex gap-2 mt-1">
+                                <button (click)="toggleAllPermissions('canEdit', true)" class="text-xs text-blue-600 hover:underline">Check All</button>
+                                <button (click)="toggleAllPermissions('canEdit', false)" class="text-xs text-red-600 hover:underline">Uncheck All</button>
+                            </div>
+                        </th>
+                       <!-- <th class="p-3 border-b text-center">
+                            Can View
+                            <div class="flex gap-2 mt-1">
+                                <button (click)="toggleAllPermissions('canView', true)" class="text-xs text-blue-600 hover:underline">Check All</button>
+                                <button (click)="toggleAllPermissions('canView', false)" class="text-xs text-red-600 hover:underline">Uncheck All</button>
+                            </div>
+                        </th>
+                        <th class="p-3 border-b text-center">
+                            Can Approve
+                            <div class="flex gap-2 mt-1">
+                                <button (click)="toggleAllPermissions('canAdd', true)" class="text-xs text-blue-600 hover:underline">Check All</button>
+                                <button (click)="toggleAllPermissions('canAdd', false)" class="text-xs text-red-600 hover:underline">Uncheck All</button>
+                            </div>
+                        </th>
+                        <th class="p-3 border-b text-center">
+                            Can Update
+                            <div class="flex gap-2 mt-1">
+                                <button (click)="toggleAllPermissions('canEdit', true)" class="text-xs text-blue-600 hover:underline">Check All</button>
+                                <button (click)="toggleAllPermissions('canEdit', false)" class="text-xs text-red-600 hover:underline">Uncheck All</button>
+                            </div>
+                        </th>-->
+
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <ng-container *ngFor="let menu of transformedMenus">
+                        <ng-container *ngFor="let subMenu of menu.subMenus">
+                            <tr class="hover:bg-gray-50 transition duration-200">
+                                <td class="p-3 border-b text-gray-800">{{ menu.menuName }}</td>
+                                <td class="p-3 border-b text-gray-800">{{ subMenu.subMenuName }}</td>
+                                <td class="p-3 border-b text-center">
+                                    <input type="checkbox" [(ngModel)]="subMenu.canEnabled" (change)="updatePermission(subMenu, 'canEnabled', subMenu.canEnabled)" class="form-checkbox h-5 w-5 text-blue-600 rounded" />
+                                </td>
+                                <td class="p-3 border-b text-center">
+                                    <input type="checkbox" [(ngModel)]="subMenu.newCanCreate" (change)="updatePermission(subMenu, 'newCanCreate', subMenu.newCanCreate)" class="form-checkbox h-5 w-5 text-blue-600 rounded" />
+                                </td>
+                                <td class="p-3 border-b text-center">
+                                    <input type="checkbox" [(ngModel)]="subMenu.newCanView" (change)="updatePermission(subMenu, 'newCanView', subMenu.newCanView)" class="form-checkbox h-5 w-5 text-blue-600 rounded" />
+                                </td>
+                                <td class="p-3 border-b text-center">
+                                    <input type="checkbox" [(ngModel)]="subMenu.newCanUpdate" (change)="updatePermission(subMenu, 'newCanUpdate', subMenu.newCanUpdate)" class="form-checkbox h-5 w-5 text-blue-600 rounded" />
+                                </td>
+                                <td class="p-3 border-b text-center">
+                                    <input type="checkbox" [(ngModel)]="subMenu.canAdd" (change)="updatePermission(subMenu, 'canAdd', subMenu.canAdd)" class="form-checkbox h-5 w-5 text-blue-600 rounded" />
+                                </td>
+                                <td class="p-3 border-b text-center">
+                                    <input type="checkbox" [(ngModel)]="subMenu.canEdit" (change)="updatePermission(subMenu, 'canEdit', subMenu.canEdit)" class="form-checkbox h-5 w-5 text-blue-600 rounded" />
+                                </td>
+
+                            </tr>
+                        </ng-container>
                     </ng-container>
-                </ng-container>
-                </tbody>
-            </table>
+                    </tbody>
+                </table>
+            </div>
             <button type="button" (click)="savePermissions()" class="btn btn-primary ml-auto mt-4">Save</button>
         </div>
     </div>

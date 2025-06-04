@@ -70,6 +70,31 @@ export class SidebarComponent {
         );
     }
 
+
+    canAdd(subMenuName: string): boolean {
+
+        const permission = this.subMenuRoles.find(
+            role => role.cfgTblSubMenu?.txtSubMenuName === subMenuName
+        );
+        return permission?.blIsNewCreate ?? false;
+    }
+
+    canUpdate(subMenuName: string): boolean {
+        this.getMenus();
+        const permission = this.subMenuRoles.find(
+            role => role.cfgTblSubMenu?.txtSubMenuName === subMenuName
+        );
+        return permission?.blIsNewUpdate ?? false;
+    }
+
+    canView(subMenuName: string): boolean {
+        this.getMenus();
+        const permission = this.subMenuRoles.find(
+            role => role.cfgTblSubMenu?.txtSubMenuName === subMenuName
+        );
+        return permission?.blIsNewView ?? false;
+    }
+
     setActiveDropdown() {
         const selector = document.querySelector('.sidebar ul a[routerLink="' + window.location.pathname + '"]');
         if (selector) {
@@ -140,6 +165,7 @@ export class SidebarComponent {
                 });
 
                 this.menus = allMenus;
+                debugger;
                 this.isDashboardPresent = this.menus.some((menu: { subMenus: string | any[]; }) => menu.subMenus && menu.subMenus.length > 0);
 
                 this.ngZone.run(() => {

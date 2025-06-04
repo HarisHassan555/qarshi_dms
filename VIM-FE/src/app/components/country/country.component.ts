@@ -3,6 +3,7 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { NotificationService } from 'src/app/NotificationService';
 import { CountryService } from 'src/app/services/country/country.service';
 import {alphabetOnlyAsyncValidator} from "../../utils/alphabetOnlyAsyncValidator";
+import {PermissionService} from "../../services/shared-data/permission-service";
 
 @Component({
   selector: 'app-country',
@@ -29,7 +30,8 @@ export class CountryComponent implements OnInit {
   constructor(
     private fb: FormBuilder,
     private countryService: CountryService,
-    private notificationService: NotificationService
+    private notificationService: NotificationService,
+    private permissionService: PermissionService
   ) { }
 
   ngOnInit() {
@@ -37,7 +39,23 @@ export class CountryComponent implements OnInit {
       serCountryId: [''],
       txtName: ['', Validators.required,[alphabetOnlyAsyncValidator()]]
     });
-    this.getCountries();
+      const userJson = localStorage.getItem('user');
+      let user: {
+          cfgTblRole: number | undefined;
+          serUserId: number;
+      };
+
+      if (userJson) {
+          // @ts-ignore
+          user = JSON.parse(userJson) as CfgTblUser;
+      }
+     /* this.selectedRoleId = 1; // Mock value; replace with actual roleId
+      this.selectedUserId = 3; // Mock value; replace with actual userId*/
+      // @ts-ignore
+      this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
+          this.getCountries();
+      });
+
   }
 
   getCountries() {
@@ -52,13 +70,43 @@ export class CountryComponent implements OnInit {
   }
 
   add() {
-    this.isSubmit = false;
-    this.countryForm.reset();
-    this.blnStatus = false;
-    this.modal.open();
+      // @ts-ignore
+      const userJson = localStorage.getItem('user');
+      let user: {
+          cfgTblRole: number | undefined;
+          serUserId: number;
+      };
+
+      if (userJson) {
+          // @ts-ignore
+          user = JSON.parse(userJson) as CfgTblUser;
+      }
+      // @ts-ignore
+      this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
+          // @ts-ignore
+          this.permissionService.canAdd('Country').subscribe(canAdd => {
+              if (canAdd == true) {
+                  /* this.notificationService.showMessage('You do not have permission to add new countries', 'danger');*/
+                  this.isSubmit = false;
+                  this.countryForm.reset();
+                  this.blnStatus = false;
+                  this.modal.open();
+                  return;
+              }else{
+                  this.notificationService.showMessage('You do not have permission to add new countries', 'danger');
+                  return;
+              }
+
+          });
+      });
+
   }
 
   edit(country: any) {
+   if (!this.permissionService.canUpdate('Country')) {
+          this.notificationService.showMessage('You do not have permission to edit countries', 'danger');
+          return;
+    }
     this.countryForm.reset();
     this.modal.open();
     this.countryForm.patchValue(country);

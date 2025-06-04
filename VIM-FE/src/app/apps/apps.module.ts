@@ -45,6 +45,7 @@ import {OrderPreviewComponent} from "./order/preview";
 import {SaleInvoiceEditComponent} from "./sale-invoice/edit";
 import {SaleInvoiceViewEditComponent} from "./sale-invoice-view/edit";
 import {SaleInvoiceViewStatusEditComponent} from "./sale-invoice-status/edit";
+import {SidebarComponent} from "../layouts/sidebar";
 
 const routes: Routes = [
     // { path: 'apps/chat', component: ChatComponent, title: 'Chat | VRISTO - Multipurpose Tailwind Dashboard Template' },
@@ -94,7 +95,7 @@ const routes: Routes = [
         InvoiceAddComponent,
         InvoiceEditComponent,
         CalendarComponent,
-        MailboxComponent,
+        MailboxComponent
     ],
 })
 export class AppsModule {}

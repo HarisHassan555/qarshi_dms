@@ -3,6 +3,7 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { NotificationService } from 'src/app/NotificationService';
 import { ProductCategoryService } from 'src/app/services/product-category/product-category.service';
 import { ProductService } from 'src/app/services/product/product.service';
+import {PermissionService} from "../../services/shared-data/permission-service";
 
 @Component({
   selector: 'app-product',
@@ -33,7 +34,8 @@ export class ProductComponent implements OnInit {
     private fb: FormBuilder,
     private productService: ProductService,
     private productCategoryService: ProductCategoryService,
-    private notificationService: NotificationService
+    private notificationService: NotificationService,
+    private permissionService: PermissionService
   ) { }
 
   ngOnInit() {
@@ -47,8 +49,23 @@ export class ProductComponent implements OnInit {
       txtProductName: ['', Validators.required],
       txtDescription: ['']
     });
-    this.getProducts();
-    this.getProductCategories()
+      const userJson = localStorage.getItem('user');
+      let user: {
+          cfgTblRole: number | undefined;
+          serUserId: number;
+      };
+
+      if (userJson) {
+          // @ts-ignore
+          user = JSON.parse(userJson) as CfgTblUser;
+      }
+      // @ts-ignore
+      this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
+          this.getProducts();
+          this.getProductCategories()
+      });
+
+
   }
 
   getProducts() {
@@ -74,13 +91,49 @@ export class ProductComponent implements OnInit {
   }
 
   add() {
-    this.isSubmit = false;
-    this.form.reset();
-    this.blnStatus = false;
-    this.modal.open();
+
+      const userJson = localStorage.getItem('user');
+      let user: {
+          cfgTblRole: number | undefined;
+          serUserId: number;
+      };
+
+      if (userJson) {
+          // @ts-ignore
+          user = JSON.parse(userJson) as CfgTblUser;
+      }
+      // @ts-ignore
+      this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
+          // @ts-ignore
+          this.permissionService.canAdd('Product').subscribe(canAdd => {
+              if (canAdd == true) {
+                  /* this.notificationService.showMessage('You do not have permission to add new countries', 'danger');*/
+                  /*this.isSubmit = false;
+                  this.countryForm.reset();
+                  this.blnStatus = false;
+                  this.modal.open();*/
+                  this.isSubmit = false;
+                  this.form.reset();
+                  this.blnStatus = false;
+                  this.modal.open();
+                  return;
+              }else{
+                  this.notificationService.showMessage('You do not have permission to add new Product', 'danger');
+                  return;
+              }
+
+          });
+      });
+
+
   }
 
   edit(product: any) {
+
+    if (!this.permissionService.canUpdate('Product')) {
+          this.notificationService.showMessage('You do not have permission to edit Product', 'danger');
+          return;
+    }
     this.form.reset();
     this.modal.open();
     this.form.patchValue(product);

@@ -2,6 +2,7 @@ import { Component, OnInit, ViewChild } from '@angular/core';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { NotificationService } from 'src/app/NotificationService';
 import { TaxCategoryService } from 'src/app/services/tax-category/tax-category.service';
+import {PermissionService} from "../../services/shared-data/permission-service";
 
 
 @Component({
@@ -30,7 +31,8 @@ export class TaxCategoryComponent implements OnInit {
   constructor(
     private fb: FormBuilder,
     private taxCategoryService: TaxCategoryService,
-    private notificationService: NotificationService
+    private notificationService: NotificationService,
+    private permissionService: PermissionService
   ) { }
 
   ngOnInit() {
@@ -40,7 +42,22 @@ export class TaxCategoryComponent implements OnInit {
       txtOrganizationStatus: ['', Validators.required],
       numTaxPercentage: ['', Validators.required],
     });
-    this.getTaxCategories();
+      const userJson = localStorage.getItem('user');
+      let user: {
+          cfgTblRole: number | undefined;
+          serUserId: number;
+      };
+
+      if (userJson) {
+          // @ts-ignore
+          user = JSON.parse(userJson) as CfgTblUser;
+      }
+      // @ts-ignore
+      this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
+
+          this.getTaxCategories();
+      });
+
   }
 
   getTaxCategories() {
@@ -55,13 +72,48 @@ export class TaxCategoryComponent implements OnInit {
   }
 
   add() {
-    this.isSubmit = false;
-    this.form.reset();
-    this.blnStatus = false;
-    this.modal.open();
+
+      const userJson = localStorage.getItem('user');
+      let user: {
+          cfgTblRole: number | undefined;
+          serUserId: number;
+      };
+
+      if (userJson) {
+          // @ts-ignore
+          user = JSON.parse(userJson) as CfgTblUser;
+      }
+      // @ts-ignore
+      this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
+          // @ts-ignore
+          this.permissionService.canAdd('Tax Category').subscribe(canAdd => {
+              if (canAdd == true) {
+                  /* this.notificationService.showMessage('You do not have permission to add new countries', 'danger');*/
+                  /*this.isSubmit = false;
+                  this.countryForm.reset();
+                  this.blnStatus = false;
+                  this.modal.open();*/
+                  this.isSubmit = false;
+                  this.form.reset();
+                  this.blnStatus = false;
+                  this.modal.open();
+                  return;
+              }else{
+                  this.notificationService.showMessage('You do not have permission to add New Tax Category', 'danger');
+                  return;
+              }
+
+          });
+      });
+
+
   }
 
   edit(taxCategory: any) {
+      if (!this.permissionService.canUpdate('Tax Category')) {
+          this.notificationService.showMessage('You do not have permission to edit Product Category', 'danger');
+          return;
+      }
     this.form.reset();
     this.modal.open();
     this.form.patchValue(taxCategory);
