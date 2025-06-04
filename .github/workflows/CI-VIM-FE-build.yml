@@ -1,7 +1,8 @@
-name: VI FE CI Pipeline
+name: VIM FE/BE CI Pipeline
 
 on:
   push:
+    branches: [ "main" ]
     paths:
       - 'VIM-FE/**'
 
