@@ -1,0 +1,54 @@
+{
+  "name": "ngx-tippy-wrapper",
+  "version": "6.1.0",
+  "description": "Angular wrapper for tippy.js",
+  "keywords": [
+    "angular tooltip",
+    "angular popover",
+    "angular",
+    "tooltip",
+    "popover",
+    "tippy.js",
+    "library",
+    "tooltip library",
+    "popover library"
+  ],
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Alexander Kislov",
+      "email": "alexander-kislov@hotmail.com",
+      "url": "https://github.com/farengeyt451"
+    }
+  ],
+  "homepage": "https://farengeyt451.github.io/ngx-tippy-wrapper/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/farengeyt451/ngx-tippy-wrapper"
+  },
+  "bugs": "https://github.com/farengeyt451/ngx-tippy-wrapper/issues",
+  "dependencies": {
+    "tslib": "^2.4.0",
+    "tippy.js": "^6.3.7"
+  },
+  "module": "fesm2015/ngx-tippy-wrapper.mjs",
+  "es2020": "fesm2020/ngx-tippy-wrapper.mjs",
+  "esm2020": "esm2020/ngx-tippy-wrapper.mjs",
+  "fesm2020": "fesm2020/ngx-tippy-wrapper.mjs",
+  "fesm2015": "fesm2015/ngx-tippy-wrapper.mjs",
+  "typings": "index.d.ts",
+  "exports": {
+    "./package.json": {
+      "default": "./package.json"
+    },
+    ".": {
+      "types": "./index.d.ts",
+      "esm2020": "./esm2020/ngx-tippy-wrapper.mjs",
+      "es2020": "./fesm2020/ngx-tippy-wrapper.mjs",
+      "es2015": "./fesm2015/ngx-tippy-wrapper.mjs",
+      "node": "./fesm2015/ngx-tippy-wrapper.mjs",
+      "default": "./fesm2020/ngx-tippy-wrapper.mjs"
+    }
+  },
+  "sideEffects": false
+}
