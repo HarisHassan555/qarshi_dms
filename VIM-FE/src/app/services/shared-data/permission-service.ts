@@ -50,7 +50,7 @@ export class PermissionService {
 
     private moduleSubMenuMap: { [key: string]: string[] } = {
         'Dashboard': [],
-        'Master Data': ['Country', 'City', 'Media House', 'Product Category', 'Product', 'Tax Category'],
+        'Master Data': ['Country', 'City', 'Media House', 'Product Category', 'Product', 'Tax Category', 'Department'],
         'VIM': [
             'Service Order View',
             'Invoice',
