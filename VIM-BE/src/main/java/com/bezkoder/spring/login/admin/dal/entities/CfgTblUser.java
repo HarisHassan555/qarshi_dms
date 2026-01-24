@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomer;
 import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 import javax.persistence.*;
@@ -341,6 +342,7 @@ public class CfgTblUser implements Serializable {
 	//bi-directional many-to-one association to HrTblDepartment
 	@ManyToOne(fetch = FetchType.EAGER)
 	@JoinColumn(name="ser_department_id")
+	@JsonBackReference
 	private HrTblDepartment hrTblDepartment;
 
 	public HrTblDepartment getHrTblDepartment() {

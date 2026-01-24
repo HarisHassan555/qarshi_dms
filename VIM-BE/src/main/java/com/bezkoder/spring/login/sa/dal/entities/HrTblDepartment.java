@@ -4,6 +4,10 @@ import java.io.Serializable;
 import javax.persistence.*;
 import java.sql.Timestamp;
 import java.util.List;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
+import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
 
 
 /**
@@ -55,8 +59,15 @@ public class HrTblDepartment implements Serializable {
 	private String txtDescription;
 
 	//bi-directional many-to-one association to HrTblEmployee
-	@OneToMany(mappedBy="hrTblDepartment")
+	@OneToMany(mappedBy="hrTblDepartment", fetch = FetchType.LAZY)
+	@JsonIgnore
 	private List<HrTblEmployee> hrTblEmployees;
+
+	//bi-directional many-to-one association to CfgTblUser
+	@OneToMany(mappedBy="hrTblDepartment", fetch = FetchType.LAZY)
+	@JsonManagedReference
+	@JsonIgnoreProperties({"txtPassword", "cfgTblUserRoles", "cfgTblManager", "cfgTblPasswordPolicy", "cfgTblCustomer", "hrTblDepartment"})
+	private List<CfgTblUser> cfgTblUsers;
 
 	public HrTblDepartment() {
 	}
@@ -177,6 +188,28 @@ public class HrTblDepartment implements Serializable {
 		hrTblEmployee.setHrTblDepartment(null);
 
 		return hrTblEmployee;
+	}
+
+	public List<CfgTblUser> getCfgTblUsers() {
+		return this.cfgTblUsers;
+	}
+
+	public void setCfgTblUsers(List<CfgTblUser> cfgTblUsers) {
+		this.cfgTblUsers = cfgTblUsers;
+	}
+
+	public CfgTblUser addCfgTblUser(CfgTblUser cfgTblUser) {
+		getCfgTblUsers().add(cfgTblUser);
+		cfgTblUser.setHrTblDepartment(this);
+
+		return cfgTblUser;
+	}
+
+	public CfgTblUser removeCfgTblUser(CfgTblUser cfgTblUser) {
+		getCfgTblUsers().remove(cfgTblUser);
+		cfgTblUser.setHrTblDepartment(null);
+
+		return cfgTblUser;
 	}
 
 }

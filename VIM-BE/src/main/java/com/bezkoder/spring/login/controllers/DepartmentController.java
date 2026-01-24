@@ -62,8 +62,13 @@ public class DepartmentController {
 	@RequestMapping(value = "/getAllDepartments", method = RequestMethod.GET)
 	public List<HrTblDepartment> getAllDepartments(HttpServletRequest request, HttpServletResponse response) {
 		logger.debug("getAllDepartments()");
-		List<HrTblDepartment> departments = departmentService.getAllDepartments();
-		return departments;
+		try {
+			List<HrTblDepartment> departments = departmentService.getAllDepartments();
+			return departments;
+		} catch (Exception ex) {
+			logger.error("Error getting all departments: " + ex.getMessage(), ex);
+			throw ex;
+		}
 	}
 	
 	

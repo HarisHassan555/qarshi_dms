@@ -38,14 +38,26 @@ public class HrTblDepartmentDAO implements IHrTblDepartmentDAO {
 	@Override
 	public List<HrTblDepartment> getAllDepartments() {
 		EntityManager entityManager = getEntityManager();
-		entityManager.getTransaction().begin();
-		List<HrTblDepartment> Departments = entityManager.createQuery("FROM HrTblDepartment where blIsDeleted=FALSE")
-				.getResultList();
+		try {
+			entityManager.getTransaction().begin();
+			// Use JOIN FETCH to eagerly load users with departments
+			List<HrTblDepartment> Departments = entityManager.createQuery(
+					"SELECT DISTINCT d FROM HrTblDepartment d " +
+					"LEFT JOIN FETCH d.cfgTblUsers " +
+					"WHERE d.blIsDeleted = false OR d.blIsDeleted IS NULL")
+					.getResultList();
 
-		entityManager.getTransaction().commit();
-		entityManager.close();
-
-		return Departments;
+			entityManager.getTransaction().commit();
+			return Departments;
+		} catch (Exception e) {
+			if (entityManager.getTransaction().isActive()) {
+				entityManager.getTransaction().rollback();
+			}
+			log.error("Error getting all departments: " + e.getMessage(), e);
+			throw e;
+		} finally {
+			entityManager.close();
+		}
 	}
 
 	@SuppressWarnings("unchecked")
