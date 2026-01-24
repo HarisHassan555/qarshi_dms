@@ -92,6 +92,7 @@ import { CustomerComponent } from './components/customer/customer.component';
 import { TaxCategoryComponent } from './components/tax-category/tax-category.component';
 import { ProductCategoryComponent } from './components/product-category/product-category.component';
 import { ProductComponent } from './components/product/product.component';
+import { DepartmentComponent } from './components/department/department.component';
 import {OrderListComponent} from "./apps/order/list";
 import {OrderPreviewComponent} from "./apps/order/preview";
 import {SaleInvoiceListComponent} from "./apps/sale-invoice/list";
@@ -197,6 +198,7 @@ import { OrderDetailComponent } from './order-detail/edit';
         TaxCategoryComponent,
         ProductCategoryComponent,
         ProductComponent,
+        DepartmentComponent,
         OrderListComponent,
         OrderPreviewComponent,
         SaleInvoiceListComponent,

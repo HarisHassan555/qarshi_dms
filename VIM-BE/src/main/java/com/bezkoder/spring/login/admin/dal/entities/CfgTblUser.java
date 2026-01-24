@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomer;
+import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 import javax.persistence.*;
 
 import java.sql.Timestamp;
@@ -335,5 +336,18 @@ public class CfgTblUser implements Serializable {
 
 	public void setBlIsGroupCustomer(Boolean blIsGroupCustomer) {
 		this.blIsGroupCustomer = blIsGroupCustomer;
+	}
+
+	//bi-directional many-to-one association to HrTblDepartment
+	@ManyToOne(fetch = FetchType.EAGER)
+	@JoinColumn(name="ser_department_id")
+	private HrTblDepartment hrTblDepartment;
+
+	public HrTblDepartment getHrTblDepartment() {
+		return hrTblDepartment;
+	}
+
+	public void setHrTblDepartment(HrTblDepartment hrTblDepartment) {
+		this.hrTblDepartment = hrTblDepartment;
 	}
 }

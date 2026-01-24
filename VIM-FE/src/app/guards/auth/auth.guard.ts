@@ -28,7 +28,13 @@ export const canActivate: CanActivateFn = (
 
   // console.log('AuthGuard', route);
   // console.log('AuthGuard', route.url[0].path);
-  const path = route.url[0].path;
+  const path = route.url[0] ? route.url[0].path : '';
+
+  // Routes that don't require menu permission check (master data routes)
+  const allowedRoutesWithoutMenu = ['Dashboard', 'department', 'country', 'city', 'media-house', 
+    'tax-category', 'product-category', 'product', 'users', 'password-policy', 'change-password', 
+    'role', 'channel', 'service-order', 'vendor-view', 'payment', 'OrderDepartment', 'pdf-editor', 
+    'SES', 'auditLog', 'transactions-details', 'report', 'order-details'];
 
   let user: any = localStorage.getItem('user');
   if (user && user !== null) {
@@ -40,6 +46,15 @@ export const canActivate: CanActivateFn = (
       router.navigateByUrl('Dashboard');
     }
 
+    // Skip menu check for allowed routes
+    if (allowedRoutesWithoutMenu.includes(path)) {
+      userService.me().subscribe((user: any) => {
+        sharedDataService.saveUser(user);
+      });
+      return true;
+    }
+
+    // For other routes, check menu permissions
     user ? menuService.getAllSubMenuRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe({
       next: (data) => {
         if (data && data.length) {
@@ -57,6 +72,8 @@ export const canActivate: CanActivateFn = (
         console.error('Error fetching submenu roles:', error);
       }
     }) : '';
+    
+    // Load user data for all authenticated users
     userService.me().subscribe((user: any) => {
       sharedDataService.saveUser(user);
     });

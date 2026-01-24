@@ -34,6 +34,7 @@ import { CustomerComponent } from './components/customer/customer.component';
 import { TaxCategoryComponent } from './components/tax-category/tax-category.component';
 import { ProductCategoryComponent } from './components/product-category/product-category.component';
 import { ProductComponent } from './components/product/product.component';
+import { DepartmentComponent } from './components/department/department.component';
 import {OrderListComponent} from "./apps/order/list";
 import {SaleInvoiceListComponent} from "./apps/sale-invoice/list";
 import {SaleInvoiceViewListComponent} from "./apps/sale-invoice-view/list";
@@ -103,6 +104,7 @@ export const routes: Routes = [
             { path: 'tax-category', canActivate: [canActivate], component: TaxCategoryComponent, title: 'Tax Category' },
             { path: 'product-category', canActivate: [canActivate], component: ProductCategoryComponent, title: 'Product Category' },
             { path: 'product', canActivate: [canActivate], component: ProductComponent, title: 'Product' },
+            { path: 'department', canActivate: [canActivate], component: DepartmentComponent, title: 'Department' },
             { path: 'order', canActivate: [canActivate], component: OrderListComponent, title: 'Order' },
             { path: 'sale-invoice', canActivate: [canActivate], component: SaleInvoiceListComponent, title: 'Sale Invoice' },
             { path: 'sale-invoice-view', canActivate: [canActivate], component: SaleInvoiceViewListComponent, title: 'Sale Invoice View' },

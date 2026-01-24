@@ -19,3 +19,11 @@ ORDER BY ser_user_id;
 -- To see all users (including inactive ones), uncomment the line below:
 -- SELECT ser_user_id, txt_user_name, txt_password, bln_status FROM cfg_tbl_user;
 
+
+
+
+
+
+
+
+

@@ -1480,122 +1480,254 @@ if(slsTblDeal.getHrTblEmployee() !=null && slsTblDeal.getHrTblEmployee().getTxtM
 	}*/
 
 	public List<SlsTblDeal> searchDeal(SlsTblDeal Deal) {
-
+		EntityManager entityManager = getEntityManager();
+		List<SlsTblDeal> cust = new ArrayList<>();
 		SimpleDateFormat DATE_FORMATDBTO = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
 
-		EntityManager entityManager = getEntityManager();
-		entityManager.getTransaction().begin();
-		String query = "from SlsTblDeal Deal where 1=1 ";
-		if (Deal.getTxtDealNo() != null) {
-			query += " and upper(Deal.txtDealNo) like" + " upper('" + Deal.getTxtDealNo() + "%')"
-					+ " ";
-		}
-		
-		
-		if (Deal.getTxtDealer() != null && Deal.getTxtDealer().trim().length() > 2) {
-			query += " and upper(Deal.cfgTblDealer.txtCustomerName) like" + " upper('" + Deal.getTxtDealer() + "')"
-					+ " ";
-		}
-		
-		
-		if (Deal.getTxtCustomer() != null && Deal.getTxtCustomer().trim().length() > 2) {
-			query += " and upper(Deal.cfgTblCustomer.txtCustomerName) like" + " upper('" + Deal.getTxtCustomer() + "')"
-					+ " ";
-		}
-		
-		if (Deal.getTxtProduct() != null && Deal.getTxtProduct().trim().length() > 2) {
-			query += " and upper(Deal.cfgTblProduct.txtProductName) like" + " upper('" + Deal.getTxtProduct() + "')"
-					+ " ";
-		}
-		
-		
-		if (Deal.getTxtSapNo() != null && Deal.getTxtSapNo().trim().length() >0) {
-			query += " and upper(Deal.txtSapNo) like" + " upper('" + Deal.getTxtSapNo() + "')"
-					+ " ";
-		}
+		try {
+			entityManager.getTransaction().begin();
 
-		CfgTblUser user = this.loginDao.getUserInformation(commonService.getCurrentLoggedInUser());
+			StringBuilder queryStr = new StringBuilder("SELECT d FROM SlsTblDeal d WHERE 1=1 ");
+			Map<String, Object> params = new HashMap<>();
 
-		if (user != null && user.getSerGroupId() != null && user.getSerGroupId() > 0) {
-			query += " and Deal.serGroupId = " + user.getSerGroupId() + " ";
-
-		}
-		
-		
-	if(Deal.getBlIsComplementry() !=null && Deal.getBlIsComplementry())
-	{
-		query += " and Deal.txtStatus = 'APPROVED' and Deal.serCreatedUserId > 0 "
-				+ " ";
-	}
-
-	if (Deal.getCfgTblProduct() != null && Deal.getCfgTblProduct().getSerProductId() != null  && Deal.getCfgTblProduct().getSerProductId() > 0) {
-		query += " and Deal.cfgTblProduct.serProductId =" + " " + Deal.getCfgTblProduct().getSerProductId() + "" + "  ";
-	}
-
-		if (Deal.getSerDealId() != null) {
-			query += " and Deal.serDealId =" + " " + Deal.getSerDealId() + "" + "  ";
-		}
-
-		if (Deal.getTxtStatus() != null && Deal.getTxtStatus().trim().length() > 0) {
-			query += " and ( Deal.txtStatus is null or Deal.txtStatus = '' ) ";
-			query += " and  Deal.blnIsIncoTerm  = true ";
-		}
-
-		if (Deal.getDte_date_from() != null && Deal.getDte_date_from().trim().length() > 0) {
-			try {
-				Date fromDate = DATE_FORMAT.parse(Deal.getDte_date_from());
-				String formattedFromDate = DATE_FORMATDB.format(fromDate);
-				query += " AND Deal.dteCreateddate >= '" + formattedFromDate + "'";
-			} catch (ParseException e) {
-				System.err.println("Invalid date format for 'from' date: " + e.getMessage());
+			// Basic search fields
+			if (Deal.getTxtDealNo() != null && !Deal.getTxtDealNo().trim().isEmpty()) {
+				queryStr.append(" AND UPPER(d.txtDealNo) LIKE UPPER(:dealNo)");
+				params.put("dealNo", Deal.getTxtDealNo() + "%");
 			}
-		}
 
-		if (Deal.getDte_date_to() != null && Deal.getDte_date_to().trim().length() > 0) {
-			try {
-
-				Date toDate = DATE_FORMAT.parse(Deal.getDte_date_to());
-				Calendar calendar = Calendar.getInstance();
-				calendar.setTime(toDate);
-				calendar.set(Calendar.HOUR_OF_DAY, 23);
-				calendar.set(Calendar.MINUTE, 59);
-				calendar.set(Calendar.SECOND, 59);
-				calendar.set(Calendar.MILLISECOND, 999);
-
-				String formattedToDate = DATE_FORMATDBTO.format(calendar.getTime());
-
-				System.out.println("Formatted To Date: " + formattedToDate);
-			} catch (ParseException e) {
-				System.err.println("Invalid date format for 'to' date: " + e.getMessage());
+			if (Deal.getTxtDealer() != null && Deal.getTxtDealer().trim().length() > 2) {
+				queryStr.append(" AND UPPER(d.cfgTblDealer.txtCustomerName) LIKE UPPER(:dealer)");
+				params.put("dealer", "%" + Deal.getTxtDealer() + "%");
 			}
-		}
 
-		CfgTblUser cfgTblUser = this.loginDao.getUserInformation(commonService.getCurrentLoggedInUser());
-		if (cfgTblUser.getCfgTblCustomer() != null) {
-			if (cfgTblUser.getCfgTblCustomer().getBlIsDealer() != null
-					&& cfgTblUser.getCfgTblCustomer().getBlIsDealer()) {
-				query += " and Deal.cfgTblDealer.serCustomerId in"
-						+ " (select serCustomerId from CfgTblCustomer customer  where customer.serCustomerId="
-						+ cfgTblUser.getCfgTblCustomer().getSerCustomerId()
-						+ "  or customer.cfgTblGroupCustomer.serCustomerId=   "
-						+ cfgTblUser.getCfgTblCustomer().getSerCustomerId()
-						+ " or customer.cfgTblCustomer.serCustomerId=   "
-						+ cfgTblUser.getCfgTblCustomer().getSerCustomerId() + ")";
+			if (Deal.getTxtCustomer() != null && Deal.getTxtCustomer().trim().length() > 2) {
+				queryStr.append(" AND UPPER(d.cfgTblCustomer.txtCustomerName) LIKE UPPER(:customer)");
+				params.put("customer", "%" + Deal.getTxtCustomer() + "%");
+			}
+
+			if (Deal.getTxtProduct() != null && Deal.getTxtProduct().trim().length() > 2) {
+				queryStr.append(" AND UPPER(d.cfgTblProduct.txtProductName) LIKE UPPER(:product)");
+				params.put("product", "%" + Deal.getTxtProduct() + "%");
+			}
+
+			if (Deal.getTxtSapNo() != null && !Deal.getTxtSapNo().trim().isEmpty()) {
+				queryStr.append(" AND UPPER(d.txtSapNo) LIKE UPPER(:sapNo)");
+				params.put("sapNo", "%" + Deal.getTxtSapNo() + "%");
+			}
+
+			if (Deal.getTxtPONo() != null && !Deal.getTxtPONo().trim().isEmpty()) {
+				queryStr.append(" AND UPPER(d.txtPONo) LIKE UPPER(:poNo)");
+				params.put("poNo", "%" + Deal.getTxtPONo() + "%");
+			}
+
+			if (Deal.getTxtDCNo() != null && !Deal.getTxtDCNo().trim().isEmpty()) {
+				queryStr.append(" AND UPPER(d.txtDCNo) LIKE UPPER(:dcNo)");
+				params.put("dcNo", "%" + Deal.getTxtDCNo() + "%");
+			}
+
+			if (Deal.getTxtInvoiceNo() != null && !Deal.getTxtInvoiceNo().trim().isEmpty()) {
+				queryStr.append(" AND UPPER(d.txtInvoiceNo) LIKE UPPER(:invoiceNo)");
+				params.put("invoiceNo", "%" + Deal.getTxtInvoiceNo() + "%");
+			}
+
+			// Status fields
+			if (Deal.getTxtStatus() != null && !Deal.getTxtStatus().trim().isEmpty()) {
+				queryStr.append(" AND d.txtStatus = :status");
+				params.put("status", Deal.getTxtStatus());
+			}
+
+			if (Deal.getTxtReceiveStatus() != null && !Deal.getTxtReceiveStatus().trim().isEmpty()) {
+				queryStr.append(" AND d.txtReceiveStatus = :receiveStatus");
+				params.put("receiveStatus", Deal.getTxtReceiveStatus());
+			}
+
+			if (Deal.getTxtDCStatus() != null && !Deal.getTxtDCStatus().trim().isEmpty()) {
+				queryStr.append(" AND d.txtDCStatus = :dcStatus");
+				params.put("dcStatus", Deal.getTxtDCStatus());
+			}
+
+			if (Deal.getTxtInvoiceStatus() != null && !Deal.getTxtInvoiceStatus().trim().isEmpty()) {
+				queryStr.append(" AND d.txtInvoiceStatus = :invoiceStatus");
+				params.put("invoiceStatus", Deal.getTxtInvoiceStatus());
+			}
+
+			// Boolean flags
+			if (Deal.getBlIsDeleted() != null) {
+				queryStr.append(" AND d.blIsDeleted = :isDeleted");
+				params.put("isDeleted", Deal.getBlIsDeleted());
 			} else {
-				query += " and Deal.cfgTblCustomer.serCustomerId =" + " "
-						+ cfgTblUser.getCfgTblCustomer().getSerCustomerId() + "" + "  ";
+				// Default: exclude deleted records
+				queryStr.append(" AND (d.blIsDeleted IS NULL OR d.blIsDeleted = false)");
+			}
 
+			if (Deal.getBlnIsApproved() != null) {
+				queryStr.append(" AND d.blnIsApproved = :isApproved");
+				params.put("isApproved", Deal.getBlnIsApproved());
+			}
+
+			if (Deal.getBlnIsCompleted() != null) {
+				queryStr.append(" AND d.blnIsCompleted = :isCompleted");
+				params.put("isCompleted", Deal.getBlnIsCompleted());
+			}
+
+			if (Deal.getBlnDealCompletionStatus() != null) {
+				queryStr.append(" AND d.blnDealCompletionStatus = :dealCompletionStatus");
+				params.put("dealCompletionStatus", Deal.getBlnDealCompletionStatus());
+			}
+
+			if (Deal.getBlnFromSAP() != null) {
+				queryStr.append(" AND d.blnFromSAP = :fromSAP");
+				params.put("fromSAP", Deal.getBlnFromSAP());
+			}
+
+			if (Deal.getBlnIsIncoTerm() != null) {
+				queryStr.append(" AND d.blnIsIncoTerm = :isIncoTerm");
+				params.put("isIncoTerm", Deal.getBlnIsIncoTerm());
+			}
+
+			if (Deal.getBlIsComplementry() != null && Deal.getBlIsComplementry()) {
+				queryStr.append(" AND d.txtStatus = 'APPROVED' AND d.serCreatedUserId > 0");
+			}
+
+			if (Deal.getBlIsSplit() != null) {
+				queryStr.append(" AND d.blIsSplit = :isSplit");
+				params.put("isSplit", Deal.getBlIsSplit());
+			}
+
+			// ID-based searches
+			if (Deal.getSerDealId() != null) {
+				queryStr.append(" AND d.serDealId = :dealId");
+				params.put("dealId", Deal.getSerDealId());
+			}
+
+			if (Deal.getCfgTblProduct() != null && Deal.getCfgTblProduct().getSerProductId() != null) {
+				queryStr.append(" AND d.cfgTblProduct.serProductId = :productId");
+				params.put("productId", Deal.getCfgTblProduct().getSerProductId());
+			}
+
+			if (Deal.getCfgTblCustomer() != null && Deal.getCfgTblCustomer().getSerCustomerId() != null) {
+				queryStr.append(" AND d.cfgTblCustomer.serCustomerId = :customerId");
+				params.put("customerId", Deal.getCfgTblCustomer().getSerCustomerId());
+			}
+
+			if (Deal.getCfgTblDealer() != null && Deal.getCfgTblDealer().getSerCustomerId() != null) {
+				queryStr.append(" AND d.cfgTblDealer.serCustomerId = :dealerId");
+				params.put("dealerId", Deal.getCfgTblDealer().getSerCustomerId());
+			}
+
+			if (Deal.getCfgTblCity() != null && Deal.getCfgTblCity().getSerCityId() != null) {
+				queryStr.append(" AND d.cfgTblCity.serCityId = :cityId");
+				params.put("cityId", Deal.getCfgTblCity().getSerCityId());
+			}
+
+			if (Deal.getHrTblEmployee() != null && Deal.getHrTblEmployee().getSerEmployeeId() != null) {
+				queryStr.append(" AND d.hrTblEmployee.serEmployeeId = :employeeId");
+				params.put("employeeId", Deal.getHrTblEmployee().getSerEmployeeId());
+			}
+
+			if (Deal.getSerCreatedUserId() != null) {
+				queryStr.append(" AND d.serCreatedUserId = :createdUserId");
+				params.put("createdUserId", Deal.getSerCreatedUserId());
+			}
+
+			if (Deal.getSerApprovedbyId() != null) {
+				queryStr.append(" AND d.serApprovedbyId = :approvedById");
+				params.put("approvedById", Deal.getSerApprovedbyId());
+			}
+
+			// Date range for creation date
+			if (Deal.getDte_date_from() != null && !Deal.getDte_date_from().trim().isEmpty()) {
+				try {
+					Date fromDate = DATE_FORMAT.parse(Deal.getDte_date_from());
+					queryStr.append(" AND d.dteCreateddate >= :fromDate");
+					params.put("fromDate", fromDate);
+				} catch (ParseException e) {
+					log.error("Invalid date format for 'from' date: " + e.getMessage());
+				}
+			}
+
+			if (Deal.getDte_date_to() != null && !Deal.getDte_date_to().trim().isEmpty()) {
+				try {
+					Date toDate = DATE_FORMAT.parse(Deal.getDte_date_to());
+					Calendar calendar = Calendar.getInstance();
+					calendar.setTime(toDate);
+					calendar.set(Calendar.HOUR_OF_DAY, 23);
+					calendar.set(Calendar.MINUTE, 59);
+					calendar.set(Calendar.SECOND, 59);
+					calendar.set(Calendar.MILLISECOND, 999);
+					queryStr.append(" AND d.dteCreateddate <= :toDate");
+					params.put("toDate", calendar.getTime());
+				} catch (ParseException e) {
+					log.error("Invalid date format for 'to' date: " + e.getMessage());
+				}
+			}
+
+			// Approval date ranges (if provided as string fields in entity)
+			// Note: These would need to be added to the entity as transient fields for date range search
+			// For now, we'll search by the actual timestamp fields if they exist
+
+			// Due date range
+			if (Deal.getDteDueDate() != null) {
+				queryStr.append(" AND d.dteDueDate = :dueDate");
+				params.put("dueDate", Deal.getDteDueDate());
+			}
+
+			// Start and end date ranges
+			if (Deal.getDteStartDate() != null) {
+				queryStr.append(" AND d.dteStartDate >= :startDate");
+				params.put("startDate", Deal.getDteStartDate());
+			}
+
+			if (Deal.getDteEndDate() != null) {
+				queryStr.append(" AND d.dteEndDate <= :endDate");
+				params.put("endDate", Deal.getDteEndDate());
+			}
+
+			// Group ID filter (user-based)
+			CfgTblUser user = this.loginDao.getUserInformation(commonService.getCurrentLoggedInUser());
+			if (user != null && user.getSerGroupId() != null && user.getSerGroupId() > 0) {
+				queryStr.append(" AND d.serGroupId = :serGroupId");
+				params.put("serGroupId", user.getSerGroupId());
+			}
+
+			// Customer/Dealer filter based on logged-in user
+			CfgTblUser cfgTblUser = this.loginDao.getUserInformation(commonService.getCurrentLoggedInUser());
+			if (cfgTblUser != null && cfgTblUser.getCfgTblCustomer() != null) {
+				if (cfgTblUser.getCfgTblCustomer().getBlIsDealer() != null
+						&& cfgTblUser.getCfgTblCustomer().getBlIsDealer()) {
+					queryStr.append(" AND d.cfgTblDealer.serCustomerId IN ")
+							.append("(SELECT c.serCustomerId FROM CfgTblCustomer c WHERE c.serCustomerId = :userCustomerId ")
+							.append("OR c.cfgTblGroupCustomer.serCustomerId = :userCustomerId ")
+							.append("OR c.cfgTblCustomer.serCustomerId = :userCustomerId)");
+					params.put("userCustomerId", cfgTblUser.getCfgTblCustomer().getSerCustomerId());
+				} else {
+					queryStr.append(" AND d.cfgTblCustomer.serCustomerId = :userCustomerId");
+					params.put("userCustomerId", cfgTblUser.getCfgTblCustomer().getSerCustomerId());
+				}
+			}
+
+			queryStr.append(" ORDER BY d.serDealId DESC");
+
+			Query query = entityManager.createQuery(queryStr.toString());
+			for (Map.Entry<String, Object> param : params.entrySet()) {
+				query.setParameter(param.getKey(), param.getValue());
+			}
+
+			cust = query.getResultList();
+			entityManager.getTransaction().commit();
+
+		} catch (Exception e) {
+			if (entityManager.getTransaction().isActive()) {
+				entityManager.getTransaction().rollback();
+			}
+			log.error("Error in searchDeal: " + e.getMessage(), e);
+			e.printStackTrace();
+		} finally {
+			if (entityManager != null && entityManager.isOpen()) {
+				entityManager.close();
 			}
 		}
-
-		query += " order by Deal.serDealId  DESC";
-		log.info("Query is ---" + query.substring(0, query.length()));
-
-		System.out.println("query ----:" + query.substring(0, query.length()));
-		String subQuery = query.substring(0, query.length());
-		List<SlsTblDeal> cust = entityManager.createQuery(subQuery).getResultList();
-		entityManager.getTransaction().commit();
-		entityManager.close();
 
 		return cust;
 	}

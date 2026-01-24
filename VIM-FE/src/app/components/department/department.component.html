@@ -1,0 +1,147 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+            <div class="flex items-center gap-2">
+                <h5 class="text-xl font-bold dark:text-white-light">Department</h5>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto flex gap-2">
+                <div>
+                    <a (click)="add()" class="btn btn-primary gap-2">
+                        <icon-plus />
+                        Add New
+                    </a>
+                </div>
+                <div>
+                    <input [(ngModel)]="search" type="text" class="form-input" placeholder="Search..." />
+                </div>
+            </div>
+        </div>
+        <div class="datatable invoice-table">
+            <ng-datatable #datatable [rows]="departments" [columns]="cols" [hasCheckbox]="true" [sortable]="true"
+                [search]="search" skin="whitespace-nowrap bh-table-hover"
+                firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                lastArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M11 19L17 12L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M6.99976 19L12.9998 12L6.99976 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg> '
+                previousArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M15 5L9 12L15 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                nextArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M9 5L15 12L9 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'>
+                <ng-template slot="userCount" let-value="data">
+                    <span class="badge badge-outline-info">
+                        {{ value.userCount || 0 }} User(s)
+                    </span>
+                </ng-template>
+                <ng-template slot="blnStatus" let-value="data">
+                    <span class="badge"
+                        [ngClass]="[value.blnStatus === true ? 'badge-outline-success' : 'badge-outline-danger']">
+                        {{ value.blnStatus ? 'Active' : 'Inactive' }}
+                    </span>
+                </ng-template>
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-4">
+                        <a (click)="edit(value)" class="hover:text-info" title="Edit Department">
+                            <icon-edit class="h-4.5 w-4.5" />
+                        </a>
+                        <a (click)="openAssignUsersModal(value)" class="hover:text-primary" title="Assign Users">
+                            <icon-user class="h-4.5 w-4.5" />
+                        </a>
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Department Modal -->
+<modal #modal>
+    <ng-template #modalHeader> 
+        <div>{{departmentForm.controls['serDepartmentId'].value ? 'Edit' : 'Add'}} Department</div> 
+    </ng-template>
+    <ng-template #modalBody>
+        <form class="space-y-5" [formGroup]="departmentForm" novalidate>
+            <div class="grid grid-cols-1 gap-5">
+                <div>
+                    <label for="departmentName">Department Name <span class="text-danger">*</span></label>
+                    <input id="departmentName" type="text" placeholder="Enter Department Name" class="form-input" 
+                        formControlName="txtDepartmentName" />
+                    <ng-container *ngIf="isSubmit && departmentForm.controls['txtDepartmentName'].invalid">
+                        <p class="mt-1 text-danger" *ngIf="departmentForm.controls['txtDepartmentName'].hasError('required')">
+                            Department name is required
+                        </p>
+                    </ng-container>
+                </div>
+                <div>
+                    <label for="departmentCode">Department Code <span class="text-danger">*</span></label>
+                    <input id="departmentCode" type="text" placeholder="Enter Department Code" class="form-input" 
+                        formControlName="txtDepartmentCode" />
+                    <ng-container *ngIf="isSubmit && departmentForm.controls['txtDepartmentCode'].invalid">
+                        <p class="mt-1 text-danger" *ngIf="departmentForm.controls['txtDepartmentCode'].hasError('required')">
+                            Department code is required
+                        </p>
+                    </ng-container>
+                </div>
+                <div>
+                    <label for="description">Description</label>
+                    <textarea id="description" placeholder="Enter Description (Optional)" class="form-input" 
+                        formControlName="txtDescription" rows="3"></textarea>
+                </div>
+                <div *ngIf="departmentForm.controls['serDepartmentId'].value">
+                    <label class="inline-flex">
+                        <input type="checkbox" class="form-checkbox" [(ngModel)]="blnStatus" [ngModelOptions]="{standalone: true}"/>
+                        <span>Active</span>
+                    </label>
+                </div>
+            </div>
+        </form>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="modal.close()" class="btn btn-outline-danger">Close</button>
+        <button type="button" (click)="submit()" class="btn btn-primary ltr:ml-4 rtl:mr-4">Save</button>
+    </ng-template>
+</modal>
+
+<!-- Assign Users to Department Modal -->
+<modal #assignUsersModal [closeOnOutsideClick]="false">
+    <ng-template #modalHeader> 
+        <div>Assign Users to {{selectedDepartment?.txtDepartmentName || 'Department'}}</div> 
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="space-y-5">
+            <div class="mb-4">
+                <p class="text-sm text-gray-600 dark:text-gray-400">
+                    Select users to assign to this department. You can select multiple users.
+                </p>
+            </div>
+            <div class="max-h-96 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                <div *ngIf="allUsers && allUsers.length > 0" class="space-y-2">
+                    <label *ngFor="let user of allUsers" 
+                        class="flex items-center p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer border border-gray-200 dark:border-gray-700">
+                        <input type="checkbox" 
+                            [checked]="isUserSelected(user.serUserId)" 
+                            (change)="toggleUserSelection(user.serUserId)"
+                            class="form-checkbox mr-3" />
+                        <div class="flex-1">
+                            <div class="font-medium text-gray-900 dark:text-white">
+                                {{ user.txtUserName }}
+                            </div>
+                            <div class="text-sm text-gray-500 dark:text-gray-400">
+                                {{ user.txtAddress }} | 
+                                <span *ngIf="user.cfgTblRole">{{ user.cfgTblRole.txtRoleName }}</span>
+                            </div>
+                        </div>
+                    </label>
+                </div>
+                <div *ngIf="!allUsers || allUsers.length === 0" class="text-center py-8 text-gray-500">
+                    No users available
+                </div>
+            </div>
+            <div class="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <p class="text-sm text-blue-800 dark:text-blue-200">
+                    <strong>Selected:</strong> {{ selectedUserIds.length }} user(s)
+                </p>
+            </div>
+        </div>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="assignUsersModal.close()" class="btn btn-outline-danger">Cancel</button>
+        <button type="button" (click)="assignUsers()" class="btn btn-primary ltr:ml-4 rtl:mr-4">Assign Users</button>
+    </ng-template>
+</modal>
+

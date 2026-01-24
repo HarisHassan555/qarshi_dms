@@ -2,6 +2,8 @@ package com.bezkoder.spring.login.controllers;
 
 import com.bezkoder.spring.login.sa.bll.services.IDepartmentService;
 import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
+import com.bezkoder.spring.login.admin.bll.services.IUserService;
+import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.apache.poi.ss.usermodel.Row;
@@ -20,7 +22,9 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.*;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 //@RequestMapping("/api/department")
@@ -32,6 +36,9 @@ public class DepartmentController {
 
 	@Autowired
 	private IDepartmentService departmentService;
+	
+	@Autowired
+	private IUserService userService;
 	
 	
 
@@ -112,6 +119,86 @@ public class DepartmentController {
 //					departmentExistByProperty
 		} catch (Exception ex) {
 			return "Failure";
+		}
+	}
+	
+	@RequestMapping(value = "/getUsersByDepartment", method = RequestMethod.GET)
+	public List<CfgTblUser> getUsersByDepartment(@RequestParam Integer departmentId, HttpServletRequest request,
+			HttpServletResponse response) {
+		logger.debug("getUsersByDepartment() - departmentId: " + departmentId);
+		try {
+			List<CfgTblUser> allUsers = userService.getAllUser();
+			List<CfgTblUser> departmentUsers = new ArrayList<>();
+			
+			for (CfgTblUser user : allUsers) {
+				if (user.getHrTblDepartment() != null && 
+					user.getHrTblDepartment().getSerDepartmentId() != null &&
+					user.getHrTblDepartment().getSerDepartmentId().equals(departmentId)) {
+					departmentUsers.add(user);
+				}
+			}
+			
+			return departmentUsers;
+		} catch (Exception ex) {
+			logger.error("Error getting users by department: " + ex.getMessage(), ex);
+			return new ArrayList<>();
+		}
+	}
+	
+	@RequestMapping(value = "/assignUsersToDepartment", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE)
+	public String assignUsersToDepartment(@RequestBody Map<String, Object> requestBody, HttpServletRequest request,
+			HttpServletResponse response) {
+		logger.debug("assignUsersToDepartment()");
+		try {
+			Integer departmentId = (Integer) requestBody.get("departmentId");
+			@SuppressWarnings("unchecked")
+			List<Integer> userIds = (List<Integer>) requestBody.get("userIds");
+			
+			if (departmentId == null) {
+				return "{\"status\":\"Failure\",\"message\":\"Department ID is required\"}";
+			}
+			
+			if (userIds == null || userIds.isEmpty()) {
+				return "{\"status\":\"Failure\",\"message\":\"User IDs are required\"}";
+			}
+			
+			// Get the department
+			HrTblDepartment department = null;
+			List<HrTblDepartment> departments = departmentService.getAllDepartments();
+			for (HrTblDepartment dept : departments) {
+				if (dept.getSerDepartmentId().equals(departmentId)) {
+					department = dept;
+					break;
+				}
+			}
+			
+			if (department == null) {
+				return "{\"status\":\"Failure\",\"message\":\"Department not found\"}";
+			}
+			
+			// Get all users and update those in the list
+			List<CfgTblUser> allUsers = userService.getAllUser();
+			int updatedCount = 0;
+			
+			for (CfgTblUser user : allUsers) {
+				if (userIds.contains(user.getSerUserId())) {
+					// Assign user to department
+					user.setHrTblDepartment(department);
+					userService.updateUser(user);
+					updatedCount++;
+				} else if (user.getHrTblDepartment() != null && 
+						   user.getHrTblDepartment().getSerDepartmentId() != null &&
+						   user.getHrTblDepartment().getSerDepartmentId().equals(departmentId)) {
+					// Remove user from department if not in the new list
+					user.setHrTblDepartment(null);
+					userService.updateUser(user);
+				}
+			}
+			
+			return "{\"status\":\"Success\",\"message\":\"" + updatedCount + " user(s) assigned to department\"}";
+		} catch (Exception ex) {
+			logger.error("Error assigning users to department: " + ex.getMessage(), ex);
+			return "{\"status\":\"Failure\",\"message\":\"" + ex.getMessage() + "\"}";
 		}
 	}
 	

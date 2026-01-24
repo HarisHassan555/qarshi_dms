@@ -2,7 +2,7 @@ package com.bezkoder.spring.login.sa.dal.entities;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
-import java.security.Timestamp;
+import java.sql.Timestamp;
 
 import javax.persistence.*;
 
