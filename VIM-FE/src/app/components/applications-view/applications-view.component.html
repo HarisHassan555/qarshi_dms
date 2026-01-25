@@ -114,6 +114,9 @@
                         <a (click)="viewApplication(value)" class="hover:text-info" title="View Application">
                             <icon-eye class="h-4.5 w-4.5" />
                         </a>
+                        <a (click)="editApplication(value)" class="hover:text-primary" title="Edit Application" *ngIf="canEditApplication(value)">
+                            <icon-edit class="h-4.5 w-4.5" />
+                        </a>
                         <a (click)="deleteApplication(value)" class="hover:text-danger" title="Delete Application">
                             <icon-trash-lines class="h-4.5 w-4.5" />
                         </a>
@@ -332,6 +335,198 @@
     </ng-template>
     <ng-template #modalFooter>
         <button type="button" (click)="viewModal.close(); selectedApplicationForView = null" class="btn btn-primary">Close</button>
+    </ng-template>
+</modal>
+
+<!-- Edit Application Modal -->
+<modal #editModal [closeOnOutsideClick]="false" *ngIf="selectedApplicationForEdit">
+    <ng-template #modalHeader>
+        <div>Edit Application</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="space-y-4" *ngIf="editFormFields.length > 0">
+            <div class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <p class="text-sm text-blue-800 dark:text-blue-200">
+                    <strong>Application Code:</strong> {{ selectedApplicationForEdit?.txtFormCode }}
+                </p>
+                <p class="text-sm text-blue-800 dark:text-blue-200 mt-1">
+                    <strong>Form Name:</strong> {{ selectedApplicationForEdit?.formName }}
+                </p>
+            </div>
+            
+            <form [formGroup]="editForm">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Text Input -->
+                    <div *ngFor="let field of editFormFields">
+                        <div *ngIf="field.type === 'text'">
+                            <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                {{ field.label }}
+                                <span *ngIf="field.required" class="text-danger">*</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                [formControlName]="getFieldName(field.label)"
+                                [placeholder]="field.placeholder || ''"
+                                class="form-input"
+                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
+                            />
+                            <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                            </p>
+                        </div>
+
+                        <!-- Number Input -->
+                        <div *ngIf="field.type === 'number'">
+                            <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                {{ field.label }}
+                                <span *ngIf="field.required" class="text-danger">*</span>
+                            </label>
+                            <input 
+                                type="number" 
+                                [formControlName]="getFieldName(field.label)"
+                                [placeholder]="field.placeholder || ''"
+                                class="form-input"
+                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
+                            />
+                            <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                            </p>
+                        </div>
+
+                        <!-- Email Input -->
+                        <div *ngIf="field.type === 'email'">
+                            <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                {{ field.label }}
+                                <span *ngIf="field.required" class="text-danger">*</span>
+                            </label>
+                            <input 
+                                type="email" 
+                                [formControlName]="getFieldName(field.label)"
+                                [placeholder]="field.placeholder || ''"
+                                class="form-input"
+                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
+                            />
+                            <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                            </p>
+                        </div>
+
+                        <!-- Date Input -->
+                        <div *ngIf="field.type === 'date'">
+                            <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                {{ field.label }}
+                                <span *ngIf="field.required" class="text-danger">*</span>
+                            </label>
+                            <input 
+                                type="date" 
+                                [formControlName]="getFieldName(field.label)"
+                                class="form-input"
+                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
+                            />
+                            <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Textarea (full width) -->
+                    <div *ngFor="let field of editFormFields" class="md:col-span-2">
+                        <div *ngIf="field.type === 'textarea'">
+                            <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                {{ field.label }}
+                                <span *ngIf="field.required" class="text-danger">*</span>
+                            </label>
+                            <textarea 
+                                [formControlName]="getFieldName(field.label)"
+                                [placeholder]="field.placeholder || ''"
+                                rows="4"
+                                class="form-textarea"
+                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
+                            ></textarea>
+                            <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Select Dropdown -->
+                    <div *ngFor="let field of editFormFields">
+                        <div *ngIf="field.type === 'select'">
+                            <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                {{ field.label }}
+                                <span *ngIf="field.required" class="text-danger">*</span>
+                            </label>
+                            <select 
+                                [formControlName]="getFieldName(field.label)"
+                                class="form-select"
+                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))">
+                                <option value="">Select {{ field.label }}</option>
+                                <option *ngFor="let option of getFieldOptions(field)" [value]="option">
+                                    {{ option }}
+                                </option>
+                            </select>
+                            <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Radio Buttons -->
+                    <div *ngFor="let field of editFormFields" class="md:col-span-2">
+                        <div *ngIf="field.type === 'radio'">
+                            <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                {{ field.label }}
+                                <span *ngIf="field.required" class="text-danger">*</span>
+                            </label>
+                            <div class="flex flex-wrap gap-4">
+                                <label *ngFor="let option of getFieldOptions(field)" class="flex items-center">
+                                    <input 
+                                        type="radio" 
+                                        [formControlName]="getFieldName(field.label)"
+                                        [value]="option"
+                                        class="form-radio"
+                                    />
+                                    <span class="ml-2 dark:text-white-light">{{ option }}</span>
+                                </label>
+                            </div>
+                            <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Checkbox -->
+                    <div *ngFor="let field of editFormFields">
+                        <div *ngIf="field.type === 'checkbox'">
+                            <label class="flex items-center">
+                                <input 
+                                    type="checkbox" 
+                                    [formControlName]="getFieldName(field.label)"
+                                    class="form-checkbox"
+                                />
+                                <span class="ml-2 text-sm font-semibold dark:text-white-light">
+                                    {{ field.label }}
+                                    <span *ngIf="field.required" class="text-danger">*</span>
+                                </span>
+                            </label>
+                            <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div *ngIf="editFormFields.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400">
+            <p>Loading form fields...</p>
+        </div>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="editModal.close(); selectedApplicationForEdit = null" class="btn btn-outline-danger">Cancel</button>
+        <button type="button" (click)="updateApplication()" [disabled]="isSubmitting || editForm.invalid" class="btn btn-primary ltr:ml-4 rtl:mr-4">
+            <span *ngIf="isSubmitting">Updating...</span>
+            <span *ngIf="!isSubmitting">Update Application</span>
+        </button>
     </ng-template>
 </modal>
 

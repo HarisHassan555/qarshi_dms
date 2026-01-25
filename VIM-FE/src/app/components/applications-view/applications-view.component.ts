@@ -1,4 +1,5 @@
 import { Component, OnInit, ViewChild } from '@angular/core';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { PermissionService } from '../../services/shared-data/permission-service';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
@@ -50,12 +51,20 @@ export class ApplicationsViewComponent implements OnInit {
     { field: 'actions', title: 'Actions', sort: false, headerClass: 'justify-center' },
   ];
 
+  editForm!: FormGroup;
+  selectedApplicationForEdit: Application | null = null;
+  editFormFields: any[] = [];
+  isSubmitting: boolean = false;
+
   constructor(
     private permissionService: PermissionService,
     private customFormApplicationService: CustomFormApplicationService,
     private customFormService: CustomFormService,
-    private notificationService: NotificationService
-  ) { }
+    private notificationService: NotificationService,
+    private fb: FormBuilder
+  ) {
+    this.editForm = this.fb.group({});
+  }
 
   ngOnInit() {
     const userJson = localStorage.getItem('user');
@@ -331,6 +340,173 @@ export class ApplicationsViewComponent implements OnInit {
     return value;
   }
 
+  canEditApplication(application: Application): boolean {
+    // Only allow editing if status is PENDING or REJECTED
+    // Don't allow editing if it's APPROVED or IN_PROGRESS (in approval pipeline)
+    const status = application.txtStatus?.toUpperCase();
+    return status === 'PENDING' || status === 'REJECTED';
+  }
+
+  editApplication(application: Application) {
+    if (!this.canEditApplication(application)) {
+      this.notificationService.showMessage('This application cannot be edited in its current status', 'warning');
+      return;
+    }
+
+    this.selectedApplicationForEdit = application;
+    this.editFormFields = [];
+    this.isSubmitting = false;
+    
+    // Fetch full application details
+    if (application.serApplicationId) {
+      this.customFormApplicationService.getApplicationById(application.serApplicationId).subscribe(
+        (data: any) => {
+          if (data) {
+            // Get form structure
+            const form = this.forms.find(f => f.serFormId === data.serFormId);
+            if (form && form.cfgTblCustomFormFields) {
+              this.editFormFields = form.cfgTblCustomFormFields
+                .map((field: any) => ({
+                  serFieldId: field.serFieldId,
+                  label: field.txtFieldLabel,
+                  type: field.txtFieldType,
+                  required: field.blIsRequired || false,
+                  placeholder: field.txtPlaceholder || '',
+                  intFieldOrder: field.intFieldOrder || 0,
+                  txtFieldOptions: field.txtFieldOptions
+                }))
+                .sort((a: any, b: any) => (a.intFieldOrder || 0) - (b.intFieldOrder || 0));
+            } else if (data.cfgTblCustomForm && data.cfgTblCustomForm.cfgTblCustomFormFields) {
+              this.editFormFields = data.cfgTblCustomForm.cfgTblCustomFormFields
+                .map((field: any) => ({
+                  serFieldId: field.serFieldId,
+                  label: field.txtFieldLabel,
+                  type: field.txtFieldType,
+                  required: field.blIsRequired || false,
+                  placeholder: field.txtPlaceholder || '',
+                  intFieldOrder: field.intFieldOrder || 0,
+                  txtFieldOptions: field.txtFieldOptions
+                }))
+                .sort((a: any, b: any) => (a.intFieldOrder || 0) - (b.intFieldOrder || 0));
+            }
+            
+            // Parse application data JSON
+            let applicationData: any = {};
+            if (data.txtApplicationData) {
+              try {
+                applicationData = JSON.parse(data.txtApplicationData);
+              } catch (e) {
+                console.error('Error parsing application data:', e);
+                applicationData = {};
+              }
+            }
+            
+            // Build form with existing values
+            const formControls: any = {};
+            this.editFormFields.forEach((field: any) => {
+              const fieldName = this.getFieldName(field.label);
+              const validators = field.required ? [Validators.required] : [];
+              
+              if (field.type === 'email') {
+                validators.push(Validators.email);
+              }
+              
+              // Get existing value
+              let existingValue = applicationData[fieldName] || applicationData[field.label] || null;
+              
+              // Set default value based on field type
+              if (existingValue === null || existingValue === undefined) {
+                existingValue = field.type === 'checkbox' ? false : '';
+              }
+              
+              formControls[fieldName] = [existingValue, validators];
+            });
+            
+            this.editForm = this.fb.group(formControls);
+            this.editModal.open();
+          } else {
+            this.notificationService.showMessage('Application not found', 'danger');
+          }
+        },
+        (error) => {
+          this.notificationService.showMessage('Error loading application for editing: ' + (error.error?.message || error.message), 'danger');
+        }
+      );
+    }
+  }
+
+  updateApplication() {
+    if (this.editForm.invalid) {
+      this.notificationService.showMessage('Please fill all required fields', 'danger');
+      return;
+    }
+
+    if (!this.selectedApplicationForEdit || !this.selectedApplicationForEdit.serApplicationId) {
+      this.notificationService.showMessage('Invalid application', 'danger');
+      return;
+    }
+
+    this.isSubmitting = true;
+    const formData = this.editForm.value;
+    
+    // Convert form data to JSON string
+    const applicationDataJson = JSON.stringify(formData);
+    
+    // Prepare payload for backend
+    const payload: any = {
+      serApplicationId: this.selectedApplicationForEdit.serApplicationId,
+      serFormId: this.selectedApplicationForEdit.serFormId,
+      txtFormCode: this.selectedApplicationForEdit.txtFormCode,
+      txtApplicationData: applicationDataJson,
+      txtStatus: this.selectedApplicationForEdit.txtStatus || 'PENDING',
+      intCurrentApprovalLevel: this.selectedApplicationForEdit.intCurrentApprovalLevel || 0,
+      serSubmittedBy: this.selectedApplicationForEdit.serSubmittedBy,
+      blIsActive: true,
+      blIsDeleted: false,
+      blnStatus: true
+    };
+    
+    // Submit to backend
+    this.customFormApplicationService.updateApplication(payload).subscribe(
+      (response: any) => {
+        this.isSubmitting = false;
+        if (response && response.status === 'Success') {
+          this.notificationService.showMessage(response.message || 'Application updated successfully', 'success');
+          this.editModal.close();
+          this.selectedApplicationForEdit = null;
+          this.loadApplications(this.currentUser.serUserId);
+          if (this.isDepartmentHead) {
+            this.checkIfDepartmentHeadAndLoadPendingApprovals();
+          }
+        } else {
+          this.notificationService.showMessage(response?.message || 'Failed to update application', 'danger');
+        }
+      },
+      (error) => {
+        this.isSubmitting = false;
+        this.notificationService.showMessage('Error updating application: ' + (error.error?.message || error.message), 'danger');
+      }
+    );
+  }
+
+  isFieldInvalid(fieldName: string): boolean {
+    const control = this.editForm.get(fieldName);
+    return !!(control && control.invalid && (control.dirty || control.touched));
+  }
+
+  getFieldErrorMessage(fieldName: string): string {
+    const control = this.editForm.get(fieldName);
+    if (control && control.errors) {
+      if (control.errors['required']) {
+        return 'This field is required';
+      }
+      if (control.errors['email']) {
+        return 'Please enter a valid email address';
+      }
+    }
+    return '';
+  }
+
   deleteApplication(application: Application) {
     if (confirm('Are you sure you want to delete this application? You will not be able to recover it!')) {
       const applicationId = application.serApplicationId;
@@ -361,6 +537,7 @@ export class ApplicationsViewComponent implements OnInit {
   @ViewChild('approveModal') approveModal: any;
   @ViewChild('rejectModal') rejectModal: any;
   @ViewChild('viewModal') viewModal: any;
+  @ViewChild('editModal') editModal: any;
 
   openApproveModal(application: Application) {
     this.selectedApplicationForRemarks = application;
