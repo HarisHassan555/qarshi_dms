@@ -93,6 +93,10 @@ import { TaxCategoryComponent } from './components/tax-category/tax-category.com
 import { ProductCategoryComponent } from './components/product-category/product-category.component';
 import { ProductComponent } from './components/product/product.component';
 import { DepartmentComponent } from './components/department/department.component';
+import { CapfComponent } from './components/capf/capf.component';
+import { ApplicationComponent } from './components/application/application.component';
+import { ApplicationsViewComponent } from './components/applications-view/applications-view.component';
+import { FormBuilderComponent } from './components/form-builder/form-builder.component';
 import {OrderListComponent} from "./apps/order/list";
 import {OrderPreviewComponent} from "./apps/order/preview";
 import {SaleInvoiceListComponent} from "./apps/sale-invoice/list";
@@ -199,6 +203,10 @@ import { OrderDetailComponent } from './order-detail/edit';
         ProductCategoryComponent,
         ProductComponent,
         DepartmentComponent,
+        CapfComponent,
+        ApplicationComponent,
+        ApplicationsViewComponent,
+        FormBuilderComponent,
         OrderListComponent,
         OrderPreviewComponent,
         SaleInvoiceListComponent,

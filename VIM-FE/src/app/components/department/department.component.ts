@@ -23,6 +23,7 @@ export class DepartmentComponent implements OnInit {
   allUsers: any;
   selectedDepartment: any = null;
   selectedUserIds: number[] = [];
+  selectedDepartmentHeadId: number | null = null;
   blnStatus = false;
   editCase = false;
 
@@ -30,6 +31,7 @@ export class DepartmentComponent implements OnInit {
     { field: 'txtDepartmentName', title: 'Department Name' },
     { field: 'txtDepartmentCode', title: 'Department Code' },
     { field: 'userCount', title: 'Users Assigned' },
+    { field: 'departmentHeadName', title: 'Department Head' },
     { field: 'blnStatus', title: 'Status' },
     { field: 'actions', title: 'Actions', sort: false, headerClass: 'justify-center' },
   ];
@@ -77,23 +79,41 @@ export class DepartmentComponent implements OnInit {
           this.departments = data.map((dept: any) => {
             let userCount = 0;
             
-            // Count from employees relationship
-            if (dept.hrTblEmployees) {
-              userCount += dept.hrTblEmployees.length;
+            // Count from cfgTblUsers array (primary source)
+            if (dept.cfgTblUsers && Array.isArray(dept.cfgTblUsers)) {
+              userCount = dept.cfgTblUsers.length;
             }
             
-            // Also count from users if available
-            if (this.allUsers) {
+            // Fallback: Count from employees relationship if cfgTblUsers is not available
+            if (userCount === 0 && dept.hrTblEmployees && Array.isArray(dept.hrTblEmployees)) {
+              userCount = dept.hrTblEmployees.length;
+            }
+            
+            // Fallback: Count from allUsers if neither cfgTblUsers nor hrTblEmployees is available
+            if (userCount === 0 && this.allUsers) {
               const usersInDept = this.allUsers.filter((user: any) => 
                 user.hrTblDepartment && 
                 user.hrTblDepartment.serDepartmentId === dept.serDepartmentId
               );
-              userCount = Math.max(userCount, usersInDept.length);
+              userCount = usersInDept.length;
+            }
+            
+            // Get department head name
+            let departmentHeadName = '-';
+            if (dept.departmentHead && dept.departmentHead.txtUserName) {
+              departmentHeadName = dept.departmentHead.txtUserName;
+            } else if (dept.serDepartmentHeadId && this.allUsers) {
+              // Fallback: find user from allUsers if departmentHead relationship is not loaded
+              const headUser = this.allUsers.find((user: any) => user.serUserId === dept.serDepartmentHeadId);
+              if (headUser && headUser.txtUserName) {
+                departmentHeadName = headUser.txtUserName;
+              }
             }
             
             return {
               ...dept,
-              userCount: userCount
+              userCount: userCount,
+              departmentHeadName: departmentHeadName
             };
           });
         }
@@ -204,6 +224,7 @@ export class DepartmentComponent implements OnInit {
   openAssignUsersModal(department: any) {
     this.selectedDepartment = department;
     this.selectedUserIds = [];
+    this.selectedDepartmentHeadId = department.serDepartmentHeadId || null;
     
     // Load users already assigned to this department from backend
     this.departmentService.getUsersByDepartment(department.serDepartmentId)
@@ -231,8 +252,26 @@ export class DepartmentComponent implements OnInit {
     const index = this.selectedUserIds.indexOf(userId);
     if (index > -1) {
       this.selectedUserIds.splice(index, 1);
+      // If the deselected user was the department head, clear the department head
+      if (this.selectedDepartmentHeadId === userId) {
+        this.selectedDepartmentHeadId = null;
+      }
     } else {
       this.selectedUserIds.push(userId);
+    }
+  }
+
+  toggleDepartmentHead(userId: number) {
+    // Only allow setting department head for selected users
+    if (!this.isUserSelected(userId)) {
+      return;
+    }
+    
+    // If clicking on the current head, unset it. Otherwise, set new head.
+    if (this.selectedDepartmentHeadId === userId) {
+      this.selectedDepartmentHeadId = null;
+    } else {
+      this.selectedDepartmentHeadId = userId;
     }
   }
 
@@ -246,10 +285,17 @@ export class DepartmentComponent implements OnInit {
       return;
     }
 
+    // Validate that department head is selected from assigned users
+    if (this.selectedDepartmentHeadId && !this.selectedUserIds.includes(this.selectedDepartmentHeadId)) {
+      this.notificationService.showMessage('Department head must be selected from the assigned users', 'danger');
+      return;
+    }
+
     // Use the backend endpoint for assigning users to department
     this.departmentService.assignUsersToDepartment(
       this.selectedDepartment.serDepartmentId,
-      this.selectedUserIds
+      this.selectedUserIds,
+      this.selectedDepartmentHeadId
     ).subscribe(
       (response: any) => {
         if (response && (response.includes('Success') || response.includes('"status":"Success"'))) {

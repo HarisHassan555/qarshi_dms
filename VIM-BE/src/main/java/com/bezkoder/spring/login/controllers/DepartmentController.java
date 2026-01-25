@@ -158,6 +158,8 @@ public class DepartmentController {
 			Integer departmentId = (Integer) requestBody.get("departmentId");
 			@SuppressWarnings("unchecked")
 			List<Integer> userIds = (List<Integer>) requestBody.get("userIds");
+			Integer departmentHeadId = requestBody.get("departmentHeadId") != null ? 
+				(Integer) requestBody.get("departmentHeadId") : null;
 			
 			if (departmentId == null) {
 				return "{\"status\":\"Failure\",\"message\":\"Department ID is required\"}";
@@ -181,6 +183,20 @@ public class DepartmentController {
 				return "{\"status\":\"Failure\",\"message\":\"Department not found\"}";
 			}
 			
+			// Set department head if provided
+			if (departmentHeadId != null) {
+				// Verify that the department head is in the selected users list
+				if (!userIds.contains(departmentHeadId)) {
+					return "{\"status\":\"Failure\",\"message\":\"Department head must be selected from the assigned users\"}";
+				}
+				department.setSerDepartmentHeadId(departmentHeadId);
+				departmentService.updateDepartment(department);
+			} else {
+				// Clear department head if not provided
+				department.setSerDepartmentHeadId(null);
+				departmentService.updateDepartment(department);
+			}
+			
 			// Get all users and update those in the list
 			List<CfgTblUser> allUsers = userService.getAllUser();
 			int updatedCount = 0;
@@ -200,7 +216,11 @@ public class DepartmentController {
 				}
 			}
 			
-			return "{\"status\":\"Success\",\"message\":\"" + updatedCount + " user(s) assigned to department\"}";
+			String message = updatedCount + " user(s) assigned to department";
+			if (departmentHeadId != null) {
+				message += " with department head assigned";
+			}
+			return "{\"status\":\"Success\",\"message\":\"" + message + "\"}";
 		} catch (Exception ex) {
 			logger.error("Error assigning users to department: " + ex.getMessage(), ex);
 			return "{\"status\":\"Failure\",\"message\":\"" + ex.getMessage() + "\"}";

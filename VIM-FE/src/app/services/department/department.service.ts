@@ -31,11 +31,15 @@ export class DepartmentService {
     return this.http.get(urls.API_URL + 'getUsersByDepartment?departmentId=' + departmentId);
   }
 
-  assignUsersToDepartment(departmentId: number, userIds: number[]) {
-    return this.http.post(urls.API_URL + 'assignUsersToDepartment', {
+  assignUsersToDepartment(departmentId: number, userIds: number[], departmentHeadId?: number | null) {
+    const payload: any = {
       departmentId: departmentId,
       userIds: userIds
-    }, { responseType: 'text' });
+    };
+    if (departmentHeadId !== null && departmentHeadId !== undefined) {
+      payload.departmentHeadId = departmentHeadId;
+    }
+    return this.http.post(urls.API_URL + 'assignUsersToDepartment', payload, { responseType: 'text' });
   }
 }
 

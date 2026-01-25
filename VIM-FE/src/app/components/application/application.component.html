@@ -1,0 +1,266 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+            <div class="flex items-center gap-2">
+                <h5 class="text-xl font-bold dark:text-white-light">Application</h5>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto flex gap-2">
+                <div>
+                    <input [(ngModel)]="search" type="text" class="form-input" placeholder="Search..." />
+                </div>
+            </div>
+        </div>
+        <div class="px-5 pb-5">
+            <div class="rounded-md border border-[#e0e6ed] bg-white p-5 dark:border-[#1b2e4b] dark:bg-[#1b2e4b]">
+                <!-- Form Selection Dropdown -->
+                <div class="mb-5">
+                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                        Select Form <span class="text-danger">*</span>
+                    </label>
+                    <select (change)="onFormSelect($event)" class="form-select">
+                        <option value="">-- Select a Form --</option>
+                        <option *ngFor="let form of customForms" [value]="form.serFormId">
+                            {{ form.name || form.txtFormName }}
+                        </option>
+                    </select>
+                </div>
+
+                <!-- Dynamic Form Fields -->
+                <div *ngIf="selectedForm && applicationForm" class="mt-5">
+                    <h6 class="mb-4 text-lg font-semibold dark:text-white-light">
+                        {{ selectedForm.name || selectedForm.txtFormName }}
+                    </h6>
+                    
+                    <form [formGroup]="applicationForm" (ngSubmit)="onSubmit()" class="space-y-4">
+                        <!-- Application Code (Auto-generated, Read-only) -->
+                        <div *ngIf="generatedApplicationCode" class="mb-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                        Application Code
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        [value]="generatedApplicationCode"
+                                        class="form-input bg-gray-100 dark:bg-[#0e1726] cursor-not-allowed"
+                                        readonly
+                                        disabled
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div *ngFor="let field of selectedForm.fields" class="mb-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <!-- Text Input -->
+                                <div *ngIf="field.type === 'text'">
+                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                        {{ field.label }}
+                                        <span *ngIf="field.required" class="text-danger">*</span>
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        [formControlName]="getFieldName(field.label)"
+                                        [placeholder]="field.placeholder || ''"
+                                        class="form-input"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
+                                    />
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                        {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                                    </p>
+                                </div>
+
+                                <!-- Number Input -->
+                                <div *ngIf="field.type === 'number'">
+                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                        {{ field.label }}
+                                        <span *ngIf="field.required" class="text-danger">*</span>
+                                    </label>
+                                    <input 
+                                        type="number" 
+                                        [formControlName]="getFieldName(field.label)"
+                                        [placeholder]="field.placeholder || ''"
+                                        class="form-input"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
+                                    />
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                        {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                                    </p>
+                                </div>
+
+                                <!-- Email Input -->
+                                <div *ngIf="field.type === 'email'">
+                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                        {{ field.label }}
+                                        <span *ngIf="field.required" class="text-danger">*</span>
+                                    </label>
+                                    <input 
+                                        type="email" 
+                                        [formControlName]="getFieldName(field.label)"
+                                        [placeholder]="field.placeholder || ''"
+                                        class="form-input"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
+                                    />
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                        {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                                    </p>
+                                </div>
+
+                                <!-- Date Input -->
+                                <div *ngIf="field.type === 'date'">
+                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                        {{ field.label }}
+                                        <span *ngIf="field.required" class="text-danger">*</span>
+                                    </label>
+                                    <input 
+                                        type="date" 
+                                        [formControlName]="getFieldName(field.label)"
+                                        class="form-input"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
+                                    />
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                        {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                                    </p>
+                                </div>
+
+                                <!-- Textarea -->
+                                <div *ngIf="field.type === 'textarea'" class="md:col-span-2">
+                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                        {{ field.label }}
+                                        <span *ngIf="field.required" class="text-danger">*</span>
+                                    </label>
+                                    <textarea 
+                                        [formControlName]="getFieldName(field.label)"
+                                        [placeholder]="field.placeholder || ''"
+                                        rows="4"
+                                        class="form-textarea"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
+                                    ></textarea>
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                        {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                                    </p>
+                                </div>
+
+                                <!-- Select Dropdown -->
+                                <div *ngIf="field.type === 'select'">
+                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                        {{ field.label }}
+                                        <span *ngIf="field.required" class="text-danger">*</span>
+                                    </label>
+                                    <select 
+                                        *ngIf="getFieldOptions(field).length > 0"
+                                        [formControlName]="getFieldName(field.label)"
+                                        class="form-select"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
+                                    >
+                                        <option value="">-- Select --</option>
+                                        <option *ngFor="let option of getFieldOptions(field)" [value]="option">
+                                            {{ option }}
+                                        </option>
+                                    </select>
+                                    <div *ngIf="getFieldOptions(field).length === 0" class="text-sm text-warning">
+                                        No options configured for this field. Please configure options in Form Builder.
+                                    </div>
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                        {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                                    </p>
+                                </div>
+
+                                <!-- Checkbox -->
+                                <div *ngIf="field.type === 'checkbox'">
+                                    <label class="flex items-center cursor-pointer">
+                                        <span class="mr-2 text-sm font-semibold dark:text-white-light">
+                                            {{ field.label }}
+                                            <span *ngIf="field.required" class="text-danger">*</span>
+                                        </span>
+                                        <input 
+                                            type="checkbox" 
+                                            [formControlName]="getFieldName(field.label)"
+                                            class="form-checkbox"
+                                        />
+                                    </label>
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                        {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                                    </p>
+                                </div>
+
+                                <!-- Radio Buttons -->
+                                <div *ngIf="field.type === 'radio'">
+                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                        {{ field.label }}
+                                        <span *ngIf="field.required" class="text-danger">*</span>
+                                    </label>
+                                    <div *ngIf="hasFieldOptions(field)" class="space-y-2">
+                                        <label *ngFor="let option of getFieldOptions(field)" class="flex items-center cursor-pointer">
+                                            <input 
+                                                type="radio" 
+                                                [formControlName]="getFieldName(field.label)"
+                                                [value]="option"
+                                                class="form-radio"
+                                            />
+                                            <span class="ml-2 text-sm dark:text-white-light">{{ option }}</span>
+                                        </label>
+                                    </div>
+                                    <div *ngIf="!hasFieldOptions(field)" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md">
+                                        <p class="text-sm text-yellow-800 dark:text-yellow-200">
+                                            <strong>Note:</strong> No options configured for this radio field. 
+                                            Please add options in the Form Builder by editing this form and configuring the field options.
+                                        </p>
+                                    </div>
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                        {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Approval Pipeline Section -->
+                        <div *ngIf="selectedForm && selectedForm.approvalPipelines && selectedForm.approvalPipelines.length > 0" 
+                             class="mt-8 pt-6 border-t border-[#e0e6ed] dark:border-[#1b2e4b]">
+                            <h6 class="mb-4 text-base font-semibold dark:text-white-light text-center">
+                                Approval Pipeline
+                            </h6>
+                            <div class="flex items-center justify-center gap-2 overflow-x-auto pb-4">
+                                <div *ngFor="let pipeline of selectedForm.approvalPipelines; let i = index; let isLast = last" 
+                                     class="flex items-center gap-2 flex-shrink-0">
+                                    <!-- Department Box -->
+                                    <div class="px-4 py-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#1b2e4b] rounded min-w-[120px] text-center">
+                                        <p class="text-sm font-medium dark:text-white-light">
+                                            {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' + pipeline.serDepartmentId }}
+                                        </p>
+                                    </div>
+                                    
+                                    <!-- Arrow (not shown after last item) -->
+                                    <div *ngIf="!isLast" class="flex items-center">
+                                        <svg class="w-6 h-6 text-gray-800 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"></path>
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Submit Button -->
+                        <div class="mt-6 flex justify-end">
+                            <button 
+                                type="submit" 
+                                class="btn btn-primary"
+                                [disabled]="applicationForm.invalid"
+                            >
+                                Submit Application
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- No Form Selected Message -->
+                <div *ngIf="!selectedForm" class="text-center py-8">
+                    <p class="text-gray-600 dark:text-gray-400">
+                        Please select a form from the dropdown above to display its fields.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+

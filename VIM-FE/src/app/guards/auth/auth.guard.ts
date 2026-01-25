@@ -34,7 +34,7 @@ export const canActivate: CanActivateFn = (
   const allowedRoutesWithoutMenu = ['Dashboard', 'department', 'country', 'city', 'media-house', 
     'tax-category', 'product-category', 'product', 'users', 'password-policy', 'change-password', 
     'role', 'channel', 'service-order', 'vendor-view', 'payment', 'OrderDepartment', 'pdf-editor', 
-    'SES', 'auditLog', 'transactions-details', 'report', 'order-details'];
+    'SES', 'auditLog', 'transactions-details', 'report', 'order-details', 'application', 'applicationsview', 'formbuilder', 'CAPF'];
 
   let user: any = localStorage.getItem('user');
   if (user && user !== null) {

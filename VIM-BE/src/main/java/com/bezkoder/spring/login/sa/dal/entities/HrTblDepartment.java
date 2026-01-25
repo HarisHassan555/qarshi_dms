@@ -49,6 +49,15 @@ public class HrTblDepartment implements Serializable {
 	@Column(name="ser_parent_department_id")
 	private Integer serParentDepartmentId;
 
+	@Column(name="ser_department_head_id")
+	private Integer serDepartmentHeadId;
+
+	//bi-directional many-to-one association to CfgTblUser (Department Head)
+	@ManyToOne(fetch = FetchType.EAGER)
+	@JoinColumn(name="ser_department_head_id", insertable = false, updatable = false)
+	@JsonIgnoreProperties({"txtPassword", "cfgTblUserRoles", "cfgTblManager", "cfgTblPasswordPolicy", "cfgTblCustomer", "hrTblDepartment"})
+	private CfgTblUser departmentHead;
+
 	@Column(name="txt_department_code")
 	private String txtDepartmentCode;
 
@@ -142,6 +151,22 @@ public class HrTblDepartment implements Serializable {
 
 	public void setSerParentDepartmentId(Integer serParentDepartmentId) {
 		this.serParentDepartmentId = serParentDepartmentId;
+	}
+
+	public Integer getSerDepartmentHeadId() {
+		return this.serDepartmentHeadId;
+	}
+
+	public void setSerDepartmentHeadId(Integer serDepartmentHeadId) {
+		this.serDepartmentHeadId = serDepartmentHeadId;
+	}
+
+	public CfgTblUser getDepartmentHead() {
+		return this.departmentHead;
+	}
+
+	public void setDepartmentHead(CfgTblUser departmentHead) {
+		this.departmentHead = departmentHead;
 	}
 
 	public String getTxtDepartmentCode() {

@@ -40,10 +40,11 @@ public class HrTblDepartmentDAO implements IHrTblDepartmentDAO {
 		EntityManager entityManager = getEntityManager();
 		try {
 			entityManager.getTransaction().begin();
-			// Use JOIN FETCH to eagerly load users with departments
+			// Use JOIN FETCH to eagerly load users and department head with departments
 			List<HrTblDepartment> Departments = entityManager.createQuery(
 					"SELECT DISTINCT d FROM HrTblDepartment d " +
 					"LEFT JOIN FETCH d.cfgTblUsers " +
+					"LEFT JOIN FETCH d.departmentHead " +
 					"WHERE d.blIsDeleted = false OR d.blIsDeleted IS NULL")
 					.getResultList();
 

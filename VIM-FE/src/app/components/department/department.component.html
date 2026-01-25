@@ -28,6 +28,11 @@
                         {{ value.userCount || 0 }} User(s)
                     </span>
                 </ng-template>
+                <ng-template slot="departmentHeadName" let-value="data">
+                    <span class="font-medium text-gray-900 dark:text-white">
+                        {{ value.departmentHeadName || '-' }}
+                    </span>
+                </ng-template>
                 <ng-template slot="blnStatus" let-value="data">
                     <span class="badge"
                         [ngClass]="[value.blnStatus === true ? 'badge-outline-success' : 'badge-outline-danger']">
@@ -111,22 +116,55 @@
             </div>
             <div class="max-h-96 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                 <div *ngIf="allUsers && allUsers.length > 0" class="space-y-2">
-                    <label *ngFor="let user of allUsers" 
-                        class="flex items-center p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer border border-gray-200 dark:border-gray-700">
-                        <input type="checkbox" 
-                            [checked]="isUserSelected(user.serUserId)" 
-                            (change)="toggleUserSelection(user.serUserId)"
-                            class="form-checkbox mr-3" />
-                        <div class="flex-1">
-                            <div class="font-medium text-gray-900 dark:text-white">
-                                {{ user.txtUserName }}
+                    <div *ngFor="let user of allUsers" 
+                        class="flex items-center p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                        <label class="flex items-center flex-1 cursor-pointer">
+                            <input type="checkbox" 
+                                [checked]="isUserSelected(user.serUserId)" 
+                                (change)="toggleUserSelection(user.serUserId)"
+                                class="form-checkbox mr-3" />
+                            <div class="flex-1">
+                                <div class="font-medium text-gray-900 dark:text-white">
+                                    {{ user.txtUserName }}
+                                </div>
+                                <div class="text-sm text-gray-500 dark:text-gray-400">
+                                    {{ user.txtAddress }} | 
+                                    <span *ngIf="user.cfgTblRole">{{ user.cfgTblRole.txtRoleName }}</span>
+                                </div>
                             </div>
-                            <div class="text-sm text-gray-500 dark:text-gray-400">
-                                {{ user.txtAddress }} | 
-                                <span *ngIf="user.cfgTblRole">{{ user.cfgTblRole.txtRoleName }}</span>
-                            </div>
+                        </label>
+                        <!-- Star icon for department head - only show for selected users -->
+                        <div *ngIf="isUserSelected(user.serUserId)" 
+                             class="ml-3 cursor-pointer flex-shrink-0"
+                             (click)="toggleDepartmentHead(user.serUserId)"
+                             (mousedown)="$event.preventDefault()"
+                             title="Click to set as department head">
+                            <svg *ngIf="selectedDepartmentHeadId === user.serUserId" 
+                                 xmlns="http://www.w3.org/2000/svg" 
+                                 width="24" 
+                                 height="24" 
+                                 viewBox="0 0 24 24" 
+                                 fill="currentColor" 
+                                 stroke="currentColor" 
+                                 stroke-width="2" 
+                                 class="w-6 h-6 text-yellow-500 hover:text-yellow-600">
+                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                            </svg>
+                            <svg *ngIf="selectedDepartmentHeadId !== user.serUserId" 
+                                 xmlns="http://www.w3.org/2000/svg" 
+                                 width="24" 
+                                 height="24" 
+                                 viewBox="0 0 24 24" 
+                                 fill="none" 
+                                 stroke="currentColor" 
+                                 stroke-width="2" 
+                                 stroke-linecap="round" 
+                                 stroke-linejoin="round" 
+                                 class="w-6 h-6 text-gray-400 hover:text-yellow-500">
+                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                            </svg>
                         </div>
-                    </label>
+                    </div>
                 </div>
                 <div *ngIf="!allUsers || allUsers.length === 0" class="text-center py-8 text-gray-500">
                     No users available
@@ -135,6 +173,20 @@
             <div class="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                 <p class="text-sm text-blue-800 dark:text-blue-200">
                     <strong>Selected:</strong> {{ selectedUserIds.length }} user(s)
+                    <span *ngIf="selectedDepartmentHeadId" class="ml-2">
+                        | <strong>Head:</strong> 
+                        <span *ngFor="let user of allUsers">
+                            <span *ngIf="user.serUserId === selectedDepartmentHeadId">
+                                {{ user.txtUserName }}
+                            </span>
+                        </span>
+                    </span>
+                </p>
+                <p class="text-xs text-gray-600 dark:text-gray-400 mt-1" *ngIf="selectedUserIds.length > 0">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" class="inline w-4 h-4 text-yellow-500 mr-1">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                    </svg>
+                    Click the star icon next to a selected user to set them as department head
                 </p>
             </div>
         </div>

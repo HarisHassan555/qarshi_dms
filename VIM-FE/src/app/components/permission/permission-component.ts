@@ -131,7 +131,7 @@ export class PermissionComponent implements OnInit {
     private frontendMenuStructure: { [key: string]: string[] } = {
         'Dashboard': [],
         'Master Data': ['Country', 'City', 'Media House', 'Product Category', 'Product', 'Tax Category', 'Department'],
-        'VIM': ['Service Order View', 'Invoice', 'Invoice View', 'Marketing Approval', 'Procurement Approval', 'Tax Approval', 'Finance Approval', 'Audit Approval', 'Tax and Audit Logs', 'Scheduler', 'Vendor Invoice View'],
+        'VIM': ['Service Order View', 'Invoice', 'Invoice View', 'Marketing Approval', 'Procurement Approval', 'Tax Approval', 'Finance Approval', 'Audit Approval', 'Tax and Audit Logs', 'Scheduler', 'Vendor Invoice View', 'CAPF', 'Application', 'Form Builder', 'Applications View'],
         'User Management': ['User', 'Password Policy', 'Change Password', 'Permission']
     };
 

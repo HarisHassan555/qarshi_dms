@@ -1,0 +1,68 @@
+import { HttpClient } from '@angular/common/http';
+import { Injectable } from '@angular/core';
+import { urls } from 'src/app/utils/urls';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class CustomFormApplicationService {
+
+  constructor(
+    private http: HttpClient
+  ) { }
+
+  submitApplication(payload: any) {
+    return this.http.post(urls.API_URL + 'submitApplication', payload);
+  }
+
+  getAllApplications() {
+    return this.http.get(urls.API_URL + 'getAllApplications');
+  }
+
+  getApplicationsByFormId(formId: number) {
+    return this.http.get(urls.API_URL + 'getApplicationsByFormId?formId=' + formId);
+  }
+
+  getApplicationsByUserId(userId: number) {
+    return this.http.get(urls.API_URL + 'getApplicationsByUserId?userId=' + userId);
+  }
+
+  getApplicationById(applicationId: number) {
+    return this.http.get(urls.API_URL + 'getApplicationById?applicationId=' + applicationId);
+  }
+
+  updateApplication(payload: any) {
+    return this.http.post(urls.API_URL + 'updateApplication', payload);
+  }
+
+  deleteApplication(applicationId: number) {
+    return this.http.post(urls.API_URL + 'deleteApplication?applicationId=' + applicationId, {});
+  }
+
+  getApplicationsByStatus(status: string) {
+    return this.http.get(urls.API_URL + 'getApplicationsByStatus?status=' + status);
+  }
+
+  getNextApplicationCode(formId: number) {
+    return this.http.get(urls.API_URL + 'getNextApplicationCode?formId=' + formId);
+  }
+
+  getApplicationsPendingApproval(departmentHeadUserId: number) {
+    return this.http.get(urls.API_URL + 'getApplicationsPendingApproval?departmentHeadUserId=' + departmentHeadUserId);
+  }
+
+  approveApplication(applicationId: number, remarks?: string) {
+    return this.http.post(urls.API_URL + 'approveApplication', {
+      applicationId: applicationId,
+      remarks: remarks || ''
+    });
+  }
+
+  rejectApplication(applicationId: number, remarks?: string) {
+    return this.http.post(urls.API_URL + 'rejectApplication', {
+      applicationId: applicationId,
+      remarks: remarks || ''
+    });
+  }
+}
+

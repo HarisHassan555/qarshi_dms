@@ -1,0 +1,248 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+            <div class="flex items-center gap-2">
+                <h5 class="text-xl font-bold dark:text-white-light">Form Builder</h5>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto flex gap-2">
+                <div>
+                    <a (click)="add()" class="btn btn-primary gap-2">
+                        <icon-plus />
+                        Add New Form
+                    </a>
+                </div>
+                <div>
+                    <input [(ngModel)]="search" type="text" class="form-input" placeholder="Search forms..." />
+                </div>
+            </div>
+        </div>
+        <div class="datatable invoice-table" *ngIf="getDisplayedForms().length > 0">
+            <ng-datatable 
+                [rows]="getDisplayedForms()" 
+                [columns]="cols" 
+                [hasCheckbox]="false" 
+                [sortable]="true"
+                [search]="search" 
+                skin="whitespace-nowrap bh-table-hover"
+                firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                lastArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M11 19L17 12L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M6.99976 19L12.9998 12L6.99976 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg> '
+                previousArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M15 5L9 12L15 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                nextArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M9 5L15 12L9 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'>
+                <ng-template slot="txtFormCode" let-value="data">
+                    <span class="badge badge-outline-primary" *ngIf="value.txtFormCode">
+                        {{ value.txtFormCode }}
+                    </span>
+                    <span class="text-gray-400" *ngIf="!value.txtFormCode">-</span>
+                </ng-template>
+                <ng-template slot="fieldCount" let-value="data">
+                    <span class="badge badge-outline-info">
+                        {{ getFieldCount(value) }} Field(s)
+                    </span>
+                </ng-template>
+                <ng-template slot="createdAt" let-value="data">
+                    <span>{{ (value.createdAt || value.dteCreatedDate) | date:'short' }}</span>
+                </ng-template>
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-4">
+                        <a (click)="editForm(value)" class="hover:text-info" title="Edit Form">
+                            <icon-edit class="h-4.5 w-4.5" />
+                        </a>
+                        <a (click)="deleteForm(value)" class="hover:text-danger" title="Delete Form">
+                            <icon-trash-lines class="h-4.5 w-4.5" />
+                        </a>
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+        <div class="px-5 pb-5" *ngIf="getDisplayedForms().length === 0">
+            <div class="rounded-md border border-[#e0e6ed] bg-white p-5 dark:border-[#1b2e4b] dark:bg-[#1b2e4b]">
+                <p class="text-gray-600 dark:text-gray-400 text-center">
+                    <span *ngIf="!search">No forms created yet. Click "Add New Form" to create your first custom form.</span>
+                    <span *ngIf="search">No forms found matching your search.</span>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create/Edit Form Modal -->
+<modal #modal>
+    <ng-template #modalHeader>
+        <div>{{ editingFormId ? 'Edit Custom Form' : 'Create Custom Form' }}</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <form class="space-y-5" [formGroup]="formBuilderForm" novalidate>
+            <div class="grid grid-cols-1 gap-5">
+                <div>
+                    <label for="formName">Form Name <span class="text-danger">*</span></label>
+                    <input id="formName" type="text" placeholder="Enter Form Name" class="form-input" 
+                        formControlName="formName" />
+                    <ng-container *ngIf="isSubmit && formBuilderForm.controls['formName'].invalid">
+                        <p class="mt-1 text-danger" *ngIf="formBuilderForm.controls['formName'].hasError('required')">
+                            Form name is required
+                        </p>
+                    </ng-container>
+                </div>
+
+                <div>
+                    <label for="convention">Form Code Convention</label>
+                    <input id="convention" type="text" placeholder="e.g., CAPF-0000 or PRC-0000 (code will auto-increment)" 
+                        class="form-input" formControlName="convention" />
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                        Enter convention prefix (e.g., "CAPF" or "CAPF-0000"). The system will auto-generate codes like CAPF-0001, CAPF-0002, etc.
+                    </p>
+                </div>
+
+                <div class="border-t border-[#e0e6ed] dark:border-[#1b2e4b] pt-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <label class="text-lg font-semibold">Form Fields</label>
+                        <button type="button" (click)="addField()" class="btn btn-sm btn-primary gap-2">
+                            <icon-plus class="w-4 h-4" />
+                            Add Field
+                        </button>
+                    </div>
+
+                    <div formArrayName="fields" class="space-y-4">
+                        <div *ngFor="let field of fields.controls; let i = index" 
+                             [formGroupName]="i" 
+                             class="p-4 border border-[#e0e6ed] dark:border-[#1b2e4b] rounded-md bg-gray-50 dark:bg-[#1b2e4b]">
+                            <div class="flex items-start justify-between mb-3">
+                                <h6 class="font-semibold text-sm">Field {{ i + 1 }}</h6>
+                                <button type="button" (click)="removeField(i)" class="btn btn-sm btn-danger" 
+                                        *ngIf="fields.length > 1">
+                                    <icon-trash-lines class="w-4 h-4" />
+                                </button>
+                            </div>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label>Field Label <span class="text-danger">*</span></label>
+                                    <input type="text" placeholder="e.g., First Name" class="form-input" 
+                                        formControlName="label" />
+                                    <ng-container *ngIf="isSubmit && field.get('label')?.invalid && field.get('label')?.touched">
+                                        <p class="mt-1 text-danger text-xs">Label is required</p>
+                                    </ng-container>
+                                </div>
+                                
+                                <div>
+                                    <label>Field Type <span class="text-danger">*</span></label>
+                                    <select class="form-select" formControlName="type">
+                                        <option *ngFor="let type of fieldTypes" [value]="type.value">
+                                            {{ type.label }}
+                                        </option>
+                                    </select>
+                                </div>
+                                
+                                <div>
+                                    <label>Placeholder (Optional)</label>
+                                    <input type="text" placeholder="Enter placeholder text" class="form-input" 
+                                        formControlName="placeholder" />
+                                </div>
+                                
+                                <!-- Options field for select and radio -->
+                                <div *ngIf="field.get('type')?.value === 'select' || field.get('type')?.value === 'radio'" 
+                                     class="md:col-span-2">
+                                    <label>Options <span class="text-danger">*</span></label>
+                                    <textarea 
+                                        formControlName="options"
+                                        placeholder="Enter options separated by commas (e.g., Option 1, Option 2, Option 3)"
+                                        rows="3"
+                                        class="form-textarea"
+                                    ></textarea>
+                                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                        Enter options separated by commas. Each option will be available in the dropdown/radio buttons.
+                                    </p>
+                                </div>
+                                
+                                <div class="flex items-center pt-6">
+                                    <label class="inline-flex items-center">
+                                        <input type="checkbox" class="form-checkbox" formControlName="required" />
+                                        <span class="ml-2">Required Field</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div *ngIf="fields.length === 0" class="text-center py-4 text-gray-500">
+                        <p>No fields added yet. Click "Add Field" to start building your form.</p>
+                    </div>
+                </div>
+
+                <!-- Approval Pipeline Section -->
+                <div class="border-t border-[#e0e6ed] dark:border-[#1b2e4b] pt-5 mt-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <label class="text-lg font-semibold">Approval Pipeline (Optional)</label>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                Define the order of departments for form approval workflow
+                            </p>
+                        </div>
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="checkbox" [(ngModel)]="showApprovalPipeline" [ngModelOptions]="{standalone: true}" class="form-checkbox" />
+                            <span class="ml-2">Enable Approval Pipeline</span>
+                        </label>
+                    </div>
+
+                    <div *ngIf="showApprovalPipeline" class="space-y-4">
+                        <!-- Add Department to Pipeline -->
+                        <div class="flex gap-2">
+                            <select id="departmentSelect" class="form-select flex-1">
+                                <option value="0">-- Select Department --</option>
+                                <option *ngFor="let dept of departments" [value]="dept.serDepartmentId">
+                                    {{ dept.txtDepartmentName }}
+                                </option>
+                            </select>
+                            <button type="button" (click)="addApprovalPipeline()" class="btn btn-primary">
+                                <icon-plus class="w-4 h-4" />
+                                Add Department
+                            </button>
+                        </div>
+
+                        <!-- Approval Pipeline List -->
+                        <div *ngIf="approvalPipelines.length > 0" class="space-y-2">
+                            <div *ngFor="let pipeline of approvalPipelines; let i = index" 
+                                 class="flex items-center gap-2 p-3 border border-[#e0e6ed] dark:border-[#1b2e4b] rounded-md bg-gray-50 dark:bg-[#1b2e4b]">
+                                <div class="flex items-center gap-2 flex-1">
+                                    <span class="font-semibold text-sm w-8">{{ i + 1 }}.</span>
+                                    <span class="flex-1">{{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' + pipeline.serDepartmentId }}</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button type="button" 
+                                            (click)="moveApprovalPipeline(i, 'up')" 
+                                            class="btn btn-sm btn-outline-primary"
+                                            [disabled]="i === 0"
+                                            title="Move Up">
+                                        ↑
+                                    </button>
+                                    <button type="button" 
+                                            (click)="moveApprovalPipeline(i, 'down')" 
+                                            class="btn btn-sm btn-outline-primary"
+                                            [disabled]="i === approvalPipelines.length - 1"
+                                            title="Move Down">
+                                        ↓
+                                    </button>
+                                    <button type="button" 
+                                            (click)="removeApprovalPipeline(i)" 
+                                            class="btn btn-sm btn-danger"
+                                            title="Remove">
+                                        <icon-trash-lines class="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div *ngIf="approvalPipelines.length === 0" class="text-center py-4 text-gray-500 text-sm">
+                            <p>No departments added to approval pipeline. Add departments to define the approval order.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="modal.close()" class="btn btn-outline-danger">Close</button>
+        <button type="button" (click)="submit()" class="btn btn-primary ltr:ml-4 rtl:mr-4">Save Form</button>
+    </ng-template>
+</modal>
+

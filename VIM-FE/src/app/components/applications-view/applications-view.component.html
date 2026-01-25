@@ -1,0 +1,337 @@
+<div>
+    <!-- Pending Approvals Section (for Department Heads) -->
+    <div *ngIf="isDepartmentHead" class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b] mb-5">
+        <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+            <div class="flex items-center gap-2">
+                <h5 class="text-xl font-bold dark:text-white-light">Pending Approvals</h5>
+                <span class="badge badge-outline-warning" *ngIf="pendingApprovals.length > 0">
+                    {{ pendingApprovals.length }} pending
+                </span>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto flex gap-2">
+                <button 
+                    type="button" 
+                    class="btn btn-sm"
+                    [ngClass]="showPendingApprovals ? 'btn-primary' : 'btn-outline-primary'"
+                    (click)="togglePendingApprovalsView()">
+                    {{ showPendingApprovals ? 'Hide' : 'Show' }} Pending Approvals
+                </button>
+            </div>
+        </div>
+        <div class="datatable invoice-table" *ngIf="showPendingApprovals && getDisplayedPendingApprovals().length > 0">
+            <ng-datatable 
+                [rows]="getDisplayedPendingApprovals()" 
+                [columns]="pendingApprovalCols" 
+                [hasCheckbox]="false" 
+                [sortable]="true"
+                [search]="search" 
+                skin="whitespace-nowrap bh-table-hover"
+                firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                lastArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M11 19L17 12L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M6.99976 19L12.9998 12L6.99976 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg> '
+                previousArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M15 5L9 12L15 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                nextArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M9 5L15 12L9 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'>
+                <ng-template slot="txtFormCode" let-value="data">
+                    <span class="badge badge-outline-primary" *ngIf="value.txtFormCode">
+                        {{ value.txtFormCode }}
+                    </span>
+                    <span class="text-gray-400" *ngIf="!value.txtFormCode">-</span>
+                </ng-template>
+                <ng-template slot="intCurrentApprovalLevel" let-value="data">
+                    <span class="badge badge-outline-info">
+                        Level {{ value.intCurrentApprovalLevel || 0 }}
+                    </span>
+                </ng-template>
+                <ng-template slot="dteCreatedDate" let-value="data">
+                    <span>{{ value.dteCreatedDate ? (value.dteCreatedDate | date:'short') : '-' }}</span>
+                </ng-template>
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-4">
+                        <a (click)="openApproveModal(value)" class="hover:text-success" title="Approve Application">
+                            <icon-check class="h-4.5 w-4.5" />
+                        </a>
+                        <a (click)="openRejectModal(value)" class="hover:text-danger" title="Reject Application">
+                            <icon-x class="h-4.5 w-4.5" />
+                        </a>
+                        <a (click)="viewApplication(value)" class="hover:text-info" title="View Application">
+                            <icon-eye class="h-4.5 w-4.5" />
+                        </a>
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+        <div *ngIf="showPendingApprovals && getDisplayedPendingApprovals().length === 0" class="px-5 py-8 text-center">
+            <p class="text-gray-600 dark:text-gray-400">
+                No pending approvals found.
+            </p>
+        </div>
+    </div>
+
+    <!-- My Applications Section -->
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+            <div class="flex items-center gap-2">
+                <h5 class="text-xl font-bold dark:text-white-light">My Applications</h5>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto flex gap-2">
+                <div>
+                    <input [(ngModel)]="search" type="text" class="form-input" placeholder="Search applications..." />
+                </div>
+            </div>
+        </div>
+        <div class="datatable invoice-table" *ngIf="getDisplayedApplications().length > 0">
+            <ng-datatable 
+                [rows]="getDisplayedApplications()" 
+                [columns]="cols" 
+                [hasCheckbox]="false" 
+                [sortable]="true"
+                [search]="search" 
+                skin="whitespace-nowrap bh-table-hover"
+                firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                lastArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M11 19L17 12L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M6.99976 19L12.9998 12L6.99976 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg> '
+                previousArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M15 5L9 12L15 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                nextArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M9 5L15 12L9 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'>
+                <ng-template slot="txtFormCode" let-value="data">
+                    <span class="badge badge-outline-primary" *ngIf="value.txtFormCode">
+                        {{ value.txtFormCode }}
+                    </span>
+                    <span class="text-gray-400" *ngIf="!value.txtFormCode">-</span>
+                </ng-template>
+                <ng-template slot="txtStatus" let-value="data">
+                    <span class="badge" [ngClass]="getStatusBadgeClass(value.txtStatus)">
+                        {{ value.txtStatus || 'N/A' }}
+                    </span>
+                </ng-template>
+                <ng-template slot="intCurrentApprovalLevel" let-value="data">
+                    <span class="badge badge-outline-info">
+                        Level {{ value.intCurrentApprovalLevel || 0 }}
+                    </span>
+                </ng-template>
+                <ng-template slot="dteCreatedDate" let-value="data">
+                    <span>{{ value.dteCreatedDate ? (value.dteCreatedDate | date:'short') : '-' }}</span>
+                </ng-template>
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-4">
+                        <a (click)="viewApplication(value)" class="hover:text-info" title="View Application">
+                            <icon-eye class="h-4.5 w-4.5" />
+                        </a>
+                        <a (click)="deleteApplication(value)" class="hover:text-danger" title="Delete Application">
+                            <icon-trash-lines class="h-4.5 w-4.5" />
+                        </a>
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+        <div *ngIf="getDisplayedApplications().length === 0" class="px-5 py-8 text-center">
+            <p class="text-gray-600 dark:text-gray-400">
+                No applications found.
+            </p>
+        </div>
+    </div>
+</div>
+
+<!-- Approve Application Modal -->
+<modal #approveModal [closeOnOutsideClick]="false" *ngIf="selectedApplicationForRemarks">
+    <ng-template #modalHeader>
+        <div>Approve Application</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="space-y-4">
+            <p class="text-sm text-gray-600 dark:text-gray-400">
+                Are you sure you want to approve this application?
+            </p>
+            <div *ngIf="selectedApplicationForRemarks">
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Application Code: <span class="badge badge-outline-primary">{{ selectedApplicationForRemarks.txtFormCode }}</span>
+                </p>
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Form Name: {{ selectedApplicationForRemarks.formName }}
+                </p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Remarks (Optional)</label>
+                <textarea 
+                    [(ngModel)]="remarksText" 
+                    class="form-textarea" 
+                    rows="3" 
+                    placeholder="Enter any remarks or comments...">
+                </textarea>
+            </div>
+        </div>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''" class="btn btn-outline-danger">Cancel</button>
+        <button type="button" (click)="approveApplication()" class="btn btn-success ltr:ml-4 rtl:mr-4">Approve</button>
+    </ng-template>
+</modal>
+
+<!-- Reject Application Modal -->
+<modal #rejectModal [closeOnOutsideClick]="false" *ngIf="selectedApplicationForRemarks">
+    <ng-template #modalHeader>
+        <div>Reject Application</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="space-y-4">
+            <p class="text-sm text-gray-600 dark:text-gray-400">
+                Are you sure you want to reject this application?
+            </p>
+            <div *ngIf="selectedApplicationForRemarks">
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Application Code: <span class="badge badge-outline-primary">{{ selectedApplicationForRemarks.txtFormCode }}</span>
+                </p>
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Form Name: {{ selectedApplicationForRemarks.formName }}
+                </p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Rejection Reason <span class="text-danger">*</span></label>
+                <textarea 
+                    [(ngModel)]="remarksText" 
+                    class="form-textarea" 
+                    rows="3" 
+                    placeholder="Please provide a reason for rejection..."
+                    required>
+                </textarea>
+            </div>
+        </div>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''" class="btn btn-outline-danger">Cancel</button>
+        <button type="button" (click)="rejectApplication()" [disabled]="!remarksText || remarksText.trim() === ''" class="btn btn-danger ltr:ml-4 rtl:mr-4">Reject</button>
+    </ng-template>
+</modal>
+
+<!-- View Application Details Modal -->
+<modal #viewModal [closeOnOutsideClick]="false" *ngIf="selectedApplicationForView">
+    <ng-template #modalHeader>
+        <div>Application Details</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="space-y-6" *ngIf="applicationDetails">
+            <!-- Application Information -->
+            <div class="border-b border-[#e0e6ed] dark:border-[#1b2e4b] pb-4">
+                <h6 class="mb-3 text-base font-semibold dark:text-white-light">Application Information</h6>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Application Code</label>
+                        <p class="text-sm dark:text-white-light">
+                            <span class="badge badge-outline-primary" *ngIf="applicationDetails.txtFormCode">
+                                {{ applicationDetails.txtFormCode }}
+                            </span>
+                            <span *ngIf="!applicationDetails.txtFormCode" class="text-gray-400">-</span>
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Form Name</label>
+                        <p class="text-sm dark:text-white-light">{{ selectedApplicationForView?.formName || '-' }}</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Status</label>
+                        <p class="text-sm">
+                            <span class="badge" [ngClass]="getStatusBadgeClass(applicationDetails.txtStatus)">
+                                {{ applicationDetails.txtStatus || 'N/A' }}
+                            </span>
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Approval Level</label>
+                        <p class="text-sm dark:text-white-light">
+                            <span class="badge badge-outline-info">
+                                Level {{ applicationDetails.intCurrentApprovalLevel || 0 }}
+                            </span>
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Submitted Date</label>
+                        <p class="text-sm dark:text-white-light">
+                            {{ applicationDetails.dteCreatedDate ? (applicationDetails.dteCreatedDate | date:'short') : '-' }}
+                        </p>
+                    </div>
+                    <div *ngIf="applicationDetails.txtRemarks">
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Remarks</label>
+                        <p class="text-sm dark:text-white-light">{{ applicationDetails.txtRemarks }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Form Data -->
+            <div *ngIf="formFields.length > 0">
+                <h6 class="mb-3 text-base font-semibold dark:text-white-light">Form Data</h6>
+                <div class="space-y-4">
+                    <div *ngFor="let field of formFields" class="border-b border-[#e0e6ed] dark:border-[#1b2e4b] pb-3 last:border-0">
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
+                            {{ field.label }}
+                            <span *ngIf="field.required" class="text-danger">*</span>
+                        </label>
+                        <div class="text-sm dark:text-white-light">
+                            <!-- Text, Number, Email -->
+                            <p *ngIf="field.type === 'text' || field.type === 'number' || field.type === 'email'">
+                                {{ formatFieldValue(field, getFieldValue(field)) }}
+                            </p>
+                            
+                            <!-- Textarea -->
+                            <p *ngIf="field.type === 'textarea'" class="whitespace-pre-wrap">
+                                {{ formatFieldValue(field, getFieldValue(field)) }}
+                            </p>
+                            
+                            <!-- Date -->
+                            <p *ngIf="field.type === 'date'">
+                                {{ formatFieldValue(field, getFieldValue(field)) }}
+                            </p>
+                            
+                            <!-- Checkbox -->
+                            <p *ngIf="field.type === 'checkbox'">
+                                <span class="badge" [ngClass]="getFieldValue(field) ? 'badge-outline-success' : 'badge-outline-secondary'">
+                                    {{ formatFieldValue(field, getFieldValue(field)) }}
+                                </span>
+                            </p>
+                            
+                            <!-- Radio or Select -->
+                            <p *ngIf="field.type === 'radio' || field.type === 'select'">
+                                {{ formatFieldValue(field, getFieldValue(field)) }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Approval Pipeline (if exists) -->
+            <div *ngIf="selectedApplicationForView?.cfgTblCustomForm?.approvalPipelines && selectedApplicationForView.cfgTblCustomForm.approvalPipelines.length > 0">
+                <h6 class="mb-3 text-base font-semibold dark:text-white-light">Approval Pipeline</h6>
+                <div class="flex items-center justify-center gap-4 overflow-x-auto pb-4">
+                    <ng-container *ngFor="let pipeline of selectedApplicationForView.cfgTblCustomForm.approvalPipelines; let i = index; let isLast = last">
+                        <!-- Department Box -->
+                        <div class="px-4 py-3 border rounded min-w-[120px] text-center shadow-sm"
+                             [ngClass]="{
+                                 'border-gray-300 dark:border-gray-600 bg-white dark:bg-[#1b2e4b]': (applicationDetails.intCurrentApprovalLevel || 0) >= (pipeline.intApprovalOrder - 1),
+                                 'border-yellow-400 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-900/20': (applicationDetails.intCurrentApprovalLevel || 0) === (pipeline.intApprovalOrder - 1),
+                                 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50': (applicationDetails.intCurrentApprovalLevel || 0) < (pipeline.intApprovalOrder - 1)
+                             }">
+                            <p class="text-sm font-medium dark:text-white-light">
+                                {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' + pipeline.serDepartmentId }}
+                            </p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                Level {{ pipeline.intApprovalOrder }}
+                            </p>
+                        </div>
+                        <!-- Arrow -->
+                        <div *ngIf="!isLast" class="flex-shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 text-gray-500 dark:text-gray-400">
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                                <polyline points="12 5 19 12 12 19"></polyline>
+                            </svg>
+                        </div>
+                    </ng-container>
+                </div>
+            </div>
+
+            <!-- No Form Fields Message -->
+            <div *ngIf="formFields.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400">
+                <p>No form data available or form structure not found.</p>
+            </div>
+        </div>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="viewModal.close(); selectedApplicationForView = null" class="btn btn-primary">Close</button>
+    </ng-template>
+</modal>
+

@@ -62,7 +62,11 @@ export class PermissionService {
             'Audit Approval',
             'Tax and Audit Logs',
             'Scheduler',
-            'Vendor Invoice View'
+            'Vendor Invoice View',
+            'CAPF',
+            'Application',
+            'Form Builder',
+            'Applications View'
         ],
         'User Management': ['User', 'Password Policy', 'Change Password', 'Permission']
     };
