@@ -44,7 +44,13 @@ export class ApplicationComponent implements OnInit {
   selectedForm: CustomForm | null = null;
   applicationForm!: FormGroup;
   generatedApplicationCode: string | null = null;
-  
+
+  // AI Suggestions
+  suggestions: string[] = [];
+  isLoadingSuggestions = false;
+  lastAppliedField: string | null = null;
+  private openRouterKey = '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';
+
   constructor(
     private permissionService: PermissionService,
     private customFormService: CustomFormService,
@@ -146,23 +152,23 @@ export class ApplicationComponent implements OnInit {
 
   buildDynamicForm(form: CustomForm) {
     const formControls: any = {};
-    
+
     form.fields.forEach((field: FormField) => {
       const fieldName = this.getFieldName(field.label);
       const validators: any[] = [];
-      
+
       if (field.required) {
         validators.push(Validators.required);
       }
-      
+
       // Add type-specific validators
       if (field.type === 'email') {
         validators.push(Validators.email);
       }
-      
+
       formControls[fieldName] = [field.type === 'checkbox' ? false : '', validators];
     });
-    
+
     this.applicationForm = this.fb.group(formControls);
   }
 
@@ -203,10 +209,10 @@ export class ApplicationComponent implements OnInit {
   onSubmit() {
     if (this.applicationForm.valid && this.selectedForm) {
       const formData = this.applicationForm.value;
-      
+
       // Convert form data to JSON string
       const applicationDataJson = JSON.stringify(formData);
-      
+
       // Get current user from localStorage
       const userJson = localStorage.getItem('user');
       let userId: number | null = null;
@@ -218,7 +224,7 @@ export class ApplicationComponent implements OnInit {
           console.error('Error parsing user data:', e);
         }
       }
-      
+
       // Prepare payload for backend
       const payload: any = {
         serFormId: this.selectedForm.serFormId,
@@ -231,7 +237,7 @@ export class ApplicationComponent implements OnInit {
         blIsDeleted: false,
         blnStatus: true
       };
-      
+
       // Submit to backend
       this.customFormApplicationService.submitApplication(payload).subscribe(
         (response: any) => {
@@ -279,6 +285,236 @@ export class ApplicationComponent implements OnInit {
       }
     }
     return '';
+  }
+
+  fullSuggestions: any[] = [];
+
+  async suggestAllFields() {
+    if (!this.selectedForm || !this.applicationForm) return;
+
+    // Find the Item Name field
+    const itemNameField = this.selectedForm.fields.find(f =>
+      f.label.toLowerCase().includes('name of item') ||
+      f.label.toLowerCase().includes('item name') ||
+      f.label.toLowerCase().includes('item')
+    );
+
+    const fieldName = itemNameField ? this.getFieldName(itemNameField.label) : '';
+    const itemName = fieldName ? this.applicationForm.get(fieldName)?.value : '';
+
+    if (!itemName) {
+      this.notificationService.showMessage('Please enter the Item Name first for AI to suggest details.', 'warning');
+      return;
+    }
+
+    this.isLoadingSuggestions = true;
+    this.fullSuggestions = [];
+
+    const prompt = `
+      You are an AI assistant that generates structured product suggestions.
+
+      Item Name: "${itemName}"
+
+      Generate EXACTLY 3 distinct variations.
+
+      For EACH variation return an object with ONLY these keys:
+      - "specification"
+      - "purpose"
+      - "price"
+      - "imageUrl"
+
+      Rules:
+
+      1) specification  
+      - Include realistic technical details  
+      - Mention material, capacity, size, or key features where applicable  
+      - Keep it concise (1–3 sentences)
+
+      2) purpose  
+      - Describe how the item is used and its main benefit  
+      - Keep it concise (1–2 sentences)
+
+      3) price  
+      - Must be a realistic numeric value in USD  
+      - Base it on common global market prices for this item category  
+      - Do NOT include currency symbols  
+      - Do NOT include text like "approx" or "about"  
+      - Example: 1200, 349.99, 85
+
+      4) imageUrl  
+      - MUST use this exact format:
+        https://source.unsplash.com/featured/?${encodeURIComponent(itemName)}
+      - Do NOT invent photo IDs  
+      - Do NOT change the domain  
+      - Do NOT use placeholder images  
+
+      Output Rules:
+      - Return ONLY valid JSON  
+      - Return ONLY a JSON array of 3 objects  
+      - Do NOT add explanations  
+      - Do NOT add markdown  
+      - Do NOT add extra keys  
+      - Do NOT wrap the JSON in quotes  
+
+      Expected JSON format:
+
+      [
+        {
+          "specification": "...",
+          "purpose": "...",
+          "price": 0,
+          "imageUrl": "https://source.unsplash.com/featured/?..."
+        },
+        {
+          "specification": "...",
+          "purpose": "...",
+          "price": 0,
+          "imageUrl": "https://source.unsplash.com/featured/?..."
+        },
+        {
+          "specification": "...",
+          "purpose": "...",
+          "price": 0,
+          "imageUrl": "https://source.unsplash.com/featured/?..."
+        }
+      ]
+    `;
+
+    try {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${this.openRouterKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": window.location.origin,
+          "X-Title": "Qarshi DMS"
+        },
+        body: JSON.stringify({
+          "model": "google/gemini-2.0-flash-exp:free",
+          "messages": [
+            {
+              "role": "user",
+              "content": prompt
+            }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API returned status ${response.status}`);
+      }
+
+      const result = await response.json();
+      const content = result?.choices?.[0]?.message?.content;
+
+      if (!content) throw new Error("Empty response from AI");
+
+      // Extract JSON from response
+      const start = content.indexOf('[');
+      const end = content.lastIndexOf(']');
+      if (start !== -1 && end !== -1) {
+        const jsonStr = content.substring(start, end + 1);
+        this.fullSuggestions = JSON.parse(jsonStr).map((item: any) => ({
+          specification: item.specification || '',
+          purpose: item.purpose || '',
+          price: Number(item.price) || 0,
+          imageUrl:
+            item.imageUrl ||
+            `https://source.unsplash.com/featured/?${encodeURIComponent(itemName)}`
+        }));
+        this.notificationService.showMessage('AI suggestions generated! Please select one.', 'success');
+      } else {
+        throw new Error("Invalid AI response format");
+      }
+    } catch (error) {
+      console.error('AI Error:', error);
+      this.notificationService.showMessage('Failed to get suggestions from AI', 'warning');
+    } finally {
+      this.isLoadingSuggestions = false;
+    }
+  }
+
+  selectFullSuggestion(suggestion: any) {
+    if (!this.selectedForm || !this.applicationForm) return;
+
+    this.selectedForm.fields.forEach(field => {
+      const label = field.label.toLowerCase();
+      const targetFieldName = this.getFieldName(field.label);
+
+      if (label.includes('specification')) {
+        this.applicationForm.get(targetFieldName)?.patchValue(suggestion.specification);
+      } else if (label.includes('utility') || label.includes('purpose')) {
+        this.applicationForm.get(targetFieldName)?.patchValue(suggestion.purpose);
+      } else if (label.includes('price')) {
+        this.applicationForm.get(targetFieldName)?.patchValue(suggestion.price);
+      }
+    });
+
+    this.fullSuggestions = [];
+    this.notificationService.showMessage('Form populated with selected suggestion!', 'success');
+  }
+
+  async getAISuggestions(field: FormField) {
+    // This is also updated to use AI for consistency if called
+    const itemNameField = this.selectedForm?.fields.find(f => f.label.toLowerCase().includes('item') || f.label.toLowerCase().includes('product'));
+    const itemName = itemNameField ? this.applicationForm.get(this.getFieldName(itemNameField.label))?.value : '';
+
+    this.isLoadingSuggestions = true;
+    this.suggestions = [];
+    this.lastAppliedField = field.label;
+
+    const prompt = `Based on the Item Name: "${itemName}", suggest 3 detailed variations for the field "${field.label}". 
+                    Return ONLY a JSON array of 3 strings. No other text.`;
+
+    try {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${this.openRouterKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": window.location.origin,
+          "X-Title": "Qarshi DMS"
+        },
+        body: JSON.stringify({
+          "model": "meta-llama/llama-3.2-3b-instruct:free",
+          "messages": [
+            {
+              "role": "user",
+              "content": prompt
+            }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API returned status ${response.status}`);
+      }
+
+      const result = await response.json();
+      const content = result?.choices?.[0]?.message?.content;
+
+      if (!content) throw new Error("Empty response from AI");
+
+      const start = content.indexOf('[');
+      const end = content.lastIndexOf(']');
+      if (start !== -1 && end !== -1) {
+        const jsonStr = content.substring(start, end + 1);
+        this.suggestions = JSON.parse(jsonStr);
+      } else {
+        throw new Error("Invalid AI response format");
+      }
+    } catch (error) {
+      console.error('AI Error:', error);
+      this.notificationService.showMessage('Failed to get suggestions from AI', 'warning');
+    } finally {
+      this.isLoadingSuggestions = false;
+    }
+  }
+
+  selectSuggestion(suggestion: string, field: FormField) {
+    const fieldName = this.getFieldName(field.label);
+    this.applicationForm.get(fieldName)?.patchValue(suggestion);
+    this.suggestions = [];
   }
 }
 
