@@ -52,6 +52,9 @@
                         <a (click)="openRejectModal(value)" class="hover:text-danger" title="Reject Application">
                             <icon-x class="h-4.5 w-4.5" />
                         </a>
+                        <a (click)="openSendBackModal(value)" class="hover:text-warning" title="Send Back to Previous Department" *ngIf="value.intCurrentApprovalLevel && value.intCurrentApprovalLevel > 0">
+                            <icon-arrow-left class="h-4.5 w-4.5" />
+                        </a>
                         <a (click)="viewApplication(value)" class="hover:text-info" title="View Application">
                             <icon-eye class="h-4.5 w-4.5" />
                         </a>
@@ -76,6 +79,14 @@
                 <div>
                     <input [(ngModel)]="search" type="text" class="form-input" placeholder="Search applications..." />
                 </div>
+                <button 
+                    type="button" 
+                    class="btn btn-primary"
+                    (click)="downloadApplications()"
+                    [disabled]="getDisplayedApplications().length === 0"
+                    title="Download Applications as CSV">
+                    Download CSV
+                </button>
             </div>
         </div>
         <div class="datatable invoice-table" *ngIf="getDisplayedApplications().length > 0">
@@ -111,11 +122,17 @@
                 </ng-template>
                 <ng-template slot="actions" let-value="data">
                     <div class="flex items-center justify-center gap-4">
+                        <a (click)="openAbcPage(value)" class="hover:text-warning" title="Open CAPF Form" *ngIf="isCapfForm(value)">
+                            <icon-file class="h-4.5 w-4.5" />
+                        </a>
                         <a (click)="viewApplication(value)" class="hover:text-info" title="View Application">
                             <icon-eye class="h-4.5 w-4.5" />
                         </a>
                         <a (click)="editApplication(value)" class="hover:text-primary" title="Edit Application" *ngIf="canEditApplication(value)">
                             <icon-edit class="h-4.5 w-4.5" />
+                        </a>
+                        <a (click)="downloadApplicationAsPDF(value)" class="hover:text-success" title="Download as PDF">
+                            <icon-file class="h-4.5 w-4.5" />
                         </a>
                         <a (click)="deleteApplication(value)" class="hover:text-danger" title="Delete Application">
                             <icon-trash-lines class="h-4.5 w-4.5" />
@@ -203,138 +220,42 @@
     </ng-template>
 </modal>
 
-<!-- View Application Details Modal -->
-<modal #viewModal [closeOnOutsideClick]="false" *ngIf="selectedApplicationForView">
+<!-- Send Back Application Modal -->
+<modal #sendBackModal [closeOnOutsideClick]="false" *ngIf="selectedApplicationForRemarks">
     <ng-template #modalHeader>
-        <div>Application Details</div>
+        <div>Send Back Application</div>
     </ng-template>
     <ng-template #modalBody>
-        <div class="space-y-6" *ngIf="applicationDetails">
-            <!-- Application Information -->
-            <div class="border-b border-[#e0e6ed] dark:border-[#1b2e4b] pb-4">
-                <h6 class="mb-3 text-base font-semibold dark:text-white-light">Application Information</h6>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Application Code</label>
-                        <p class="text-sm dark:text-white-light">
-                            <span class="badge badge-outline-primary" *ngIf="applicationDetails.txtFormCode">
-                                {{ applicationDetails.txtFormCode }}
-                            </span>
-                            <span *ngIf="!applicationDetails.txtFormCode" class="text-gray-400">-</span>
-                        </p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Form Name</label>
-                        <p class="text-sm dark:text-white-light">{{ selectedApplicationForView?.formName || '-' }}</p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Status</label>
-                        <p class="text-sm">
-                            <span class="badge" [ngClass]="getStatusBadgeClass(applicationDetails.txtStatus)">
-                                {{ applicationDetails.txtStatus || 'N/A' }}
-                            </span>
-                        </p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Approval Level</label>
-                        <p class="text-sm dark:text-white-light">
-                            <span class="badge badge-outline-info">
-                                Level {{ applicationDetails.intCurrentApprovalLevel || 0 }}
-                            </span>
-                        </p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Submitted Date</label>
-                        <p class="text-sm dark:text-white-light">
-                            {{ applicationDetails.dteCreatedDate ? (applicationDetails.dteCreatedDate | date:'short') : '-' }}
-                        </p>
-                    </div>
-                    <div *ngIf="applicationDetails.txtRemarks">
-                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Remarks</label>
-                        <p class="text-sm dark:text-white-light">{{ applicationDetails.txtRemarks }}</p>
-                    </div>
-                </div>
+        <div class="space-y-4">
+            <p class="text-sm text-gray-600 dark:text-gray-400">
+                Are you sure you want to send this application back to the previous department for re-approval?
+            </p>
+            <div *ngIf="selectedApplicationForRemarks">
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Application Code: <span class="badge badge-outline-primary">{{ selectedApplicationForRemarks.txtFormCode }}</span>
+                </p>
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Form Name: {{ selectedApplicationForRemarks.formName }}
+                </p>
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Current Approval Level: <span class="badge badge-outline-info">Level {{ selectedApplicationForRemarks.intCurrentApprovalLevel || 0 }}</span>
+                </p>
             </div>
-
-            <!-- Form Data -->
-            <div *ngIf="formFields.length > 0">
-                <h6 class="mb-3 text-base font-semibold dark:text-white-light">Form Data</h6>
-                <div class="space-y-4">
-                    <div *ngFor="let field of formFields" class="border-b border-[#e0e6ed] dark:border-[#1b2e4b] pb-3 last:border-0">
-                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
-                            {{ field.label }}
-                            <span *ngIf="field.required" class="text-danger">*</span>
-                        </label>
-                        <div class="text-sm dark:text-white-light">
-                            <!-- Text, Number, Email -->
-                            <p *ngIf="field.type === 'text' || field.type === 'number' || field.type === 'email'">
-                                {{ formatFieldValue(field, getFieldValue(field)) }}
-                            </p>
-                            
-                            <!-- Textarea -->
-                            <p *ngIf="field.type === 'textarea'" class="whitespace-pre-wrap">
-                                {{ formatFieldValue(field, getFieldValue(field)) }}
-                            </p>
-                            
-                            <!-- Date -->
-                            <p *ngIf="field.type === 'date'">
-                                {{ formatFieldValue(field, getFieldValue(field)) }}
-                            </p>
-                            
-                            <!-- Checkbox -->
-                            <p *ngIf="field.type === 'checkbox'">
-                                <span class="badge" [ngClass]="getFieldValue(field) ? 'badge-outline-success' : 'badge-outline-secondary'">
-                                    {{ formatFieldValue(field, getFieldValue(field)) }}
-                                </span>
-                            </p>
-                            
-                            <!-- Radio or Select -->
-                            <p *ngIf="field.type === 'radio' || field.type === 'select'">
-                                {{ formatFieldValue(field, getFieldValue(field)) }}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Approval Pipeline (if exists) -->
-            <div *ngIf="selectedApplicationForView?.cfgTblCustomForm?.approvalPipelines && selectedApplicationForView.cfgTblCustomForm.approvalPipelines.length > 0">
-                <h6 class="mb-3 text-base font-semibold dark:text-white-light">Approval Pipeline</h6>
-                <div class="flex items-center justify-center gap-4 overflow-x-auto pb-4">
-                    <ng-container *ngFor="let pipeline of selectedApplicationForView.cfgTblCustomForm.approvalPipelines; let i = index; let isLast = last">
-                        <!-- Department Box -->
-                        <div class="px-4 py-3 border rounded min-w-[120px] text-center shadow-sm"
-                             [ngClass]="{
-                                 'border-gray-300 dark:border-gray-600 bg-white dark:bg-[#1b2e4b]': (applicationDetails.intCurrentApprovalLevel || 0) >= (pipeline.intApprovalOrder - 1),
-                                 'border-yellow-400 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-900/20': (applicationDetails.intCurrentApprovalLevel || 0) === (pipeline.intApprovalOrder - 1),
-                                 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50': (applicationDetails.intCurrentApprovalLevel || 0) < (pipeline.intApprovalOrder - 1)
-                             }">
-                            <p class="text-sm font-medium dark:text-white-light">
-                                {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' + pipeline.serDepartmentId }}
-                            </p>
-                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                Level {{ pipeline.intApprovalOrder }}
-                            </p>
-                        </div>
-                        <!-- Arrow -->
-                        <div *ngIf="!isLast" class="flex-shrink-0">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 text-gray-500 dark:text-gray-400">
-                                <line x1="5" y1="12" x2="19" y2="12"></line>
-                                <polyline points="12 5 19 12 12 19"></polyline>
-                            </svg>
-                        </div>
-                    </ng-container>
-                </div>
-            </div>
-
-            <!-- No Form Fields Message -->
-            <div *ngIf="formFields.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400">
-                <p>No form data available or form structure not found.</p>
+            <div>
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Remarks <span class="text-danger">*</span></label>
+                <textarea 
+                    [(ngModel)]="remarksText" 
+                    class="form-textarea" 
+                    rows="3" 
+                    placeholder="Please provide remarks for sending back this application..."
+                    required>
+                </textarea>
             </div>
         </div>
     </ng-template>
     <ng-template #modalFooter>
-        <button type="button" (click)="viewModal.close(); selectedApplicationForView = null" class="btn btn-primary">Close</button>
+        <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''" class="btn btn-outline-danger">Cancel</button>
+        <button type="button" (click)="sendBackApplication()" [disabled]="!remarksText || remarksText.trim() === ''" class="btn btn-warning ltr:ml-4 rtl:mr-4">Send Back</button>
     </ng-template>
 </modal>
 
@@ -347,10 +268,10 @@
         <div class="space-y-4" *ngIf="editFormFields.length > 0">
             <div class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                 <p class="text-sm text-blue-800 dark:text-blue-200">
-                    <strong>Application Code:</strong> {{ selectedApplicationForEdit?.txtFormCode }}
+                    <strong>Application Code:</strong> {{ selectedApplicationForEdit.txtFormCode }}
                 </p>
                 <p class="text-sm text-blue-800 dark:text-blue-200 mt-1">
-                    <strong>Form Name:</strong> {{ selectedApplicationForEdit?.formName }}
+                    <strong>Form Name:</strong> {{ selectedApplicationForEdit.formName }}
                 </p>
             </div>
             
@@ -509,6 +430,49 @@
                                     <span *ngIf="field.required" class="text-danger">*</span>
                                 </span>
                             </label>
+                            <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Table Field -->
+                    <div *ngFor="let field of editFormFields" class="md:col-span-2">
+                        <div *ngIf="field.type === 'table'">
+                            <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                {{ field.label }}
+                                <span *ngIf="field.required" class="text-danger">*</span>
+                            </label>
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full border border-[#e0e6ed] dark:border-[#1b2e4b]">
+                                    <thead>
+                                        <tr class="bg-gray-50 dark:bg-[#1b2e4b]">
+                                            <th class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light"></th>
+                                            <th *ngFor="let col of getTableColumns(field); let colIndex = index" 
+                                                class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light">
+                                                Column {{ colIndex + 1 }}
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr *ngFor="let row of getTableRows(field); let rowIndex = index">
+                                            <td class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 bg-gray-50 dark:bg-[#1b2e4b] text-sm font-medium dark:text-white-light">
+                                                {{ getTableRowLabel(field, rowIndex) }}
+                                            </td>
+                                            <td *ngFor="let col of getTableColumns(field); let colIndex = index" 
+                                                class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-2 py-1">
+                                                <input 
+                                                    type="text"
+                                                    [formControl]="getTableCellControl(getFieldName(field.label), rowIndex, colIndex)"
+                                                    class="form-input w-full text-sm"
+                                                    [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
+                                                    placeholder="Enter value"
+                                                />
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                             <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
                                 {{ getFieldErrorMessage(getFieldName(field.label)) }}
                             </p>

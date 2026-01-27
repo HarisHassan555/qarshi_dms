@@ -59,7 +59,8 @@ export class FormBuilderComponent implements OnInit {
     { value: 'textarea', label: 'Textarea' },
     { value: 'select', label: 'Select' },
     { value: 'checkbox', label: 'Checkbox' },
-    { value: 'radio', label: 'Radio' }
+    { value: 'radio', label: 'Radio' },
+    { value: 'table', label: 'Table' }
   ];
 
   cols = [
@@ -175,7 +176,10 @@ export class FormBuilderComponent implements OnInit {
       type: ['text', Validators.required],
       required: [false],
       placeholder: [''],
-      options: [''] // For select/radio fields
+      options: [''], // For select/radio fields
+      tableRows: [2], // For table fields
+      tableColumns: [2], // For table fields
+      tableRowLabels: [''] // For table fields - comma-separated row labels
     });
     this.fields.push(fieldForm);
   }
@@ -229,18 +233,34 @@ export class FormBuilderComponent implements OnInit {
       blIsActive: true,
       blIsDeleted: false,
       blnStatus: true,
-      cfgTblCustomFormFields: formData.fields.map((field: any, index: number) => ({
-        txtFieldLabel: field.label,
-        txtFieldType: field.type,
-        txtPlaceholder: field.placeholder || '',
-        blIsRequired: field.required || false,
-        intFieldOrder: index,
-        blIsActive: true,
-        blIsDeleted: false,
-        txtFieldOptions: (field.type === 'select' || field.type === 'radio') && field.options && field.options.trim() 
-          ? field.options.trim() 
-          : null
-      })),
+      cfgTblCustomFormFields: formData.fields.map((field: any, index: number) => {
+        let fieldOptions = null;
+        
+        // Handle select/radio options
+        if ((field.type === 'select' || field.type === 'radio') && field.options && field.options.trim()) {
+          fieldOptions = field.options.trim();
+        }
+        // Handle table configuration
+        else if (field.type === 'table') {
+          const tableConfig = {
+            rows: field.tableRows || 2,
+            columns: field.tableColumns || 2,
+            rowLabels: field.tableRowLabels ? field.tableRowLabels.split(',').map((label: string) => label.trim()).filter((label: string) => label.length > 0) : []
+          };
+          fieldOptions = JSON.stringify(tableConfig);
+        }
+        
+        return {
+          txtFieldLabel: field.label,
+          txtFieldType: field.type,
+          txtPlaceholder: field.placeholder || '',
+          blIsRequired: field.required || false,
+          intFieldOrder: index,
+          blIsActive: true,
+          blIsDeleted: false,
+          txtFieldOptions: fieldOptions
+        };
+      }),
       cfgTblCustomFormApprovalPipelines: this.approvalPipelines.filter(p => p.serDepartmentId > 0).map((pipeline, index) => ({
         serDepartmentId: pipeline.serDepartmentId,
         intApprovalOrder: index + 1,
@@ -294,7 +314,7 @@ export class FormBuilderComponent implements OnInit {
               intFieldOrder: field.intFieldOrder || 0,
               txtFieldOptions: field.txtFieldOptions
             })),
-            approvalPipelines: (form.cfgTblCustomFormApprovalPipelines || []).map((pipeline: any) => ({
+            approvalPipelines: ((form.approvalPipelines || form.cfgTblCustomFormApprovalPipelines) || []).map((pipeline: any) => ({
               serApprovalPipelineId: pipeline.serApprovalPipelineId,
               serDepartmentId: pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId,
               intApprovalOrder: pipeline.intApprovalOrder || 0,
@@ -351,12 +371,34 @@ export class FormBuilderComponent implements OnInit {
 
     // Add fields from the form
     form.fields.forEach(field => {
+      let tableRows = 2;
+      let tableColumns = 2;
+      let tableRowLabels = '';
+      let options = '';
+      
+      // Parse table configuration if it's a table field
+      if (field.type === 'table' && field.txtFieldOptions) {
+        try {
+          const tableConfig = JSON.parse(field.txtFieldOptions);
+          tableRows = tableConfig.rows || 2;
+          tableColumns = tableConfig.columns || 2;
+          tableRowLabels = Array.isArray(tableConfig.rowLabels) ? tableConfig.rowLabels.join(', ') : '';
+        } catch (e) {
+          // If parsing fails, use defaults
+        }
+      } else if (field.txtFieldOptions) {
+        options = field.txtFieldOptions;
+      }
+      
       const fieldForm = this.fb.group({
         label: [field.label, Validators.required],
         type: [field.type, Validators.required],
         required: [field.required || false],
         placeholder: [field.placeholder || ''],
-        options: [field.txtFieldOptions || '']
+        options: [options],
+        tableRows: [tableRows],
+        tableColumns: [tableColumns],
+        tableRowLabels: [tableRowLabels]
       });
       this.fields.push(fieldForm);
     });
@@ -370,6 +412,11 @@ export class FormBuilderComponent implements OnInit {
         intApprovalOrder: p.intApprovalOrder,
         hrTblDepartment: p.hrTblDepartment || this.departments.find(d => d.serDepartmentId === p.serDepartmentId)
       }));
+      // Enable the approval pipeline toggle if pipelines exist
+      this.showApprovalPipeline = true;
+    } else {
+      // Disable if no pipelines
+      this.showApprovalPipeline = false;
     }
 
     this.modal.open();

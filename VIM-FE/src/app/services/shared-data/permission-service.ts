@@ -50,23 +50,11 @@ export class PermissionService {
 
     private moduleSubMenuMap: { [key: string]: string[] } = {
         'Dashboard': [],
-        'Master Data': ['Country', 'City', 'Media House', 'Product Category', 'Product', 'Tax Category', 'Department'],
-        'VIM': [
-            'Service Order View',
-            'Invoice',
-            'Invoice View',
-            'Marketing Approval',
-            'Procurement Approval',
-            'Tax Approval',
-            'Finance Approval',
-            'Audit Approval',
-            'Tax and Audit Logs',
-            'Scheduler',
-            'Vendor Invoice View',
-            'CAPF',
+        'Master Data': ['Department', 'Signature'],
+        'Velocity': [
             'Application',
-            'Form Builder',
-            'Applications View'
+            'Applications View',
+            'Form Builder'
         ],
         'User Management': ['User', 'Password Policy', 'Change Password', 'Permission']
     };

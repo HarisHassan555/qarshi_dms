@@ -352,4 +352,15 @@ public class CfgTblUser implements Serializable {
 	public void setHrTblDepartment(HrTblDepartment hrTblDepartment) {
 		this.hrTblDepartment = hrTblDepartment;
 	}
+
+	@Column(name="txt_signature_path")
+	private String txtSignaturePath;
+
+	public String getTxtSignaturePath() {
+		return txtSignaturePath;
+	}
+
+	public void setTxtSignaturePath(String txtSignaturePath) {
+		this.txtSignaturePath = txtSignaturePath;
+	}
 }

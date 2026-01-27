@@ -408,6 +408,10 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
             }
 
             // Convert approval pipelines to JSON array
+            // Log for debugging
+            log.info("Update form ID " + customForm.getSerFormId() + " - Approval pipelines check: " + 
+                    (customForm.getCfgTblCustomFormApprovalPipelines() != null ? 
+                     "not null, size: " + customForm.getCfgTblCustomFormApprovalPipelines().size() : "null"));
             if (customForm.getCfgTblCustomFormApprovalPipelines() != null && !customForm.getCfgTblCustomFormApprovalPipelines().isEmpty()) {
                 java.util.List<java.util.Map<String, Object>> pipelineArray = new java.util.ArrayList<>();
                 

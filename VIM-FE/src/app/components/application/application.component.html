@@ -30,7 +30,7 @@
                     <h6 class="mb-4 text-lg font-semibold dark:text-white-light">
                         {{ selectedForm.name || selectedForm.txtFormName }}
                     </h6>
-                    
+
                     <form [formGroup]="applicationForm" (ngSubmit)="onSubmit()" class="space-y-4">
                         <!-- Application Code (Auto-generated, Read-only) -->
                         <div *ngIf="generatedApplicationCode" class="mb-4">
@@ -39,13 +39,9 @@
                                     <label class="block mb-2 text-sm font-semibold dark:text-white-light">
                                         Application Code
                                     </label>
-                                    <input 
-                                        type="text" 
-                                        [value]="generatedApplicationCode"
-                                        class="form-input bg-gray-100 dark:bg-[#0e1726] cursor-not-allowed"
-                                        readonly
-                                        disabled
-                                    />
+                                    <input type="text" [value]="generatedApplicationCode"
+                                        class="form-input bg-gray-100 dark:bg-[#0e1726] cursor-not-allowed" readonly
+                                        disabled />
                                 </div>
                             </div>
                         </div>
@@ -58,14 +54,11 @@
                                         {{ field.label }}
                                         <span *ngIf="field.required" class="text-danger">*</span>
                                     </label>
-                                    <input 
-                                        type="text" 
-                                        [formControlName]="getFieldName(field.label)"
-                                        [placeholder]="field.placeholder || ''"
-                                        class="form-input"
-                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
-                                    />
-                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                    <input type="text" [formControlName]="getFieldName(field.label)"
+                                        [placeholder]="field.placeholder || ''" class="form-input"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))" />
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))"
+                                        class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                     </p>
                                 </div>
@@ -76,14 +69,11 @@
                                         {{ field.label }}
                                         <span *ngIf="field.required" class="text-danger">*</span>
                                     </label>
-                                    <input 
-                                        type="number" 
-                                        [formControlName]="getFieldName(field.label)"
-                                        [placeholder]="field.placeholder || ''"
-                                        class="form-input"
-                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
-                                    />
-                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                    <input type="number" [formControlName]="getFieldName(field.label)"
+                                        [placeholder]="field.placeholder || ''" class="form-input"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))" />
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))"
+                                        class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                     </p>
                                 </div>
@@ -94,14 +84,11 @@
                                         {{ field.label }}
                                         <span *ngIf="field.required" class="text-danger">*</span>
                                     </label>
-                                    <input 
-                                        type="email" 
-                                        [formControlName]="getFieldName(field.label)"
-                                        [placeholder]="field.placeholder || ''"
-                                        class="form-input"
-                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
-                                    />
-                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                    <input type="email" [formControlName]="getFieldName(field.label)"
+                                        [placeholder]="field.placeholder || ''" class="form-input"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))" />
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))"
+                                        class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                     </p>
                                 </div>
@@ -112,13 +99,10 @@
                                         {{ field.label }}
                                         <span *ngIf="field.required" class="text-danger">*</span>
                                     </label>
-                                    <input 
-                                        type="date" 
-                                        [formControlName]="getFieldName(field.label)"
-                                        class="form-input"
-                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
-                                    />
-                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                    <input type="date" [formControlName]="getFieldName(field.label)" class="form-input"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))" />
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))"
+                                        class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                     </p>
                                 </div>
@@ -129,14 +113,11 @@
                                         {{ field.label }}
                                         <span *ngIf="field.required" class="text-danger">*</span>
                                     </label>
-                                    <textarea 
-                                        [formControlName]="getFieldName(field.label)"
-                                        [placeholder]="field.placeholder || ''"
-                                        rows="4"
-                                        class="form-textarea"
-                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
-                                    ></textarea>
-                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                    <textarea [formControlName]="getFieldName(field.label)"
+                                        [placeholder]="field.placeholder || ''" rows="4" class="form-textarea"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))"></textarea>
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))"
+                                        class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                     </p>
                                 </div>
@@ -147,12 +128,9 @@
                                         {{ field.label }}
                                         <span *ngIf="field.required" class="text-danger">*</span>
                                     </label>
-                                    <select 
-                                        *ngIf="getFieldOptions(field).length > 0"
-                                        [formControlName]="getFieldName(field.label)"
-                                        class="form-select"
-                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
-                                    >
+                                    <select *ngIf="getFieldOptions(field).length > 0"
+                                        [formControlName]="getFieldName(field.label)" class="form-select"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))">
                                         <option value="">-- Select --</option>
                                         <option *ngFor="let option of getFieldOptions(field)" [value]="option">
                                             {{ option }}
@@ -161,7 +139,8 @@
                                     <div *ngIf="getFieldOptions(field).length === 0" class="text-sm text-warning">
                                         No options configured for this field. Please configure options in Form Builder.
                                     </div>
-                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))"
+                                        class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                     </p>
                                 </div>
@@ -173,13 +152,11 @@
                                             {{ field.label }}
                                             <span *ngIf="field.required" class="text-danger">*</span>
                                         </span>
-                                        <input 
-                                            type="checkbox" 
-                                            [formControlName]="getFieldName(field.label)"
-                                            class="form-checkbox"
-                                        />
+                                        <input type="checkbox" [formControlName]="getFieldName(field.label)"
+                                            class="form-checkbox" />
                                     </label>
-                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))"
+                                        class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                     </p>
                                 </div>
@@ -191,49 +168,95 @@
                                         <span *ngIf="field.required" class="text-danger">*</span>
                                     </label>
                                     <div *ngIf="hasFieldOptions(field)" class="space-y-2">
-                                        <label *ngFor="let option of getFieldOptions(field)" class="flex items-center cursor-pointer">
-                                            <input 
-                                                type="radio" 
-                                                [formControlName]="getFieldName(field.label)"
-                                                [value]="option"
-                                                class="form-radio"
-                                            />
+                                        <label *ngFor="let option of getFieldOptions(field)"
+                                            class="flex items-center cursor-pointer">
+                                            <input type="radio" [formControlName]="getFieldName(field.label)"
+                                                [value]="option" class="form-radio" />
                                             <span class="ml-2 text-sm dark:text-white-light">{{ option }}</span>
                                         </label>
                                     </div>
-                                    <div *ngIf="!hasFieldOptions(field)" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md">
+                                    <div *ngIf="!hasFieldOptions(field)"
+                                        class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md">
                                         <p class="text-sm text-yellow-800 dark:text-yellow-200">
-                                            <strong>Note:</strong> No options configured for this radio field. 
-                                            Please add options in the Form Builder by editing this form and configuring the field options.
+                                            <strong>Note:</strong> No options configured for this radio field.
+                                            Please add options in the Form Builder by editing this form and configuring
+                                            the field options.
                                         </p>
                                     </div>
-                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))"
+                                        class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                     </p>
                                 </div>
                             </div>
+
+                            <!-- Table Field -->
+                            <div *ngIf="field.type === 'table'" class="md:col-span-2">
+                                <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                    {{ field.label }}
+                                    <span *ngIf="field.required" class="text-danger">*</span>
+                                </label>
+                                <div class="overflow-x-auto">
+                                    <table class="min-w-full border border-[#e0e6ed] dark:border-[#1b2e4b]">
+                                        <thead>
+                                            <tr class="bg-gray-50 dark:bg-[#1b2e4b]">
+                                                <th
+                                                    class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light">
+                                                </th>
+                                                <th *ngFor="let col of getTableColumns(field); let colIndex = index"
+                                                    class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light">
+                                                    Column {{ colIndex + 1 }}
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr *ngFor="let row of getTableRows(field); let rowIndex = index">
+                                                <td
+                                                    class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 bg-gray-50 dark:bg-[#1b2e4b] text-sm font-medium dark:text-white-light">
+                                                    {{ getTableRowLabel(field, rowIndex) }}
+                                                </td>
+                                                <td *ngFor="let col of getTableColumns(field); let colIndex = index"
+                                                    class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-2 py-1">
+                                                    <input type="text"
+                                                        [formControl]="getTableCellControl(getFieldName(field.label), rowIndex, colIndex)"
+                                                        class="form-input w-full text-sm"
+                                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
+                                                        placeholder="Enter value" />
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                    {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                                </p>
+                            </div>
                         </div>
 
                         <!-- Approval Pipeline Section -->
-                        <div *ngIf="selectedForm && selectedForm.approvalPipelines && selectedForm.approvalPipelines.length > 0" 
-                             class="mt-8 pt-6 border-t border-[#e0e6ed] dark:border-[#1b2e4b]">
+                        <div *ngIf="selectedForm && selectedForm.approvalPipelines && selectedForm.approvalPipelines.length > 0"
+                            class="mt-8 pt-6 border-t border-[#e0e6ed] dark:border-[#1b2e4b]">
                             <h6 class="mb-4 text-base font-semibold dark:text-white-light text-center">
                                 Approval Pipeline
                             </h6>
                             <div class="flex items-center justify-center gap-2 overflow-x-auto pb-4">
-                                <div *ngFor="let pipeline of selectedForm.approvalPipelines; let i = index; let isLast = last" 
-                                     class="flex items-center gap-2 flex-shrink-0">
+                                <div *ngFor="let pipeline of selectedForm.approvalPipelines; let i = index; let isLast = last"
+                                    class="flex items-center gap-2 flex-shrink-0">
                                     <!-- Department Box -->
-                                    <div class="px-4 py-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#1b2e4b] rounded min-w-[120px] text-center">
+                                    <div
+                                        class="px-4 py-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#1b2e4b] rounded min-w-[120px] text-center">
                                         <p class="text-sm font-medium dark:text-white-light">
-                                            {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' + pipeline.serDepartmentId }}
+                                            {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' +
+                                            pipeline.serDepartmentId }}
                                         </p>
                                     </div>
-                                    
+
                                     <!-- Arrow (not shown after last item) -->
                                     <div *ngIf="!isLast" class="flex items-center">
-                                        <svg class="w-6 h-6 text-gray-800 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"></path>
+                                        <svg class="w-6 h-6 text-gray-800 dark:text-gray-300" fill="none"
+                                            stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7">
+                                            </path>
                                         </svg>
                                     </div>
                                 </div>
@@ -242,11 +265,7 @@
 
                         <!-- Submit Button -->
                         <div class="mt-6 flex justify-end">
-                            <button 
-                                type="submit" 
-                                class="btn btn-primary"
-                                [disabled]="applicationForm.invalid"
-                            >
+                            <button type="submit" class="btn btn-primary" [disabled]="applicationForm.invalid">
                                 Submit Application
                             </button>
                         </div>
@@ -263,4 +282,3 @@
         </div>
     </div>
 </div>
-

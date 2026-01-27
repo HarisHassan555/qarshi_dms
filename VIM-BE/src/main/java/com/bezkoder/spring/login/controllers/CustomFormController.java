@@ -73,9 +73,10 @@ public class CustomFormController {
             return result;
         } catch (Exception ex) {
             logger.error("Error creating custom form: " + ex.getMessage(), ex);
+            ex.printStackTrace();
             result.put("status", "Failure");
             result.put("message", ex.getMessage());
-            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return result;
         }
     }
@@ -85,26 +86,79 @@ public class CustomFormController {
                     headers = "Accept=application/json",
                     consumes = MediaType.APPLICATION_JSON_VALUE,
                     produces = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String, Object> updateCustomForm(@RequestBody CfgTblCustomForm customForm,
+    public Map<String, Object> updateCustomForm(@RequestBody Map<String, Object> requestBody,
                                                  HttpServletRequest request,
                                                  HttpServletResponse response) {
         logger.debug("updateCustomForm()");
         Map<String, Object> result = new HashMap<>();
         try {
+            // Manually extract approval pipelines from raw JSON to avoid deserialization issues
+            Object pipelinesObj = requestBody.get("cfgTblCustomFormApprovalPipelines");
+            if (pipelinesObj == null) {
+                pipelinesObj = requestBody.get("approvalPipelines"); // Try alias
+            }
+            
+            // Remove from request body to avoid deserialization issues
+            requestBody.remove("cfgTblCustomFormApprovalPipelines");
+            requestBody.remove("approvalPipelines");
+            
+            // Convert to CfgTblCustomForm using ObjectMapper
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            CfgTblCustomForm customForm = objectMapper.convertValue(requestBody, CfgTblCustomForm.class);
+            
+            // Manually set approval pipelines if they exist
+            if (pipelinesObj != null && pipelinesObj instanceof java.util.List) {
+                java.util.List<Map<String, Object>> pipelinesList = (java.util.List<Map<String, Object>>) pipelinesObj;
+                java.util.List<com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline> pipelineEntities = 
+                    new java.util.ArrayList<>();
+                
+                for (Map<String, Object> pipelineMap : pipelinesList) {
+                    com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline pipeline = 
+                        new com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline();
+                    
+                    // Extract serDepartmentId (could be direct or nested in hrTblDepartment)
+                    Object deptIdObj = pipelineMap.get("serDepartmentId");
+                    if (deptIdObj == null && pipelineMap.get("hrTblDepartment") != null) {
+                        Map<String, Object> deptMap = (Map<String, Object>) pipelineMap.get("hrTblDepartment");
+                        deptIdObj = deptMap.get("serDepartmentId");
+                    }
+                    
+                    if (deptIdObj != null) {
+                        Integer deptId = deptIdObj instanceof Integer ? (Integer) deptIdObj : 
+                                        Integer.parseInt(deptIdObj.toString());
+                        pipeline.setSerDepartmentId(deptId);
+                    }
+                    
+                    // Extract intApprovalOrder
+                    Object orderObj = pipelineMap.get("intApprovalOrder");
+                    if (orderObj != null) {
+                        Integer order = orderObj instanceof Integer ? (Integer) orderObj : 
+                                       Integer.parseInt(orderObj.toString());
+                        pipeline.setIntApprovalOrder(order);
+                    }
+                    
+                    pipelineEntities.add(pipeline);
+                }
+                
+                customForm.setCfgTblCustomFormApprovalPipelines(pipelineEntities);
+                logger.debug("Manually extracted " + pipelineEntities.size() + " approval pipelines");
+            }
+            
             String status = customFormService.updateCustomForm(customForm);
             if ("Success".equals(status)) {
                 result.put("status", "Success");
                 result.put("message", "Form updated successfully");
             } else {
                 result.put("status", "Failure");
-                result.put("message", "Failed to update form");
+                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8) : "Failed to update form");
             }
             return result;
         } catch (Exception ex) {
             logger.error("Error updating custom form: " + ex.getMessage(), ex);
+            ex.printStackTrace();
             result.put("status", "Failure");
             result.put("message", ex.getMessage());
-            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return result;
         }
     }

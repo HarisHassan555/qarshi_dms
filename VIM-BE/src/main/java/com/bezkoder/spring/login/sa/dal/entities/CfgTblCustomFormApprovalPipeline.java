@@ -5,6 +5,7 @@ import javax.persistence.*;
 import java.sql.Timestamp;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * The persistent class for the cfg_tbl_custom_form_approval_pipeline database table.
@@ -12,6 +13,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 @Entity
 @Table(name="cfg_tbl_custom_form_approval_pipeline")
 @NamedQuery(name="CfgTblCustomFormApprovalPipeline.findAll", query="SELECT c FROM CfgTblCustomFormApprovalPipeline c")
+@JsonIgnoreProperties(ignoreUnknown = true) // Ignore unknown properties during deserialization
 public class CfgTblCustomFormApprovalPipeline implements Serializable {
     private static final long serialVersionUID = 1L;
 
@@ -51,10 +53,12 @@ public class CfgTblCustomFormApprovalPipeline implements Serializable {
     @ManyToOne(fetch=FetchType.EAGER)
     @JoinColumn(name="ser_department_id")
     @JsonIgnoreProperties({"cfgTblUsers", "hrTblEmployees"})
+    @JsonIgnore // Ignore during deserialization - we use serDepartmentId transient field instead
     private HrTblDepartment hrTblDepartment;
 
     // Transient field to accept serDepartmentId from JSON during deserialization
     @Transient
+    @JsonProperty("serDepartmentId") // Ensure Jackson uses this field during deserialization
     private Integer serDepartmentId;
 
     public CfgTblCustomFormApprovalPipeline() {

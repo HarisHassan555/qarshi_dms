@@ -1,5 +1,5 @@
 import { Component, OnInit } from '@angular/core';
-import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { FormBuilder, FormGroup, FormArray, Validators, FormControl } from '@angular/forms';
 import { PermissionService } from '../../services/shared-data/permission-service';
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
@@ -44,7 +44,7 @@ export class ApplicationComponent implements OnInit {
   selectedForm: CustomForm | null = null;
   applicationForm!: FormGroup;
   generatedApplicationCode: string | null = null;
-  
+
   constructor(
     private permissionService: PermissionService,
     private customFormService: CustomFormService,
@@ -146,23 +146,40 @@ export class ApplicationComponent implements OnInit {
 
   buildDynamicForm(form: CustomForm) {
     const formControls: any = {};
-    
+
     form.fields.forEach((field: FormField) => {
       const fieldName = this.getFieldName(field.label);
       const validators: any[] = [];
-      
+
       if (field.required) {
         validators.push(Validators.required);
       }
-      
+
       // Add type-specific validators
       if (field.type === 'email') {
         validators.push(Validators.email);
       }
-      
-      formControls[fieldName] = [field.type === 'checkbox' ? false : '', validators];
+
+      // Handle table fields
+      if (field.type === 'table') {
+        const tableConfig = this.getTableConfig(field);
+        const tableFormArray: FormArray = this.fb.array([]);
+
+        // Create form controls for each cell in the table
+        for (let row = 0; row < tableConfig.rows; row++) {
+          const rowArray = this.fb.array([]);
+          for (let col = 0; col < tableConfig.columns; col++) {
+            rowArray.push(this.fb.control(''));
+          }
+          tableFormArray.push(rowArray);
+        }
+
+        formControls[fieldName] = tableFormArray;
+      } else {
+        formControls[fieldName] = [field.type === 'checkbox' ? false : '', validators];
+      }
     });
-    
+
     this.applicationForm = this.fb.group(formControls);
   }
 
@@ -200,13 +217,71 @@ export class ApplicationComponent implements OnInit {
     return this.getFieldOptions(field).length > 0;
   }
 
+  getTableConfig(field: FormField): { rows: number; columns: number; rowLabels: string[] } {
+    if (field.txtFieldOptions) {
+      try {
+        const config = JSON.parse(field.txtFieldOptions);
+        return {
+          rows: config.rows || 2,
+          columns: config.columns || 2,
+          rowLabels: Array.isArray(config.rowLabels) ? config.rowLabels : []
+        };
+      } catch (e) {
+        // If parsing fails, return defaults
+      }
+    }
+    return { rows: 2, columns: 2, rowLabels: [] };
+  }
+
+  getTableFormArray(fieldName: string): FormArray {
+    return this.applicationForm.get(fieldName) as FormArray;
+  }
+
+  getTableRowFormArray(fieldName: string, rowIndex: number): FormArray {
+    const tableArray = this.getTableFormArray(fieldName);
+    return tableArray.at(rowIndex) as FormArray;
+  }
+
+  getTableCellControl(fieldName: string, rowIndex: number, colIndex: number): FormControl {
+    return this.getTableRowFormArray(fieldName, rowIndex).at(colIndex) as FormControl;
+  }
+
+  getTableRows(field: FormField): number[] {
+    const config = this.getTableConfig(field);
+    return Array.from({ length: config.rows }, (_, i) => i);
+  }
+
+  getTableColumns(field: FormField): number[] {
+    const config = this.getTableConfig(field);
+    return Array.from({ length: config.columns }, (_, i) => i);
+  }
+
+  getTableRowLabel(field: FormField, rowIndex: number): string {
+    const config = this.getTableConfig(field);
+    if (config.rowLabels && config.rowLabels[rowIndex]) {
+      return config.rowLabels[rowIndex];
+    }
+    return `Row ${rowIndex + 1}`;
+  }
+
   onSubmit() {
     if (this.applicationForm.valid && this.selectedForm) {
-      const formData = this.applicationForm.value;
-      
+      const formData = { ...this.applicationForm.value };
+
+      // Convert table FormArrays to regular arrays for JSON serialization
+      this.selectedForm.fields.forEach((field: FormField) => {
+        if (field.type === 'table') {
+          const fieldName = this.getFieldName(field.label);
+          const tableArray = this.getTableFormArray(fieldName);
+          if (tableArray) {
+            formData[fieldName] = tableArray.value;
+          }
+        }
+      });
+
       // Convert form data to JSON string
       const applicationDataJson = JSON.stringify(formData);
-      
+
       // Get current user from localStorage
       const userJson = localStorage.getItem('user');
       let userId: number | null = null;
@@ -218,7 +293,7 @@ export class ApplicationComponent implements OnInit {
           console.error('Error parsing user data:', e);
         }
       }
-      
+
       // Prepare payload for backend
       const payload: any = {
         serFormId: this.selectedForm.serFormId,
@@ -231,7 +306,7 @@ export class ApplicationComponent implements OnInit {
         blIsDeleted: false,
         blnStatus: true
       };
-      
+
       // Submit to backend
       this.customFormApplicationService.submitApplication(payload).subscribe(
         (response: any) => {

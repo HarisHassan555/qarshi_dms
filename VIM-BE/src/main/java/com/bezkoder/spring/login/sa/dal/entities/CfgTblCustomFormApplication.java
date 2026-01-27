@@ -43,6 +43,9 @@ public class CfgTblCustomFormApplication implements Serializable {
     @Column(name="txt_remarks", columnDefinition = "TEXT")
     private String txtRemarks;
 
+    @Column(name="txt_approval_history", columnDefinition = "JSON")
+    private String txtApprovalHistory;
+
     @Column(name="bl_is_active")
     private Boolean blIsActive;
 
@@ -143,6 +146,14 @@ public class CfgTblCustomFormApplication implements Serializable {
 
     public void setTxtRemarks(String txtRemarks) {
         this.txtRemarks = txtRemarks;
+    }
+
+    public String getTxtApprovalHistory() {
+        return this.txtApprovalHistory;
+    }
+
+    public void setTxtApprovalHistory(String txtApprovalHistory) {
+        this.txtApprovalHistory = txtApprovalHistory;
     }
 
     public Boolean getBlIsActive() {

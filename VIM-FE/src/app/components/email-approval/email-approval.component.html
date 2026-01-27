@@ -1,0 +1,47 @@
+<div class="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
+  <div class="w-full max-w-md">
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8 text-center">
+      <div *ngIf="isLoading" class="space-y-4">
+        <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-primary mx-auto"></div>
+        <p class="text-gray-600 dark:text-gray-400">Processing your request...</p>
+      </div>
+
+      <div *ngIf="!isLoading && result" class="space-y-6">
+        <!-- Success State -->
+        <div *ngIf="result.success" class="space-y-4">
+          <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 dark:bg-green-900">
+            <svg class="h-8 w-8 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </div>
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+            Application {{ action === 'approve' ? 'Approved' : 'Rejected' }} Successfully
+          </h2>
+          <p class="text-gray-600 dark:text-gray-400">{{ result.message }}</p>
+        </div>
+
+        <!-- Error State -->
+        <div *ngIf="!result.success" class="space-y-4">
+          <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100 dark:bg-red-900">
+            <svg class="h-8 w-8 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </div>
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+            {{ action === 'approve' ? 'Approval' : 'Rejection' }} Failed
+          </h2>
+          <p class="text-gray-600 dark:text-gray-400">{{ result.message }}</p>
+        </div>
+
+        <div class="pt-4">
+          <button 
+            (click)="goToDashboard()" 
+            class="btn btn-primary w-full">
+            Go to Dashboard
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+

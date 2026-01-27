@@ -7,6 +7,7 @@ import java.util.List;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonAlias;
 
 /**
  * The persistent class for the cfg_tbl_custom_form database table.
@@ -14,6 +15,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 @Entity
 @Table(name="cfg_tbl_custom_form")
 @NamedQuery(name="CfgTblCustomForm.findAll", query="SELECT c FROM CfgTblCustomForm c")
+@JsonIgnoreProperties(ignoreUnknown = true) // Ignore unknown properties during deserialization
 public class CfgTblCustomForm implements Serializable {
     private static final long serialVersionUID = 1L;
 
@@ -197,10 +199,14 @@ public class CfgTblCustomForm implements Serializable {
         return cfgTblCustomFormField;
     }
 
+    // Getter: serialize as "approvalPipelines" for backward compatibility
+    @com.fasterxml.jackson.annotation.JsonProperty("approvalPipelines")
     public List<CfgTblCustomFormApprovalPipeline> getCfgTblCustomFormApprovalPipelines() {
         return this.cfgTblCustomFormApprovalPipelines;
     }
 
+    // Setter: accept "cfgTblCustomFormApprovalPipelines" from frontend
+    // Jackson will automatically map based on field name, but we explicitly set it here
     public void setCfgTblCustomFormApprovalPipelines(List<CfgTblCustomFormApprovalPipeline> cfgTblCustomFormApprovalPipelines) {
         this.cfgTblCustomFormApprovalPipelines = cfgTblCustomFormApprovalPipelines;
     }

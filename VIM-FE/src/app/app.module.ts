@@ -82,9 +82,9 @@ import { FooterComponent } from './layouts/footer';
 import { SidebarComponent } from './layouts/sidebar';
 import { ThemeCustomizerComponent } from './layouts/theme-customizer';
 import { IconModule } from './shared/icon/icon.module';
-import {DataTableModule} from "@bhplugin/ng-datatable";
-import {AngJson2excelBtnModule} from "ang-json2excel-btn";
-import {NotificationService} from "./NotificationService";
+import { DataTableModule } from "@bhplugin/ng-datatable";
+import { AngJson2excelBtnModule } from "ang-json2excel-btn";
+import { NotificationService } from "./NotificationService";
 import { CountryComponent } from './components/country/country.component';
 import { CityComponent } from './components/city/city.component';
 import { AuthInterceptor } from './interceptors/auth/auth.interceptor';
@@ -93,51 +93,56 @@ import { TaxCategoryComponent } from './components/tax-category/tax-category.com
 import { ProductCategoryComponent } from './components/product-category/product-category.component';
 import { ProductComponent } from './components/product/product.component';
 import { DepartmentComponent } from './components/department/department.component';
+import { SignatureComponent } from './components/signature/signature.component';
 import { CapfComponent } from './components/capf/capf.component';
 import { ApplicationComponent } from './components/application/application.component';
 import { ApplicationsViewComponent } from './components/applications-view/applications-view.component';
+import { ApplicationDetailsComponent } from './components/application-details/application-details.component';
 import { FormBuilderComponent } from './components/form-builder/form-builder.component';
-import {OrderListComponent} from "./apps/order/list";
-import {OrderPreviewComponent} from "./apps/order/preview";
-import {SaleInvoiceListComponent} from "./apps/sale-invoice/list";
-import {SaleInvoiceEditComponent} from "./apps/sale-invoice/edit";
-import {SaleInvoiceViewListComponent} from "./apps/sale-invoice-view/list";
-import {SaleInvoiceViewEditComponent} from "./apps/sale-invoice-view/edit";
-import {MarketingListComponent} from "./apps/marketing/list";
-import {ProcurementListComponent} from "./apps/procurement/list";
-import {TaxListComponent} from "./apps/tax/list";
-import {FinanceListComponent} from "./apps/finance/list";
-import {AuditListComponent} from "./apps/audit/list";
-import {SaleInvoiceStatusListComponent} from "./apps/sale-invoice-status/list";
-import {SaleInvoiceViewStatusEditComponent} from "./apps/sale-invoice-status/edit";
-import {SchedulerComponent} from "./apps/scheduler/list";
+import { EmailApprovalComponent } from './components/email-approval/email-approval.component';
+import { OrderListComponent } from "./apps/order/list";
+import { OrderPreviewComponent } from "./apps/order/preview";
+import { SaleInvoiceListComponent } from "./apps/sale-invoice/list";
+import { SaleInvoiceEditComponent } from "./apps/sale-invoice/edit";
+import { SaleInvoiceViewListComponent } from "./apps/sale-invoice-view/list";
+import { SaleInvoiceViewEditComponent } from "./apps/sale-invoice-view/edit";
+import { MarketingListComponent } from "./apps/marketing/list";
+import { ProcurementListComponent } from "./apps/procurement/list";
+import { TaxListComponent } from "./apps/tax/list";
+import { FinanceListComponent } from "./apps/finance/list";
+import { AuditListComponent } from "./apps/audit/list";
+import { SaleInvoiceStatusListComponent } from "./apps/sale-invoice-status/list";
+import { SaleInvoiceViewStatusEditComponent } from "./apps/sale-invoice-status/edit";
+import { SchedulerComponent } from "./apps/scheduler/list";
 import { UserListComponent } from './components/user/user-list/user-list.component';
 import { PasswordPolicyComponent } from './components/user/password-policy/password-policy.component';
 import { ChangePasswordComponent } from './components/user/change-password/change-password.component';
-import {InvoiceAddComponent} from "./apps/order/add";
-import {InvoiceEditComponent} from "./apps/order/edit";
-import {PermissionComponent} from "./components/permission/permission-component";
+import { InvoiceAddComponent } from "./apps/order/add";
+import { InvoiceEditComponent } from "./apps/order/edit";
+import { PermissionComponent } from "./components/permission/permission-component";
 import { ChannelComponent } from './components/channel/channel.component';
 import { ServiceOrderComponent } from './components/service-order/service-order.component';
 import { Ng2FlatpickrModule } from 'ng2-flatpickr';
-import {VendorListComponent} from "./apps/vendor-view/list";
-import {PaymentComponent} from "./apps/payment/list";
+import { VendorListComponent } from "./apps/vendor-view/list";
+import { PaymentComponent } from "./apps/payment/list";
 
 import { NgSelectModule } from '@ng-select/ng-select';
-import {DeparmentComponent} from "./apps/department/list";
+import { DeparmentComponent } from "./apps/department/list";
 import { PdfEditorComponent } from './pdf-editor/pdf-editor.component';
-import {IntegrationLogComponent} from "./apps/inetgration-log/list";
-import {SesLogComponent} from "./apps/ses-log/list";
+import { IntegrationLogComponent } from "./apps/inetgration-log/list";
+import { SesLogComponent } from "./apps/ses-log/list";
 import { TransactionsDetailsComponent } from './transactions-details/transactions-details.component';
 import { ReportViewComponent } from './report-view/report-view.component';
 // @ts-ignore
 import { OrderDetailComponent } from './order-detail/edit';
+import { BudgetApprovalComponent } from './components/budget-approval/budget-approval.component';
+import { BudgetApprovalViewComponent } from './components/budget-approval-view/budget-approval-view.component';
 
 
 
 @NgModule({
     imports: [
-        RouterModule.forRoot(routes, {scrollPositionRestoration: 'enabled'}),
+        RouterModule.forRoot(routes, { scrollPositionRestoration: 'enabled' }),
         BrowserModule,
         BrowserModule,
         BrowserAnimationsModule,
@@ -153,7 +158,7 @@ import { OrderDetailComponent } from './order-detail/edit';
             },
         }),
         MenuModule,
-        StoreModule.forRoot({index: indexReducer}),
+        StoreModule.forRoot({ index: indexReducer }),
         NgxTippyModule,
         NgApexchartsModule,
         NgScrollbarModule.withConfig({
@@ -203,10 +208,13 @@ import { OrderDetailComponent } from './order-detail/edit';
         ProductCategoryComponent,
         ProductComponent,
         DepartmentComponent,
+        SignatureComponent,
         CapfComponent,
         ApplicationComponent,
         ApplicationsViewComponent,
+        ApplicationDetailsComponent,
         FormBuilderComponent,
+        EmailApprovalComponent,
         OrderListComponent,
         OrderPreviewComponent,
         SaleInvoiceListComponent,
@@ -239,7 +247,9 @@ import { OrderDetailComponent } from './order-detail/edit';
         TransactionsDetailsComponent,
         ReportViewComponent,
         OrderDetailComponent,
-        SidebarComponent
+        SidebarComponent,
+        BudgetApprovalComponent,
+        BudgetApprovalViewComponent
 
     ],
 
@@ -248,7 +258,7 @@ import { OrderDetailComponent } from './order-detail/edit';
             provide: HTTP_INTERCEPTORS,
             useClass: AuthInterceptor,
             multi: true
-          },
+        },
         AppService,
         NotificationService,
         Title,
@@ -266,7 +276,7 @@ import { OrderDetailComponent } from './order-detail/edit';
     ],
     bootstrap: [AppComponent],
 })
-export class AppModule {}
+export class AppModule { }
 
 // AOT compilation support
 export function httpTranslateLoader(http: HttpClient) {

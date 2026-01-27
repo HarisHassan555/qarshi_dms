@@ -1,0 +1,78 @@
+<div class="panel">
+    <div class="mb-5 flex items-center justify-between">
+        <h5 class="text-lg font-semibold dark:text-white-light">Budget Approval</h5>
+    </div>
+    <div class="mb-5">
+        <quill-editor #editor [(ngModel)]="editorContent" [modules]="quillModules" [styles]="{height: '400px'}"
+            placeholder="Enter details, bullet points, headings..."></quill-editor>
+    </div>
+
+    <div class="mb-5 panel bg-gray-50 dark:bg-gray-800">
+        <div class="flex items-center justify-between mb-3">
+            <h6 class="text-md font-semibold">Dynamic Table Builder</h6>
+            <button type="button" class="btn btn-primary" (click)="insertTable()">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"
+                    class="mr-2">
+                    <path
+                        d="M9 13H15M12 10V16M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C7.02944 3 3 7.02944 3 12C3 16.9706 7.02944 21 12 21Z"
+                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                Insert Table into Document at Cursor
+            </button>
+        </div>
+        <div class="flex gap-2 mb-4">
+            <button type="button" class="btn btn-sm btn-outline-primary" (click)="addColumn()">+ Add Column</button>
+            <button type="button" class="btn btn-sm btn-outline-success" (click)="addRow()">+ Add Row</button>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="table-auto w-full border-collapse border border-gray-300 dark:border-gray-600">
+                <thead>
+                    <tr>
+                        <th *ngFor="let col of tableColumns; let i = index"
+                            class="border border-gray-300 dark:border-gray-600 p-2 bg-gray-100 dark:bg-gray-700">
+                            <div class="flex items-center justify-between gap-2">
+                                <input type="text" [(ngModel)]="tableColumns[i]" class="form-input text-xs py-1"
+                                    placeholder="Header Name">
+                                <button *ngIf="tableColumns.length > 1" type="button"
+                                    class="text-red-500 hover:text-red-700" (click)="removeColumn(i)">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                        stroke-linejoin="round">
+                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                    </svg>
+                                </button>
+                            </div>
+                        </th>
+                        <th class="w-10 border border-gray-300 dark:border-gray-600 p-2 bg-gray-100 dark:bg-gray-700">
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr *ngFor="let row of tableRows; let r = index">
+                        <td *ngFor="let col of tableColumns; let c = index"
+                            class="border border-gray-300 dark:border-gray-600 p-1">
+                            <input type="text" [(ngModel)]="tableRows[r][c]"
+                                class="form-input w-full border-none focus:ring-0" placeholder="Value">
+                        </td>
+                        <td class="border border-gray-300 dark:border-gray-600 p-1 text-center">
+                            <button *ngIf="tableRows.length > 1" type="button" class="text-red-500 hover:text-red-700"
+                                (click)="removeRow(r)">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="flex justify-end mt-4">
+        <button type="button" class="btn btn-primary" (click)="save()">Save</button>
+    </div>
+</div>

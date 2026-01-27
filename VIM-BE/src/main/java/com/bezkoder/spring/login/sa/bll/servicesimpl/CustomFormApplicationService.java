@@ -91,5 +91,11 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
         logger.debug("rejectApplication() - applicationId: " + applicationId);
         return customFormApplicationDAO.rejectApplication(applicationId, remarks);
     }
+
+    @Override
+    public String sendBackApplication(Integer applicationId, String remarks) {
+        logger.debug("sendBackApplication() - applicationId: " + applicationId);
+        return customFormApplicationDAO.sendBackApplication(applicationId, remarks);
+    }
 }
 

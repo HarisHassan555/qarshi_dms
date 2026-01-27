@@ -34,11 +34,17 @@ export const canActivate: CanActivateFn = (
   const allowedRoutesWithoutMenu = ['Dashboard', 'department', 'country', 'city', 'media-house', 
     'tax-category', 'product-category', 'product', 'users', 'password-policy', 'change-password', 
     'role', 'channel', 'service-order', 'vendor-view', 'payment', 'OrderDepartment', 'pdf-editor', 
-    'SES', 'auditLog', 'transactions-details', 'report', 'order-details', 'application', 'applicationsview', 'formbuilder', 'CAPF'];
+    'SES', 'auditLog', 'transactions-details', 'report', 'order-details', 'application', 'applicationsview', 
+    'application-details', 'formbuilder', 'CAPF', 'approveApplicationFromEmail', 'rejectApplicationFromEmail'];
 
   let user: any = localStorage.getItem('user');
   if (user && user !== null) {
     user = JSON.parse(user);
+  }
+
+  // Allow email approval/rejection routes without authentication
+  if (path === 'approveApplicationFromEmail' || path === 'rejectApplicationFromEmail') {
+    return true;
   }
 
   if (localStorage.getItem('token')) {

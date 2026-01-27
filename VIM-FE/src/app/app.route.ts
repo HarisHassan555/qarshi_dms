@@ -1,5 +1,7 @@
 import { Routes } from '@angular/router';
 
+import { AbcComponent } from './pages/abc/abc.component';
+
 // dashboard
 import { IndexComponent } from './index';
 import { AnalyticsComponent } from './analytics';
@@ -35,36 +37,41 @@ import { TaxCategoryComponent } from './components/tax-category/tax-category.com
 import { ProductCategoryComponent } from './components/product-category/product-category.component';
 import { ProductComponent } from './components/product/product.component';
 import { DepartmentComponent } from './components/department/department.component';
+import { SignatureComponent } from './components/signature/signature.component';
 import { CapfComponent } from './components/capf/capf.component';
 import { ApplicationComponent } from './components/application/application.component';
 import { ApplicationsViewComponent } from './components/applications-view/applications-view.component';
+import { ApplicationDetailsComponent } from './components/application-details/application-details.component';
 import { FormBuilderComponent } from './components/form-builder/form-builder.component';
-import {OrderListComponent} from "./apps/order/list";
-import {SaleInvoiceListComponent} from "./apps/sale-invoice/list";
-import {SaleInvoiceViewListComponent} from "./apps/sale-invoice-view/list";
-import {MarketingListComponent} from "./apps/marketing/list";
-import {ProcurementListComponent} from "./apps/procurement/list";
-import {TaxListComponent} from "./apps/tax/list";
-import {FinanceListComponent} from "./apps/finance/list";
-import {AuditListComponent} from "./apps/audit/list";
-import {SaleInvoiceStatusListComponent} from "./apps/sale-invoice-status/list";
-import {SchedulerComponent} from "./apps/scheduler/list";
+import { EmailApprovalComponent } from './components/email-approval/email-approval.component';
+import { OrderListComponent } from "./apps/order/list";
+import { SaleInvoiceListComponent } from "./apps/sale-invoice/list";
+import { SaleInvoiceViewListComponent } from "./apps/sale-invoice-view/list";
+import { MarketingListComponent } from "./apps/marketing/list";
+import { ProcurementListComponent } from "./apps/procurement/list";
+import { TaxListComponent } from "./apps/tax/list";
+import { FinanceListComponent } from "./apps/finance/list";
+import { AuditListComponent } from "./apps/audit/list";
+import { SaleInvoiceStatusListComponent } from "./apps/sale-invoice-status/list";
+import { SchedulerComponent } from "./apps/scheduler/list";
 import { UserListComponent } from './components/user/user-list/user-list.component';
 import { PasswordPolicyComponent } from './components/user/password-policy/password-policy.component';
 import { ChangePasswordComponent } from './components/user/change-password/change-password.component';
 import { canActivate } from './guards/auth/auth.guard';
-import {PermissionComponent} from "./components/permission/permission-component";
+import { PermissionComponent } from "./components/permission/permission-component";
 import { ChannelComponent } from './components/channel/channel.component';
 import { ServiceOrderComponent } from './components/service-order/service-order.component';
-import {VendorListComponent} from "./apps/vendor-view/list";
-import {PaymentComponent} from "./apps/payment/list";
-import {DeparmentComponent} from "./apps/department/list";
-import {PdfEditorComponent} from "./pdf-editor/pdf-editor.component";
-import {SesLogComponent} from "./apps/ses-log/list";
-import {IntegrationLogComponent} from "./apps/inetgration-log/list";
-import {TransactionsDetailsComponent} from "./transactions-details/transactions-details.component";
-import {ReportViewComponent} from "./report-view/report-view.component";
-import {OrderDetailComponent} from "./order-detail/edit";
+import { VendorListComponent } from "./apps/vendor-view/list";
+import { PaymentComponent } from "./apps/payment/list";
+import { DeparmentComponent } from "./apps/department/list";
+import { PdfEditorComponent } from "./pdf-editor/pdf-editor.component";
+import { SesLogComponent } from "./apps/ses-log/list";
+import { IntegrationLogComponent } from "./apps/inetgration-log/list";
+import { TransactionsDetailsComponent } from "./transactions-details/transactions-details.component";
+import { ReportViewComponent } from "./report-view/report-view.component";
+import { OrderDetailComponent } from "./order-detail/edit";
+import { BudgetApprovalComponent } from './components/budget-approval/budget-approval.component';
+import { BudgetApprovalViewComponent } from './components/budget-approval-view/budget-approval-view.component';
 
 
 export const routes: Routes = [
@@ -80,12 +87,12 @@ export const routes: Routes = [
                 redirectTo: '/Dashboard', pathMatch: 'full'
             },
             // { path: 'analytics', component: AnalyticsComponent, title: 'Analytics Admin | VRISTO - Multipurpose Tailwind Dashboard Template' },
-          /*  {
-                path: 'dashboard',
-                component: FinanceComponent,
-                title: 'Dashboard',
-                canActivate: [canActivate]
-            },*/
+            /*  {
+                  path: 'dashboard',
+                  component: FinanceComponent,
+                  title: 'Dashboard',
+                  canActivate: [canActivate]
+              },*/
             // { path: 'crypto', component: CryptoComponent, title: 'Crypto Admin | VRISTO - Multipurpose Tailwind Dashboard Template' },
             {
                 path: 'country',
@@ -109,9 +116,11 @@ export const routes: Routes = [
             { path: 'product-category', canActivate: [canActivate], component: ProductCategoryComponent, title: 'Product Category' },
             { path: 'product', canActivate: [canActivate], component: ProductComponent, title: 'Product' },
             { path: 'department', canActivate: [canActivate], component: DepartmentComponent, title: 'Department' },
+            { path: 'signature', canActivate: [canActivate], component: SignatureComponent, title: 'Signature' },
             { path: 'CAPF', canActivate: [canActivate], component: CapfComponent, title: 'CAPF' },
             { path: 'application', canActivate: [canActivate], component: ApplicationComponent, title: 'Application' },
             { path: 'applicationsview', canActivate: [canActivate], component: ApplicationsViewComponent, title: 'Applications View' },
+            { path: 'application-details/:id', canActivate: [canActivate], component: ApplicationDetailsComponent, title: 'Application Details' },
             { path: 'formbuilder', canActivate: [canActivate], component: FormBuilderComponent, title: 'Form Builder' },
             { path: 'order', canActivate: [canActivate], component: OrderListComponent, title: 'Order' },
             { path: 'sale-invoice', canActivate: [canActivate], component: SaleInvoiceListComponent, title: 'Sale Invoice' },
@@ -144,6 +153,8 @@ export const routes: Routes = [
             { path: 'transactions-details', component: TransactionsDetailsComponent },
             { path: 'report', component: ReportViewComponent },
             { path: 'order-details/edit/:id', component: OrderDetailComponent },
+            { path: 'budget-approval', component: BudgetApprovalComponent, title: 'Budget Approval' },
+            { path: 'budgetapprovalview', component: BudgetApprovalViewComponent, title: 'Budget Approval View' },
 
 
 
@@ -196,4 +207,10 @@ export const routes: Routes = [
             { path: '', loadChildren: () => import('./auth/auth.module').then((d) => d.AuthModule) },
         ],
     },
+
+    // Email approval routes - no authentication required, no layout wrapper
+    { path: 'approveApplicationFromEmail', component: EmailApprovalComponent, title: 'Approve Application' },
+    { path: 'rejectApplicationFromEmail', component: EmailApprovalComponent, title: 'Reject Application' },
+    { path: 'abc', component: AbcComponent, title: 'Capital Assets Purchase Form' },
+
 ];

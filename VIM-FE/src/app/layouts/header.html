@@ -264,8 +264,8 @@
 
             <div class="dropdown shrink-0">
                 <div hlMenu class="!block">
-                    <button type="button" hlMenuButton class="group relative block">
-                        <img class="h-9 w-9 rounded-full object-contain saturate-50 group-hover:saturate-100" src="assets/images/user-profile2.jpg" alt="" />
+                    <button type="button" hlMenuButton class="group relative block rounded-full bg-white-light/40 p-2 hover:bg-white-light/90 hover:text-primary dark:bg-dark/40 dark:hover:bg-dark/60">
+                        <icon-user class="h-5 w-5" />
                     </button>
                     <ul
                         *hlMenuItems
@@ -274,10 +274,7 @@
                     >
                         <li>
                             <div class="flex items-center px-4 py-4">
-                                <div class="flex-none">
-                                    <img class="h-10 w-10 rounded-md object-contain" src="assets/images/user-profile2.jpg" alt="" />
-                                </div>
-                                <div *ngIf="user" class="truncate ltr:pl-4 rtl:pr-4">
+                                <div *ngIf="user" class="truncate">
                                     <h4 class="text-base">
                                         {{user.txtUserName}}
                                         <!-- <span class="rounded bg-success-light px-1 text-xs text-success ltr:ml-2 rtl:ml-2">Pro</span> -->

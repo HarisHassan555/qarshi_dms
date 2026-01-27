@@ -93,6 +93,7 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
           auth.antMatchers("/api/auth/**").permitAll()
               .antMatchers("/api/test/**").permitAll()
                   .antMatchers("/login", "/getloginCustomer", "/allMenu", "/resources/**", "/updatePasswordReconfirm").permitAll()
+                  .antMatchers("/approveApplicationFromEmail", "/rejectApplicationFromEmail").permitAll()
                   .anyRequest().authenticated()
         );
     

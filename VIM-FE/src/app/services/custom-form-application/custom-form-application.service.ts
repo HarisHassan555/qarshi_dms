@@ -64,5 +64,12 @@ export class CustomFormApplicationService {
       remarks: remarks || ''
     });
   }
+
+  sendBackApplication(applicationId: number, remarks: string) {
+    return this.http.post(urls.API_URL + 'sendBackApplication', {
+      applicationId: applicationId,
+      remarks: remarks
+    });
+  }
 }
 

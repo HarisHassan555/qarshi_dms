@@ -62,6 +62,44 @@ public class EmailService {
         }
     }
 
+    /**
+     * Send HTML email with support for HTML content
+     */
+    public void sendHtmlEmail(List<String> recipients, String subject, String htmlContent) {
+        String username = properties.getProperty("mail.smtp.username");
+        String password = properties.getProperty("mail.smtp.password");
+
+        Session session = Session.getInstance(properties,
+                new javax.mail.Authenticator() {
+                    protected PasswordAuthentication getPasswordAuthentication() {
+                        return new PasswordAuthentication(username, password);
+                    }
+                });
+
+        try {
+            Message message = new MimeMessage(session);
+            message.setFrom(new InternetAddress(username));
+            for (String recipient : recipients) {
+                message.addRecipient(Message.RecipientType.TO, new InternetAddress(recipient));
+            }
+            message.setSubject(subject);
+            
+            // Set content as HTML
+            MimeBodyPart messageBodyPart = new MimeBodyPart();
+            messageBodyPart.setContent(htmlContent, "text/html; charset=utf-8");
+            
+            Multipart multipart = new MimeMultipart();
+            multipart.addBodyPart(messageBodyPart);
+            message.setContent(multipart);
+
+            Transport.send(message);
+            System.out.println("HTML emails sent successfully!");
+
+        } catch (MessagingException e) {
+            e.printStackTrace();
+        }
+    }
+
 
 
     public void sendPassordinMail(String mail,String user_name,String pass)

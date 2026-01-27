@@ -295,5 +295,137 @@ public class CustomFormApplicationController {
             return result;
         }
     }
+
+    /**
+     * GET endpoint for email-based approval (accessed via email link)
+     * This allows users to approve applications directly from email
+     */
+    @RequestMapping(value = "/approveApplicationFromEmail",
+                    method = RequestMethod.GET,
+                    produces = MediaType.TEXT_HTML_VALUE)
+    public String approveApplicationFromEmail(@RequestParam Integer applicationId,
+                                              @RequestParam Integer userId,
+                                              HttpServletRequest request,
+                                              HttpServletResponse response) {
+        logger.debug("approveApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
+        try {
+            String status = customFormApplicationService.approveApplication(applicationId, "Approved via email");
+            if ("Success".equals(status)) {
+                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Application Approved</title>" +
+                       "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                       ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}" +
+                       ".success{color:#27ae60;font-size:24px;margin-bottom:20px}" +
+                       ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                       "<div class='container'><div class='success'>✓ Application Approved Successfully</div>" +
+                       "<div class='message'>The application has been approved. You can close this window.</div></div></body></html>";
+            } else {
+                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Approval Failed</title>" +
+                       "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                       ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}" +
+                       ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
+                       ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                       "<div class='container'><div class='error'>✗ Approval Failed</div>" +
+                       "<div class='message'>" + (status != null && status.startsWith("Failure:") ? status.substring(8) : "Failed to approve application") + 
+                       "</div></div></body></html>";
+            }
+        } catch (Exception ex) {
+            logger.error("Error approving application from email: " + ex.getMessage(), ex);
+            return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Error</title>" +
+                   "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                   ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}" +
+                   ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
+                   ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                   "<div class='container'><div class='error'>✗ Error</div>" +
+                   "<div class='message'>An error occurred: " + ex.getMessage() + "</div></div></body></html>";
+        }
+    }
+
+    /**
+     * GET endpoint for email-based rejection (accessed via email link)
+     * This allows users to reject applications directly from email
+     */
+    @RequestMapping(value = "/rejectApplicationFromEmail",
+                    method = RequestMethod.GET,
+                    produces = MediaType.TEXT_HTML_VALUE)
+    public String rejectApplicationFromEmail(@RequestParam Integer applicationId,
+                                            @RequestParam Integer userId,
+                                            HttpServletRequest request,
+                                            HttpServletResponse response) {
+        logger.debug("rejectApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
+        try {
+            String status = customFormApplicationService.rejectApplication(applicationId, "Rejected via email");
+            if ("Success".equals(status)) {
+                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Application Rejected</title>" +
+                       "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                       ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}" +
+                       ".success{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
+                       ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                       "<div class='container'><div class='success'>✗ Application Rejected</div>" +
+                       "<div class='message'>The application has been rejected. You can close this window.</div></div></body></html>";
+            } else {
+                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Rejection Failed</title>" +
+                       "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                       ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}" +
+                       ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
+                       ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                       "<div class='container'><div class='error'>✗ Rejection Failed</div>" +
+                       "<div class='message'>" + (status != null && status.startsWith("Failure:") ? status.substring(8) : "Failed to reject application") + 
+                       "</div></div></body></html>";
+            }
+        } catch (Exception ex) {
+            logger.error("Error rejecting application from email: " + ex.getMessage(), ex);
+            return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Error</title>" +
+                   "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                   ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}" +
+                   ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
+                   ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                   "<div class='container'><div class='error'>✗ Error</div>" +
+                   "<div class='message'>An error occurred: " + ex.getMessage() + "</div></div></body></html>";
+        }
+    }
+
+    @RequestMapping(value = "/sendBackApplication",
+                    method = RequestMethod.POST,
+                    headers = "Accept=application/json",
+                    consumes = MediaType.APPLICATION_JSON_VALUE,
+                    produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> sendBackApplication(@RequestBody Map<String, Object> requestBody,
+                                                   HttpServletRequest request,
+                                                   HttpServletResponse response) {
+        logger.debug("sendBackApplication()");
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Integer applicationId = (Integer) requestBody.get("applicationId");
+            String remarks = (String) requestBody.get("remarks");
+            
+            if (applicationId == null) {
+                result.put("status", "Failure");
+                result.put("message", "Application ID is required");
+                return result;
+            }
+            
+            if (remarks == null || remarks.trim().isEmpty()) {
+                result.put("status", "Failure");
+                result.put("message", "Remarks are required when sending back an application");
+                return result;
+            }
+            
+            String status = customFormApplicationService.sendBackApplication(applicationId, remarks);
+            if ("Success".equals(status)) {
+                result.put("status", "Success");
+                result.put("message", "Application sent back successfully");
+            } else {
+                result.put("status", "Failure");
+                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8) : "Failed to send back application");
+            }
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error sending back application: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return result;
+        }
+    }
 }
 

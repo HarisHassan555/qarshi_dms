@@ -154,6 +154,44 @@
                                     </p>
                                 </div>
                                 
+                                <!-- Table configuration fields -->
+                                <div *ngIf="field.get('type')?.value === 'table'" class="md:col-span-2 space-y-4">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label>Number of Rows <span class="text-danger">*</span></label>
+                                            <input 
+                                                type="number" 
+                                                formControlName="tableRows"
+                                                min="1"
+                                                max="20"
+                                                class="form-input"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label>Number of Columns <span class="text-danger">*</span></label>
+                                            <input 
+                                                type="number" 
+                                                formControlName="tableColumns"
+                                                min="1"
+                                                max="10"
+                                                class="form-input"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label>Row Labels (Optional)</label>
+                                        <textarea 
+                                            formControlName="tableRowLabels"
+                                            placeholder="Enter row labels separated by commas (e.g., Row 1, Row 2, Row 3). Leave empty if no labels needed."
+                                            rows="3"
+                                            class="form-textarea"
+                                        ></textarea>
+                                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                            Enter labels for rows separated by commas. These will appear on the left side of the table. If you have fewer labels than rows, remaining rows will be numbered.
+                                        </p>
+                                    </div>
+                                </div>
+                                
                                 <div class="flex items-center pt-6">
                                     <label class="inline-flex items-center">
                                         <input type="checkbox" class="form-checkbox" formControlName="required" />
