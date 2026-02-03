@@ -65,3 +65,5 @@ WHERE TABLE_SCHEMA = 'vim_3'
   AND TABLE_NAME IN ('cfg_tbl_custom_form', 'cfg_tbl_custom_form_field')
 ORDER BY TABLE_NAME;
 
+
+

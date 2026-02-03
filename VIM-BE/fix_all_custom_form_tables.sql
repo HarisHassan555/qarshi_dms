@@ -93,3 +93,5 @@ ORDER BY TABLE_NAME, COLUMN_NAME;
 
 SELECT 'All fixes completed successfully!' AS Status;
 
+
+

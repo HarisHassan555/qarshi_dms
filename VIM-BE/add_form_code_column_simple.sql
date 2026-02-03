@@ -35,3 +35,5 @@ WHERE TABLE_SCHEMA = 'vim_3'
 
 SELECT 'Form code column added successfully!' AS Status;
 
+
+

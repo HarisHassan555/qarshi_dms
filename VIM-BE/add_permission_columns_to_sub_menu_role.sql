@@ -121,3 +121,5 @@ SELECT
         ELSE 'ERROR - Some columns are missing'
     END AS 'Status';
 
+
+

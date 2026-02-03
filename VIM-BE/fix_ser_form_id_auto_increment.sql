@@ -36,3 +36,5 @@ WHERE TABLE_SCHEMA = 'vim_3'
 
 SELECT 'AUTO_INCREMENT enabled on ser_form_id' AS Status;
 
+
+

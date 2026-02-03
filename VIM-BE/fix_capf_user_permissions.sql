@@ -124,3 +124,5 @@ SELECT
         ELSE '❌ CAPF permissions need attention'
     END AS 'FINAL STATUS';
 
+
+

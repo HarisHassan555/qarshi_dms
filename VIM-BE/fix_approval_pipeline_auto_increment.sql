@@ -37,3 +37,5 @@ WHERE TABLE_SCHEMA = 'vim_3'
 
 SELECT 'AUTO_INCREMENT fix completed' AS Status;
 
+
+

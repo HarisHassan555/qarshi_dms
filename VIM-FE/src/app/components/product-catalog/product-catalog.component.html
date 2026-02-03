@@ -1,0 +1,130 @@
+<div class="container mx-auto px-4 py-8">
+  <!-- Header -->
+  <div class="mb-6">
+    <div class="flex justify-between items-center mb-4">
+      <h1 class="text-3xl font-bold text-gray-800">Product Catalog</h1>
+      <button
+        (click)="goToCart()"
+        class="relative bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg flex items-center gap-2 transition-colors"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
+        </svg>
+        Cart
+        <span *ngIf="cartItemCount > 0" class="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center">
+          {{ cartItemCount }}
+        </span>
+      </button>
+    </div>
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center justify-between">
+      <div>
+        <p class="text-sm text-blue-800">
+          <strong>Demo Mode:</strong> Using sample products. All features work without backend connection.
+        </p>
+      </div>
+      <button
+        (click)="addSampleToCart()"
+        class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition-colors whitespace-nowrap ml-4"
+      >
+        Add Sample Items
+      </button>
+    </div>
+  </div>
+
+  <!-- Search and Filter -->
+  <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Search Products</label>
+        <input
+          type="text"
+          [(ngModel)]="searchTerm"
+          (input)="onSearch()"
+          placeholder="Search by name, code, or description..."
+          class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
+        <select
+          [(ngModel)]="selectedCategory"
+          (change)="onCategoryChange()"
+          class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        >
+          <option value="">All Categories</option>
+          <option *ngFor="let category of categories" [value]="category">
+            {{ category }}
+          </option>
+        </select>
+      </div>
+      <div class="flex items-end">
+        <button
+          (click)="clearFilters()"
+          class="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg transition-colors"
+        >
+          Clear Filters
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading State -->
+  <div *ngIf="loading" class="text-center py-12">
+    <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+    <p class="mt-4 text-gray-600">Loading products...</p>
+  </div>
+
+  <!-- Products Grid -->
+  <div *ngIf="!loading && filteredProducts.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+    <div
+      *ngFor="let product of filteredProducts"
+      class="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow overflow-hidden"
+    >
+      <div class="p-6">
+        <div class="mb-4">
+          <h3 class="text-xl font-semibold text-gray-800 mb-2">
+            {{ product.txtProductName || 'Unnamed Product' }}
+          </h3>
+          <p class="text-sm text-gray-500 mb-2">
+            Code: {{ product.txtProductCode || 'N/A' }}
+          </p>
+          <p class="text-sm text-blue-600 font-medium mb-2">
+            {{ product.cfgTblProductCategory?.txtProductCategoryName || 'Uncategorized' }}
+          </p>
+        </div>
+        
+        <p class="text-gray-600 text-sm mb-4 line-clamp-2">
+          {{ product.txtDescription || 'No description available' }}
+        </p>
+        
+        <div class="flex justify-between items-center mb-4">
+          <div>
+            <span class="text-2xl font-bold text-green-600">
+              ${{ product.decPrice || product.price || '0.00' }}
+            </span>
+          </div>
+        </div>
+        
+        <button
+          (click)="addToCart(product)"
+          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
+          </svg>
+          Add to Cart
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Empty State -->
+  <div *ngIf="!loading && filteredProducts.length === 0" class="text-center py-12">
+    <svg class="mx-auto h-24 w-24 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+    </svg>
+    <h3 class="mt-4 text-lg font-medium text-gray-900">No products found</h3>
+    <p class="mt-2 text-gray-500">Try adjusting your search or filter criteria.</p>
+  </div>
+</div>
+

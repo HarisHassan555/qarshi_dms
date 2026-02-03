@@ -403,3 +403,5 @@ SELECT
         ELSE '❌ Some permissions may be missing - check verification queries above'
     END AS 'Status';
 
+
+

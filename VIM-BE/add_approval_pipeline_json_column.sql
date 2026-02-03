@@ -27,3 +27,5 @@ SELECT 'JSON column added successfully!' AS Status;
 -- Note: The separate cfg_tbl_custom_form_approval_pipeline table can be kept
 -- for backward compatibility or dropped later if not needed
 
+
+

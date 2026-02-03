@@ -1,0 +1,201 @@
+<div class="container mx-auto px-4 py-8">
+  <h1 class="text-3xl font-bold text-gray-800 mb-6">Checkout</h1>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Checkout Form -->
+    <div class="lg:col-span-2">
+      <form [formGroup]="checkoutForm" (ngSubmit)="onSubmit()">
+        <!-- Shipping Information -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+          <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p class="text-sm text-blue-800">
+              <strong>Demo Mode:</strong> Form is pre-filled with sample data. You can modify any field.
+            </p>
+          </div>
+          <h2 class="text-xl font-semibold text-gray-800 mb-4">Shipping Information</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">First Name *</label>
+              <input
+                type="text"
+                formControlName="firstName"
+                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                [class.border-red-500]="checkoutForm.get('firstName')?.invalid && checkoutForm.get('firstName')?.touched"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Last Name *</label>
+              <input
+                type="text"
+                formControlName="lastName"
+                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                [class.border-red-500]="checkoutForm.get('lastName')?.invalid && checkoutForm.get('lastName')?.touched"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Email *</label>
+              <input
+                type="email"
+                formControlName="email"
+                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                [class.border-red-500]="checkoutForm.get('email')?.invalid && checkoutForm.get('email')?.touched"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Phone *</label>
+              <input
+                type="tel"
+                formControlName="phone"
+                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                [class.border-red-500]="checkoutForm.get('phone')?.invalid && checkoutForm.get('phone')?.touched"
+              />
+            </div>
+            <div class="md:col-span-2">
+              <label class="block text-sm font-medium text-gray-700 mb-2">Address *</label>
+              <input
+                type="text"
+                formControlName="address"
+                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                [class.border-red-500]="checkoutForm.get('address')?.invalid && checkoutForm.get('address')?.touched"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">City *</label>
+              <input
+                type="text"
+                formControlName="city"
+                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                [class.border-red-500]="checkoutForm.get('city')?.invalid && checkoutForm.get('city')?.touched"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">State *</label>
+              <input
+                type="text"
+                formControlName="state"
+                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                [class.border-red-500]="checkoutForm.get('state')?.invalid && checkoutForm.get('state')?.touched"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Zip Code *</label>
+              <input
+                type="text"
+                formControlName="zipCode"
+                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                [class.border-red-500]="checkoutForm.get('zipCode')?.invalid && checkoutForm.get('zipCode')?.touched"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Country *</label>
+              <input
+                type="text"
+                formControlName="country"
+                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                [class.border-red-500]="checkoutForm.get('country')?.invalid && checkoutForm.get('country')?.touched"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Payment Information -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+          <h2 class="text-xl font-semibold text-gray-800 mb-4">Payment Information</h2>
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Payment Method *</label>
+            <select
+              formControlName="paymentMethod"
+              class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="credit-card">Credit Card</option>
+              <option value="debit-card">Debit Card</option>
+              <option value="paypal">PayPal</option>
+            </select>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="md:col-span-2">
+              <label class="block text-sm font-medium text-gray-700 mb-2">Card Number *</label>
+              <input
+                type="text"
+                formControlName="cardNumber"
+                placeholder="1234 5678 9012 3456"
+                maxlength="16"
+                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                [class.border-red-500]="checkoutForm.get('cardNumber')?.invalid && checkoutForm.get('cardNumber')?.touched"
+              />
+            </div>
+            <div class="md:col-span-2">
+              <label class="block text-sm font-medium text-gray-700 mb-2">Card Holder Name *</label>
+              <input
+                type="text"
+                formControlName="cardHolderName"
+                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                [class.border-red-500]="checkoutForm.get('cardHolderName')?.invalid && checkoutForm.get('cardHolderName')?.touched"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Expiry Date *</label>
+              <input
+                type="text"
+                formControlName="expiryDate"
+                placeholder="MM/YY"
+                maxlength="5"
+                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                [class.border-red-500]="checkoutForm.get('expiryDate')?.invalid && checkoutForm.get('expiryDate')?.touched"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">CVV *</label>
+              <input
+                type="text"
+                formControlName="cvv"
+                placeholder="123"
+                maxlength="4"
+                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                [class.border-red-500]="checkoutForm.get('cvv')?.invalid && checkoutForm.get('cvv')?.touched"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-4">
+          <button
+            type="button"
+            (click)="goBack()"
+            class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 px-4 rounded-lg transition-colors"
+          >
+            Back to Cart
+          </button>
+          <button
+            type="submit"
+            [disabled]="isSubmitting"
+            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <span *ngIf="!isSubmitting">Complete Order</span>
+            <span *ngIf="isSubmitting">Processing...</span>
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Order Summary -->
+    <div class="lg:col-span-1">
+      <div class="bg-white rounded-lg shadow-md p-6 sticky top-4">
+        <h2 class="text-xl font-semibold text-gray-800 mb-4">Order Summary</h2>
+        <div class="space-y-3 mb-4">
+          <div *ngFor="let item of cartItems" class="flex justify-between text-sm">
+            <span class="text-gray-600">{{ item.product.txtProductName }} x{{ item.quantity }}</span>
+            <span class="text-gray-800">${{ (item.price * item.quantity).toFixed(2) }}</span>
+          </div>
+        </div>
+        <div class="border-t border-gray-200 pt-3">
+          <div class="flex justify-between text-lg font-bold text-gray-800">
+            <span>Total</span>
+            <span>${{ totalPrice.toFixed(2) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+

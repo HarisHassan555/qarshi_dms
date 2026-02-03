@@ -18,3 +18,5 @@ public interface ICfgTblCustomFormDAO {
     List<CfgTblCustomForm> getActiveCustomForms();
 }
 
+
+

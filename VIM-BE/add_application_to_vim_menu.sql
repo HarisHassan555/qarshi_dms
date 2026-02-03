@@ -316,3 +316,5 @@ SELECT
         ELSE '❌ Application needs to be fixed'
     END AS 'FINAL STATUS';
 
+
+

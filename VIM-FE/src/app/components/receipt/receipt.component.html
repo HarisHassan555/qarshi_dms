@@ -1,0 +1,132 @@
+<div class="container mx-auto px-4 py-8 max-w-4xl">
+  <div class="bg-white rounded-lg shadow-lg p-8 print:p-4">
+    <!-- Header -->
+    <div class="text-center mb-8 border-b pb-6">
+      <h1 class="text-3xl font-bold text-gray-800 mb-2">Order Receipt</h1>
+      <p class="text-gray-600">Thank you for your purchase!</p>
+      <p class="text-sm text-gray-500 mt-2">Order ID: {{ orderData?.orderId }}</p>
+      <p class="text-sm text-gray-500">Date: {{ orderData?.orderDate | date:'medium' }}</p>
+    </div>
+
+    <!-- Customer Information -->
+    <div class="mb-6">
+      <h2 class="text-xl font-semibold text-gray-800 mb-3">Customer Information</h2>
+      <div class="bg-gray-50 rounded-lg p-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <p class="text-sm text-gray-600">Name</p>
+            <p class="font-medium text-gray-800">{{ orderData?.firstName }} {{ orderData?.lastName }}</p>
+          </div>
+          <div>
+            <p class="text-sm text-gray-600">Email</p>
+            <p class="font-medium text-gray-800">{{ orderData?.email }}</p>
+          </div>
+          <div>
+            <p class="text-sm text-gray-600">Phone</p>
+            <p class="font-medium text-gray-800">{{ orderData?.phone }}</p>
+          </div>
+          <div>
+            <p class="text-sm text-gray-600">Payment Method</p>
+            <p class="font-medium text-gray-800">{{ orderData?.paymentMethod | titlecase }}</p>
+          </div>
+        </div>
+        <div class="mt-4">
+          <p class="text-sm text-gray-600">Shipping Address</p>
+          <p class="font-medium text-gray-800">
+            {{ orderData?.address }}, {{ orderData?.city }}, {{ orderData?.state }} {{ orderData?.zipCode }}, {{ orderData?.country }}
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Order Items -->
+    <div class="mb-6">
+      <h2 class="text-xl font-semibold text-gray-800 mb-3">Order Items</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Product</th>
+              <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Category</th>
+              <th class="px-4 py-3 text-center text-sm font-medium text-gray-700">Quantity</th>
+              <th class="px-4 py-3 text-right text-sm font-medium text-gray-700">Price</th>
+              <th class="px-4 py-3 text-right text-sm font-medium text-gray-700">Total</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            <tr *ngFor="let item of orderData?.items">
+              <td class="px-4 py-3">
+                <p class="font-medium text-gray-800">{{ item.product.txtProductName }}</p>
+                <p class="text-sm text-gray-500">Code: {{ item.product.txtProductCode }}</p>
+              </td>
+              <td class="px-4 py-3 text-gray-600">
+                {{ item.product.cfgTblProductCategory?.txtProductCategoryName || 'Uncategorized' }}
+              </td>
+              <td class="px-4 py-3 text-center text-gray-600">{{ item.quantity }}</td>
+              <td class="px-4 py-3 text-right text-gray-600">${{ item.price.toFixed(2) }}</td>
+              <td class="px-4 py-3 text-right font-medium text-gray-800">${{ (item.price * item.quantity).toFixed(2) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Order Summary -->
+    <div class="border-t pt-6">
+      <div class="flex justify-end">
+        <div class="w-full md:w-1/2">
+          <div class="space-y-2">
+            <div class="flex justify-between text-gray-600">
+              <span>Subtotal</span>
+              <span>${{ orderData?.totalPrice.toFixed(2) }}</span>
+            </div>
+            <div class="flex justify-between text-gray-600">
+              <span>Tax</span>
+              <span>$0.00</span>
+            </div>
+            <div class="flex justify-between text-lg font-bold text-gray-800 pt-2 border-t">
+              <span>Total</span>
+              <span>${{ orderData?.totalPrice.toFixed(2) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="mt-8 flex flex-col sm:flex-row gap-4 print:hidden">
+      <button
+        (click)="printReceipt()"
+        class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors"
+      >
+        Print Receipt
+      </button>
+      <button
+        (click)="goToFeedback()"
+        class="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-4 rounded-lg transition-colors"
+      >
+        Provide Feedback
+      </button>
+      <button
+        (click)="continueShopping()"
+        class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 px-4 rounded-lg transition-colors"
+      >
+        Continue Shopping
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+@media print {
+  .print\:p-4 {
+    padding: 1rem;
+  }
+  .print\:hidden {
+    display: none;
+  }
+}
+</style>
+
+
+
