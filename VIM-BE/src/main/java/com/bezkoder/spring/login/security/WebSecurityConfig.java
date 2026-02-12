@@ -15,10 +15,15 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 //import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 //import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import java.util.Arrays;
 
 import com.bezkoder.spring.login.security.jwt.AuthEntryPointJwt;
 import com.bezkoder.spring.login.security.jwt.AuthTokenFilter;
@@ -86,23 +91,50 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
   
   @Bean
   public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-    http.csrf(csrf -> csrf.disable())
-        .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
-        .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-        .authorizeHttpRequests(auth ->
-          auth.antMatchers("/api/auth/**").permitAll()
-              .antMatchers("/api/test/**").permitAll()
-                  .antMatchers("/login", "/getloginCustomer", "/allMenu", "/resources/**", "/updatePasswordReconfirm").permitAll()
-                  .antMatchers("/approveApplicationFromEmail", "/rejectApplicationFromEmail").permitAll()
-                  .anyRequest().authenticated()
-        );
-    
-    http.authenticationProvider(authenticationProvider());
+      http.cors(cors -> cors.configurationSource(corsConfigurationSource()))
+          .csrf(csrf -> csrf.disable())
+          .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
+          .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+          .authorizeHttpRequests(auth ->
+              auth.antMatchers(
+                      "/", 
+                      "/index.html",
+                      "/static/**",
+                      "/assets/**",
+                      "/*.js",
+                      "/*.css",
+                      "/api/auth/**",
+                      "/api/test/**",
+                      "/login",
+                      "/getloginCustomer",
+                      "/allMenu",
+                      "/resources/**",
+                      "/updatePasswordReconfirm"
+              ).permitAll()
+              .antMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+              .anyRequest().authenticated()
+          );
 
-    http.addFilterBefore(authenticationJwtTokenFilter(), UsernamePasswordAuthenticationFilter.class);
-    
-    return http.build();
+      http.authenticationProvider(authenticationProvider());
+
+      http.addFilterBefore(authenticationJwtTokenFilter(), UsernamePasswordAuthenticationFilter.class);
+
+      return http.build();
   }
+
+  @Bean
+  public CorsConfigurationSource corsConfigurationSource() {
+      CorsConfiguration configuration = new CorsConfiguration();
+      configuration.setAllowedOrigins(Arrays.asList("http://localhost:4200"));
+      configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+      configuration.setAllowedHeaders(Arrays.asList("*"));
+      configuration.setExposedHeaders(Arrays.asList("x-auth-token"));
+      configuration.setAllowCredentials(true);
+      UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+      source.registerCorsConfiguration("/**", configuration);
+      return source;
+  }
+
 
   @Bean
   public ObjectMapper objectMapper() {

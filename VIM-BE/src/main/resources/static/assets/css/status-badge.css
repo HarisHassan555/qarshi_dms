@@ -1,0 +1,47 @@
+.status-badge {
+    display: inline-block;
+    padding: 8px 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: bold;
+    color: white;
+    cursor: pointer;
+    text-align: center;
+    text-decoration: none;
+    transition: background-color 0.3s ease;
+    margin-right: 8px;
+}
+
+/* Status-specific styles */
+.badge-approve {
+    background-color: #28a745; /* Green for Approve */
+}
+
+.badge-send-back {
+    background-color: #17a2b8; /* Light blue for Send Back */
+}
+
+.badge-reject {
+    background-color: #dc3545; /* Red for Reject */
+}
+
+.badge-cancel {
+    background-color: #ffc107; /* Yellow for Cancel */
+}
+
+/* Hover effects */
+.badge-approve:hover {
+    background-color: #218838; /* Darker green on hover */
+}
+
+.badge-send-back:hover {
+    background-color: #138496; /* Darker blue on hover */
+}
+
+.badge-reject:hover {
+    background-color: #c82333; /* Darker red on hover */
+}
+
+.badge-cancel:hover {
+    background-color: #e0a800; /* Darker yellow on hover */
+}

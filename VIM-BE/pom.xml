@@ -13,7 +13,7 @@
 	<artifactId>vendor-invoice-management</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<packaging>war</packaging>
-	<name>VIM</name>
+	<name>velocity</name>
 	<description>Vendor Invoice Management System</description>
 
 	<properties>
@@ -178,7 +178,7 @@
 	</dependencies>
 
 	<build>
-		<finalName>VIM</finalName>
+		<finalName>velocity</finalName>
 		<plugins>
 			<!-- Spring Boot Maven Plugin -->
 			<plugin>
