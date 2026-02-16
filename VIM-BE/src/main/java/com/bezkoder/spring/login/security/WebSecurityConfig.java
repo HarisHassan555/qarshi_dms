@@ -98,6 +98,7 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
         .authorizeHttpRequests(auth ->
           auth.antMatchers("/api/auth/**").permitAll()
               .antMatchers("/api/test/**").permitAll()
+                  .antMatchers("/", "/index.html", "/static/**", "/*.js", "/*.css", "/*.png", "/*.ico", "/assets/**").permitAll()
                   .antMatchers("/login", "/getloginCustomer", "/allMenu", "/resources/**", "/updatePasswordReconfirm").permitAll()
                   .antMatchers("/approveApplicationFromEmail", "/rejectApplicationFromEmail").permitAll()
                   .anyRequest().authenticated()
@@ -113,7 +114,7 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
       CorsConfiguration configuration = new CorsConfiguration();
-      configuration.setAllowedOrigins(Arrays.asList("http://localhost:4200", "http://localhost:8080", "http://192.0.0.203:8080"));
+      configuration.setAllowedOrigins(Arrays.asList("http://localhost:4200", "http://localhost:8080", "http://192.0.0.203:8080", "http://localhost:8081"));
       configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
       configuration.setAllowedHeaders(Arrays.asList("*"));
       configuration.setExposedHeaders(Arrays.asList("x-auth-token"));
