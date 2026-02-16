@@ -99,6 +99,7 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
           auth.antMatchers("/api/auth/**").permitAll()
               .antMatchers("/api/test/**").permitAll()
                   .antMatchers("/", "/index.html", "/static/**", "/*.js", "/*.css", "/*.png", "/*.ico", "/assets/**").permitAll()
+                  .antMatchers("/{path:[^\\.]*}", "/**/{path:[^\\.]*}").permitAll()
                   .antMatchers("/login", "/getloginCustomer", "/allMenu", "/resources/**", "/updatePasswordReconfirm").permitAll()
                   .antMatchers("/approveApplicationFromEmail", "/rejectApplicationFromEmail").permitAll()
                   .anyRequest().authenticated()
