@@ -12,7 +12,9 @@
 
     <!-- Loading State -->
     <div *ngIf="isLoading" class="text-center py-12">
-        <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+        <div
+            class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent">
+        </div>
         <p class="mt-4 text-gray-600 dark:text-gray-400">Loading application details...</p>
     </div>
 
@@ -23,7 +25,8 @@
             <h6 class="mb-3 text-base font-semibold dark:text-white-light">Application Information</h6>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Application Code</label>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Application
+                        Code</label>
                     <p class="text-sm dark:text-white-light">
                         <span class="badge badge-outline-primary" *ngIf="applicationDetails.txtFormCode">
                             {{ applicationDetails.txtFormCode }}
@@ -33,7 +36,8 @@
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Form Name</label>
-                    <p class="text-sm dark:text-white-light">{{ applicationDetails.cfgTblCustomForm?.txtFormName || '-' }}</p>
+                    <p class="text-sm dark:text-white-light">{{ applicationDetails.cfgTblCustomForm?.txtFormName || '-'
+                        }}</p>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Status</label>
@@ -44,7 +48,8 @@
                     </p>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Approval Level</label>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Approval
+                        Level</label>
                     <p class="text-sm dark:text-white-light">
                         <span class="badge badge-outline-info">
                             Level {{ applicationDetails.intCurrentApprovalLevel || 0 }}
@@ -52,9 +57,11 @@
                     </p>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Submitted Date</label>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Submitted
+                        Date</label>
                     <p class="text-sm dark:text-white-light">
-                        {{ applicationDetails.dteCreatedDate ? (applicationDetails.dteCreatedDate | date:'short') : '-' }}
+                        {{ applicationDetails.dteCreatedDate ? (applicationDetails.dteCreatedDate | date:'short') : '-'
+                        }}
                     </p>
                 </div>
                 <div *ngIf="applicationDetails.txtRemarks">
@@ -64,11 +71,12 @@
             </div>
         </div>
 
-        <!-- Form Data -->
-        <div *ngIf="formFields.length > 0">
+        <!-- Form Data (Alternative for non-Budget Approval forms) -->
+        <div *ngIf="formFields.length > 0 && !isBudgetApprovalForm()">
             <h6 class="mb-3 text-base font-semibold dark:text-white-light">Form Data</h6>
             <div class="space-y-4">
-                <div *ngFor="let field of formFields" class="border-b border-[#e0e6ed] dark:border-[#1b2e4b] pb-3 last:border-0">
+                <div *ngFor="let field of formFields"
+                    class="border-b border-[#e0e6ed] dark:border-[#1b2e4b] pb-3 last:border-0">
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
                         {{ field.label }}
                         <span *ngIf="field.required" class="text-danger">*</span>
@@ -78,37 +86,40 @@
                         <p *ngIf="field.type === 'text' || field.type === 'number' || field.type === 'email'">
                             {{ formatFieldValue(field, getFieldValue(field)) }}
                         </p>
-                        
+
                         <!-- Textarea -->
                         <p *ngIf="field.type === 'textarea'" class="whitespace-pre-wrap">
                             {{ formatFieldValue(field, getFieldValue(field)) }}
                         </p>
-                        
+
                         <!-- Date -->
                         <p *ngIf="field.type === 'date'">
                             {{ formatFieldValue(field, getFieldValue(field)) }}
                         </p>
-                        
+
                         <!-- Checkbox -->
                         <p *ngIf="field.type === 'checkbox'">
-                            <span class="badge" [ngClass]="getFieldValue(field) ? 'badge-outline-success' : 'badge-outline-secondary'">
+                            <span class="badge"
+                                [ngClass]="getFieldValue(field) ? 'badge-outline-success' : 'badge-outline-secondary'">
                                 {{ formatFieldValue(field, getFieldValue(field)) }}
                             </span>
                         </p>
-                        
+
                         <!-- Radio or Select -->
                         <p *ngIf="field.type === 'radio' || field.type === 'select'">
                             {{ formatFieldValue(field, getFieldValue(field)) }}
                         </p>
-                        
+
                         <!-- Table -->
                         <div *ngIf="field.type === 'table'" class="mt-2">
                             <div class="overflow-x-auto">
                                 <table class="min-w-full border border-[#e0e6ed] dark:border-[#1b2e4b]">
                                     <thead>
-                                        <tr class="bg-gray-50 dark:bg-[#1b2e4b]">
-                                            <th class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light"></th>
-                                            <th *ngFor="let colIndex of getTableColumns(field)" 
+                                        <tr class="bg-gray-50 dark:bg-[#1b2e3b]">
+                                            <th
+                                                class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light">
+                                            </th>
+                                            <th *ngFor="let colIndex of getTableColumns(field)"
                                                 class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light">
                                                 Column {{ colIndex + 1 }}
                                             </th>
@@ -116,10 +127,11 @@
                                     </thead>
                                     <tbody>
                                         <tr *ngFor="let row of getTableData(field); let rowIndex = index">
-                                            <td class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 bg-gray-50 dark:bg-[#1b2e4b] text-sm font-medium dark:text-white-light">
+                                            <td
+                                                class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 bg-gray-50 dark:bg-[#1b2e4b] text-sm font-medium dark:text-white-light">
                                                 {{ getTableRowLabel(field, rowIndex) }}
                                             </td>
-                                            <td *ngFor="let cell of row; let colIndex = index" 
+                                            <td *ngFor="let cell of row; let colIndex = index"
                                                 class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-sm dark:text-white-light">
                                                 {{ cell || '-' }}
                                             </td>
@@ -133,6 +145,71 @@
             </div>
         </div>
 
+        <!-- Professional Paper View for Budget Approval Forms -->
+        <div *ngIf="isBudgetApprovalForm()" class="xyz-page-inline">
+            <div class="xyz-paper">
+                <div class="xyz-date-row">
+                    <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'M/d/yyyy' }}</div>
+                </div>
+
+                <div class="xyz-header">
+                    <div class="xyz-logo">
+                        <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
+                    </div>
+                    <div class="xyz-company">
+                        <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
+                        <div class="xyz-company-address">15-G, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+                    </div>
+                    <div class="xyz-header-spacer"></div>
+                </div>
+
+                <div class="xyz-rule thick"></div>
+
+                <div class="xyz-title">{{ formHeading }}</div>
+
+                <div class="xyz-content-body">
+                    <div [innerHTML]="safeContent"></div>
+                </div>
+
+                <div class="xyz-footer">
+                    <table class="xyz-signatures">
+                        <tr class="xyz-signatures-blank">
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <th>Prepared by:</th>
+                            <th colspan="2">Reviewed by:</th>
+                            <th colspan="2">Recommended by:</th>
+                            <th>Approved by:</th>
+                        </tr>
+                        <tr>
+                            <td>
+                                <span *ngIf="preparedBy">
+                                    {{ preparedBy.txtUserName }}<br>
+                                    ({{ preparedBy.cfgTblRole?.txtRoleName || 'Executive' }})
+                                </span>
+                            </td>
+                            <td [innerHTML]="formatUserForSignature(reviewers, 0)"></td>
+                            <td [innerHTML]="formatUserForSignature(reviewers, 1)"></td>
+                            <td [innerHTML]="formatUserForSignature(recommenders, 0)"></td>
+                            <td [innerHTML]="formatUserForSignature(recommenders, 1)"></td>
+                            <td>
+                                <span *ngIf="approver">
+                                    {{ approver.txtUserName }}<br>
+                                    ({{ approver.cfgTblRole?.txtRoleName || 'Approver' }})
+                                </span>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- Approval Pipeline (if exists) -->
         <div *ngIf="getPipelineData().length > 0" class="border-t border-[#e0e6ed] dark:border-[#1b2e4b] pt-6 mt-6">
             <h6 class="mb-4 text-base font-semibold dark:text-white-light text-center">
@@ -142,64 +219,72 @@
                 <ng-container *ngFor="let pipeline of getPipelineData(); let i = index; let isLast = last">
                     <div class="flex items-center gap-2 flex-shrink-0">
                         <!-- Department Box -->
-                        <div class="px-4 py-3 border-2 rounded text-center min-w-[160px] transition-all"
-                             [ngClass]="{
+                        <div class="px-4 py-3 border-2 rounded text-center min-w-[160px] transition-all" [ngClass]="{
                                  'border-success bg-success/10 dark:bg-success/20': isDepartmentApproved(pipeline.intApprovalOrder),
                                  'border-warning bg-warning/10 dark:bg-warning/20': !isDepartmentApproved(pipeline.intApprovalOrder) && (applicationDetails?.intCurrentApprovalLevel || 0) === (pipeline.intApprovalOrder - 1),
                                  'border-gray-300 dark:border-gray-600 bg-white dark:bg-[#1b2e4b]': !isDepartmentApproved(pipeline.intApprovalOrder) && (applicationDetails?.intCurrentApprovalLevel || 0) < (pipeline.intApprovalOrder - 1)
                              }">
                             <!-- Status Icon -->
                             <div class="flex items-center justify-center mb-2">
-                                <icon-check *ngIf="isDepartmentApproved(pipeline.intApprovalOrder)" class="h-5 w-5 text-success" />
-                                <icon-clock *ngIf="!isDepartmentApproved(pipeline.intApprovalOrder) && (applicationDetails?.intCurrentApprovalLevel || 0) === (pipeline.intApprovalOrder - 1)" class="h-5 w-5 text-warning" />
-                                <icon-x *ngIf="!isDepartmentApproved(pipeline.intApprovalOrder) && (applicationDetails?.intCurrentApprovalLevel || 0) < (pipeline.intApprovalOrder - 1)" class="h-5 w-5 text-gray-400" />
+                                <icon-check *ngIf="isDepartmentApproved(pipeline.intApprovalOrder)"
+                                    class="h-5 w-5 text-success" />
+                                <icon-clock
+                                    *ngIf="!isDepartmentApproved(pipeline.intApprovalOrder) && (applicationDetails?.intCurrentApprovalLevel || 0) === (pipeline.intApprovalOrder - 1)"
+                                    class="h-5 w-5 text-warning" />
+                                <icon-x
+                                    *ngIf="!isDepartmentApproved(pipeline.intApprovalOrder) && (applicationDetails?.intCurrentApprovalLevel || 0) < (pipeline.intApprovalOrder - 1)"
+                                    class="h-5 w-5 text-gray-400" />
                             </div>
-                            
+
                             <!-- Department Name -->
                             <p class="text-sm font-semibold dark:text-white-light mb-1">
-                                {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' + pipeline.serDepartmentId }}
+                                {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' +
+                                pipeline.serDepartmentId }}
                             </p>
-                            
+
                             <!-- Approval Level -->
                             <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">
                                 Level {{ pipeline.intApprovalOrder }}
                             </p>
-                            
+
                             <!-- Status and Remarks -->
                             <div class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
-                                <p *ngIf="isDepartmentApproved(pipeline.intApprovalOrder)" class="text-xs font-medium text-success mb-1">
+                                <p *ngIf="isDepartmentApproved(pipeline.intApprovalOrder)"
+                                    class="text-xs font-medium text-success mb-1">
                                     ✓ Approved
                                 </p>
-                                <p *ngIf="!isDepartmentApproved(pipeline.intApprovalOrder) && (applicationDetails?.intCurrentApprovalLevel || 0) === (pipeline.intApprovalOrder - 1)" class="text-xs font-medium text-warning mb-1">
+                                <p *ngIf="!isDepartmentApproved(pipeline.intApprovalOrder) && (applicationDetails?.intCurrentApprovalLevel || 0) === (pipeline.intApprovalOrder - 1)"
+                                    class="text-xs font-medium text-warning mb-1">
                                     ⏳ Pending
                                 </p>
-                                <p *ngIf="!isDepartmentApproved(pipeline.intApprovalOrder) && (applicationDetails?.intCurrentApprovalLevel || 0) < (pipeline.intApprovalOrder - 1)" class="text-xs font-medium text-gray-500 mb-1">
+                                <p *ngIf="!isDepartmentApproved(pipeline.intApprovalOrder) && (applicationDetails?.intCurrentApprovalLevel || 0) < (pipeline.intApprovalOrder - 1)"
+                                    class="text-xs font-medium text-gray-500 mb-1">
                                     ○ Not Started
                                 </p>
-                                
+
                                 <!-- Remarks for Approved Departments -->
-                                <div *ngIf="isDepartmentApproved(pipeline.intApprovalOrder) && getDepartmentRemarks(pipeline.intApprovalOrder, pipeline.serDepartmentId)" 
-                                     class="mt-2 p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
+                                <div *ngIf="isDepartmentApproved(pipeline.intApprovalOrder) && getDepartmentRemarks(pipeline.intApprovalOrder, pipeline.serDepartmentId)"
+                                    class="mt-2 p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
                                     <p class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Remarks:</p>
                                     <p class="text-xs text-gray-700 dark:text-gray-300 italic text-left mb-1">
-                                        "{{ getDepartmentRemarks(pipeline.intApprovalOrder, pipeline.serDepartmentId) }}"
+                                        "{{ getDepartmentRemarks(pipeline.intApprovalOrder, pipeline.serDepartmentId)
+                                        }}"
                                     </p>
-                                    <p *ngIf="getDepartmentApprovalDate(pipeline.intApprovalOrder, pipeline.serDepartmentId)" 
-                                       class="text-xs text-gray-500 dark:text-gray-400 text-left">
-                                        Approved: {{ getDepartmentApprovalDate(pipeline.intApprovalOrder, pipeline.serDepartmentId) }}
+                                    <p *ngIf="getDepartmentApprovalDate(pipeline.intApprovalOrder, pipeline.serDepartmentId)"
+                                        class="text-xs text-gray-500 dark:text-gray-400 text-left">
+                                        Approved: {{ getDepartmentApprovalDate(pipeline.intApprovalOrder,
+                                        pipeline.serDepartmentId) }}
                                     </p>
                                 </div>
                             </div>
                         </div>
-                        
+
                         <!-- Arrow (not shown after last item) -->
                         <div *ngIf="!isLast" class="flex items-center">
-                            <svg class="w-6 h-6" 
-                                 [ngClass]="{
+                            <svg class="w-6 h-6" [ngClass]="{
                                      'text-success': isDepartmentApproved(pipeline.intApprovalOrder),
                                      'text-gray-400 dark:text-gray-500': !isDepartmentApproved(pipeline.intApprovalOrder)
-                                 }"
-                                 fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                 }" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"></path>
                             </svg>
                         </div>
@@ -214,4 +299,3 @@
         </div>
     </div>
 </div>
-

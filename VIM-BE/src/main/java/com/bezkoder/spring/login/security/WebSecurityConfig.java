@@ -91,32 +91,19 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
   
   @Bean
   public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-      http.cors(cors -> cors.configurationSource(corsConfigurationSource()))
-          .csrf(csrf -> csrf.disable())
-          .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
-          .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-          .authorizeHttpRequests(auth ->
-              auth.antMatchers(
-                      "/", 
-                      "/index.html",
-                      "/static/**",
-                      "/assets/**",
-                      "/*.js",
-                      "/*.css",
-                      "/api/auth/**",
-                      "/api/test/**",
-                      "/login",
-                      "/getloginCustomer",
-                      "/allMenu",
-                      "/resources/**",
-                      "/updatePasswordReconfirm",
-                      "/{path:[^\\.]*}"
-              ).permitAll()
-              .antMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-              .anyRequest().authenticated()
-          );
-
-      http.authenticationProvider(authenticationProvider());
+    http.cors(cors -> cors.configurationSource(corsConfigurationSource()))
+        .csrf(csrf -> csrf.disable())
+        .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
+        .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .authorizeHttpRequests(auth ->
+          auth.antMatchers("/api/auth/**").permitAll()
+              .antMatchers("/api/test/**").permitAll()
+                  .antMatchers("/login", "/getloginCustomer", "/allMenu", "/resources/**", "/updatePasswordReconfirm").permitAll()
+                  .antMatchers("/approveApplicationFromEmail", "/rejectApplicationFromEmail").permitAll()
+                  .anyRequest().authenticated()
+        );
+    
+    http.authenticationProvider(authenticationProvider());
 
       http.addFilterBefore(authenticationJwtTokenFilter(), UsernamePasswordAuthenticationFilter.class);
 
@@ -126,7 +113,7 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
       CorsConfiguration configuration = new CorsConfiguration();
-      configuration.setAllowedOrigins(Arrays.asList("http://localhost:4200"));
+      configuration.setAllowedOrigins(Arrays.asList("http://localhost:4200", "http://localhost:8080", "http://192.0.0.203:8080"));
       configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
       configuration.setAllowedHeaders(Arrays.asList("*"));
       configuration.setExposedHeaders(Arrays.asList("x-auth-token"));
@@ -135,7 +122,6 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
       source.registerCorsConfiguration("/**", configuration);
       return source;
   }
-
 
   @Bean
   public ObjectMapper objectMapper() {

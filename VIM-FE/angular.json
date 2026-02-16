@@ -79,12 +79,16 @@
                 },
                 "serve": {
                     "builder": "@angular-devkit/build-angular:dev-server",
+                    "options": {
+                        "proxyConfig": "proxy.conf.json"
+                    },
                     "configurations": {
                         "production": {
                             "browserTarget": "vristo-angular:build:production"
                         },
                         "development": {
-                            "browserTarget": "vristo-angular:build:development"
+                            "browserTarget": "vristo-angular:build:development",
+                            "proxyConfig": "proxy.conf.json"
                         }
                     },
                     "defaultConfiguration": "development"

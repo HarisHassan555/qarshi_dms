@@ -1,4 +1,5 @@
 import { Component, OnInit } from '@angular/core';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
@@ -18,13 +19,22 @@ export class ApplicationDetailsComponent implements OnInit {
   isLoading: boolean = true;
   approvalHistory: any[] = []; // Store approval history with remarks
 
+  // Signature and Content properties for Budget Approval
+  safeContent: SafeHtml = '';
+  preparedBy: any = null;
+  reviewers: any[] = [];
+  recommenders: any[] = [];
+  approver: any = null;
+  formHeading: string = 'Budget Approval Form';
+
   constructor(
     private route: ActivatedRoute,
     private router: Router,
     private customFormApplicationService: CustomFormApplicationService,
     private customFormService: CustomFormService,
-    private notificationService: NotificationService
-  ) {}
+    private notificationService: NotificationService,
+    private sanitizer: DomSanitizer
+  ) { }
 
   ngOnInit() {
     // Get application ID from route
@@ -62,13 +72,13 @@ export class ApplicationDetailsComponent implements OnInit {
       (data: any) => {
         if (data) {
           this.applicationDetails = data;
-          
+
           // Debug: Log pipeline data
           if (data.cfgTblCustomForm) {
             console.log('Form data:', data.cfgTblCustomForm);
             console.log('Approval Pipelines:', data.cfgTblCustomForm.approvalPipelines || data.cfgTblCustomForm.cfgTblCustomFormApprovalPipelines);
           }
-          
+
           // Get form structure
           const form = this.forms.find(f => f.serFormId === data.serFormId);
           if (form && form.cfgTblCustomFormFields) {
@@ -96,17 +106,28 @@ export class ApplicationDetailsComponent implements OnInit {
               }))
               .sort((a: any, b: any) => (a.intFieldOrder || 0) - (b.intFieldOrder || 0));
           }
-          
+
           // Parse application data JSON
           if (data.txtApplicationData) {
             try {
               this.applicationFormData = JSON.parse(data.txtApplicationData);
+
+              // Prepare budget approval specific data
+              if (this.isBudgetApprovalForm()) {
+                const content = this.applicationFormData.content || this.applicationFormData.editorContent || '';
+                this.safeContent = this.sanitizer.bypassSecurityTrustHtml(content);
+                this.preparedBy = this.applicationFormData.preparedBy;
+                this.reviewers = this.applicationFormData.reviewers || [];
+                this.recommenders = this.applicationFormData.recommenders || [];
+                this.approver = this.applicationFormData.approver;
+                this.formHeading = this.applicationFormData.heading || this.applicationDetails.cfgTblCustomForm?.txtFormName || 'Budget Approval Form';
+              }
             } catch (e) {
               console.error('Error parsing application data:', e);
               this.applicationFormData = {};
             }
           }
-          
+
           // Parse approval history JSON
           if (data.txtApprovalHistory) {
             try {
@@ -119,7 +140,7 @@ export class ApplicationDetailsComponent implements OnInit {
           } else {
             this.approvalHistory = [];
           }
-          
+
           this.isLoading = false;
         } else {
           this.notificationService.showMessage('Application not found', 'danger');
@@ -142,7 +163,7 @@ export class ApplicationDetailsComponent implements OnInit {
 
   getFieldValue(field: any): any {
     const fieldName = this.getFieldName(field.label);
-    
+
     if (this.applicationFormData[fieldName] !== undefined) {
       return this.applicationFormData[fieldName];
     } else if (this.applicationFormData[field.label] !== undefined) {
@@ -153,7 +174,7 @@ export class ApplicationDetailsComponent implements OnInit {
         return this.applicationFormData[fieldId];
       }
     }
-    
+
     return null;
   }
 
@@ -161,7 +182,7 @@ export class ApplicationDetailsComponent implements OnInit {
     if (!field.txtFieldOptions) {
       return [];
     }
-    
+
     try {
       const options = JSON.parse(field.txtFieldOptions);
       if (Array.isArray(options)) {
@@ -175,7 +196,7 @@ export class ApplicationDetailsComponent implements OnInit {
           .filter((opt: string) => opt !== '');
       }
     }
-    
+
     return [];
   }
 
@@ -183,11 +204,11 @@ export class ApplicationDetailsComponent implements OnInit {
     if (value === null || value === undefined || value === '') {
       return '-';
     }
-    
+
     if (field.type === 'checkbox') {
       return value ? 'Yes' : 'No';
     }
-    
+
     if (field.type === 'date' && value) {
       try {
         const date = new Date(value);
@@ -196,11 +217,11 @@ export class ApplicationDetailsComponent implements OnInit {
         return value;
       }
     }
-    
+
     if (field.type === 'radio' || field.type === 'select') {
       return value;
     }
-    
+
     return value;
   }
 
@@ -223,11 +244,11 @@ export class ApplicationDetailsComponent implements OnInit {
   getTableData(field: any): any[][] {
     const fieldName = this.getFieldName(field.label);
     const value = this.getFieldValue(field);
-    
+
     if (value && Array.isArray(value)) {
       return value;
     }
-    
+
     // Return empty table if no data
     const config = this.getTableConfig(field);
     return Array.from({ length: config.rows }, () => Array(config.columns).fill(''));
@@ -274,78 +295,78 @@ export class ApplicationDetailsComponent implements OnInit {
     if (!this.isDepartmentApproved(pipelineOrder)) {
       return '';
     }
-    
+
     // Find the approval history entry for this department/level
     if (this.approvalHistory && this.approvalHistory.length > 0) {
       // Try to find by both level and departmentId for accuracy
       let historyEntry = null;
-      
+
       if (departmentId) {
         // First try exact match by both level and departmentId
-        historyEntry = this.approvalHistory.find((entry: any) => 
+        historyEntry = this.approvalHistory.find((entry: any) =>
           entry.level === pipelineOrder && entry.departmentId === departmentId
         );
       }
-      
+
       // If not found, try by level only
       if (!historyEntry) {
-        historyEntry = this.approvalHistory.find((entry: any) => 
+        historyEntry = this.approvalHistory.find((entry: any) =>
           entry.level === pipelineOrder
         );
       }
-      
+
       // If still not found and departmentId is provided, try by departmentId only
       if (!historyEntry && departmentId) {
-        historyEntry = this.approvalHistory.find((entry: any) => 
+        historyEntry = this.approvalHistory.find((entry: any) =>
           entry.departmentId === departmentId
         );
       }
-      
+
       if (historyEntry && historyEntry.remarks) {
         return historyEntry.remarks;
       }
     }
-    
+
     // Fallback: if this is the current level, show current remarks
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel || 0;
     if (pipelineOrder === currentLevel && this.applicationDetails?.txtRemarks) {
       return this.applicationDetails.txtRemarks;
     }
-    
+
     return 'Approved';
   }
-  
+
   // Get approval date for a department
   getDepartmentApprovalDate(pipelineOrder: number, departmentId?: number): string {
     if (!this.isDepartmentApproved(pipelineOrder)) {
       return '';
     }
-    
+
     if (this.approvalHistory && this.approvalHistory.length > 0) {
       // Try to find by both level and departmentId for accuracy
       let historyEntry = null;
-      
+
       if (departmentId) {
         // First try exact match by both level and departmentId
-        historyEntry = this.approvalHistory.find((entry: any) => 
+        historyEntry = this.approvalHistory.find((entry: any) =>
           entry.level === pipelineOrder && entry.departmentId === departmentId
         );
       }
-      
+
       // If not found, try by level only
       if (!historyEntry) {
-        historyEntry = this.approvalHistory.find((entry: any) => 
+        historyEntry = this.approvalHistory.find((entry: any) =>
           entry.level === pipelineOrder
         );
       }
-      
+
       // If still not found and departmentId is provided, try by departmentId only
       if (!historyEntry && departmentId) {
-        historyEntry = this.approvalHistory.find((entry: any) => 
+        historyEntry = this.approvalHistory.find((entry: any) =>
           entry.departmentId === departmentId
         );
       }
-      
+
       if (historyEntry && historyEntry.approvedDate) {
         try {
           const date = new Date(historyEntry.approvedDate);
@@ -355,7 +376,7 @@ export class ApplicationDetailsComponent implements OnInit {
         }
       }
     }
-    
+
     return '';
   }
 
@@ -365,14 +386,14 @@ export class ApplicationDetailsComponent implements OnInit {
       console.log('No application details or form found');
       return [];
     }
-    
+
     const form = this.applicationDetails.cfgTblCustomForm;
     console.log('Getting pipeline data from form:', form);
-    
+
     let pipelines = form.approvalPipelines || form.cfgTblCustomFormApprovalPipelines;
-    
+
     console.log('Found pipelines:', pipelines);
-    
+
     if ((!pipelines || !Array.isArray(pipelines) || pipelines.length === 0) && form.txtApprovalPipeline) {
       try {
         pipelines = JSON.parse(form.txtApprovalPipeline);
@@ -382,13 +403,13 @@ export class ApplicationDetailsComponent implements OnInit {
         return [];
       }
     }
-    
+
     if (!pipelines || !Array.isArray(pipelines) || pipelines.length === 0) {
       console.log('No pipelines found or empty array');
       return [];
     }
-    
-    const sortedPipelines = [...pipelines].sort((a: any, b: any) => 
+
+    const sortedPipelines = [...pipelines].sort((a: any, b: any) =>
       (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0)
     );
     console.log('Sorted pipelines:', sortedPipelines);
@@ -397,6 +418,20 @@ export class ApplicationDetailsComponent implements OnInit {
 
   goBack() {
     this.router.navigate(['/applicationsview']);
+  }
+
+  isBudgetApprovalForm(): boolean {
+    if (!this.applicationDetails) return false;
+    const name = (this.applicationDetails.cfgTblCustomForm?.txtFormName || this.applicationDetails.formName || '').replace(/\s+/g, ' ').toUpperCase();
+    const code = (this.applicationDetails.txtFormCode || '').toUpperCase();
+    return name === 'BUDGET APPROVAL FORM' || name.includes('BUDGET APPROVAL') || code.startsWith('BDG');
+  }
+
+  formatUserForSignature(selectedUsers: any[], index: number): string {
+    if (!selectedUsers || !selectedUsers[index]) return '';
+    const user = selectedUsers[index];
+    const role = user.cfgTblRole?.txtRoleName || 'Reviewer';
+    return `${user.txtUserName}<br>(${role})`;
   }
 }
 

@@ -379,9 +379,63 @@ export class ApplicationsViewComponent implements OnInit {
     return !!(formNameMatch || formCodeMatch);
   }
 
+  isBudgetApprovalForm(application: Application): boolean {
+    const name = (application.formName || '').replace(/\s+/g, ' ').toUpperCase();
+    const code = (application.txtFormCode || '').toUpperCase();
+    return name === 'BUDGET APPROVAL FORM' || name.includes('BUDGET APPROVAL') || code.startsWith('BDG');
+  }
+
+  openBudgetApprovalPage(application: Application) {
+    if (!application.serApplicationId) {
+      this.notificationService.showMessage('Invalid application ID', 'danger');
+      return;
+    }
+
+    this.customFormApplicationService.getApplicationById(application.serApplicationId).subscribe(
+      (data: any) => {
+        if (!data) {
+          this.notificationService.showMessage('Application not found', 'danger');
+          return;
+        }
+
+        let applicationFormData: any = {};
+        if (data.txtApplicationData) {
+          try {
+            applicationFormData = JSON.parse(data.txtApplicationData);
+          } catch (e) {
+            console.error('Error parsing application data:', e);
+          }
+        }
+
+        const dateText = data.dteCreatedDate ? new Date(data.dteCreatedDate).toLocaleDateString() : '';
+        const budgetResult = this.buildBudgetApprovalContent(applicationFormData);
+
+        this.router.navigate(['/xyz'], {
+          state: {
+            content: budgetResult.contentHtml,
+            heading: budgetResult.heading || (data.cfgTblCustomForm?.txtFormName || application.formName || 'Budget Approval'),
+            date: dateText,
+            preparedBy: budgetResult.preparedBy,
+            reviewers: budgetResult.reviewers,
+            recommenders: budgetResult.recommenders,
+            approver: budgetResult.approver
+          }
+        });
+      },
+      (error) => {
+        this.notificationService.showMessage('Error loading application: ' + (error.error?.message || error.message), 'danger');
+      }
+    );
+  }
+
   editApplication(application: Application) {
     if (!this.canEditApplication(application)) {
       this.notificationService.showMessage('This application cannot be edited in its current status', 'warning');
+      return;
+    }
+
+    if (this.isBudgetApprovalForm(application)) {
+      this.router.navigate(['/application'], { state: { editData: application } });
       return;
     }
 
@@ -793,6 +847,9 @@ export class ApplicationsViewComponent implements OnInit {
       return;
     }
 
+    const initialIsBudgetApproval = this.isBudgetApprovalForm(application);
+    const forceBudgetApprovalByCode = (application.txtFormCode || '').toUpperCase().startsWith('BDG');
+
     // Prevent multiple simultaneous PDF generations
     if (this.isGeneratingPDF) {
       this.notificationService.showMessage('PDF generation in progress, please wait...', 'warning');
@@ -873,8 +930,35 @@ export class ApplicationsViewComponent implements OnInit {
         }
 
         let htmlContent = '';
+        let handledBudgetApproval = false;
+        const resolvedFormName = (form?.txtFormName || data.cfgTblCustomForm?.txtFormName || application.formName || '').trim();
+        const resolvedFormCode = (data.txtFormCode || application.txtFormCode || '').trim();
+        const normalizedFormName = resolvedFormName.replace(/\s+/g, ' ').toUpperCase();
+        const normalizedFormCode = resolvedFormCode.toUpperCase();
+        const isBudgetApproval =
+          normalizedFormName === 'BUDGET APPROVAL FORM' ||
+          normalizedFormName.includes('BUDGET APPROVAL') ||
+          normalizedFormCode.startsWith('BDG') ||
+          normalizedFormCode.includes('BDG-') ||
+          normalizedFormCode.includes('BAF') ||
+          initialIsBudgetApproval ||
+          forceBudgetApprovalByCode;
 
-        if (isCapf) {
+        console.log('[download] formName=', resolvedFormName, 'formCode=', resolvedFormCode, 'isBudgetApproval=', isBudgetApproval, 'isCapf=', isCapf);
+
+        let branch = 'generic';
+        if (forceBudgetApprovalByCode) {
+          handledBudgetApproval = true;
+          htmlContent = this.generateBudgetApprovalPdfHtml(data, formFields, applicationFormData, resolvedFormName || 'Budget Approval');
+          branch = 'budget';
+        }
+
+        if (!handledBudgetApproval && isBudgetApproval) {
+          handledBudgetApproval = true;
+          htmlContent = this.generateBudgetApprovalPdfHtml(data, formFields, applicationFormData, resolvedFormName || 'Budget Approval');
+          branch = 'budget';
+        } else if (!handledBudgetApproval && isCapf) {
+          branch = 'capf';
           // Get approval pipelines for CAPF form
           let pipelines = [];
           if (form && form.cfgTblFormApprovalPipelines) {
@@ -882,14 +966,14 @@ export class ApplicationsViewComponent implements OnInit {
           } else if (data.cfgTblCustomForm && data.cfgTblCustomForm.cfgTblFormApprovalPipelines) {
             pipelines = data.cfgTblCustomForm.cfgTblFormApprovalPipelines;
           }
-          
+
           // Sort pipelines
           if (pipelines) {
             pipelines.sort((a: any, b: any) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0));
           } else {
             pipelines = [];
           }
-          
+
           // Use ABC design for CAPF forms
           htmlContent = this.generateCapfAbcHtml(data, formFields, applicationFormData, pipelines);
 
@@ -899,7 +983,8 @@ export class ApplicationsViewComponent implements OnInit {
             this.notificationService.showMessage('Error: ABC HTML generation failed', 'danger');
             return;
           }
-        } else {
+        } else if (!handledBudgetApproval) {
+          branch = 'generic';
           // Use Dynamic/Simple design for other forms
           let pipelines = [];
           if (form && form.cfgTblFormApprovalPipelines) {
@@ -915,9 +1000,10 @@ export class ApplicationsViewComponent implements OnInit {
             pipelines = [];
           }
 
-          const formName = form ? form.txtFormName : (data.cfgTblCustomForm ? data.cfgTblCustomForm.txtFormName : 'Unknown Form');
-          htmlContent = this.generatePDFContent(data, formName, formFields, applicationFormData, pipelines);
+          htmlContent = this.generatePDFContent(data, resolvedFormName || 'Unknown Form', formFields, applicationFormData, pipelines);
         }
+
+        console.log('[download] branch=', branch, 'htmlHasXyz=', htmlContent.includes('xyz-paper'), 'htmlHasAbc=', htmlContent.includes('abc-wrapper'));
 
         // Skip the old verification logic (commented out below or removed)
         /* Old verification logic was here */
@@ -979,16 +1065,17 @@ export class ApplicationsViewComponent implements OnInit {
         iframe.onload = () => {
           setTimeout(() => {
             // Use the wrapper div to ensure all styles are captured
-            const element = (iframeDoc.querySelector('.abc-wrapper') || iframeDoc.body) as HTMLElement;
+            const element = (iframeDoc.querySelector('.abc-wrapper') || iframeDoc.querySelector('.xyz-paper') || iframeDoc.body) as HTMLElement;
 
             // Force a reflow to ensure styles are computed
             if (element) {
               element.offsetHeight; // Trigger reflow
             }
 
+            const ts = new Date().toISOString().replace(/[:T]/g, '-').split('.')[0];
             const opt = {
               margin: [2, 5, 2, 5] as [number, number, number, number],
-              filename: `application_${data.txtFormCode || data.serApplicationId}_${new Date().toISOString().split('T')[0]}.pdf`,
+              filename: `application_${data.txtFormCode || data.serApplicationId}_${ts}.pdf`,
               image: { type: 'jpeg' as const, quality: 0.98 },
               html2canvas: {
                 scale: 1.5,
@@ -1003,7 +1090,7 @@ export class ApplicationsViewComponent implements OnInit {
                 height: element.scrollHeight || 1200,
                 onclone: (clonedDoc: Document) => {
                   // Ensure styles are preserved in the cloned document
-                  const clonedElement = (clonedDoc.querySelector('.abc-wrapper') || clonedDoc.body) as HTMLElement;
+                  const clonedElement = (clonedDoc.querySelector('.abc-wrapper') || clonedDoc.querySelector('.xyz-paper') || clonedDoc.body) as HTMLElement;
                   if (clonedElement) {
                     // Force style computation in cloned document
                     clonedElement.offsetHeight;
@@ -1023,7 +1110,7 @@ export class ApplicationsViewComponent implements OnInit {
               const url = URL.createObjectURL(pdfBlob);
               const link = document.createElement('a');
               link.href = url;
-              link.download = `application_${data.txtFormCode || data.serApplicationId}_${new Date().toISOString().split('T')[0]}.pdf`;
+              link.download = `application_${data.txtFormCode || data.serApplicationId}_${ts}.pdf`;
               document.body.appendChild(link);
               link.click();
               document.body.removeChild(link);
@@ -1049,16 +1136,17 @@ export class ApplicationsViewComponent implements OnInit {
         setTimeout(() => {
           if (iframe.contentDocument && iframe.contentDocument.body) {
             // Use the wrapper div to ensure all styles are captured
-            const element = (iframe.contentDocument.querySelector('.abc-wrapper') || iframe.contentDocument.body) as HTMLElement;
+            const element = (iframe.contentDocument.querySelector('.abc-wrapper') || iframe.contentDocument.querySelector('.xyz-paper') || iframe.contentDocument.body) as HTMLElement;
 
             // Force a reflow to ensure styles are computed
             if (element) {
               element.offsetHeight; // Trigger reflow
             }
 
+            const ts = new Date().toISOString().replace(/[:T]/g, '-').split('.')[0];
             const opt = {
               margin: [2, 5, 2, 5] as [number, number, number, number],
-              filename: `application_${data.txtFormCode || data.serApplicationId}_${new Date().toISOString().split('T')[0]}.pdf`,
+              filename: `application_${data.txtFormCode || data.serApplicationId}_${ts}.pdf`,
               image: { type: 'jpeg' as const, quality: 0.98 },
               html2canvas: {
                 scale: 1.5,
@@ -1073,7 +1161,7 @@ export class ApplicationsViewComponent implements OnInit {
                 height: element.scrollHeight || 1200,
                 onclone: (clonedDoc: Document) => {
                   // Ensure styles are preserved in the cloned document
-                  const clonedElement = (clonedDoc.querySelector('.abc-wrapper') || clonedDoc.body) as HTMLElement;
+                  const clonedElement = (clonedDoc.querySelector('.abc-wrapper') || clonedDoc.querySelector('.xyz-paper') || clonedDoc.body) as HTMLElement;
                   if (clonedElement) {
                     // Force style computation in cloned document
                     clonedElement.offsetHeight;
@@ -1089,7 +1177,7 @@ export class ApplicationsViewComponent implements OnInit {
               const url = URL.createObjectURL(pdfBlob);
               const link = document.createElement('a');
               link.href = url;
-              link.download = `application_${data.txtFormCode || data.serApplicationId}_${new Date().toISOString().split('T')[0]}.pdf`;
+              link.download = `application_${data.txtFormCode || data.serApplicationId}_${ts}.pdf`;
               document.body.appendChild(link);
               link.click();
               document.body.removeChild(link);
@@ -1495,6 +1583,235 @@ export class ApplicationsViewComponent implements OnInit {
     return html;
   }
 
+  private generateBudgetApprovalPdfHtml(application: any, formFields: any[], applicationFormData: any, formName: string): string {
+    const { heading, contentHtml } = this.buildBudgetApprovalContent(applicationFormData);
+    const headingText = heading || formName || 'Budget Approval';
+    const dateStr = application?.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleDateString() : new Date().toLocaleDateString();
+    return this.generateBudgetApprovalXyzHtml(headingText, dateStr, contentHtml);
+  }
+
+  private generateBudgetApprovalXyzHtml(headingText: string, dateStr: string, contentHtml: string): string {
+    const css = `
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; background:#ffffff; color:#000; }
+    .xyz-page { background:#ffffff; padding: 0; display:block; }
+    .xyz-paper { width: 210mm; min-height: 297mm; background:#ffffff; font-family: "Times New Roman", Times, serif; font-size: 13.5px; line-height: 1.35; border: none; padding: 18mm 16mm 16mm 16mm; display:flex; flex-direction:column; }
+    .xyz-date-row { display:flex; justify-content:flex-end; margin-bottom:6px; }
+    .xyz-date { font-size:14px; text-align:right; }
+    .xyz-header { display:grid; grid-template-columns:90px 1fr 90px; align-items:end; column-gap:12px; margin-bottom:6px; }
+    .xyz-logo { align-self:start; margin-top:-10px; }
+    .xyz-logo img { width:65px; height:auto; display:block; }
+    .xyz-company { text-align:center; }
+    .xyz-company-name { font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif; font-size:30px; font-weight:700; }
+    .xyz-company-address { font-family: Verdana, Arial, sans-serif; font-size:12px; color:#000; margin-top:2px; }
+    .xyz-rule { height:1px; background:#000; margin:8px 0 12px 0; position:relative; }
+    .xyz-rule::before, .xyz-rule::after { content:""; position:absolute; left:0; right:0; height:1px; background:#000; }
+    .xyz-rule::before { top:-2px; }
+    .xyz-rule::after { bottom:-2px; }
+    .xyz-title { text-align:center; font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif; font-weight:700; font-size:26px; margin:6px 0 16px 0; }
+    .xyz-section { margin-bottom:10px; }
+    .xyz-section-title { font-family: "Times New Roman", Times, serif; font-size:14px; font-weight:700; text-decoration:underline; margin-bottom:3px; }
+    .xyz-section-text { font-family: "Times New Roman", Times, serif; font-size:14px; font-weight:400; text-align:justify; }
+    .xyz-list { margin: 4px 0 0 18px; padding: 0; }
+    .xyz-list li { margin-bottom: 6px; }
+    .xyz-bold { font-weight:700; }
+    .xyz-table { width:100%; border-collapse:collapse; margin:8px 0; font-size:14px; }
+    .xyz-table th, .xyz-table td { border:1px solid #000; padding:4px 6px; }
+    .xyz-table thead th { background:#8bc34a; text-align:center; }
+    .xyz-table tbody td:first-child, .xyz-table tbody td:last-child { text-align:center; }
+    .xyz-col-sr { width:8%; text-align:center; }
+    .xyz-col-amount { width:18%; text-align:center; }
+    .xyz-note { margin-top:6px; font-size:11px; }
+    .xyz-signatures { width:100%; border-collapse:collapse; margin-top:12px; font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:12px; }
+    .xyz-signatures th, .xyz-signatures td { border:1px solid #000; padding:4px 6px; vertical-align:top; text-align:left; }
+    .xyz-signatures-blank td { height:56px; padding:0; background:#fff; }
+    .xyz-signatures th { font-size:14px; font-weight:700; background:#8f8f8f; }
+    .xyz-signatures th[colspan="2"] { text-align:center; }
+    .xyz-footer { margin-top:auto; }
+    `;
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+</head>
+<body>
+  <div class="abc-wrapper">
+    <style>${css}</style>
+    <div class="xyz-page">
+      <div class="xyz-paper">
+      <div class="xyz-date-row"><div class="xyz-date">Date: ${dateStr}</div></div>
+      <div class="xyz-header">
+        <div class="xyz-logo"><img src="assets/images/qarshi-logo.png" alt="Qarshi" /></div>
+        <div class="xyz-company">
+          <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
+          <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+        </div>
+        <div></div>
+      </div>
+      <div class="xyz-rule"></div>
+      <div class="xyz-title">${headingText}</div>
+      <div class="xyz-dynamic">${contentHtml}</div>
+
+      <div class="xyz-footer">
+      <table class="xyz-signatures">
+        <tr class="xyz-signatures-blank"><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr>
+          <th>Prepared by:</th>
+          <th colspan="2">Reviewed by:</th>
+          <th>Recommended by:</th>
+          <th>Approved by:</th>
+        </tr>
+        <tr>
+          <td>Mr. Mahmood Khan<br>(Dy. Manager)</td>
+          <td>Mr. Tahir Sarwar<br>(AGM IT &amp; ERP)</td>
+          <td>Mr. Muhammad Azhar<br>(DGM Finance)</td>
+          <td>Mr. Yasir Ishaq Ansari<br>(CTO)</td>
+          <td>Dr. Amjad Aqeel<br>(CE / COO QIL &amp; DB)</td>
+        </tr>
+      </table>
+      </div>
+    </div>
+  </div>
+  </div>
+</body>
+</html>`;
+  }
+
+  private buildBudgetApprovalContent(applicationFormData: any): {
+    heading: string;
+    contentHtml: string;
+    preparedBy?: any,
+    reviewers?: any[],
+    recommenders?: any[],
+    approver?: any
+  } {
+    const escapeHtml = (text: string): string => {
+      if (text === null || text === undefined) return '';
+      const div = document.createElement('div');
+      div.textContent = String(text);
+      return div.innerHTML;
+    };
+
+    const getValueByLabelContains = (needle: string): any => {
+      if (!applicationFormData) return '';
+      const key = Object.keys(applicationFormData).find(k => k.toLowerCase().includes(needle.toLowerCase()));
+      return key ? applicationFormData[key] : '';
+    };
+
+    const getValueByAnyLabel = (needles: string[]): any => {
+      if (!applicationFormData) return '';
+      for (const n of needles) {
+        const key = Object.keys(applicationFormData).find(k => k.toLowerCase().includes(n.toLowerCase()));
+        if (key) return applicationFormData[key];
+      }
+      return '';
+    };
+
+    const headingRaw = getValueByAnyLabel(['heading', 'title', 'subject', 'request title', 'form title']);
+    const heading = headingRaw ? String(headingRaw).trim() : '';
+    const background = getValueByLabelContains('background');
+    const proposal = getValueByLabelContains('proposal');
+    const request = getValueByLabelContains('request');
+    const finances = getValueByLabelContains('finance');
+    const note = getValueByLabelContains('note');
+
+    let contentHtml = '';
+
+    // If rich HTML content exists, prefer it (still keep heading from fields)
+    const rawHtml = applicationFormData?.content || applicationFormData?.editorContent || applicationFormData?.html;
+    const result: any = {
+      heading,
+      contentHtml: '', // default
+      preparedBy: applicationFormData?.preparedBy,
+      reviewers: applicationFormData?.reviewers || [],
+      recommenders: applicationFormData?.recommenders || [],
+      approver: applicationFormData?.approver
+    };
+
+    if (rawHtml) {
+      result.contentHtml = String(rawHtml);
+      return result;
+    }
+
+    if (background) {
+      contentHtml += `<div class="xyz-section"><div class="xyz-section-title">Background</div><div class="xyz-section-text">${escapeHtml(background)}</div></div>`;
+    }
+
+    if (proposal) {
+      const proposalText = String(proposal);
+      const items = proposalText
+        .split(/\r?\n/)
+        .map(i => i.replace(/\t+/g, ' ').trim())
+        .filter(i => i.length > 0);
+      const listItems = items.length > 1 ? items : proposalText.split(/(?=\d+\.)/).map(i => i.trim()).filter(Boolean);
+      if (listItems.length > 1) {
+        contentHtml += `<div class="xyz-section"><div class="xyz-section-title">Proposal</div><ol class="xyz-list">${listItems.map(i => `<li>${escapeHtml(i.replace(/^\d+\.\s*/, '').trim())}</li>`).join('')}</ol></div>`;
+      } else {
+        contentHtml += `<div class="xyz-section"><div class="xyz-section-title">Proposal</div><div class="xyz-section-text">${escapeHtml(proposalText)}</div></div>`;
+      }
+    }
+
+    if (request) {
+      contentHtml += `<div class="xyz-section"><div class="xyz-section-title">Request</div><div class="xyz-section-text">${escapeHtml(request)}</div></div>`;
+    }
+
+    if (finances) {
+      let rows: string[][] = [];
+      let headerRow: string[] | null = null;
+      if (Array.isArray(finances)) {
+        if (finances.length && typeof finances[0] === 'object' && !Array.isArray(finances[0])) {
+          // array of objects
+          rows = finances.map((r: any) => [r.sr || r.Sr || r['Sr.'] || '', r.description || r.Description || '', r.amount || r.Amount || ''].map((c: any) => String(c)));
+        } else {
+          rows = finances.map((r: any) => Array.isArray(r) ? r.map((c: any) => String(c)) : [String(r)]);
+        }
+      } else if (typeof finances === 'object' && finances !== null) {
+        // object with rows
+        if (Array.isArray(finances.rows)) {
+          rows = finances.rows.map((r: any) => Array.isArray(r) ? r.map((c: any) => String(c)) : [String(r)]);
+        }
+      } else if (typeof finances === 'string') {
+        const parts = finances.split(',').map(p => p.trim()).filter(Boolean);
+        if (parts.length >= 3 && parts[0].toLowerCase().includes('sr') && parts[1].toLowerCase().includes('description')) {
+          parts.splice(0, 3);
+        }
+        for (let i = 0; i < parts.length; i += 3) {
+          rows.push([parts[i] || '', parts[i + 1] || '', parts[i + 2] || '']);
+        }
+      }
+
+      if (rows.length) {
+        const first = rows[0] || [];
+        const isHeader =
+          first.length >= 3 &&
+          first[0].toLowerCase().includes('sr') &&
+          first[1].toLowerCase().includes('description') &&
+          first[2].toLowerCase().includes('amount');
+        if (isHeader) {
+          headerRow = first;
+          rows = rows.slice(1);
+        }
+
+        const headerHtml = headerRow
+          ? `<tr><th class="xyz-col-sr">${escapeHtml(headerRow[0])}</th><th>${escapeHtml(headerRow[1])}</th><th class="xyz-col-amount">${escapeHtml(headerRow[2])}</th></tr>`
+          : `<tr><th class="xyz-col-sr">Sr.</th><th>Description</th><th class="xyz-col-amount">Amount</th></tr>`;
+
+        contentHtml += `<table class="xyz-table"><thead>${headerHtml}</thead><tbody>`;
+        rows.forEach(r => {
+          contentHtml += `<tr><td>${escapeHtml(r[0] || '')}</td><td>${escapeHtml(r[1] || '')}</td><td>${escapeHtml(r[2] || '')}</td></tr>`;
+        });
+        contentHtml += `</tbody></table>`;
+      }
+    }
+
+    if (note) {
+      contentHtml += `<div class="xyz-note"><span class="xyz-bold">Note:</span> ${escapeHtml(note)}</div>`;
+    }
+
+    return { heading, contentHtml };
+  }
+
   private generateCapfAbcHtml(application: any, formFields: any[], applicationFormData: any, pipelines: any[] = []): string {
     // Helper function to get field value - completely self-contained, no dependency on abc component
     const getFieldValue = (fieldLabel: string): string => {
@@ -1549,7 +1866,7 @@ export class ApplicationsViewComponent implements OnInit {
       const lookupLabel = (lbl: string): string | null => {
         // Normalize label (remove colon, trim)
         const normalizedLbl = lbl.replace(/[:;]/g, '').trim();
-        
+
         // Direct key check (with original label)
         if (applicationFormData[lbl] !== undefined && applicationFormData[lbl] !== null && applicationFormData[lbl] !== '') {
           return String(applicationFormData[lbl]);
@@ -1597,13 +1914,13 @@ export class ApplicationsViewComponent implements OnInit {
             const fieldLabelNormalized = f.label.replace(/[:;]/g, '').toLowerCase().trim();
             return fieldLabelNormalized === lowerNormalized || f.label.toLowerCase().trim() === lowerLbl;
           });
-          
+
           if (field) {
             const fieldSlug = getSlug(field.label);
             if (applicationFormData[fieldSlug] !== undefined && applicationFormData[fieldSlug] !== null && applicationFormData[fieldSlug] !== '') {
               return String(applicationFormData[fieldSlug]);
             }
-            
+
             // Also try normalized slug
             const fieldLabelNormalized = field.label.replace(/[:;]/g, '').trim();
             const normalizedFieldSlug = getSlug(fieldLabelNormalized);
@@ -1611,7 +1928,7 @@ export class ApplicationsViewComponent implements OnInit {
               return String(applicationFormData[normalizedFieldSlug]);
             }
           }
-          
+
           // Try partial match for "specification" related fields
           if (lowerNormalized.includes('specification') || lowerLbl.includes('specification')) {
             const specField = formFields.find(f => {
@@ -1636,7 +1953,7 @@ export class ApplicationsViewComponent implements OnInit {
           const val = lookupLabel(label);
           if (val !== null && val !== '') return val;
         }
-        
+
         // Additional fallback: search through all form fields for concept-related fields
         if (formFields && formFields.length > 0) {
           const conceptKeywords: { [key: string]: string[] } = {
@@ -1651,14 +1968,14 @@ export class ApplicationsViewComponent implements OnInit {
             'termsConditions': ['terms', 'conditions'],
             'thirdPartyAssessment': ['third', 'party', 'assessment', 'carried']
           };
-          
+
           const keywords = conceptKeywords[concept];
           if (keywords) {
             for (const field of formFields) {
               if (!field.label) continue;
               const fieldLabelLower = field.label.toLowerCase();
               const matchesKeyword = keywords.some(kw => fieldLabelLower.includes(kw));
-              
+
               if (matchesKeyword) {
                 const fieldSlug = getSlug(field.label);
                 if (applicationFormData[fieldSlug] !== undefined && applicationFormData[fieldSlug] !== null && applicationFormData[fieldSlug] !== '') {
@@ -1702,7 +2019,7 @@ export class ApplicationsViewComponent implements OnInit {
     const feasibilityValue = getFieldValue('FEASIBILITY REPORT ATTACHED');
     const feasibilityYes = feasibilityValue && (feasibilityValue.toLowerCase() === 'yes' || feasibilityValue.toLowerCase() === 'true');
     const feasibilityNo = feasibilityValue && (feasibilityValue.toLowerCase() === 'no' || feasibilityValue.toLowerCase() === 'false');
-    
+
     const thirdPartyValue = getFieldValue('Third Party assessment carried out') || getFieldValue('Third Party Assessment') || getFieldValue('Third Party assessment');
     const thirdPartyYes = thirdPartyValue && (thirdPartyValue.toLowerCase() === 'yes' || thirdPartyValue.toLowerCase() === 'true');
     const thirdPartyNo = thirdPartyValue && (thirdPartyValue.toLowerCase() === 'no' || thirdPartyValue.toLowerCase() === 'false');
@@ -1712,12 +2029,12 @@ export class ApplicationsViewComponent implements OnInit {
     const isSignatureApproved = (signatureIndex: number): boolean => {
       const currentLevel = application.intCurrentApprovalLevel || 0;
       const status = application.txtStatus?.toUpperCase() || '';
-      
+
       // If status is APPROVED, all departments have approved
       if (status === 'APPROVED') {
         return true;
       }
-      
+
       // Map signature index to approval order (1-based)
       // Signature 0 = User Deptt. (HoD) = order 1
       // Signature 1 = Technical Expert = order 2
@@ -1725,7 +2042,7 @@ export class ApplicationsViewComponent implements OnInit {
       // Signature 3 = Finance = order 4
       // Signature 4 = Core Team HTR. / CCT HO = order 5
       const approvalOrder = signatureIndex + 1;
-      
+
       // Check if current level is greater than or equal to this order
       // Level 0 means nothing approved, level 1 means order 1 approved, etc.
       // Current level represents the last approved level (0-indexed)
@@ -1738,33 +2055,33 @@ export class ApplicationsViewComponent implements OnInit {
       if (!pipelines || pipelines.length === 0) {
         return false;
       }
-      
+
       const currentLevel = application.intCurrentApprovalLevel || 0;
       const status = application.txtStatus?.toUpperCase() || '';
-      
+
       // If status is APPROVED, all departments have approved
       if (status === 'APPROVED') {
         return true;
       }
-      
+
       // Find if any pipeline with matching department has been approved
       for (const pipeline of pipelines) {
         const pipelineOrder = pipeline.intApprovalOrder || 0;
         const deptName = pipeline.hrTblDepartment?.txtDepartmentName || '';
         const deptNameLower = deptName.toLowerCase();
-        
+
         // Check if department name matches any keyword
-        const matches = deptNameKeywords.some(keyword => 
+        const matches = deptNameKeywords.some(keyword =>
           deptNameLower.includes(keyword.toLowerCase())
         );
-        
+
         // Current level represents the last approved level (0-indexed)
         // So level 1 means order 1 has been approved
         if (matches && currentLevel >= pipelineOrder) {
           return true;
         }
       }
-      
+
       return false;
     };
 
@@ -2562,4 +2879,3 @@ export class ApplicationsViewComponent implements OnInit {
   }
 
 }
-

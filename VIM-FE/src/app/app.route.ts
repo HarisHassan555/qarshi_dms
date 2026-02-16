@@ -72,6 +72,7 @@ import { ReportViewComponent } from "./report-view/report-view.component";
 import { OrderDetailComponent } from "./order-detail/edit";
 import { BudgetApprovalComponent } from './components/budget-approval/budget-approval.component';
 import { BudgetApprovalViewComponent } from './components/budget-approval-view/budget-approval-view.component';
+import { XyzComponent } from './pages/xyz/xyz.component';
 
 
 export const routes: Routes = [
@@ -155,6 +156,7 @@ export const routes: Routes = [
             { path: 'order-details/edit/:id', component: OrderDetailComponent },
             { path: 'budget-approval', component: BudgetApprovalComponent, title: 'Budget Approval' },
             { path: 'budgetapprovalview', component: BudgetApprovalViewComponent, title: 'Budget Approval View' },
+            { path: 'xyz', component: XyzComponent, title: 'XYZ' },
 
 
 

@@ -1,41 +1,148 @@
-import { Component, ViewChild } from '@angular/core';
+import { Component, ViewChild, Input, Output, EventEmitter, OnInit } from '@angular/core';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Router } from '@angular/router';
 import { BudgetApprovalService } from 'src/app/services/budget-approval/budget-approval.service';
+import { CustomFormApplicationService } from 'src/app/services/custom-form-application/custom-form-application.service';
+import { UserService } from 'src/app/services/user/user.service';
+import { NotificationService } from 'src/app/NotificationService';
 import { QuillEditorComponent } from 'ngx-quill';
+import * as QuillNamespace from 'quill';
+const Quill: any = QuillNamespace;
 
+// Register a custom blot for tables to prevent Quill from stripping them
+const BlockEmbed = Quill.import('blots/block/embed');
+class TableBlot extends BlockEmbed {
+    static create(value: string) {
+        let node = super.create();
+        node.innerHTML = value;
+        node.setAttribute('contenteditable', 'false');
+        node.style.userSelect = 'all'; // Allow easy selection/deletion
+        return node;
+    }
+    static value(node: HTMLElement) {
+        return node.innerHTML;
+    }
+}
+TableBlot['blotName'] = 'table-blot';
+TableBlot['tagName'] = 'div';
+TableBlot['className'] = 'q-table-wrapper';
+Quill.register(TableBlot);
 @Component({
     selector: 'app-budget-approval',
     templateUrl: './budget-approval.component.html',
+    styleUrls: ['./budget-approval.component.css']
 })
-export class BudgetApprovalComponent {
+export class BudgetApprovalComponent implements OnInit {
+    @Input() serFormId: number | undefined;
+    @Input() formCode: string | null = null;
+    @Input() editData: any = null;
+    @Output() onReset = new EventEmitter<void>();
+
+    isEditMode = false;
+    serApplicationId: number | null = null;
+
     @ViewChild('editor', { static: false }) editor!: QuillEditorComponent;
     editorContent = '';
+    formHeading = '';
+    viewMode = false;
+    savedContent: SafeHtml = '';
+
+    // Signature State
+    users: any[] = [];
+    preparedBy: any = null;
+    selectedReviewers: any[] = [];
+    selectedRecommenders: any[] = [];
+    selectedApprover: any = null;
+    currentDate: string = '';
 
     quillModules = {
         toolbar: [
-            ['bold', 'italic', 'underline', 'strike'],        // toggled buttons
+            ['bold', 'italic', 'underline', 'strike'],
             ['blockquote', 'code-block'],
-            [{ 'header': 1 }, { 'header': 2 }],               // custom button values
+            [{ 'header': 1 }, { 'header': 2 }],
             [{ 'list': 'ordered' }, { 'list': 'bullet' }],
-            [{ 'script': 'sub' }, { 'script': 'super' }],      // superscript/subscript
-            [{ 'indent': '-1' }, { 'indent': '+1' }],          // outdent/indent
-            [{ 'direction': 'rtl' }],                         // text direction
-            [{ 'size': ['small', false, 'large', 'huge'] }],  // custom dropdown
+            [{ 'script': 'sub' }, { 'script': 'super' }],
+            [{ 'indent': '-1' }, { 'indent': '+1' }],
+            [{ 'direction': 'rtl' }],
+            [{ 'size': ['small', false, 'large', 'huge'] }],
             [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
-            [{ 'color': [] }, { 'background': [] }],          // dropdown with defaults from theme
+            [{ 'color': [] }, { 'background': [] }],
             [{ 'font': [] }],
             [{ 'align': [] }],
-            ['clean'],                                         // remove formatting
-            ['link', 'image', 'video']                         // link and image, video
+            ['clean'],
         ],
-        table: true
     };
 
     tableRows: any[] = [];
     tableColumns: string[] = ['Column 1', 'Column 2'];
 
-    constructor(private router: Router, private budgetApprovalService: BudgetApprovalService) {
+    constructor(
+        private router: Router,
+        private budgetApprovalService: BudgetApprovalService,
+        private customFormApplicationService: CustomFormApplicationService,
+        private userService: UserService,
+        private notificationService: NotificationService,
+        private sanitizer: DomSanitizer
+    ) {
         this.addRow();
+        this.currentDate = new Date().toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+        }).replace(/ /g, '-');
+    }
+
+    ngOnInit() {
+        this.fetchUsers();
+        if (this.editData) {
+            this.loadEditData();
+        } else {
+            this.setCurrentUser();
+        }
+    }
+
+    loadEditData() {
+        this.isEditMode = true;
+        this.serApplicationId = this.editData.serApplicationId;
+        this.serFormId = this.editData.serFormId;
+        this.formCode = this.editData.txtFormCode;
+
+        if (this.editData.txtApplicationData) {
+            try {
+                const appData = JSON.parse(this.editData.txtApplicationData);
+                this.editorContent = appData.content || '';
+                this.formHeading = appData.heading || '';
+                this.currentDate = appData.date || this.currentDate;
+                this.preparedBy = appData.preparedBy;
+                this.selectedReviewers = appData.reviewers || [];
+                this.selectedRecommenders = appData.recommenders || [];
+                this.selectedApprover = appData.approver;
+            } catch (e) {
+                console.error('Error parsing edit data:', e);
+            }
+        }
+    }
+
+    fetchUsers() {
+        this.userService.getUsers().subscribe({
+            next: (data: any) => {
+                this.users = data || [];
+            },
+            error: (err) => {
+                console.error('Error fetching users', err);
+            }
+        });
+    }
+
+    setCurrentUser() {
+        const userJson = localStorage.getItem('user');
+        if (userJson) {
+            try {
+                this.preparedBy = JSON.parse(userJson);
+            } catch (e) {
+                console.error('Error parsing user data:', e);
+            }
+        }
     }
 
     addColumn() {
@@ -62,25 +169,25 @@ export class BudgetApprovalComponent {
     }
 
     generateTableHtml(): string {
-        let html = '<table style="width: 100%; border-collapse: collapse; border: 1px solid #ccc; margin: 10px 0;">';
+        // Use standard table tags (they will be preserved inside the custom blot)
+        let html = '<table style="width: 100%; border-collapse: collapse; border: 1px solid #000; margin: 10px 0;">';
 
-        // Header
-        html += '<thead><tr style="background-color: #f1f1f1;">';
+        // Header Row
+        html += '<tr style="background-color: #f1f1f1; font-weight: bold;">';
         this.tableColumns.forEach(col => {
-            html += `<th style="border: 1px solid #ccc; padding: 8px; font-weight: bold; text-align: left;">${col}</th>`;
+            html += `<td style="border: 1px solid #000; padding: 8px; text-align: center;">${col}</td>`;
         });
-        html += '</tr></thead>';
+        html += '</tr>';
 
-        // Body
-        html += '<tbody>';
+        // Body Rows
         this.tableRows.forEach(row => {
             html += '<tr>';
             row.forEach((cell: string) => {
-                html += `<td style="border: 1px solid #ccc; padding: 8px;">${cell || '&nbsp;'}</td>`;
+                html += `<td style="border: 1px solid #000; padding: 8px; text-align: left;">${cell || '&nbsp;'}</td>`;
             });
             html += '</tr>';
         });
-        html += '</tbody></table><p><br></p>'; // Add paragraphs for spacing after table
+        html += '</table>';
 
         return html;
     }
@@ -94,7 +201,14 @@ export class BudgetApprovalComponent {
             let range = quill.getSelection(true);
             let index = range ? range.index : quill.getLength();
 
-            quill.clipboard.dangerouslyPasteHTML(index, tableHtml);
+            // Insert using our custom blot
+            quill.insertEmbed(index, 'table-blot', tableHtml, 'user');
+
+            // Move cursor after the table
+            quill.setSelection({ index: index + 1, length: 0 }, 'api');
+
+            // Sync the model immediately
+            this.editorContent = quill.root.innerHTML;
 
             // Reset table builder after insertion
             this.tableColumns = ['Column 1', 'Column 2'];
@@ -104,14 +218,80 @@ export class BudgetApprovalComponent {
     }
 
     save() {
-        this.budgetApprovalService.save(this.editorContent).subscribe({
-            next: () => {
-                this.router.navigate(['/budgetapprovalview']);
+        // ALWAYS use the live HTML from the quill root to ensure table content is included
+        const quillHtml = this.editor?.quillEditor?.root?.innerHTML ?? '';
+        const content = quillHtml || this.editorContent;
+
+        // Get current user from localStorage
+        const userJson = localStorage.getItem('user');
+        let userId: number | null = null;
+        if (userJson) {
+            try {
+                const user = JSON.parse(userJson);
+                userId = user.serUserId || null;
+            } catch (e) {
+                console.error('Error parsing user data:', e);
+            }
+        }
+
+        // Prepare payload for application submission/update
+        const payload: any = {
+            serApplicationId: this.serApplicationId,
+            serFormId: this.serFormId,
+            txtFormCode: this.formCode || null,
+            txtApplicationData: JSON.stringify({
+                content: content,
+                heading: this.formHeading,
+                date: this.currentDate,
+                preparedBy: this.preparedBy,
+                reviewers: this.selectedReviewers,
+                recommenders: this.selectedRecommenders,
+                approver: this.selectedApprover
+            }),
+            txtStatus: this.editData?.txtStatus || 'PENDING',
+            intCurrentApprovalLevel: this.editData?.intCurrentApprovalLevel || 0,
+            serSubmittedBy: userId || this.editData?.serSubmittedBy,
+            blIsActive: true,
+            blIsDeleted: false,
+            blnStatus: true
+        };
+
+        const request = this.isEditMode
+            ? this.customFormApplicationService.updateApplication(payload)
+            : this.customFormApplicationService.submitApplication(payload);
+
+        request.subscribe({
+            next: (response: any) => {
+                if (response && response.status === 'Success') {
+                    this.notificationService.showMessage(
+                        this.isEditMode ? 'Application updated successfully!' : 'Application submitted successfully!',
+                        'success'
+                    );
+                    this.savedContent = this.sanitizer.bypassSecurityTrustHtml(content);
+                    this.viewMode = true;
+                } else {
+                    this.notificationService.showMessage(response?.message || 'Failed to save application', 'danger');
+                }
             },
-            error: (err) => {
+            error: (err: any) => {
+                this.notificationService.showMessage('Error saving application', 'danger');
                 console.error('Error saving budget approval', err);
-                // You might want to show an alert here
             }
         });
+    }
+
+    formatUserForSignature(selectedUsers: any[], index: number): string {
+        if (!selectedUsers || !selectedUsers[index]) return '';
+        const user = selectedUsers[index];
+        const role = user.cfgTblRole?.txtRoleName || 'Reviewer';
+        return `${user.txtUserName}<br>(${role})`;
+    }
+
+    reset() {
+        this.viewMode = false;
+        this.editorContent = '';
+        this.formHeading = '';
+        this.savedContent = '';
+        this.onReset.emit();
     }
 }

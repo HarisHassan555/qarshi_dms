@@ -125,6 +125,9 @@
                         <a (click)="openAbcPage(value)" class="hover:text-warning" title="Open CAPF Form" *ngIf="isCapfForm(value)">
                             <icon-file class="h-4.5 w-4.5" />
                         </a>
+                        <a (click)="openBudgetApprovalPage(value)" class="hover:text-warning" title="Open Budget Approval" *ngIf="isBudgetApprovalForm(value)">
+                            <icon-file class="h-4.5 w-4.5" />
+                        </a>
                         <a (click)="viewApplication(value)" class="hover:text-info" title="View Application">
                             <icon-eye class="h-4.5 w-4.5" />
                         </a>
@@ -493,4 +496,3 @@
         </button>
     </ng-template>
 </modal>
-

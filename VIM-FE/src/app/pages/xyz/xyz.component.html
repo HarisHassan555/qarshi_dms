@@ -1,0 +1,60 @@
+<div class="xyz-page">
+    <div class="xyz-paper">
+        <div class="xyz-date-row">
+            <div class="xyz-date">Date: {{ dateText || '25-Aug-2025' }}</div>
+        </div>
+        <div class="xyz-header">
+            <div class="xyz-logo">
+                <img src="assets/images/qarshi-logo.png" alt="Qarshi" />
+            </div>
+            <div class="xyz-company">
+                <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
+                <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+            </div>
+            <div class="xyz-header-spacer"></div>
+        </div>
+
+        <div class="xyz-rule thick"></div>
+
+        <div class="xyz-title" *ngIf="heading">{{ heading }}</div>
+
+        <div class="xyz-dynamic" [innerHTML]="content"></div>
+
+        <div class="xyz-footer">
+            <table class="xyz-signatures">
+                <tr class="xyz-signatures-blank">
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <th>Prepared by:</th>
+                    <th colspan="2">Reviewed by:</th>
+                    <th colspan="2">Recommended by:</th>
+                    <th>Approved by:</th>
+                </tr>
+                <tr>
+                    <td>
+                        <span *ngIf="preparedBy">
+                            {{ preparedBy.txtUserName }}<br>
+                            ({{ preparedBy.cfgTblRole?.txtRoleName || 'Executive' }})
+                        </span>
+                    </td>
+                    <td [innerHTML]="formatUserForSignature(reviewers, 0)"></td>
+                    <td [innerHTML]="formatUserForSignature(reviewers, 1)"></td>
+                    <td [innerHTML]="formatUserForSignature(recommenders, 0)"></td>
+                    <td [innerHTML]="formatUserForSignature(recommenders, 1)"></td>
+                    <td>
+                        <span *ngIf="approver">
+                            {{ approver.txtUserName }}<br>
+                            ({{ approver.cfgTblRole?.txtRoleName || 'Approver' }})
+                        </span>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>

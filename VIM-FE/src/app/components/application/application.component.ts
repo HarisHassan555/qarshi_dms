@@ -1,4 +1,5 @@
 import { Component, OnInit } from '@angular/core';
+import { Router } from '@angular/router';
 import { FormBuilder, FormGroup, FormArray, Validators, FormControl } from '@angular/forms';
 import { PermissionService } from '../../services/shared-data/permission-service';
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
@@ -44,13 +45,17 @@ export class ApplicationComponent implements OnInit {
   selectedForm: CustomForm | null = null;
   applicationForm!: FormGroup;
   generatedApplicationCode: string | null = null;
+  showBudgetApproval: boolean = false;
+  selectedFormId: string = '';
+  editData: any = null;
 
   constructor(
     private permissionService: PermissionService,
     private customFormService: CustomFormService,
     private customFormApplicationService: CustomFormApplicationService,
     private fb: FormBuilder,
-    private notificationService: NotificationService
+    private notificationService: NotificationService,
+    private router: Router
   ) { }
 
   ngOnInit() {
@@ -71,6 +76,28 @@ export class ApplicationComponent implements OnInit {
 
     this.loadForms();
     this.initializeForm();
+    this.checkEditMode();
+  }
+
+  checkEditMode() {
+    const navigation = this.router.getCurrentNavigation();
+    const state = navigation?.extras?.state || history.state;
+
+    if (state && state.editData) {
+      console.log('Edit mode detected:', state.editData);
+      this.editData = state.editData;
+      this.selectedFormId = String(this.editData.serFormId);
+
+      // We need to wait for forms to load to set showBudgetApproval correctly
+      // But typically we can just check the name/id if we have it
+      // Let's force it if it looks like a budget form
+      const name = (this.editData.formName || '').toUpperCase();
+      const code = (this.editData.txtFormCode || '').toUpperCase();
+      if (name.includes('BUDGET APPROVAL') || code.startsWith('BDG')) {
+        this.showBudgetApproval = true;
+        this.generatedApplicationCode = this.editData.txtFormCode;
+      }
+    }
   }
 
   initializeForm() {
@@ -113,18 +140,35 @@ export class ApplicationComponent implements OnInit {
 
   onFormSelect(event: Event) {
     const formId = Number((event.target as HTMLSelectElement).value);
+    this.selectedFormId = (event.target as HTMLSelectElement).value;
     if (formId) {
       this.selectedForm = this.customForms.find(f => f.serFormId === formId) || null;
       if (this.selectedForm) {
-        this.buildDynamicForm(this.selectedForm);
-        // Generate next application code
-        this.generateApplicationCode(formId);
+        const formName = (this.selectedForm.name || '').trim().toLowerCase();
+        if (formName === 'budget approval form') {
+          this.showBudgetApproval = true;
+          this.generateApplicationCode(formId);
+        } else {
+          this.showBudgetApproval = false;
+          this.buildDynamicForm(this.selectedForm);
+          // Generate next application code
+          this.generateApplicationCode(formId);
+        }
       }
     } else {
       this.selectedForm = null;
       this.generatedApplicationCode = null;
+      this.showBudgetApproval = false;
       this.initializeForm();
     }
+  }
+
+  resetBudgetForm() {
+    this.selectedFormId = '';
+    this.selectedForm = null;
+    this.generatedApplicationCode = null;
+    this.showBudgetApproval = false;
+    this.initializeForm();
   }
 
   generateApplicationCode(formId: number) {
