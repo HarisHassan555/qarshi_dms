@@ -1,0 +1,259 @@
+.xyz-page {
+    background: #f2f2f2;
+    padding: 24px;
+    display: flex;
+    justify-content: center;
+}
+
+.xyz-paper {
+    width: 210mm;
+    min-height: 297mm;
+    background: #ffffff;
+    color: #000000;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 13.5px;
+    line-height: 1.35;
+    padding: 18mm 16mm 16mm 16mm;
+    box-sizing: border-box;
+    border: 1px solid #cfcfcf;
+    display: flex;
+    flex-direction: column;
+}
+
+.xyz-date-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 6px;
+}
+
+.xyz-header {
+    display: grid;
+    grid-template-columns: 90px 1fr 90px;
+    align-items: end;
+    column-gap: 12px;
+    margin-bottom: 6px;
+}
+
+.xyz-logo {
+    align-self: start;
+    margin-top: -10px;
+}
+
+.xyz-logo img {
+    width: 65px;
+    height: auto;
+    display: block;
+}
+
+.xyz-date {
+    font-size: 14px;
+    text-align: right;
+}
+
+.xyz-company {
+    text-align: center;
+    margin: 0;
+}
+
+.xyz-header-spacer {
+    height: 1px;
+}
+
+.xyz-company-name {
+    font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif;
+    font-size: 30px;
+    font-weight: 700;
+}
+
+.xyz-company-address {
+    font-family: Verdana, Arial, sans-serif;
+    font-size: 12px;
+    color: #000000;
+    margin-top: 2px;
+}
+
+.xyz-rule {
+    height: 1px;
+    background: #000000;
+    margin: 8px 0 12px 0;
+}
+
+.xyz-rule.thick {
+    position: relative;
+    height: 2px;
+    background: #000;
+}
+
+.xyz-rule.thick::before,
+.xyz-rule.thick::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: #000;
+}
+
+.xyz-rule.thick::before {
+    top: -2px;
+}
+
+.xyz-rule.thick::after {
+    bottom: -2px;
+}
+
+.xyz-title {
+    text-align: center;
+    font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif;
+    font-weight: 700;
+    font-size: 26px;
+    line-height: 1.25;
+    margin: 6px 0 16px 0;
+}
+
+.xyz-section {
+    margin-bottom: 10px;
+}
+
+.xyz-section-title {
+    font-family: "Times New Roman", Times, serif;
+    font-size: 14px;
+    font-weight: 700;
+    text-decoration: underline;
+    margin-bottom: 3px;
+}
+
+.xyz-section-text {
+    font-family: "Times New Roman", Times, serif;
+    font-size: 14px;
+    font-weight: 400;
+    text-align: justify;
+}
+
+.xyz-list {
+    margin: 4px 0 0 18px;
+    padding: 0;
+}
+
+.xyz-list li {
+    margin-bottom: 6px;
+}
+
+.xyz-bold {
+    font-weight: 700;
+}
+
+.xyz-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 6px;
+    font-size: 12px;
+}
+
+.xyz-table th,
+.xyz-table td {
+    border: 1px solid #000;
+    padding: 4px 6px;
+}
+
+.xyz-table thead th {
+    background: #8bc34a;
+    text-align: center;
+}
+
+.xyz-col-sr {
+    width: 8%;
+    text-align: center;
+}
+
+.xyz-col-amount {
+    width: 18%;
+    text-align: center;
+}
+
+.xyz-table tbody td:first-child,
+.xyz-table tbody td:last-child {
+    text-align: center;
+}
+
+.xyz-note {
+    margin-top: 6px;
+    font-size: 11px;
+}
+
+.xyz-dynamic {
+    margin-top: 6px;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 14px;
+}
+
+.xyz-dynamic table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 14px;
+}
+
+.xyz-dynamic th,
+.xyz-dynamic td {
+    border: 1px solid #000;
+    padding: 4px 6px;
+}
+
+.xyz-dynamic thead th {
+    background: #8bc34a;
+    text-align: center;
+}
+
+.xyz-signatures {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    font-size: 11px;
+}
+
+.xyz-footer {
+    margin-top: auto;
+}
+
+.xyz-signatures th,
+.xyz-signatures td {
+    border: 1px solid #000;
+    padding: 4px 6px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.xyz-signatures-blank td {
+    height: 56px;
+    padding: 0;
+    background: #ffffff;
+}
+
+.xyz-signatures th {
+    font-family: Calibri, "Calibri (Body)", Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    background: #8f8f8f;
+}
+
+.xyz-signatures th[colspan="2"] {
+    text-align: center;
+}
+
+.xyz-signatures td {
+    font-family: Calibri, "Calibri (Body)", Arial, sans-serif;
+    font-size: 12px;
+}
+
+@media (max-width: 900px) {
+    .xyz-page {
+        padding: 12px;
+    }
+
+    .xyz-paper {
+        width: 100%;
+        min-height: auto;
+        padding: 16px;
+    }
+}

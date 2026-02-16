@@ -54,7 +54,8 @@ export class PermissionService {
         'Velocity': [
             'Application',
             'Applications View',
-            'Form Builder'
+            'Form Builder',
+            'Budget Approval'
         ],
         'User Management': ['User', 'Password Policy', 'Change Password', 'Permission']
     };

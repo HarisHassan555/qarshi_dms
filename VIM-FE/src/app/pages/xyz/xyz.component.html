@@ -1,0 +1,48 @@
+<div class="xyz-page">
+    <div class="xyz-paper">
+        <div class="xyz-date-row">
+            <div class="xyz-date">Date: {{ dateText || '25-Aug-2025' }}</div>
+        </div>
+        <div class="xyz-header">
+            <div class="xyz-logo">
+                <img src="assets/images/qarshi-logo.png" alt="Qarshi" />
+            </div>
+            <div class="xyz-company">
+                <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
+                <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+            </div>
+            <div class="xyz-header-spacer"></div>
+        </div>
+
+        <div class="xyz-rule thick"></div>
+
+        <div class="xyz-title" *ngIf="heading">{{ heading }}</div>
+
+        <div class="xyz-dynamic" [innerHTML]="content"></div>
+
+        <div class="xyz-footer">
+        <table class="xyz-signatures">
+            <tr class="xyz-signatures-blank">
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr>
+                <th>Prepared by:</th>
+                <th colspan="2">Reviewed by:</th>
+                <th>Recommended by:</th>
+                <th>Approved by:</th>
+            </tr>
+            <tr>
+                <td>Mr. Mahmood Khan<br>(Dy. Manager)</td>
+                <td>Mr. Tahir Sarwar<br>(AGM IT &amp; ERP)</td>
+                <td>Mr. Muhammad Azhar<br>(DGM Finance)</td>
+                <td>Mr. Yasir Ishaq Ansari<br>(CTO)</td>
+                <td>Dr. Amjad Aqeel<br>(CE / COO QIL &amp; DB)</td>
+            </tr>
+        </table>
+        </div>
+    </div>
+</div>

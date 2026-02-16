@@ -28,7 +28,6 @@ export class BudgetApprovalComponent {
             ['clean'],                                         // remove formatting
             ['link', 'image', 'video']                         // link and image, video
         ],
-        table: true
     };
 
     tableRows: any[] = [];
@@ -104,9 +103,12 @@ export class BudgetApprovalComponent {
     }
 
     save() {
-        this.budgetApprovalService.save(this.editorContent).subscribe({
+        const quillHtml = this.editor?.quillEditor?.root?.innerHTML ?? '';
+        const content = (this.editorContent && this.editorContent.trim()) ? this.editorContent : quillHtml;
+
+        this.budgetApprovalService.save(content).subscribe({
             next: () => {
-                this.router.navigate(['/budgetapprovalview']);
+                this.router.navigate(['/xyz'], { state: { content } });
             },
             error: (err) => {
                 console.error('Error saving budget approval', err);

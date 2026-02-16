@@ -62,6 +62,17 @@ export class SignatureComponent implements OnInit {
 
     const formData = new FormData();
     formData.append('file', this.selectedFile);
+    const userJson = localStorage.getItem('user');
+    if (userJson) {
+      try {
+        const user = JSON.parse(userJson);
+        if (user?.serUserId) {
+          formData.append('userId', String(user.serUserId));
+        }
+      } catch (e) {
+        console.error('Error parsing user from localStorage', e);
+      }
+    }
 
     // Angular HttpClient automatically sets Content-Type to multipart/form-data with boundary for FormData
     // Don't set headers - let Angular handle it automatically
@@ -142,4 +153,3 @@ export class SignatureComponent implements OnInit {
     this.previewUrl = null;
   }
 }
-
