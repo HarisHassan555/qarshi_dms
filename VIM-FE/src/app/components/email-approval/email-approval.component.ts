@@ -11,7 +11,7 @@ import { urls } from '../../utils/urls';
 export class EmailApprovalComponent implements OnInit {
   applicationId: number | null = null;
   userId: number | null = null;
-  action: 'approve' | 'reject' = 'approve';
+  action: 'approve' | 'reject' | 'sendback' = 'approve';
   isLoading: boolean = true;
   result: {
     success: boolean;
@@ -35,6 +35,8 @@ export class EmailApprovalComponent implements OnInit {
         this.action = 'approve';
       } else if (path === 'rejectApplicationFromEmail') {
         this.action = 'reject';
+      } else if (path === 'sendBackApplicationFromEmail') {
+        this.action = 'sendback';
       }
 
       if (this.applicationId && this.userId) {
@@ -55,9 +57,11 @@ export class EmailApprovalComponent implements OnInit {
     }
 
     // Call the backend GET endpoint directly (no authentication required)
-    const endpoint = this.action === 'approve' 
+    const endpoint = this.action === 'approve'
       ? 'approveApplicationFromEmail'
-      : 'rejectApplicationFromEmail';
+      : this.action === 'reject'
+        ? 'rejectApplicationFromEmail'
+        : 'sendBackApplicationFromEmail';
     
     const url = `${urls.API_URL}${endpoint}?applicationId=${this.applicationId}&userId=${this.userId}`;
     
@@ -67,13 +71,14 @@ export class EmailApprovalComponent implements OnInit {
         // Parse HTML to determine success/failure
         // The backend returns HTML with success/error indicators
         const isSuccess = htmlResponse.includes('Application Approved Successfully') || 
-                         htmlResponse.includes('Application Rejected');
+                         htmlResponse.includes('Application Rejected') ||
+                         htmlResponse.includes('Application Sent Back');
         const isError = htmlResponse.includes('Failed') || htmlResponse.includes('Error');
         
         if (isSuccess) {
           this.result = {
             success: true,
-            message: `Application ${this.action === 'approve' ? 'approved' : 'rejected'} successfully`
+            message: `Application ${this.action === 'approve' ? 'approved' : this.action === 'reject' ? 'rejected' : 'sent back'} successfully`
           };
         } else if (isError) {
           // Try to extract error message from HTML
@@ -94,7 +99,8 @@ export class EmailApprovalComponent implements OnInit {
       (error) => {
         this.result = {
           success: false,
-          message: error.error?.message || error.message || `Error ${this.action === 'approve' ? 'approving' : 'rejecting'} application`
+          message: error.error?.message || error.message || 
+            `Error ${this.action === 'approve' ? 'approving' : this.action === 'reject' ? 'rejecting' : 'sending back'} application`
         };
         this.isLoading = false;
       }
@@ -105,4 +111,3 @@ export class EmailApprovalComponent implements OnInit {
     this.router.navigate(['/Dashboard']);
   }
 }
-

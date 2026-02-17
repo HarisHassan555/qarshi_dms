@@ -211,8 +211,9 @@ export const routes: Routes = [
     },
 
     // Email approval routes - no authentication required, no layout wrapper
-    { path: 'approveApplicationFromEmail', component: EmailApprovalComponent, title: 'Approve Application' },
-    { path: 'rejectApplicationFromEmail', component: EmailApprovalComponent, title: 'Reject Application' },
+            { path: 'approveApplicationFromEmail', component: EmailApprovalComponent, title: 'Approve Application' },
+            { path: 'rejectApplicationFromEmail', component: EmailApprovalComponent, title: 'Reject Application' },
+            { path: 'sendBackApplicationFromEmail', component: EmailApprovalComponent, title: 'Send Back Application' },
     { path: 'abc', component: AbcComponent, title: 'Capital Assets Purchase Form' },
 
 ];

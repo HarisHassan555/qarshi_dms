@@ -57,6 +57,7 @@ export class FormBuilderComponent implements OnInit {
     { value: 'email', label: 'Email' },
     { value: 'date', label: 'Date' },
     { value: 'textarea', label: 'Textarea' },
+    { value: 'attachment', label: 'Attachment' },
     { value: 'select', label: 'Select' },
     { value: 'checkbox', label: 'Checkbox' },
     { value: 'radio', label: 'Radio' },
@@ -435,4 +436,3 @@ export class FormBuilderComponent implements OnInit {
     );
   }
 }
-

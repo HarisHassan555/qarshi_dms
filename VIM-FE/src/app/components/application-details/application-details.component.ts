@@ -3,6 +3,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
 import { NotificationService } from 'src/app/NotificationService';
+import { UserService } from '../../services/user/user.service';
 
 @Component({
   selector: 'app-application-details',
@@ -17,13 +18,15 @@ export class ApplicationDetailsComponent implements OnInit {
   forms: any[] = [];
   isLoading: boolean = true;
   approvalHistory: any[] = []; // Store approval history with remarks
+  private userNameById = new Map<number, string>();
 
   constructor(
     private route: ActivatedRoute,
     private router: Router,
     private customFormApplicationService: CustomFormApplicationService,
     private customFormService: CustomFormService,
-    private notificationService: NotificationService
+    private notificationService: NotificationService,
+    private userService: UserService
   ) {}
 
   ngOnInit() {
@@ -112,6 +115,7 @@ export class ApplicationDetailsComponent implements OnInit {
             try {
               this.approvalHistory = JSON.parse(data.txtApprovalHistory);
               console.log('Approval history loaded:', this.approvalHistory);
+              this.loadUsersForHistory();
             } catch (e) {
               console.error('Error parsing approval history:', e);
               this.approvalHistory = [];
@@ -130,6 +134,23 @@ export class ApplicationDetailsComponent implements OnInit {
         this.isLoading = false;
         this.notificationService.showMessage('Error loading application details: ' + (error.error?.message || error.message), 'danger');
         this.router.navigate(['/applicationsview']);
+      }
+    );
+  }
+
+  loadUsersForHistory() {
+    this.userService.getUsers().subscribe(
+      (users: any) => {
+        if (Array.isArray(users)) {
+          users.forEach((user: any) => {
+            if (user && user.serUserId != null) {
+              this.userNameById.set(user.serUserId, user.txtUserName || user.txtAddress || `User ${user.serUserId}`);
+            }
+          });
+        }
+      },
+      (_error) => {
+        // If user list can't be loaded, we will fall back to showing IDs.
       }
     );
   }
@@ -395,8 +416,49 @@ export class ApplicationDetailsComponent implements OnInit {
     return sortedPipelines;
   }
 
+  getHistoryItems(): any[] {
+    if (!this.approvalHistory || this.approvalHistory.length === 0) {
+      return [];
+    }
+
+    const items = this.approvalHistory.map((entry: any) => {
+      const isSentBack = entry.action === 'SENT_BACK';
+      const action = isSentBack ? 'Sent Back' : 'Approved';
+      const dateValue = isSentBack ? entry.sentBackDate : entry.approvedDate;
+      const byUser = isSentBack ? entry.sentBackBy : entry.approvedBy;
+      let byLabel = '';
+      if (typeof byUser === 'number') {
+        byLabel = this.userNameById.get(byUser) || (byUser === -1 ? 'Email Link' : `User ${byUser}`);
+      } else {
+        byLabel = byUser || '';
+      }
+
+      return {
+        action,
+        departmentName: entry.departmentName || (entry.departmentId ? `Department ${entry.departmentId}` : 'Unknown'),
+        remarks: entry.remarks || '',
+        date: dateValue || '',
+        byUser: byLabel
+      };
+    });
+
+    return items.sort((a: any, b: any) => {
+      const aTime = a.date ? new Date(a.date).getTime() : 0;
+      const bTime = b.date ? new Date(b.date).getTime() : 0;
+      return aTime - bTime;
+    });
+  }
+
+  formatHistoryDate(value: string): string {
+    if (!value) return '-';
+    try {
+      return new Date(value).toLocaleString();
+    } catch (e) {
+      return value;
+    }
+  }
+
   goBack() {
     this.router.navigate(['/applicationsview']);
   }
 }
-

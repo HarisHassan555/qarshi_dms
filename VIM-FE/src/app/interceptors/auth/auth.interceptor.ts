@@ -24,7 +24,9 @@ export class AuthInterceptor implements HttpInterceptor {
         const isUploadDocument = request.url.includes("uploadCandidateDocument");
         const authToken = localStorage.getItem('token');
         const isuploadDocument = request.url.includes("uploadDocument");
-        const isEmailApproval = request.url.includes("approveApplicationFromEmail") || request.url.includes("rejectApplicationFromEmail");
+        const isEmailApproval = request.url.includes("approveApplicationFromEmail") ||
+            request.url.includes("rejectApplicationFromEmail") ||
+            request.url.includes("sendBackApplicationFromEmail");
         let ok: string;
 
 

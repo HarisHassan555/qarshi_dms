@@ -122,6 +122,30 @@
                                     </p>
                                 </div>
 
+                                <!-- Attachment -->
+                                <div *ngIf="field.type === 'attachment'" class="md:col-span-2">
+                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                        {{ field.label }}
+                                        <span *ngIf="field.required" class="text-danger">*</span>
+                                    </label>
+                                    <input #fileInput type="file" class="form-input"
+                                        (change)="onAttachmentSelected(field, $event)"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))" />
+                                    <div *ngIf="getAttachmentValue(field) as attachment" class="mt-2 flex items-center gap-2 text-sm">
+                                        <span class="text-gray-700 dark:text-gray-300">
+                                            {{ attachment.name }} ({{ formatFileSize(attachment.size) }})
+                                        </span>
+                                        <button type="button" class="btn btn-xs btn-outline-danger"
+                                            (click)="clearAttachment(field, fileInput)">
+                                            Remove
+                                        </button>
+                                    </div>
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))"
+                                        class="mt-1 text-xs text-danger">
+                                        {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                                    </p>
+                                </div>
+
                                 <!-- Select Dropdown -->
                                 <div *ngIf="field.type === 'select'">
                                     <label class="block mb-2 text-sm font-semibold dark:text-white-light">

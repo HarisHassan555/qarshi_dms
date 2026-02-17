@@ -51,13 +51,17 @@ public class CustomFormApplicationController {
     }
 
     @RequestMapping(value = "/getApplicationsByUserId", method = RequestMethod.GET)
-    public List<CfgTblCustomFormApplication> getApplicationsByUserId(@RequestParam Integer userId,
-                                                                     HttpServletRequest request,
-                                                                     HttpServletResponse response) {
+    public List<Map<String, Object>> getApplicationsByUserId(@RequestParam Integer userId,
+                                                             HttpServletRequest request,
+                                                             HttpServletResponse response) {
         logger.debug("getApplicationsByUserId() - userId: " + userId);
         try {
             List<CfgTblCustomFormApplication> applications = customFormApplicationService.getApplicationsByUserId(userId);
-            return applications;
+            List<Map<String, Object>> result = new java.util.ArrayList<>();
+            for (CfgTblCustomFormApplication app : applications) {
+                result.add(toApplicationSummary(app));
+            }
+            return result;
         } catch (Exception ex) {
             logger.error("Error fetching applications by user ID: " + ex.getMessage(), ex);
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
@@ -205,19 +209,45 @@ public class CustomFormApplicationController {
     }
 
     @RequestMapping(value = "/getApplicationsPendingApproval", method = RequestMethod.GET)
-    public List<CfgTblCustomFormApplication> getApplicationsPendingApproval(@RequestParam Integer departmentHeadUserId,
-                                                                           HttpServletRequest request,
-                                                                           HttpServletResponse response) {
+    public List<Map<String, Object>> getApplicationsPendingApproval(@RequestParam Integer departmentHeadUserId,
+                                                                    HttpServletRequest request,
+                                                                    HttpServletResponse response) {
         logger.debug("getApplicationsPendingApproval() - departmentHeadUserId: " + departmentHeadUserId);
         try {
             List<CfgTblCustomFormApplication> applications = 
                 customFormApplicationService.getApplicationsPendingApprovalForDepartmentHead(departmentHeadUserId);
-            return applications;
+            List<Map<String, Object>> result = new java.util.ArrayList<>();
+            for (CfgTblCustomFormApplication app : applications) {
+                result.add(toApplicationSummary(app));
+            }
+            return result;
         } catch (Exception ex) {
             logger.error("Error fetching applications pending approval: " + ex.getMessage(), ex);
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return null;
         }
+    }
+
+    private Map<String, Object> toApplicationSummary(CfgTblCustomFormApplication app) {
+        Map<String, Object> summary = new HashMap<>();
+        if (app == null) {
+            return summary;
+        }
+
+        summary.put("serApplicationId", app.getSerApplicationId());
+        summary.put("serFormId", app.getSerFormId());
+        summary.put("txtFormCode", app.getTxtFormCode());
+        summary.put("txtStatus", app.getTxtStatus());
+        summary.put("intCurrentApprovalLevel", app.getIntCurrentApprovalLevel());
+        summary.put("serSubmittedBy", app.getSerSubmittedBy());
+        summary.put("serCurrentApprover", app.getSerCurrentApprover());
+        summary.put("txtRemarks", app.getTxtRemarks());
+        summary.put("dteCreatedDate", app.getDteCreatedDate());
+        summary.put("dteModifiedDate", app.getDteModifiedDate());
+
+        // Intentionally omit cfgTblCustomForm to avoid lazy-loading/serialization issues on list endpoints.
+
+        return summary;
     }
 
     @RequestMapping(value = "/approveApplication",
@@ -309,6 +339,7 @@ public class CustomFormApplicationController {
                                               HttpServletResponse response) {
         logger.debug("approveApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
         try {
+            request.setAttribute("currentUserId", userId);
             String status = customFormApplicationService.approveApplication(applicationId, "Approved via email");
             if ("Success".equals(status)) {
                 return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Application Approved</title>" +
@@ -353,6 +384,7 @@ public class CustomFormApplicationController {
                                             HttpServletResponse response) {
         logger.debug("rejectApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
         try {
+            request.setAttribute("currentUserId", userId);
             String status = customFormApplicationService.rejectApplication(applicationId, "Rejected via email");
             if ("Success".equals(status)) {
                 return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Application Rejected</title>" +
@@ -374,6 +406,51 @@ public class CustomFormApplicationController {
             }
         } catch (Exception ex) {
             logger.error("Error rejecting application from email: " + ex.getMessage(), ex);
+            return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Error</title>" +
+                   "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                   ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}" +
+                   ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
+                   ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                   "<div class='container'><div class='error'>✗ Error</div>" +
+                   "<div class='message'>An error occurred: " + ex.getMessage() + "</div></div></body></html>";
+        }
+    }
+
+    /**
+     * GET endpoint for email-based send back (accessed via email link)
+     * This allows users to send applications back to the previous department directly from email
+     */
+    @RequestMapping(value = "/sendBackApplicationFromEmail",
+                    method = RequestMethod.GET,
+                    produces = MediaType.TEXT_HTML_VALUE)
+    public String sendBackApplicationFromEmail(@RequestParam Integer applicationId,
+                                               @RequestParam Integer userId,
+                                               HttpServletRequest request,
+                                               HttpServletResponse response) {
+        logger.debug("sendBackApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
+        try {
+            request.setAttribute("currentUserId", userId);
+            String status = customFormApplicationService.sendBackApplication(applicationId, "Sent back via email");
+            if ("Success".equals(status)) {
+                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Application Sent Back</title>" +
+                       "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                       ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}" +
+                       ".success{color:#f39c12;font-size:24px;margin-bottom:20px}" +
+                       ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                       "<div class='container'><div class='success'>← Application Sent Back</div>" +
+                       "<div class='message'>The application has been sent back to the previous department. You can close this window.</div></div></body></html>";
+            } else {
+                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Send Back Failed</title>" +
+                       "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                       ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}" +
+                       ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
+                       ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                       "<div class='container'><div class='error'>✗ Send Back Failed</div>" +
+                       "<div class='message'>" + (status != null && status.startsWith("Failure:") ? status.substring(8) : "Failed to send back application") +
+                       "</div></div></body></html>";
+            }
+        } catch (Exception ex) {
+            logger.error("Error sending back application from email: " + ex.getMessage(), ex);
             return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Error</title>" +
                    "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
                    ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}" +
@@ -428,4 +505,3 @@ public class CustomFormApplicationController {
         }
     }
 }
-

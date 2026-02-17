@@ -208,10 +208,48 @@
             </div>
         </div>
 
+        <!-- Approval Log -->
+        <div *ngIf="getHistoryItems().length > 0" class="border-t border-[#e0e6ed] dark:border-[#1b2e4b] pt-6 mt-6">
+            <h6 class="mb-4 text-base font-semibold dark:text-white-light text-center">
+                Approval Log
+            </h6>
+            <div class="overflow-x-auto">
+                <table class="min-w-full border border-[#e0e6ed] dark:border-[#1b2e4b]">
+                    <thead>
+                        <tr class="bg-gray-50 dark:bg-[#1b2e4b]">
+                            <th class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light">Date</th>
+                            <th class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light">Action</th>
+                            <th class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light">Department</th>
+                            <th class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light">Remarks</th>
+                            <th class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light">By</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr *ngFor="let item of getHistoryItems()">
+                            <td class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-sm dark:text-white-light">
+                                {{ formatHistoryDate(item.date) }}
+                            </td>
+                            <td class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-sm dark:text-white-light">
+                                {{ item.action }}
+                            </td>
+                            <td class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-sm dark:text-white-light">
+                                {{ item.departmentName }}
+                            </td>
+                            <td class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-sm dark:text-white-light">
+                                {{ item.remarks || '-' }}
+                            </td>
+                            <td class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-sm dark:text-white-light">
+                                {{ item.byUser || '-' }}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- No Form Fields Message -->
         <div *ngIf="formFields.length === 0 && !isLoading" class="text-center py-8 text-gray-500 dark:text-gray-400">
             <p>No form data available or form structure not found.</p>
         </div>
     </div>
 </div>
-

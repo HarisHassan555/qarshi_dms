@@ -15,6 +15,13 @@ interface FormField {
   txtFieldOptions?: string;
 }
 
+interface AttachmentValue {
+  name: string;
+  type: string;
+  size: number;
+  dataUrl: string;
+}
+
 interface ApprovalPipeline {
   serApprovalPipelineId?: number;
   serDepartmentId: number;
@@ -175,6 +182,8 @@ export class ApplicationComponent implements OnInit {
         }
 
         formControls[fieldName] = tableFormArray;
+      } else if (field.type === 'attachment') {
+        formControls[fieldName] = [null, validators];
       } else {
         formControls[fieldName] = [field.type === 'checkbox' ? false : '', validators];
       }
@@ -262,6 +271,65 @@ export class ApplicationComponent implements OnInit {
       return config.rowLabels[rowIndex];
     }
     return `Row ${rowIndex + 1}`;
+  }
+
+  onAttachmentSelected(field: FormField, event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files && input.files[0];
+    const controlName = this.getFieldName(field.label);
+    const control = this.applicationForm.get(controlName);
+
+    if (!file) {
+      control?.setValue(null);
+      return;
+    }
+
+    const maxSizeBytes = 10 * 1024 * 1024;
+    if (file.size > maxSizeBytes) {
+      this.notificationService.showMessage('File size should be less than 10MB', 'danger');
+      input.value = '';
+      control?.setValue(null);
+      control?.markAsTouched();
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const attachment: AttachmentValue = {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        dataUrl: (reader.result as string) || ''
+      };
+      control?.setValue(attachment);
+      control?.markAsTouched();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  clearAttachment(field: FormField, input: HTMLInputElement) {
+    const controlName = this.getFieldName(field.label);
+    this.applicationForm.get(controlName)?.setValue(null);
+    this.applicationForm.get(controlName)?.markAsTouched();
+    input.value = '';
+  }
+
+  getAttachmentValue(field: FormField): AttachmentValue | null {
+    const controlName = this.getFieldName(field.label);
+    return this.applicationForm.get(controlName)?.value || null;
+  }
+
+  formatFileSize(bytes: number): string {
+    if (!bytes && bytes !== 0) {
+      return '';
+    }
+    if (bytes < 1024) {
+      return `${bytes} B`;
+    }
+    if (bytes < 1024 * 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   onSubmit() {
@@ -356,4 +424,3 @@ export class ApplicationComponent implements OnInit {
     return '';
   }
 }
-
