@@ -18,6 +18,7 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,26 +40,60 @@ public class SignatureController {
 
     @PostMapping(value = "/uploadSignature")
     public ResponseEntity<Map<String, Object>> uploadSignature(
-            @RequestParam("file") MultipartFile file,
+            @RequestBody SignatureUploadRequest request,
             @RequestParam(value = "userId", required = false) Integer userId,
-            HttpServletRequest request,
+            HttpServletRequest httpRequest,
             HttpServletResponse response) {
         
         Map<String, Object> result = new HashMap<>();
         
         try {
-            // Validate file
-            if (file.isEmpty()) {
+            // Get base64 data from request body
+            String base64Data = request.getSignature();
+            String fileType = request.getFileType();
+            
+            logger.debug("Received signature upload request");
+            logger.debug("Base64Data is null: " + (base64Data == null));
+            logger.debug("Base64Data length: " + (base64Data != null ? base64Data.length() : 0));
+            logger.debug("FileType: " + fileType);
+            
+            // if (base64Data == null || base64Data.trim().isEmpty()) {
+            //     result.put("status", "Failure");
+            //     result.put("message", "Image data is missing or empty");
+            //     return ResponseEntity.badRequest().body(result);
+            // }
+
+            if (fileType == null || fileType.trim().isEmpty()) {
+                fileType = "image/png";
+            }
+
+            // Validate MIME type (only images)
+            if (!fileType.startsWith("image/")) {
                 result.put("status", "Failure");
-                result.put("message", "Please select a file to upload");
+                result.put("message", "Only image files are allowed");
                 return ResponseEntity.badRequest().body(result);
             }
 
-            // Validate file type (only images)
-            String contentType = file.getContentType();
-            if (contentType == null || !contentType.startsWith("image/")) {
+            // Remove data URI prefix if present
+            if (base64Data.contains(";base64,")) {
+                base64Data = base64Data.substring(base64Data.indexOf(";base64,") + 8);
+            }
+
+            // Decode base64 data
+            byte[] decodedBytes;
+            try {
+                decodedBytes = Base64.getDecoder().decode(base64Data);
+            } catch (IllegalArgumentException e) {
+                logger.error("Invalid base64 data: " + e.getMessage());
                 result.put("status", "Failure");
-                result.put("message", "Only image files are allowed");
+                result.put("message", "Invalid base64 data format");
+                return ResponseEntity.badRequest().body(result);
+            }
+
+            // Validate file size (max 5MB)
+            if (decodedBytes.length > 5242880) { // 5MB in bytes
+                result.put("status", "Failure");
+                result.put("message", "File size exceeds 5MB limit");
                 return ResponseEntity.badRequest().body(result);
             }
 
@@ -102,8 +137,6 @@ public class SignatureController {
             }
 
             // Create upload directory if it doesn't exist
-            // Use a more robust path handling
-            // Use user home directory for guaranteed write access
             String rootPath = System.getProperty("user.home") + File.separator + ".vim_dms_uploads";
             logger.info("Using upload root path: " + rootPath);
             
@@ -118,55 +151,80 @@ public class SignatureController {
                 }
             }
 
-            // Generate unique filename
-            String originalFilename = file.getOriginalFilename();
-            String fileExtension = "";
-            if (originalFilename != null && originalFilename.contains(".")) {
-                fileExtension = originalFilename.substring(originalFilename.lastIndexOf("."));
+            // Determine file extension from MIME type
+            String fileExtension = ".png"; // Default
+            if (fileType.contains("jpeg")) {
+                fileExtension = ".jpg";
+            } else if (fileType.contains("png")) {
+                fileExtension = ".png";
+            } else if (fileType.contains("gif")) {
+                fileExtension = ".gif";
+            } else if (fileType.contains("webp")) {
+                fileExtension = ".webp";
             }
+
             String uniqueFilename = "signature_" + userId + "_" + UUID.randomUUID().toString() + fileExtension;
             File serverFile = new File(uploadDir.getAbsolutePath() + File.separator + uniqueFilename);
 
-            // Save file
-            try (InputStream is = file.getInputStream();
-                 BufferedOutputStream stream = new BufferedOutputStream(new FileOutputStream(serverFile))) {
-                byte[] buffer = new byte[1024];
-                int bytesRead;
-                while ((bytesRead = is.read(buffer)) != -1) {
-                    stream.write(buffer, 0, bytesRead);
-                }
+            // Save file with proper I/O handling
+            try (BufferedOutputStream stream = new BufferedOutputStream(new FileOutputStream(serverFile), 8192)) {
+                stream.write(decodedBytes);
                 stream.flush();
+                logger.info("File saved successfully: " + uniqueFilename);
+            } catch (IOException ioe) {
+                logger.error("Failed to write file to disk: " + ioe.getMessage(), ioe);
+                // Cleanup on failure
+                if (serverFile.exists()) {
+                    serverFile.delete();
+                }
+                result.put("status", "Failure");
+                result.put("message", "Failed to save file to disk: " + ioe.getMessage());
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(result);
             }
 
             // Update user signature path in database
             String signaturePath = SIGNATURE_UPLOAD_DIR + "/" + uniqueFilename;
             user.setTxtSignaturePath(signaturePath);
-            String updateResult = userService.updateUser(user);
-
-            if (updateResult != null && updateResult.equals("Success")) {
-                result.put("status", "Success");
-                result.put("message", "Signature uploaded successfully");
-                result.put("signaturePath", signaturePath);
-                return ResponseEntity.ok(result);
-            } else {
+            
+            String updateResult = null;
+            try {
+                updateResult = userService.updateUser(user);
+            } catch (Exception e) {
+                logger.error("Database update error: " + e.getMessage(), e);
                 // Delete file if database update failed
                 if (serverFile.exists()) {
                     serverFile.delete();
                 }
                 result.put("status", "Failure");
-                result.put("message", "Failed to update user signature");
+                result.put("message", "Failed to update user signature in database: " + e.getMessage());
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(result);
             }
 
+            if (updateResult != null && updateResult.equals("Success")) {
+                result.put("status", "Success");
+                result.put("message", "Signature uploaded successfully");
+                result.put("signaturePath", signaturePath);
+                logger.info("Signature upload successful for userId: " + userId);
+                return ResponseEntity.ok(result);
+            } else {
+                // Delete file if update was not successful
+                if (serverFile.exists()) {
+                    serverFile.delete();
+                }
+                result.put("status", "Failure");
+                result.put("message", "Failed to update user signature. Response: " + updateResult);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(result);
+            }
+
+        } catch (IllegalArgumentException iae) {
+            logger.error("Invalid argument uploading signature: " + iae.getMessage(), iae);
+            result.put("status", "Failure");
+            result.put("message", "Invalid request format: " + iae.getMessage());
+            return ResponseEntity.badRequest().body(result);
         } catch (NullPointerException npe) {
             logger.error("NullPointerException uploading signature: " + npe.getMessage(), npe);
             result.put("status", "Failure");
-            result.put("message", "Error uploading signature: Null pointer exception. Please check if user is authenticated and file is valid.");
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(result);
-        } catch (IOException ioe) {
-            logger.error("IOException uploading signature: " + ioe.getMessage(), ioe);
-            result.put("status", "Failure");
-            result.put("message", "Error uploading signature: File I/O error - " + ioe.getMessage());
+            result.put("message", "Error uploading signature: Null pointer exception. Please check if user is authenticated and data is valid.");
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(result);
         } catch (Exception ex) {
             logger.error("Error uploading signature: " + ex.getMessage(), ex);

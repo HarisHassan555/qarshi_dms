@@ -1,4 +1,4 @@
-<div class="abc-wrapper">
+<div class="abc-wrapper" [class.embedded]="isEmbedded">
   <div class="page">
     <!-- Header -->
     <div class="brand-row">
@@ -75,24 +75,23 @@
         <div class="label">FEASIBILITY REPORT ATTACHED:</div>
         <div class="check-group">
           <div class="check">Yes <span class="boxcheck"
-              [style.background]="getFieldValue('FEASIBILITY REPORT ATTACHED') === 'Yes' || getFieldValue('FEASIBILITY REPORT ATTACHED') === 'yes' ? '#000' : 'transparent'"></span>
+              style="display:flex; align-items:center; justify-content:center;">
+              <span *ngIf="isFeasibilityYesChecked()">&#10003;</span>
+            </span>
           </div>
           <div class="check">No <span class="boxcheck"
-              [style.background]="getFieldValue('FEASIBILITY REPORT ATTACHED') === 'No' || getFieldValue('FEASIBILITY REPORT ATTACHED') === 'no' ? '#000' : 'transparent'"></span>
+              style="display:flex; align-items:center; justify-content:center;">
+              <span *ngIf="isFeasibilityNoChecked()">&#10003;</span>
+            </span>
           </div>
         </div>
       </div>
 
+      <!-- Show reason field always (whether feasibility report is attached or not) -->
       <div class="row">
         <div class="field">
           <div class="label">IF NO THEN MENTION REASON:</div>
-          <div class="line xl">{{ getFieldValue('IF NO THEN MENTION REASON') }}</div>
-        </div>
-      </div>
-      <div class="row">
-        <div class="field">
-          <div class="label" style="visibility:hidden;">IF NO THEN MENTION REASON:</div>
-          <div class="line xl"></div>
+          <div class="line xl">{{ getFieldValue('IF NO THEN MENTION REASON:') }}</div>
         </div>
       </div>
 
@@ -159,9 +158,18 @@
       <div class="checks">
         <div class="label">Third Party assessment carried out</div>
         <div class="check-group">
-          <div class="check">Yes <span class="boxcheck"></span></div>
-          <div class="check">No <span class="boxcheck"></span></div>
-          <div class="check">NA <span class="boxcheck"></span></div>
+          <div class="check">Yes <span class="boxcheck"
+              style="display:flex; align-items:center; justify-content:center;">
+              <span *ngIf="isThirdPartyYesChecked()">&#10003;</span>
+            </span></div>
+          <div class="check">No <span class="boxcheck"
+              style="display:flex; align-items:center; justify-content:center;">
+              <span *ngIf="isThirdPartyNoChecked()">&#10003;</span>
+            </span></div>
+          <div class="check">NA <span class="boxcheck"
+              style="display:flex; align-items:center; justify-content:center;">
+              <span *ngIf="isThirdPartyNAChecked()">&#10003;</span>
+            </span></div>
         </div>
       </div>
 

@@ -160,7 +160,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         try {
             entityManager.getTransaction().begin();
             List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                "SELECT DISTINCT a FROM CfgTblCustomFormApplication a " +
+                "SELECT a FROM CfgTblCustomFormApplication a " +
                 "LEFT JOIN FETCH a.cfgTblCustomForm f " +
                 "WHERE (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
                 "ORDER BY a.dteCreatedDate DESC")
@@ -187,7 +187,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         try {
             entityManager.getTransaction().begin();
             List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                "SELECT DISTINCT a FROM CfgTblCustomFormApplication a " +
+                "SELECT a FROM CfgTblCustomFormApplication a " +
                 "LEFT JOIN FETCH a.cfgTblCustomForm f " +
                 "WHERE a.serFormId = :formId " +
                 "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
@@ -210,33 +210,47 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     }
 
     @Override
-    @SuppressWarnings("unchecked")
-    public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId) {
-        EntityManager entityManager = getEntityManager();
-        try {
-            entityManager.getTransaction().begin();
-            List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                "SELECT DISTINCT a FROM CfgTblCustomFormApplication a " +
-                "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                "WHERE a.serSubmittedBy = :userId " +
-                "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                "ORDER BY a.dteCreatedDate DESC")
-                .setParameter("userId", userId)
-                .getResultList();
-            entityManager.getTransaction().commit();
-            return applications;
-        } catch (Exception e) {
-            if (entityManager.getTransaction().isActive()) {
-                entityManager.getTransaction().rollback();
-            }
-            log.error("Error getting applications by user ID: " + e.getMessage(), e);
-            throw e;
-        } finally {
-            if (entityManager.isOpen()) {
-                entityManager.close();
-            }
+@SuppressWarnings("unchecked")
+public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId) {
+
+    EntityManager entityManager = getEntityManager();
+
+    try {
+
+        entityManager.getTransaction().begin();
+
+        List<CfgTblCustomFormApplication> applications =
+                entityManager.createQuery(
+                        "SELECT a FROM CfgTblCustomFormApplication a " +
+                        "JOIN FETCH a.cfgTblCustomForm f " +
+                        "WHERE a.serSubmittedBy = :userId " +
+                        "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
+                        "ORDER BY a.dteCreatedDate DESC",
+                        CfgTblCustomFormApplication.class)
+                        .setParameter("userId", userId)
+                        .setFirstResult(0)      // 🔥 Prevent large sort
+                        .setMaxResults(200)     // 🔥 Limit results
+                        .getResultList();
+
+        entityManager.getTransaction().commit();
+        return applications;
+
+    } catch (Exception e) {
+
+        if (entityManager.getTransaction().isActive()) {
+            entityManager.getTransaction().rollback();
+        }
+
+        log.error("Error getting applications by user ID", e);
+        throw e;
+
+    } finally {
+
+        if (entityManager.isOpen()) {
+            entityManager.close();
         }
     }
+}
 
     @Override
     public CfgTblCustomFormApplication getApplicationById(Integer applicationId) {
@@ -244,7 +258,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         try {
             entityManager.getTransaction().begin();
             List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                "SELECT DISTINCT a FROM CfgTblCustomFormApplication a " +
+                "SELECT a FROM CfgTblCustomFormApplication a " +
                 "LEFT JOIN FETCH a.cfgTblCustomForm f " +
                 "WHERE a.serApplicationId = :applicationId")
                 .setParameter("applicationId", applicationId)
@@ -487,7 +501,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         try {
             entityManager.getTransaction().begin();
             List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                "SELECT DISTINCT a FROM CfgTblCustomFormApplication a " +
+                "SELECT a FROM CfgTblCustomFormApplication a " +
                 "LEFT JOIN FETCH a.cfgTblCustomForm f " +
                 "WHERE a.txtStatus = :status " +
                 "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
@@ -541,7 +555,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             
             // Get all applications with PENDING or IN_PROGRESS status
             List<CfgTblCustomFormApplication> allPendingApplications = entityManager.createQuery(
-                "SELECT DISTINCT a FROM CfgTblCustomFormApplication a " +
+                "SELECT a FROM CfgTblCustomFormApplication a " +
                 "LEFT JOIN FETCH a.cfgTblCustomForm f " +
                 "WHERE (a.txtStatus = 'PENDING' OR a.txtStatus = 'IN_PROGRESS') " +
                 "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +

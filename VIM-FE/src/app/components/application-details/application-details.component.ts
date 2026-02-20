@@ -4,6 +4,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
 import { NotificationService } from 'src/app/NotificationService';
+import { AbcComponent } from '../../pages/abc/abc.component';
 
 @Component({
   selector: 'app-application-details',
@@ -18,6 +19,13 @@ export class ApplicationDetailsComponent implements OnInit {
   forms: any[] = [];
   isLoading: boolean = true;
   approvalHistory: any[] = []; // Store approval history with remarks
+
+  // PDF Generation
+  isGeneratingPdf: boolean = false;
+  pdfBlobUrl: string | null = null;
+
+  // Approval Summary Modal
+  showSummaryModal: boolean = false;
 
   // Signature and Content properties for Budget Approval
   safeContent: SafeHtml = '';
@@ -420,6 +428,122 @@ export class ApplicationDetailsComponent implements OnInit {
     this.router.navigate(['/applicationsview']);
   }
 
+  // Count stages by status — used by modal quick-stats
+  countStages(pipelines: any[], status: string): number {
+    if (!pipelines) return 0;
+    return pipelines.filter((p: any, i: number) =>
+      this.getStageStatus(p.intApprovalOrder || (i + 1), p.hrTblDepartment?.serDepartmentId) === status
+    ).length;
+  }
+
+  openSummaryModal() {
+    this.showSummaryModal = true;
+  }
+
+  closeSummaryModal() {
+    this.showSummaryModal = false;
+  }
+
+  // Get history entry for a given pipeline stage (by order/level)
+  getStageHistoryEntry(pipelineOrder: number, departmentId?: number): any {
+    if (!this.approvalHistory || this.approvalHistory.length === 0) return null;
+
+    let entry = null;
+    if (departmentId) {
+      entry = this.approvalHistory.find((e: any) =>
+        e.level === pipelineOrder && e.departmentId === departmentId
+      );
+    }
+    if (!entry) {
+      entry = this.approvalHistory.find((e: any) => e.level === pipelineOrder);
+    }
+    if (!entry && departmentId) {
+      entry = this.approvalHistory.find((e: any) => e.departmentId === departmentId);
+    }
+    return entry || null;
+  }
+
+  // Get stage status: APPROVED, REJECTED, CURRENT (pending at this level), PENDING
+  getStageStatus(pipelineOrder: number, departmentId?: number): string {
+    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel || 0;
+    const overallStatus = (this.applicationDetails?.txtStatus || '').toUpperCase();
+    const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
+
+    if (entry) {
+      const action = (entry.action || entry.status || '').toUpperCase();
+      if (action === 'REJECTED') return 'REJECTED';
+      if (action === 'APPROVED' || pipelineOrder < currentLevel) return 'APPROVED';
+    }
+    if (pipelineOrder < currentLevel) return 'APPROVED';
+    if (pipelineOrder === currentLevel) {
+      return overallStatus === 'REJECTED' ? 'REJECTED' : 'CURRENT';
+    }
+    return 'PENDING';
+  }
+
+  // Get approver name for a stage
+  getStageApproverName(pipelineOrder: number, departmentId?: number): string {
+    const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
+    if (entry) {
+      return entry.approverName || entry.approvedBy || entry.userName || '';
+    }
+    return '';
+  }
+
+  // Get approved via channel
+  getStageApprovedVia(pipelineOrder: number, departmentId?: number): string {
+    const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
+    if (entry) {
+      return entry.approvedVia || entry.channel || entry.via || 'System';
+    }
+    return '';
+  }
+
+  // Calculate time taken relative to previous stage or submission
+  getStageTimeTaken(index: number, pipelines: any[]): string {
+    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel || 0;
+    const pipeline = pipelines[index];
+    const order = pipeline.intApprovalOrder || (index + 1);
+    const entry = this.getStageHistoryEntry(order, pipeline.hrTblDepartment?.serDepartmentId);
+
+    if (!entry?.approvedDate) return '';
+
+    const currentDate = new Date(entry.approvedDate);
+    let prevDate: Date;
+
+    if (index === 0) {
+      // Compare to submission date
+      prevDate = new Date(this.applicationDetails?.dteCreatedDate || this.applicationDetails?.createdAt);
+    } else {
+      const prevPipeline = pipelines[index - 1];
+      const prevOrder = prevPipeline.intApprovalOrder || index;
+      const prevEntry = this.getStageHistoryEntry(prevOrder, prevPipeline.hrTblDepartment?.serDepartmentId);
+      if (!prevEntry?.approvedDate) return '';
+      prevDate = new Date(prevEntry.approvedDate);
+    }
+
+    if (isNaN(currentDate.getTime()) || isNaN(prevDate.getTime())) return '';
+
+    const diffMs = currentDate.getTime() - prevDate.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffDays > 0) return `${diffDays}d ${diffHours % 24}h`;
+    if (diffHours > 0) return `${diffHours}h ${diffMins % 60}m`;
+    return `${diffMins}m`;
+  }
+
+  // Overall pipeline completion percentage
+  getPipelineProgress(): number {
+    const pipelines = this.getPipelineData();
+    if (!pipelines || pipelines.length === 0) return 0;
+    const approved = pipelines.filter((p: any, i: number) =>
+      this.getStageStatus(p.intApprovalOrder || (i + 1), p.hrTblDepartment?.serDepartmentId) === 'APPROVED'
+    ).length;
+    return Math.round((approved / pipelines.length) * 100);
+  }
+
   isBudgetApprovalForm(): boolean {
     if (!this.applicationDetails) return false;
     const name = (this.applicationDetails.cfgTblCustomForm?.txtFormName || this.applicationDetails.formName || '').replace(/\s+/g, ' ').toUpperCase();
@@ -427,11 +551,138 @@ export class ApplicationDetailsComponent implements OnInit {
     return name === 'BUDGET APPROVAL FORM' || name.includes('BUDGET APPROVAL') || code.startsWith('BDG');
   }
 
+  isCapfForm(): boolean {
+    if (!this.applicationDetails) return false;
+    const name = (this.applicationDetails.cfgTblCustomForm?.txtFormName || this.applicationDetails.formName || '').replace(/\s+/g, ' ').toUpperCase();
+    const code = (this.applicationDetails.txtFormCode || '').toUpperCase();
+    return name.includes('CAPITAL ASSETS PURCHASE') || name.includes('CAPF') || code.startsWith('CAPF');
+  }
+
   formatUserForSignature(selectedUsers: any[], index: number): string {
     if (!selectedUsers || !selectedUsers[index]) return '';
     const user = selectedUsers[index];
     const role = user.cfgTblRole?.txtRoleName || 'Reviewer';
     return `${user.txtUserName}<br>(${role})`;
+  }
+
+  async generatePdf() {
+    this.isGeneratingPdf = true;
+    this.pdfBlobUrl = null;
+
+    // Determine which element to capture
+    let elementId = '';
+    if (this.isCapfForm()) {
+      elementId = 'capf-pdf-content';
+    } else if (this.isBudgetApprovalForm()) {
+      elementId = 'budget-pdf-content';
+    } else {
+      elementId = 'generic-pdf-content';
+    }
+
+    const element = document.getElementById(elementId);
+    if (!element) {
+      console.error('Content element not found:', elementId);
+      this.notificationService.showMessage('Content to generate PDF not found', 'danger');
+      this.isGeneratingPdf = false;
+      return;
+    }
+
+    const filename = `${this.applicationDetails?.txtFormCode || 'application'}.pdf`;
+
+    try {
+      // Dynamically import html2canvas and jsPDF
+      const [html2canvasModule, jsPDFModule] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf')
+      ]);
+
+      const html2canvas = (html2canvasModule.default || html2canvasModule) as any;
+      const jsPDF = (jsPDFModule.default || jsPDFModule) as any;
+
+      // ── Temporarily strip visual noise before screenshot ──────────────
+      // Collect all .page elements inside the target and remove their
+      // min-height (which adds huge empty space) and border.
+      const pageEls = Array.from(element.querySelectorAll('.page')) as HTMLElement[];
+
+      // Also strip the element itself if it has a border/min-height
+      const savedElementStyles: { el: HTMLElement; minHeight: string; border: string; boxShadow: string }[] = [
+        ...pageEls,
+        element
+      ].map(el => {
+        const saved = {
+          el,
+          minHeight: el.style.minHeight,
+          border: el.style.border,
+          boxShadow: el.style.boxShadow
+        };
+        el.style.minHeight = 'auto';
+        el.style.border = 'none';
+        el.style.boxShadow = 'none';
+        return saved;
+      });
+
+      // Small timeout so browser repaints before capture
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Render element to canvas at 2x resolution for sharpness
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+
+      // ── Restore styles ─────────────────────────────────────────────────
+      savedElementStyles.forEach(({ el, minHeight, border, boxShadow }) => {
+        el.style.minHeight = minHeight;
+        el.style.border = border;
+        el.style.boxShadow = boxShadow;
+      });
+
+      // A4 dimensions in mm
+      const A4_WIDTH_MM = 210;
+      const A4_HEIGHT_MM = 297;
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+      // Scale image to fit within A4 width, allow vertical space to match content height.
+      // If content is taller than A4, scale everything down to fit a single page.
+      const canvasAspectRatio = canvas.width / canvas.height;
+
+      let imgWidth = A4_WIDTH_MM;
+      let imgHeight = A4_WIDTH_MM / canvasAspectRatio;
+
+      if (imgHeight > A4_HEIGHT_MM) {
+        // Content taller than A4 — scale down proportionally to force single page
+        imgHeight = A4_HEIGHT_MM;
+        imgWidth = A4_HEIGHT_MM * canvasAspectRatio;
+      }
+
+      const xOffset = (A4_WIDTH_MM - imgWidth) / 2;
+      const yOffset = 0;
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.98);
+      pdf.addImage(imgData, 'JPEG', xOffset, yOffset, imgWidth, imgHeight);
+
+      // Generate blob URL for download button
+      const pdfBlob = pdf.output('blob');
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+      this.pdfBlobUrl = pdfUrl;
+      this.isGeneratingPdf = false;
+
+      // Auto-download
+      const link = document.createElement('a');
+      link.href = pdfUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+    } catch (e) {
+      console.error('Error generating PDF:', e);
+      this.notificationService.showMessage('Error generating PDF', 'danger');
+      this.isGeneratingPdf = false;
+    }
   }
 }
 

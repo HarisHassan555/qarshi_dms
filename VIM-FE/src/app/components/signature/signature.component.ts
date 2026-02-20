@@ -60,45 +60,67 @@ export class SignatureComponent implements OnInit {
 
     this.isLoading = true;
 
-    const formData = new FormData();
-    formData.append('file', this.selectedFile);
-    const userJson = localStorage.getItem('user');
-    if (userJson) {
-      try {
-        const user = JSON.parse(userJson);
-        if (user?.serUserId) {
-          formData.append('userId', String(user.serUserId));
-        }
-      } catch (e) {
-        console.error('Error parsing user from localStorage', e);
-      }
-    }
+      // Convert file to base64
+      const reader = new FileReader();
+      reader.onload = (e: any) => {
+          const base64Data = e.target.result;
 
-    // Angular HttpClient automatically sets Content-Type to multipart/form-data with boundary for FormData
-    // Don't set headers - let Angular handle it automatically
-    this.http.post<any>(`${urls.API_URL}uploadSignature`, formData)
-      .subscribe(
-        (response) => {
-          if (response.status === 'Success') {
-            this.notificationService.showMessage('Signature uploaded successfully', 'success');
-            this.currentSignaturePath = response.signaturePath;
-            this.hasSignature = true;
-            this.selectedFile = null;
-            this.loadCurrentSignature();
-          } else {
-            this.notificationService.showMessage(response.message || 'Failed to upload signature', 'danger');
+          // Prepare request body with base64 data
+          const requestBody = {
+              signature: base64Data,
+              fileType: this.selectedFile!.type || 'image/png'
+          };
+
+          // Add userId if available
+          const userJson = localStorage.getItem('user');
+          let params = {};
+          if (userJson) {
+              try {
+                  const user = JSON.parse(userJson);
+                  if (user?.serUserId) {
+                      params = { userId: String(user.serUserId) };
+                  }
+              } catch (e) {
+                  console.error('Error parsing user from localStorage', e);
+              }
           }
-          this.isLoading = false;
-        },
-        (error) => {
-          console.error('Error uploading signature:', error);
-          this.notificationService.showMessage(
-            error.error?.message || 'Error uploading signature. Please try again.',
-            'danger'
-          );
-          this.isLoading = false;
-        }
-      );
+
+          // Send as JSON with base64 data
+          const headers = new HttpHeaders({
+              'Content-Type': 'application/json'
+          });
+
+
+          console.log('Uploading signature with request body:', requestBody, 'and params:', params)
+
+          this.http.post<any>(`${urls.API_URL}uploadSignature`, requestBody, { headers, params })
+              .subscribe(
+                  (response) => {
+                      if (response.status === 'Success') {
+                          this.notificationService.showMessage('Signature uploaded successfully', 'success');
+                          this.currentSignaturePath = response.signaturePath;
+                          this.hasSignature = true;
+                          this.selectedFile = null;
+                          this.loadCurrentSignature();
+                      } else {
+                          console.error('Failed to upload signature:', response);
+                          this.notificationService.showMessage(response.message || 'Failed to upload signature', 'danger');
+                      }
+                      this.isLoading = false;
+                  },
+                  (error) => {
+                      console.error('Error uploading signature:', error);
+                      this.notificationService.showMessage(
+                          error.error?.message || 'Error uploading signature. Please try again.',
+                          'danger'
+                      );
+                      this.isLoading = false;
+                  }
+              );
+      };
+
+      reader.readAsDataURL(this.selectedFile);
+
   }
 
   loadCurrentSignature() {
@@ -109,7 +131,7 @@ export class SignatureComponent implements OnInit {
           if (response.status === 'Success') {
             this.hasSignature = response.hasSignature;
             this.currentSignaturePath = response.signaturePath;
-            
+
             if (this.hasSignature && this.currentSignaturePath) {
               // Load signature image
               this.loadSignatureImage();

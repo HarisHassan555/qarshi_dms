@@ -138,7 +138,7 @@ import { OrderDetailComponent } from './order-detail/edit';
 import { BudgetApprovalComponent } from './components/budget-approval/budget-approval.component';
 import { BudgetApprovalViewComponent } from './components/budget-approval-view/budget-approval-view.component';
 import { XyzComponent } from './pages/xyz/xyz.component';
-
+import { AbcComponent } from './pages/abc/abc.component';
 
 
 @NgModule({
@@ -181,7 +181,8 @@ import { XyzComponent } from './pages/xyz/xyz.component';
         AngJson2excelBtnModule,
         IconModule,
         Ng2FlatpickrModule,
-        NgSelectModule
+        NgSelectModule,
+        AbcComponent
     ],
     declarations: [
         AppComponent,

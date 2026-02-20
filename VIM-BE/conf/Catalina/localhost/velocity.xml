@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<Context docBase="/home/talha-habib/Projects/qurshi/qarshi_dms/VIM-BE">
+<Context docBase="/home/talha-habib/Projects/JAKGROUP/qarshi_dms/VIM-BE">
   <Resources cacheMaxSize="10240">
-    <PreResources base="/home/talha-habib/Projects/qurshi/qarshi_dms/VIM-BE/target/classes" className="org.apache.catalina.webresources.DirResourceSet" webAppMount="/WEB-INF/classes"/>
+    <PreResources base="/home/talha-habib/Projects/JAKGROUP/qarshi_dms/VIM-BE/target/classes" className="org.apache.catalina.webresources.DirResourceSet" webAppMount="/WEB-INF/classes"/>
     <PostResources base="/home/talha-habib/.m2/repository/org/springframework/boot/spring-boot-starter-data-jpa/2.7.6/spring-boot-starter-data-jpa-2.7.6.jar" className="org.apache.catalina.webresources.FileResourceSet" webAppMount="/WEB-INF/lib/spring-boot-starter-data-jpa-2.7.6.jar"/>
     <PostResources base="/home/talha-habib/.m2/repository/org/springframework/boot/spring-boot-starter-aop/2.7.6/spring-boot-starter-aop-2.7.6.jar" className="org.apache.catalina.webresources.FileResourceSet" webAppMount="/WEB-INF/lib/spring-boot-starter-aop-2.7.6.jar"/>
     <PostResources base="/home/talha-habib/.m2/repository/org/aspectj/aspectjweaver/1.9.7/aspectjweaver-1.9.7.jar" className="org.apache.catalina.webresources.FileResourceSet" webAppMount="/WEB-INF/lib/aspectjweaver-1.9.7.jar"/>

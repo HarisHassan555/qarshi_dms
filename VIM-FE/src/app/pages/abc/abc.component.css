@@ -26,14 +26,28 @@
       /* Ensure it covers everything if needed */
     }
 
-    /* PAGE */
-    .page {
-      width: 820px;
-      margin: 0 auto;
-      border: 2px solid var(--line);
-      padding: 10px;
-      box-sizing: border-box;
+    /* Embedded Mode Override */
+    .abc-wrapper.embedded {
+      position: relative !important;
+      z-index: 1 !important;
+      min-height: auto !important;
+      padding: 0 !important;
+      background: transparent !important;
+      width: 100% !important;
     }
+
+    .abc-wrapper.embedded .page {
+      border: 1px solid var(--line) !important;
+      width: 210mm !important;
+      min-height: 297mm !important;
+      padding: 12mm !important;
+      background: #fff !important;
+      color: #000 !important;
+      margin: 0 auto !important;
+      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    }
+
+
 
     /* COMMON */
     .b {
@@ -95,9 +109,11 @@
     /* TABLES */
     table {
       width: 100% !important;
+      max-width: 100% !important;
       border-collapse: collapse;
       margin: 0;
       box-sizing: border-box;
+      table-layout: fixed;
     }
 
     .grid {
@@ -116,6 +132,8 @@
       vertical-align: top;
       font-size: 12px;
       box-sizing: border-box;
+      word-wrap: break-word !important;
+      overflow-wrap: break-word !important;
     }
 
     .grid tr:first-child td {
@@ -455,32 +473,155 @@
       width: 190px;
     }
 
-    @media print {
-      .abc-wrapper {
-        padding: 0;
-        position: static;
-        background: #fff;
-        width: 100%;
-        margin: 0;
-      }
+    /* PAGE */
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      border: 2px solid var(--line);
+      padding: 12mm;
+      box-sizing: border-box;
+      background: white;
+    }
 
-      .page {
-        border: 2px solid #000;
-        width: 125%;
-        max-width: 125%;
-        margin: 0;
-        page-break-after: avoid;
-        transform: scale(0.8);
-        transform-origin: top left;
-      }
+    /* PDF COMPACT MODE OVERRIDES in CSS */
+    :host-context(.pdf-compact) .page {
+      width: 200mm !important;
+      /* Fit within 210mm - 10mm (5mm+5mm margin) */
+      min-height: 297mm !important;
+      border: none !important;
+      padding: 0mm !important;
+      /* Let PDF margins handle the spacing */
+      transform: none !important;
+    }
 
-      body {
-        margin: 0;
-        padding: 0;
-      }
+    /* Compress everything vertically */
+    :host-context(.pdf-compact) .row {
+      margin: 1px 0 !important;
+    }
 
-      @page {
-        size: A4;
-        margin: 0.5cm;
-      }
+    :host-context(.pdf-compact) .field {
+      gap: 4px !important;
+    }
+
+    :host-context(.pdf-compact) .label {
+      font-size: 11px !important;
+    }
+
+    :host-context(.pdf-compact) .line {
+      height: 16px !important;
+      min-height: 16px !important;
+      padding-bottom: 2px !important;
+      border-bottom-width: 1px !important;
+    }
+
+    :host-context(.pdf-compact) .line.xl {
+      height: 20px !important;
+    }
+
+    :host-context(.pdf-compact) .box {
+      padding: 4px 8px !important;
+      margin-top: 4px !important;
+      border-width: 1px !important;
+    }
+
+    :host-context(.pdf-compact) .box-title {
+      margin-bottom: 4px !important;
+      font-size: 11px !important;
+    }
+
+    :host-context(.pdf-compact) .titlebar {
+      margin: 4px 0 !important;
+      padding: 3px !important;
+      font-size: 14px !important;
+      border-width: 1px !important;
+    }
+
+    :host-context(.pdf-compact) .note {
+      margin-top: 4px !important;
+      font-size: 9px !important;
+    }
+
+    :host-context(.pdf-compact) .note li {
+      margin: 0 !important;
+    }
+
+    :host-context(.pdf-compact) .sig-row {
+      margin-top: 8px !important;
+      gap: 10px !important;
+    }
+
+    :host-context(.pdf-compact) .sig-line {
+      margin-bottom: 2px !important;
+      height: 14px !important;
+    }
+
+    :host-context(.pdf-compact) .brand-row {
+      margin-bottom: 2px !important;
+    }
+
+    :host-context(.pdf-compact) .brand-title {
+      font-size: 16px !important;
+    }
+
+    :host-context(.pdf-compact) .logo img {
+      max-width: 36px !important;
+    }
+
+    :host-context(.pdf-compact) .checks {
+      margin: 2px 0 !important;
+      font-size: 11px !important;
+    }
+
+    :host-context(.pdf-compact) .checks .boxcheck {
+      height: 18px !important;
+      width: 40px !important;
+    }
+
+    :host-context(.pdf-compact) .two-col {
+      margin-top: 4px !important;
+      gap: 10px !important;
+    }
+
+    :host-context(.pdf-compact) .job-title {
+      margin: 4px -4px !important;
+      padding: 2px !important;
+      font-size: 11px !important;
+      border-top-width: 1px !important;
+    }
+
+    :host-context(.pdf-compact) .job-text {
+      margin-top: 2px !important;
+      line-height: 1.1 !important;
+      font-size: 10px !important;
+    }
+
+    :host-context(.pdf-compact) .subhead {
+      margin: 4px -4px !important;
+      padding: 2px 4px !important;
+      font-size: 11px !important;
+      border-top-width: 1px !important;
+    }
+
+    :host-context(.pdf-compact) .part2-title {
+      margin: 6px -4px 4px -4px !important;
+      padding: 2px 4px !important;
+      font-size: 11px !important;
+      border-top-width: 1px !important;
+    }
+
+    /* Approvals section compression */
+    :host-context(.pdf-compact) .approved {
+      margin-top: 4px !important;
+    }
+
+    :host-context(.pdf-compact) .approved .appline {
+      width: 100px !important;
+      height: 14px !important;
+    }
+
+    /* Header table compression */
+    :host-context(.pdf-compact) .grid td {
+      padding: 2px 4px !important;
+      font-size: 10px !important;
     }
