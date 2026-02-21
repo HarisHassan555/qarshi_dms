@@ -603,74 +603,97 @@ export class ApplicationDetailsComponent implements OnInit {
       // Collect all .page elements inside the target and remove their
       // min-height (which adds huge empty space) and border.
       const pageEls = Array.from(element.querySelectorAll('.page')) as HTMLElement[];
+      const paperEls = Array.from(element.querySelectorAll('.xyz-paper')) as HTMLElement[];
 
       // Also strip the element itself if it has a border/min-height
-      const savedElementStyles: { el: HTMLElement; minHeight: string; border: string; boxShadow: string }[] = [
+      const savedElementStyles: { el: HTMLElement; minHeight: string; maxHeight: string; border: string; boxShadow: string; overflow: string }[] = [
         ...pageEls,
+        ...paperEls,
         element
       ].map(el => {
         const saved = {
           el,
           minHeight: el.style.minHeight,
+          maxHeight: el.style.maxHeight,
           border: el.style.border,
-          boxShadow: el.style.boxShadow
+          boxShadow: el.style.boxShadow,
+          overflow: el.style.overflow
         };
         el.style.minHeight = 'auto';
+        el.style.maxHeight = 'none';
         el.style.border = 'none';
         el.style.boxShadow = 'none';
+        el.style.overflow = 'visible';
         return saved;
       });
+
+      const captureTarget = (element.querySelector('.page') as HTMLElement) || element;
+      const hadPdfCapture = element.classList.contains('pdf-capture');
+      if (!hadPdfCapture) {
+        element.classList.add('pdf-capture');
+      }
 
       // Small timeout so browser repaints before capture
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Render element to canvas at 2x resolution for sharpness
-      const canvas = await html2canvas(element, {
-        scale: 2,
+      const rect = captureTarget.getBoundingClientRect();
+      const contentWidthPx = rect.width || captureTarget.scrollWidth;
+      const contentHeightPx = rect.height || captureTarget.scrollHeight;
+      const pxToMm = (px: number) => (px * 25.4) / 96;
+      const contentWidthMm = pxToMm(contentWidthPx);
+      const contentHeightMm = pxToMm(contentHeightPx);
+
+      const canvas = await html2canvas(captureTarget, {
+        scale: 3,
         useCORS: true,
         logging: false,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        width: captureTarget.scrollWidth,
+        height: captureTarget.scrollHeight,
+        windowWidth: captureTarget.scrollWidth,
+        windowHeight: captureTarget.scrollHeight
       });
 
-      // ── Restore styles ─────────────────────────────────────────────────
-      savedElementStyles.forEach(({ el, minHeight, border, boxShadow }) => {
-        el.style.minHeight = minHeight;
-        el.style.border = border;
-        el.style.boxShadow = boxShadow;
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
       });
-
-      // A4 dimensions in mm
-      const A4_WIDTH_MM = 210;
-      const A4_HEIGHT_MM = 297;
-
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-
-      // Scale image to fit within A4 width, allow vertical space to match content height.
-      // If content is taller than A4, scale everything down to fit a single page.
-      const canvasAspectRatio = canvas.width / canvas.height;
-
-      let imgWidth = A4_WIDTH_MM;
-      let imgHeight = A4_WIDTH_MM / canvasAspectRatio;
-
-      if (imgHeight > A4_HEIGHT_MM) {
-        // Content taller than A4 — scale down proportionally to force single page
-        imgHeight = A4_HEIGHT_MM;
-        imgWidth = A4_HEIGHT_MM * canvasAspectRatio;
-      }
-
-      const xOffset = (A4_WIDTH_MM - imgWidth) / 2;
-      const yOffset = 0;
+      const PDF_WIDTH = 210;
+      const PDF_HEIGHT = 297;
+      const marginX = 0;
+      const marginY = 0;
+      const availableWidth = PDF_WIDTH - marginX * 2;
+      const availableHeight = PDF_HEIGHT - marginY * 2;
+      const scaleByWidth = availableWidth / contentWidthMm;
+      const scaleByHeight = availableHeight / contentHeightMm;
+      const finalScale = contentHeightMm * scaleByWidth <= availableHeight ? scaleByWidth : scaleByHeight;
+      const imgWidth = contentWidthMm * finalScale;
+      const imgHeight = contentHeightMm * finalScale;
+      const xOffset = (PDF_WIDTH - imgWidth) / 2;
+      const yOffset = (PDF_HEIGHT - imgHeight) / 2;
 
       const imgData = canvas.toDataURL('image/jpeg', 0.98);
       pdf.addImage(imgData, 'JPEG', xOffset, yOffset, imgWidth, imgHeight);
 
-      // Generate blob URL for download button
+      // ── Restore styles after capture ────────────────────────────────────
+      savedElementStyles.forEach(({ el, minHeight, maxHeight, border, boxShadow, overflow }) => {
+        el.style.minHeight = minHeight;
+        el.style.maxHeight = maxHeight;
+        el.style.border = border;
+        el.style.boxShadow = boxShadow;
+        el.style.overflow = overflow;
+      });
+      if (!hadPdfCapture) {
+        element.classList.remove('pdf-capture');
+      }
+
       const pdfBlob = pdf.output('blob');
       const pdfUrl = URL.createObjectURL(pdfBlob);
       this.pdfBlobUrl = pdfUrl;
       this.isGeneratingPdf = false;
 
-      // Auto-download
       const link = document.createElement('a');
       link.href = pdfUrl;
       link.download = filename;
@@ -685,4 +708,3 @@ export class ApplicationDetailsComponent implements OnInit {
     }
   }
 }
-

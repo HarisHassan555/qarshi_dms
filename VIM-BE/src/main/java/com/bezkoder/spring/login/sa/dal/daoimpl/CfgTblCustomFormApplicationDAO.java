@@ -553,13 +553,16 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             
             Integer departmentId = department.getSerDepartmentId();
             
-            // Get all applications with PENDING or IN_PROGRESS status
+            // Get applications with PENDING or IN_PROGRESS status (capped to avoid MySQL sort buffer overflow)
             List<CfgTblCustomFormApplication> allPendingApplications = entityManager.createQuery(
                 "SELECT a FROM CfgTblCustomFormApplication a " +
                 "LEFT JOIN FETCH a.cfgTblCustomForm f " +
                 "WHERE (a.txtStatus = 'PENDING' OR a.txtStatus = 'IN_PROGRESS') " +
                 "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                "ORDER BY a.dteCreatedDate DESC")
+                "ORDER BY a.dteCreatedDate DESC",
+                CfgTblCustomFormApplication.class)
+                .setFirstResult(0)
+                .setMaxResults(2000)
                 .getResultList();
             
             // Filter applications where the current approval level matches this department's order in the pipeline

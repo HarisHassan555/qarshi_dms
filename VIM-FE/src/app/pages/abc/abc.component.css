@@ -38,13 +38,45 @@
 
     .abc-wrapper.embedded .page {
       border: 1px solid var(--line) !important;
-      width: 210mm !important;
-      min-height: 297mm !important;
+      width: 280mm !important;
+      min-height: auto !important;
+      height: auto !important;
       padding: 12mm !important;
       background: #fff !important;
       color: #000 !important;
       margin: 0 auto !important;
       box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+      overflow: visible !important;
+    }
+
+    .abc-wrapper.pdf-capture {
+      width: 210mm !important;
+      min-height: 297mm !important;
+      padding: 0 !important;
+      background: #fff !important;
+      position: relative !important;
+      top: auto !important;
+      left: auto !important;
+      z-index: 1 !important;
+    }
+
+    .abc-wrapper.pdf-capture .page {
+      width: 210mm !important;
+      min-height: 297mm !important;
+      margin: 0 !important;
+      padding: 10mm !important;
+      border: 1px solid var(--line) !important;
+      box-shadow: none !important;
+      overflow: hidden !important;
+    }
+
+    .abc-wrapper.pdf-capture .box,
+    .abc-wrapper.pdf-capture .row,
+    .abc-wrapper.pdf-capture .checks,
+    .abc-wrapper.pdf-capture .sig-row,
+    .abc-wrapper.pdf-capture .approved {
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
 
@@ -184,59 +216,88 @@
     /* SECTION BOX */
     .box {
       border: 2px solid var(--line);
-      padding: 10px 10px 8px 10px;
-      margin-top: 8px;
+      padding: 8px 8px 6px 8px;
+      margin-top: 6px;
+      overflow: hidden;
+      box-sizing: border-box;
     }
 
     .box-title {
       text-align: center;
       font-weight: 700;
-      margin: -2px 0 10px 0;
+      margin: -2px 0 8px 0;
       letter-spacing: .2px;
+      font-size: 13px;
     }
 
     /* FORM ROWS */
     .row {
       display: flex;
-      gap: 12px;
-      align-items: flex-end;
-      margin: 8px 0;
+      gap: 8px;
+      align-items: baseline;
+      margin: 4px 0;
+      width: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
     }
 
     .field {
       display: flex;
-      gap: 8px;
-      align-items: flex-end;
+      gap: 6px;
+      align-items: baseline;
       flex: 1;
       min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      box-sizing: border-box;
     }
 
     .label {
       font-size: 13px;
       font-weight: 700;
       white-space: nowrap;
+      flex-shrink: 0;
     }
 
     .line {
       flex: 1;
       border-bottom: 1px solid var(--line);
-      height: 22px;
       min-width: 40px;
-      padding-bottom: 5px;
+      min-height: 20px;
+      padding-bottom: 2px;
+      line-height: 1.3;
+      display: flex;
+      align-items: flex-end;
+      overflow: visible;
+      white-space: normal;
+      word-break: break-word;
+      overflow-wrap: break-word;
+      box-sizing: border-box;
+    }
+    
+    /* Prevent lines in fields with labels from stretching too much */
+    .field .line {
+      max-width: none;
+    }
+    
+    /* Allow full width for lines without labels (like in capf-right) */
+    .capf-right .line,
+    .date-line {
+      max-width: none;
     }
 
     .line.tall {
-      height: 26px;
+      min-height: 26px;
     }
 
     .line.xl {
-      height: 32px;
+      min-height: 32px;
     }
 
     /* CAPF + Date at right */
     .capf-right {
       display: flex;
-      align-items: flex-end;
+      align-items: baseline;
       gap: 12px;
       white-space: nowrap;
       margin-left: auto;
@@ -244,7 +305,7 @@
 
     .capf-box {
       display: flex;
-      align-items: flex-end;
+      align-items: baseline;
       gap: 8px;
     }
 
@@ -253,24 +314,26 @@
       font-size: 20px;
       letter-spacing: 2px;
       border-bottom: 1px solid var(--line);
-      padding: 0 6px 5px 6px;
+      padding: 0 6px 4px 6px;
       min-width: 86px;
       text-align: right;
+      line-height: 1.2;
     }
 
     .date-line {
       width: 150px;
       border-bottom: 1px solid var(--line);
-      height: 22px;
-      padding-bottom: 5px;
+      min-height: 20px;
+      padding-bottom: 4px;
+      line-height: 1.2;
     }
 
     /* CHECKBOXES */
     .checks {
       display: flex;
       align-items: center;
-      gap: 14px;
-      margin: 8px 0;
+      gap: 10px;
+      margin: 6px 0;
       font-size: 13px;
       font-weight: 700;
     }
@@ -284,8 +347,9 @@
       flex: 1;
       display: flex;
       align-items: center;
-      justify-content: center;
-      gap: 40px;
+      justify-content: flex-start;
+      gap: 20px;
+      max-width: 100%;
     }
 
     .check {
@@ -320,12 +384,13 @@
 
     /* SUBSECTION HEADING */
     .subhead {
-      margin: 10px -10px 10px -10px;
-      padding: 6px 10px;
+      margin: 8px -8px 8px -8px;
+      padding: 5px 8px;
       border-top: 2px solid var(--line);
       /* border-bottom removed */
       font-weight: 700;
       letter-spacing: .2px;
+      font-size: 13px;
     }
 
     /* TERMS small parenthetical */
@@ -337,17 +402,21 @@
     /* SIGNATURES */
     .sig-row {
       display: flex;
-      gap: 18px;
+      gap: 12px;
       align-items: flex-end;
-      margin-top: 30px;
+      margin-top: 12px;
       flex-wrap: nowrap;
+      width: 100%;
+      justify-content: space-between;
     }
 
     .sig {
       flex: 1;
       min-width: 0;
+      max-width: 100%;
+      flex-shrink: 0;
     }
-
+    
     .sig-line {
       border-bottom: 1px solid var(--line);
       height: 18px;
@@ -358,7 +427,10 @@
       font-size: 12px;
       font-weight: 700;
       text-align: center;
-      white-space: nowrap;
+      white-space: normal;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      line-height: 1.2;
     }
 
     .approved {
@@ -410,16 +482,18 @@
       display: flex;
       justify-content: space-between;
       align-items: flex-end;
-      gap: 20px;
-      margin-top: 10px;
+      gap: 12px;
+      margin-top: 8px;
     }
 
     .sign-block {
-      width: 46%;
+      width: 48%;
+      max-width: 48%;
       display: flex;
       flex-direction: column;
       align-items: flex-start;
       gap: 4px;
+      flex-shrink: 0;
     }
 
     .sign-block .sb-label {
@@ -475,13 +549,15 @@
 
     /* PAGE */
     .page {
-      width: 210mm;
-      min-height: 297mm;
+      width: 280mm;
+      min-height: auto;
+      height: auto;
       margin: 0 auto;
       border: 2px solid var(--line);
       padding: 12mm;
       box-sizing: border-box;
       background: white;
+      overflow: visible;
     }
 
     /* PDF COMPACT MODE OVERRIDES in CSS */

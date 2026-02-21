@@ -5,12 +5,16 @@
     padding: 0;
     display: flex;
     justify-content: center;
+    align-items: flex-start;
     margin-top: 20px;
+    width: 100%;
+    overflow-x: auto;
 }
 
 .xyz-paper {
-    width: 210mm;
-    min-height: 297mm;
+    width: 280mm;
+    min-height: auto;
+    height: auto;
     background: #ffffff;
     color: #000000;
     font-family: "Times New Roman", Times, serif;
@@ -22,8 +26,41 @@
     display: flex;
     flex-direction: column;
     box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    overflow: visible;
 }
 
+/* PDF-only capture: enforce A4 sizing and consistent spacing */
+.pdf-capture .xyz-paper {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    padding: 10mm !important;
+    border: 1px solid #222 !important;
+    box-shadow: none !important;
+}
+.pdf-capture .xyz-content-body,
+.pdf-capture .xyz-footer,
+.pdf-capture .xyz-header,
+.pdf-capture .xyz-title {
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+.pdf-capture table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.pdf-capture th,
+.pdf-capture td {
+    border: 1px solid #000;
+    padding: 4px 6px;
+    font-size: 12px;
+}
+.pdf-capture .xyz-company-name {
+    font-weight: 700;
+}
+.pdf-capture .xyz-rule {
+    height: 1px;
+    background: #000;
+}
 .xyz-date-row {
     display: flex;
     justify-content: flex-end;
@@ -116,7 +153,7 @@
 }
 
 .xyz-section {
-    margin-bottom: 10px;
+    margin-bottom: 6px;
 }
 
 .xyz-section-title {
@@ -191,7 +228,7 @@
 
 .xyz-dynamic,
 .xyz-content-body {
-    margin-top: 6px;
+    margin-top: 4px;
     font-family: "Times New Roman", Times, serif;
     font-size: 14px;
     width: 100% !important;
@@ -199,6 +236,7 @@
     box-sizing: border-box;
     overflow-wrap: break-word;
     word-wrap: break-word;
+    overflow: hidden;
 }
 
 .xyz-dynamic table,
@@ -236,8 +274,9 @@
 .xyz-signatures {
     width: 100%;
     border-collapse: collapse;
-    margin-top: 12px;
+    margin-top: 8px;
     font-size: 11px;
+    table-layout: fixed;
 }
 
 .xyz-footer {
@@ -250,6 +289,9 @@
     padding: 4px 6px;
     text-align: left;
     vertical-align: top;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 0;
 }
 
 .xyz-signatures-blank td {
@@ -274,15 +316,24 @@
     font-size: 12px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1200px) {
     .xyz-page-inline {
         padding: 0;
+        overflow-x: auto;
     }
 
     .xyz-paper {
         width: 100%;
+        min-width: 280mm;
         min-height: auto;
         padding: 16px;
+    }
+    
+    /* Ensure ABC component wrapper also handles width properly */
+    app-abc {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
     }
 }
 /* Div-based Table Styles for Quill Compatibility */

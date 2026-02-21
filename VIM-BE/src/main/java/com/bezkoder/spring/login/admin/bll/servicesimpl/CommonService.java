@@ -6,8 +6,7 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 import com.bezkoder.spring.login.repository.UserRepository;
-import javax.persistence.*;;
-
+import javax.persistence.*;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -27,23 +26,26 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 @Service
-public class CommonService implements ICommonService{
-	
+public class CommonService implements ICommonService {
+
 	private boolean syncEmployeeCompleted;
-	//Map<String, List<Visit>> confirmRejectOrNewVisits = new HashMap<String, List<Visit>>();
-	
+	// Map<String, List<Visit>> confirmRejectOrNewVisits = new HashMap<String,
+	// List<Visit>>();
+
 	private List<NavigationMenuRoles> navigationMenuRoles;
 	@Autowired
-    private EntityManagerFactory entityManagerFactory;
-	/*@Autowired
-	PfServerProperties serverProperties;*/
-	
+	private EntityManagerFactory entityManagerFactory;
+	/*
+	 * @Autowired
+	 * PfServerProperties serverProperties;
+	 */
+
 	private RestTemplate restTemplate;
 	private ObjectMapper mapper;
 
 	@Autowired
 	private UserRepository userRepository;
-	
+
 	public RestTemplate getRestTemplate() {
 		if (restTemplate == null) {
 			restTemplate = new RestTemplate();
@@ -52,22 +54,23 @@ public class CommonService implements ICommonService{
 	}
 
 	public ObjectMapper getMapper() {
-		if(mapper == null){
+		if (mapper == null) {
 			mapper = new ObjectMapper();
 		}
 		return mapper;
 	}
 
-	/*public int getCurrentLoggedInUser(String userName) {
-		if (userName != null) {
-			CfgTblUser user = userRepository.findByTxtUserName(userName);
-			return  user.getSerUserId();
-		}else{
-			return -1;
-		}
-
-	}*/
-
+	/*
+	 * public int getCurrentLoggedInUser(String userName) {
+	 * if (userName != null) {
+	 * CfgTblUser user = userRepository.findByTxtUserName(userName);
+	 * return user.getSerUserId();
+	 * }else{
+	 * return -1;
+	 * }
+	 * 
+	 * }
+	 */
 
 	public int getCurrentLoggedInUser() {
 
@@ -80,76 +83,79 @@ public class CommonService implements ICommonService{
 
 		return -1;
 	}
-	
-	/*public int getCurrentLoggedInUser() {
-		// TODO Auto-generated method stub
 
-		if(SecurityContextHolder.getContext().getAuthentication()!=null && SecurityContextHolder.getContext().getAuthentication() instanceof CustomUsernamePasswordAuthenticationToken){
-			return ((CustomUsernamePasswordAuthenticationToken) SecurityContextHolder.getContext().getAuthentication()).getVoId();
-		}
-		return -1;
-//		return 1;
-	}*/
-	
+	/*
+	 * public int getCurrentLoggedInUser() {
+	 * // TODO Auto-generated method stub
+	 * 
+	 * if(SecurityContextHolder.getContext().getAuthentication()!=null &&
+	 * SecurityContextHolder.getContext().getAuthentication() instanceof
+	 * CustomUsernamePasswordAuthenticationToken){
+	 * return ((CustomUsernamePasswordAuthenticationToken)
+	 * SecurityContextHolder.getContext().getAuthentication()).getVoId();
+	 * }
+	 * return -1;
+	 * // return 1;
+	 * }
+	 */
+
 	public boolean getIsPasswordChange(int id) {
 		// TODO Auto-generated method stub
-		
-//		if(SecurityContextHolder.getContext().getAuthentication()!=null && SecurityContextHolder.getContext().getAuthentication() instanceof CustomUsernamePasswordAuthenticationToken){
-//			return ((CustomUsernamePasswordAuthenticationToken) SecurityContextHolder.getContext().getAuthentication()).isPasswordChange();
-//		}
-		
+
+		// if(SecurityContextHolder.getContext().getAuthentication()!=null &&
+		// SecurityContextHolder.getContext().getAuthentication() instanceof
+		// CustomUsernamePasswordAuthenticationToken){
+		// return ((CustomUsernamePasswordAuthenticationToken)
+		// SecurityContextHolder.getContext().getAuthentication()).isPasswordChange();
+		// }
+
 		EntityManager entityManager = getEntityManager();
-		entityManager.getTransaction().begin(); 
-		CfgTblUser Users = (CfgTblUser)entityManager.createQuery("FROM CfgTblUser where serUserId = "+id)
+		entityManager.getTransaction().begin();
+		CfgTblUser Users = (CfgTblUser) entityManager.createQuery("FROM CfgTblUser where serUserId = " + id)
 				.getSingleResult();
 		entityManager.getTransaction().commit();
 		entityManager.close();
-		
+
 		return Users.getBlIsPasswordChang();
 	}
-	
-	
+
 	public CfgTblUser getCurrentUser(int id) {
-	
-		
+
 		EntityManager entityManager = getEntityManager();
-		entityManager.getTransaction().begin(); 
-		CfgTblUser Users = (CfgTblUser)entityManager.createQuery("FROM CfgTblUser where serUserId = "+id)
+		entityManager.getTransaction().begin();
+		CfgTblUser Users = (CfgTblUser) entityManager.createQuery("FROM CfgTblUser where serUserId = " + id)
 				.getSingleResult();
 		entityManager.getTransaction().commit();
 		entityManager.close();
-		
+
 		return Users;
 	}
 
-	
 	public DateFormat getDateFormater() {
 		DateFormat df = new SimpleDateFormat("MM/dd/yyyy HH:mm:ss Z");
 		return df;
 	}
 
-	
 	@SuppressWarnings("unchecked")
 	public String getCurrentUserRole() {
 		Collection<SimpleGrantedAuthority> authorities = null;
-		try{
-			authorities =(Collection<SimpleGrantedAuthority>)    SecurityContextHolder.getContext().getAuthentication().getAuthorities();
-		}catch(Exception ex){
+		try {
+			authorities = (Collection<SimpleGrantedAuthority>) SecurityContextHolder.getContext().getAuthentication()
+					.getAuthorities();
+		} catch (Exception ex) {
 		}
-		if(authorities!=null){
+		if (authorities != null) {
 			String roles = "";
-			for(SimpleGrantedAuthority auth : authorities){
-				roles +=auth.getAuthority()+",";
+			for (SimpleGrantedAuthority auth : authorities) {
+				roles += auth.getAuthority() + ",";
 			}
-			roles =roles.substring(0,roles.length()-1);
+			roles = roles.substring(0, roles.length() - 1);
 			return roles;
-		}else{
-			return "ROLE_MANAGER";	
+		} else {
+			return "ROLE_MANAGER";
 		}
-		
-	}
 
-	
+	}
 
 	public boolean isSyncEmployeeCompleted() {
 		return syncEmployeeCompleted;
@@ -159,53 +165,51 @@ public class CommonService implements ICommonService{
 		this.syncEmployeeCompleted = syncEmployeeCompleted;
 	}
 
-	
 	public List<NavigationMenuRoles> getNavigationMenuRoles() {
-		if(navigationMenuRoles==null){
+		if (navigationMenuRoles == null) {
 			populateNavigationMenus();
 		}
 		return navigationMenuRoles;
 	}
 
-	
 	public void removeNavigationMenuRoles() {
-		this.navigationMenuRoles=null;
+		this.navigationMenuRoles = null;
 	};
+
 	@SuppressWarnings("unchecked")
 	private void populateNavigationMenus() {
 		EntityManager entityManager = getEntityManager();
 		entityManager.getTransaction().begin();
 		List<CfgTblMenu> menuList = entityManager.createQuery(
-	            "FROM CfgTblMenu").getResultList();
+				"FROM CfgTblMenu").getResultList();
 		entityManager.getTransaction().commit();
 		entityManager.close();
-	       navigationMenuRoles = new ArrayList<NavigationMenuRoles>();
+		navigationMenuRoles = new ArrayList<NavigationMenuRoles>();
 
 		try {
-			for(CfgTblMenu menu : menuList){
+			for (CfgTblMenu menu : menuList) {
 				NavigationMenuRoles nav = new NavigationMenuRoles();
 				nav.setMenuName(menu.getTxtMenuName());
 				nav.setMenuIcon(menu.getTxtMenuIcons());
 				nav.setMenuRoles("");
 
-				System.out.println("menu.getCfgTblSubMenus().size()-----:"+menu.getCfgTblSubMenus().size());
-				if(menu.getCfgTblSubMenus().size()>0){
-					for(CfgTblSubMenu subMenu :menu.getCfgTblSubMenus()){
+				System.out.println("menu.getCfgTblSubMenus().size()-----:" + menu.getCfgTblSubMenus().size());
+				if (menu.getCfgTblSubMenus().size() > 0) {
+					for (CfgTblSubMenu subMenu : menu.getCfgTblSubMenus()) {
 
-						System.out.println("----------:"+nav.getSubMenuRoles());
-						if(!nav.getSubMenuRoles().containsKey(subMenu))
-						{
+						System.out.println("----------:" + nav.getSubMenuRoles());
+						if (!nav.getSubMenuRoles().containsKey(subMenu)) {
 							nav.getSubMenuRoles().put(subMenu, "");
 						}
-//	    			   subMenu.getCfgTblSubMenuRoles().iterator()
+						// subMenu.getCfgTblSubMenuRoles().iterator()
 
-						for(CfgTblRole role: subMenu.getCfgTblRole()){
-							String subRoles =nav.getSubMenuRoles().get(subMenu);
-							subRoles=subRoles+",ROLE_"+role.getTxtRoleName().toUpperCase();
+						for (CfgTblRole role : subMenu.getCfgTblRole()) {
+							String subRoles = nav.getSubMenuRoles().get(subMenu);
+							subRoles = subRoles + ",ROLE_" + role.getTxtRoleName().toUpperCase();
 							nav.getSubMenuRoles().put(subMenu, subRoles);
 						}
 						subMenu.setCfgTblMenu(null);
-						nav.setMenuRoles(nav.getMenuRoles()+nav.getSubMenuRoles().get(subMenu));
+						nav.setMenuRoles(nav.getMenuRoles() + nav.getSubMenuRoles().get(subMenu));
 					}
 				}
 				navigationMenuRoles.add(nav);
@@ -215,64 +219,68 @@ public class CommonService implements ICommonService{
 			e.printStackTrace();
 		}
 	}
-	private EntityManager getEntityManager(){
+
+	private EntityManager getEntityManager() {
 		return entityManagerFactory.createEntityManager();
 	}
 
-	
 	public int getCurrentUserRegionId() {
-		if(SecurityContextHolder.getContext().getAuthentication()!=null && SecurityContextHolder.getContext().getAuthentication() instanceof CustomUsernamePasswordAuthenticationToken){
-			return ((CustomUsernamePasswordAuthenticationToken) SecurityContextHolder.getContext().getAuthentication()).getFkRegionId();
+		if (SecurityContextHolder.getContext().getAuthentication() != null && SecurityContextHolder.getContext()
+				.getAuthentication() instanceof CustomUsernamePasswordAuthenticationToken) {
+			return ((CustomUsernamePasswordAuthenticationToken) SecurityContextHolder.getContext().getAuthentication())
+					.getFkRegionId();
 		}
 		return -1;
 	}
-	
-	
+
 	public Boolean isCurrentUserRegionHead() {
-		if(SecurityContextHolder.getContext().getAuthentication()!=null && SecurityContextHolder.getContext().getAuthentication().getPrincipal() instanceof CustomUsernamePasswordAuthenticationToken){
-			return ((CustomUsernamePasswordAuthenticationToken) SecurityContextHolder.getContext().getAuthentication().getPrincipal()).getRegionHead();
+		if (SecurityContextHolder.getContext().getAuthentication() != null && SecurityContextHolder.getContext()
+				.getAuthentication().getPrincipal() instanceof CustomUsernamePasswordAuthenticationToken) {
+			return ((CustomUsernamePasswordAuthenticationToken) SecurityContextHolder.getContext().getAuthentication()
+					.getPrincipal()).getRegionHead();
 		}
 		return false;
 	}
 
-	
-	public String getRegionBasedQuery(String tableColumnName,Boolean startAnd, Boolean endAnd) {
-		  String regionQuery="";
-		    if(!isCurrentUserRegionHead()){
-		    	regionQuery+= ((startAnd)?" and ":" ")+tableColumnName+" = "+getCurrentUserRegionId()+""+((endAnd) ?" and":" ");
-		    }
-		    return regionQuery;
+	public String getRegionBasedQuery(String tableColumnName, Boolean startAnd, Boolean endAnd) {
+		String regionQuery = "";
+		if (!isCurrentUserRegionHead()) {
+			regionQuery += ((startAnd) ? " and " : " ") + tableColumnName + " = " + getCurrentUserRegionId() + ""
+					+ ((endAnd) ? " and" : " ");
+		}
+		return regionQuery;
 	}
 
-	
 	public int getCurrentUserVoId() {
-		if(SecurityContextHolder.getContext().getAuthentication()!=null && SecurityContextHolder.getContext().getAuthentication() instanceof CustomUsernamePasswordAuthenticationToken){
-			return ((CustomUsernamePasswordAuthenticationToken) SecurityContextHolder.getContext().getAuthentication()).getVoId();
+		if (SecurityContextHolder.getContext().getAuthentication() != null && SecurityContextHolder.getContext()
+				.getAuthentication() instanceof CustomUsernamePasswordAuthenticationToken) {
+			return ((CustomUsernamePasswordAuthenticationToken) SecurityContextHolder.getContext().getAuthentication())
+					.getVoId();
 		}
 		return -1;
 	}
-	
+
 	@Override
 	public String getCurrentTimeStamp() {
-		    return new Timestamp(new Date().getTime()).toString();
+		return new Timestamp(new Date().getTime()).toString();
 	}
-	
-	
+
 	@Override
 	public Timestamp getCurrentTimeStamp_new() {
-		    return new Timestamp(new Date().getTime());
+		return new Timestamp(new Date().getTime());
 	}
-	
-	
+
 	public String getCurrentUserName() {
-		if(SecurityContextHolder.getContext().getAuthentication()!=null && SecurityContextHolder.getContext().getAuthentication() instanceof CustomUsernamePasswordAuthenticationToken){
-			return ((CustomUsernamePasswordAuthenticationToken) SecurityContextHolder.getContext().getAuthentication()).getName();
+		if (SecurityContextHolder.getContext().getAuthentication() != null && SecurityContextHolder.getContext()
+				.getAuthentication() instanceof CustomUsernamePasswordAuthenticationToken) {
+			return ((CustomUsernamePasswordAuthenticationToken) SecurityContextHolder.getContext().getAuthentication())
+					.getName();
 		}
 		return "";
 	}
 
 	public List<NavigationMenuRoles> getNavigationMenuRolesNew() {
-		if(navigationMenuRoles==null){
+		if (navigationMenuRoles == null) {
 			populateNavigationMenus();
 		}
 		return navigationMenuRoles;
@@ -285,8 +293,8 @@ public class CommonService implements ICommonService{
 		try {
 			entityManager.getTransaction().begin();
 
-			userAddresses  = entityManager.createQuery(
-							"SELECT u.txtAddress FROM CfgTblUser u WHERE u.cfgTblRole.txtRoleName IN :roleNames AND u.txtAddress IS NOT NULL")
+			userAddresses = entityManager.createQuery(
+					"SELECT u.txtAddress FROM CfgTblUser u WHERE u.cfgTblRole.txtRoleName IN :roleNames AND u.txtAddress IS NOT NULL")
 					.setParameter("roleNames", roleNames)
 					.getResultList();
 
@@ -303,19 +311,18 @@ public class CommonService implements ICommonService{
 		return userAddresses;
 	}
 
-
 	public List<String> getAddressesBasedOnRoleHierarchy(CfgTblUser currentUser) {
 		Map<String, List<String>> roleHierarchy = new HashMap<>();
 		roleHierarchy.put("MARKETING", Arrays.asList("PROCUREMENT", "PROCUREMENT_HEAD"));
 		roleHierarchy.put("MARKETING_HEAD", Arrays.asList("PROCUREMENT", "PROCUREMENT_HEAD"));
 		roleHierarchy.put("PROCUREMENT", Arrays.asList("TAX", "TAX_HEAD"));
 		roleHierarchy.put("PROCUREMENT_HEAD", Arrays.asList("TAX", "TAX_HEAD"));
-		roleHierarchy.put("TAX", Arrays.asList("FINANCE","FINANCE_HEAD"));
-		roleHierarchy.put("TAX_HEAD", Arrays.asList("FINANCE","FINANCE_HEAD"));
-		roleHierarchy.put("FINANCE", Arrays.asList("AUDIT","AUDIT_HEAD"));
-		roleHierarchy.put("FINANCE_HEAD", Arrays.asList("AUDIT","AUDIT_HEAD"));
-		roleHierarchy.put("AUDIT", Arrays.asList("PAYMENT","PAYMENT_HEAD"));
-		roleHierarchy.put("AUDIT_HEAD", Arrays.asList("PAYMENT","PAYMENT_HEAD"));
+		roleHierarchy.put("TAX", Arrays.asList("FINANCE", "FINANCE_HEAD"));
+		roleHierarchy.put("TAX_HEAD", Arrays.asList("FINANCE", "FINANCE_HEAD"));
+		roleHierarchy.put("FINANCE", Arrays.asList("AUDIT", "AUDIT_HEAD"));
+		roleHierarchy.put("FINANCE_HEAD", Arrays.asList("AUDIT", "AUDIT_HEAD"));
+		roleHierarchy.put("AUDIT", Arrays.asList("PAYMENT", "PAYMENT_HEAD"));
+		roleHierarchy.put("AUDIT_HEAD", Arrays.asList("PAYMENT", "PAYMENT_HEAD"));
 		roleHierarchy.put("PAYMENT", new ArrayList<>()); // End of hierarchy
 		String currentRole = currentUser.getCfgTblRole().getTxtRoleName();
 		List<String> nextRoles = roleHierarchy.getOrDefault(currentRole, new ArrayList<>());

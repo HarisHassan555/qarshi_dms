@@ -296,8 +296,7 @@
         </div>
 
         <!-- CAPF Form View (AbcComponent) -->
-        <div *ngIf="isCapfForm()"
-            class="overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm p-6 bg-white dark:bg-[#1b2e4b]">
+        <div *ngIf="isCapfForm()" class="flex justify-center">
             <app-abc id="capf-pdf-content" [formData]="applicationFormData" [formFields]="formFields"
                 [application]="applicationDetails" [isEmbedded]="true"></app-abc>
         </div>
@@ -305,9 +304,9 @@
 
 
         <!-- No Form Fields Message -->
-        <div *ngIf="formFields.length === 0 && !isLoading" class="text-center py-8 text-gray-500 dark:text-gray-400">
+        <!-- <div *ngIf="formFields.length === 0 && !isLoading" class="text-center py-8 text-gray-500 dark:text-gray-400">
             <p>No form data available or form structure not found.</p>
-        </div>
+        </div> -->
     </div>
 </div>
 
