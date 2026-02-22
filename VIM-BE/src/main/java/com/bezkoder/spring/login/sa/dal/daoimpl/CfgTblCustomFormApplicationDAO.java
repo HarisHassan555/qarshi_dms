@@ -15,6 +15,7 @@ import com.bezkoder.spring.login.sa.dal.dao.ICfgTblCustomFormApplicationDAO;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApplication;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
 import java.io.InputStream;
+import java.io.File;
 import java.util.Properties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -893,6 +894,19 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
                 application.setSerModifiedUser(resolvedApproverId);
 
+                // Regenerate PDF after approval to include latest signatures
+                try {
+                    byte[] pdfBytes = generateBudgetApprovalPdf(application, form, appData);
+                    if (pdfBytes != null && pdfBytes.length > 0) {
+                        String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
+                        application.setBlbPdfData(pdfBytes);
+                        application.setTxtPdfName(code + ".pdf");
+                        application.setTxtPdfMime("application/pdf");
+                    }
+                } catch (Exception e) {
+                    log.warn("Error regenerating budget approval PDF: " + e.getMessage(), e);
+                }
+
                 entityManager.merge(application);
                 entityManager.getTransaction().commit();
 
@@ -959,6 +973,15 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                     }
                 }
             }
+
+            // Enforce department-based approval: approver must belong to current pipeline department
+            if (departmentId != null) {
+                Integer approverDeptId = loadUserDepartmentId(entityManager, resolvedApproverId);
+                if (approverDeptId == null || !departmentId.equals(approverDeptId)) {
+                    entityManager.getTransaction().rollback();
+                    return "Failure: You are not authorized to approve this department step.";
+                }
+            }
             
             // Get or create approval history array
             List<java.util.Map<String, Object>> approvalHistory = new java.util.ArrayList<>();
@@ -989,6 +1012,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             approvalEntry.put("signaturePath", approverSignaturePath);
             approvalEntry.put("approvedVia", approvedVia != null ? approvedVia : "SYSTEM");
             approvalEntry.put("action", "APPROVED");
+            approvalEntry.put("role", departmentName != null ? departmentName : "");
             approvalHistory.add(approvalEntry);
             
             // Save updated history
@@ -1018,6 +1042,22 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             application.setTxtRemarks(remarks);
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
             application.setSerModifiedUser(resolvedApproverId);
+
+            // Regenerate CAPF PDF after approval to include latest signatures
+            try {
+                if (isCapfForm(form)) {
+                    Map<String, Object> appData = parseApplicationData(application);
+                    byte[] pdfBytes = generateCapfPdf(application, form, appData);
+                    if (pdfBytes != null && pdfBytes.length > 0) {
+                        String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
+                        application.setBlbPdfData(pdfBytes);
+                        application.setTxtPdfName(code + ".pdf");
+                        application.setTxtPdfMime("application/pdf");
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Error regenerating CAPF PDF: " + e.getMessage(), e);
+            }
             
             entityManager.merge(application);
             entityManager.getTransaction().commit();
@@ -1408,7 +1448,9 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                             false, // Not for department head
                             null, // No action buttons for submitter
                             null,
-                            null
+                            null,
+                            application.getTxtApprovalHistory(),
+                            getBaseUrl()
                         );
                         
                         if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
@@ -1444,9 +1486,17 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                 emailEntityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, nextDeptId);
                             
                             if (nextDept != null) {
-                                // Eagerly fetch department head
-                                if (nextDept.getSerDepartmentHeadId() != null) {
-                                    CfgTblUser nextDeptHead = emailEntityManager.find(CfgTblUser.class, nextDept.getSerDepartmentHeadId());
+                                Integer headId = nextDept.getSerDepartmentHeadId();
+                                if (headId != null) {
+                                    Integer headDeptId = loadUserDepartmentId(emailEntityManager, headId);
+                                    if (headDeptId == null || !headDeptId.equals(nextDeptId)) {
+                                        headId = null;
+                                    }
+                                }
+                                if (headId == null) {
+                                    headId = findDepartmentHeadUserId(emailEntityManager, nextDeptId);
+                                }
+                                CfgTblUser nextDeptHead = headId != null ? emailEntityManager.find(CfgTblUser.class, headId) : null;
                                     if (nextDeptHead != null && nextDeptHead.getTxtAddress() != null && 
                                         !nextDeptHead.getTxtAddress().trim().isEmpty()) {
                                         
@@ -1477,7 +1527,9 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                             true, // For department head
                                             approveUrl,
                                             rejectUrl,
-                                            sendBackUrl
+                                            sendBackUrl,
+                                            application.getTxtApprovalHistory(),
+                                            getBaseUrl()
                                         );
                                         
                                         if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
@@ -1490,7 +1542,6 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                         }
                                         log.info("Approval notification email sent to next level department head: " + nextDeptHead.getTxtAddress());
                                     }
-                                }
                             }
                             emailEntityManager.getTransaction().commit();
                         }
@@ -1602,8 +1653,18 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                             com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment firstDept = 
                                 emailEntityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, firstDeptId);
                             
-                            if (firstDept != null && firstDept.getSerDepartmentHeadId() != null) {
-                                CfgTblUser firstDeptHead = emailEntityManager.find(CfgTblUser.class, firstDept.getSerDepartmentHeadId());
+                            if (firstDept != null) {
+                                Integer headId = firstDept.getSerDepartmentHeadId();
+                                if (headId != null) {
+                                    Integer headDeptId = loadUserDepartmentId(emailEntityManager, headId);
+                                    if (headDeptId == null || !headDeptId.equals(firstDeptId)) {
+                                        headId = null;
+                                    }
+                                }
+                                if (headId == null) {
+                                    headId = findDepartmentHeadUserId(emailEntityManager, firstDeptId);
+                                }
+                                CfgTblUser firstDeptHead = headId != null ? emailEntityManager.find(CfgTblUser.class, headId) : null;
                                 if (firstDeptHead != null && firstDeptHead.getTxtAddress() != null && 
                                     !firstDeptHead.getTxtAddress().trim().isEmpty()) {
                                     
@@ -1634,7 +1695,9 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                         true, // For department head
                                         approveUrl,
                                         rejectUrl,
-                                        sendBackUrl
+                                            sendBackUrl,
+                                            application.getTxtApprovalHistory(),
+                                            getBaseUrl()
                                     );
                                     
                                     if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
@@ -1675,6 +1738,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         String code = form.getTxtFormCode() != null ? form.getTxtFormCode().toUpperCase() : "";
         return name.contains("BUDGET APPROVAL") || code.startsWith("BDG");
     }
+
 
     private Map<String, Object> parseApplicationData(CfgTblCustomFormApplication application) {
         try {
@@ -1792,7 +1856,9 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 true,
                 approveUrl,
                 rejectUrl,
-                sendBackUrl
+                                            sendBackUrl,
+                                            application.getTxtApprovalHistory(),
+                                            getBaseUrl()
             );
 
             if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
@@ -1970,7 +2036,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 y = pageHeight - margin;
             }
 
-            drawSignatureTable(content, margin, tableBottomY, pageWidth - margin * 2, tableHeight, appData);
+            drawSignatureTable(content, margin, tableBottomY, pageWidth - margin * 2, tableHeight, appData, application.getTxtApprovalHistory(), document);
 
             content.close();
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -2096,6 +2162,10 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             y -= 2;
             y = drawYesNoNaRow(content, lineStart, y, lineEnd, "Third Party assessment carried out:", thirdParty);
 
+            y -= 6;
+            drawLine(content, margin + 6, y, pageWidth - margin - 6, y);
+            y -= 8;
+            y = drawCapfSignatureSection(content, lineStart, y, lineEnd - lineStart, application.getTxtApprovalHistory(), document);
             y -= 8;
             drawLine(content, margin + 6, y, pageWidth - margin - 6, y);
             y -= 8;
@@ -2267,7 +2337,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         return lines;
     }
 
-    private void drawSignatureTable(PDPageContentStream content, float x, float y, float width, float height, Map<String, Object> appData) throws java.io.IOException {
+    private void drawSignatureTable(PDPageContentStream content, float x, float y, float width, float height, Map<String, Object> appData, String approvalHistoryJson, PDDocument document) throws java.io.IOException {
         float colWidth = width / 6f;
         float rowSig = 50f;
         float rowHeader = 22f;
@@ -2302,11 +2372,47 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         drawCenteredHeader(content, "Recommended by:", x + colWidth * 3, colWidth * 2, headerY);
         drawCenteredHeader(content, "Approved by:", x + colWidth * 5, colWidth, headerY);
 
-        // Names row
-        java.util.Map<String, String> prepared = extractUserDisplay(appData.get("preparedBy"));
+        // Signatures row (top row)
+        List<Map<String, Object>> approvalHistory = parseApprovalHistory(approvalHistoryJson);
+        Object preparedObj = appData.get("preparedBy");
         java.util.List<java.util.Map<String, String>> reviewers = extractUserListDisplay(appData.get("reviewers"));
         java.util.List<java.util.Map<String, String>> recommenders = extractUserListDisplay(appData.get("recommenders"));
-        java.util.Map<String, String> approver = extractUserDisplay(appData.get("approver"));
+        Object approverObj = appData.get("approver");
+
+        Integer preparedId = extractUserId(preparedObj);
+        if (preparedId == null) {
+            String preparedName = extractUserName(preparedObj);
+            if (preparedName != null && !preparedName.trim().isEmpty()) {
+                preparedId = resolveUserIdByName(preparedName);
+            }
+        }
+        Integer reviewer1Id = extractUserIdByIndex(appData.get("reviewers"), 0);
+        Integer reviewer2Id = extractUserIdByIndex(appData.get("reviewers"), 1);
+        Integer recommender1Id = extractUserIdByIndex(appData.get("recommenders"), 0);
+        Integer recommender2Id = extractUserIdByIndex(appData.get("recommenders"), 1);
+        Integer approverId = extractUserId(approverObj);
+
+        Object reviewer1Obj = extractUserByIndex(appData.get("reviewers"), 0);
+        Object reviewer2Obj = extractUserByIndex(appData.get("reviewers"), 1);
+        Object recommender1Obj = extractUserByIndex(appData.get("recommenders"), 0);
+        Object recommender2Obj = extractUserByIndex(appData.get("recommenders"), 1);
+
+        Integer[] userIds = new Integer[] { preparedId, reviewer1Id, reviewer2Id, recommender1Id, recommender2Id, approverId };
+        String[] roles = new String[] { "PREPARED", "REVIEWER", "REVIEWER", "RECOMMENDER", "RECOMMENDER", "APPROVER" };
+        Map<Integer, String> signatureFromDb = loadUserSignaturePaths(userIds);
+        float sigRowY = y + rowSig + rowHeader + 4;
+        float sigRowHeight = rowNames - 8;
+        for (int i = 0; i < userIds.length; i++) {
+            Integer uid = userIds[i];
+            boolean allowFallback = "PREPARED".equalsIgnoreCase(roles[i]);
+            String sigPath = findSignatureForUser(approvalHistory, uid, roles[i], allowFallback, signatureFromDb);
+            if (sigPath == null || sigPath.trim().isEmpty()) continue;
+            drawSignatureImage(document, content, sigPath, x + colWidth * i + 4, sigRowY, colWidth - 8, sigRowHeight);
+        }
+
+        // Names row
+        java.util.Map<String, String> prepared = extractUserDisplay(preparedObj);
+        java.util.Map<String, String> approver = extractUserDisplay(approverObj);
 
         String[] names = new String[] {
             formatUserDisplay(prepared),
@@ -2328,6 +2434,426 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 content.endText();
                 ty += 10;
             }
+        }
+    }
+
+    private float drawCapfSignatureSection(PDPageContentStream content, float x, float y, float width,
+                                           String approvalHistoryJson, PDDocument document) throws java.io.IOException {
+        float colWidth = width / 6f;
+        float sigHeight = 18f;
+        float dateHeight = 10f;
+        float labelHeight = 12f;
+        float blockHeight = sigHeight + dateHeight + labelHeight + 18;
+
+        List<Map<String, Object>> approvalHistory = parseApprovalHistory(approvalHistoryJson);
+        java.util.List<Map<String, Object>> approved = new java.util.ArrayList<>();
+        for (Map<String, Object> entry : approvalHistory) {
+            Object action = entry.get("action");
+            if (action != null && "APPROVED".equalsIgnoreCase(action.toString())) {
+                approved.add(entry);
+            }
+        }
+
+        String[] roleLabels = new String[] {
+            "User Dept. (HOD)",
+            "Technical Expert",
+            "Procurement",
+            "Finance",
+            "Core Team HRT / CCT HO",
+            "Chief Executive"
+        };
+
+        String[][] roleKeywords = new String[][] {
+            new String[] { "user", "dept", "hod", "department" },
+            new String[] { "technical", "expert" },
+            new String[] { "procurement", "procure" },
+            new String[] { "finance" },
+            new String[] { "core team", "hrt", "cct" },
+            new String[] { "chief", "executive", "ceo" }
+        };
+
+        float sigRowY = y - sigHeight;
+        java.util.Set<Integer> usedIndexes = new java.util.HashSet<>();
+        @SuppressWarnings("unchecked")
+        Map<String, Object>[] mapped = new Map[6];
+        Integer[] approvedUserIds = new Integer[approved.size()];
+        for (int i = 0; i < approved.size(); i++) {
+            approvedUserIds[i] = extractUserId(approved.get(i).get("approvedBy"));
+        }
+        Map<Integer, String> signatureFromDb = loadUserSignaturePaths(approvedUserIds);
+        for (int i = 0; i < 6; i++) {
+            Map<String, Object> entry = findCapfEntryForRole(approved, roleKeywords[i], i, usedIndexes);
+            mapped[i] = entry;
+            String sigPath = null;
+            if (entry != null) {
+                Integer approvedBy = extractUserId(entry.get("approvedBy"));
+                if (approvedBy != null && signatureFromDb.containsKey(approvedBy)) {
+                    sigPath = signatureFromDb.get(approvedBy);
+                } else if (entry.get("signaturePath") != null) {
+                    sigPath = String.valueOf(entry.get("signaturePath"));
+                }
+            }
+            if (sigPath != null && !sigPath.trim().isEmpty()) {
+                drawSignatureImage(document, content, sigPath, x + colWidth * i + 4, sigRowY, colWidth - 8, sigHeight);
+            }
+        }
+
+        content.setFont(PDType1Font.HELVETICA, 6.5f);
+        float dateY = sigRowY - 8;
+        float nameY = dateY - 8;
+        for (int i = 0; i < 6; i++) {
+            Map<String, Object> entry = mapped[i];
+            String date = entry != null ? formatApprovalDate(entry.get("approvedDate")) : "";
+            if (!date.isEmpty()) {
+                content.beginText();
+                content.newLineAtOffset(x + colWidth * i + 4, dateY);
+                content.showText(date);
+                content.endText();
+            }
+            String name = entry != null && entry.get("approverName") != null ? entry.get("approverName").toString() : "";
+            if (!name.trim().isEmpty()) {
+                for (String line : wrapText(name, PDType1Font.HELVETICA, 6.5f, colWidth - 6)) {
+                    content.beginText();
+                    content.newLineAtOffset(x + colWidth * i + 4, nameY);
+                    content.showText(line);
+                    content.endText();
+                    nameY -= 7;
+                }
+                nameY = dateY - 8;
+            }
+        }
+
+        content.setFont(PDType1Font.HELVETICA_BOLD, 7f);
+        float labelY = nameY - 12;
+        for (int i = 0; i < roleLabels.length; i++) {
+            String label = roleLabels[i];
+            for (String line : wrapText(label, PDType1Font.HELVETICA_BOLD, 7f, colWidth - 6)) {
+                content.beginText();
+                content.newLineAtOffset(x + colWidth * i + 3, labelY);
+                content.showText(line);
+                content.endText();
+                labelY -= 8;
+            }
+            labelY = dateY - 10;
+        }
+
+        // Approved By label on right side
+        content.setFont(PDType1Font.HELVETICA_BOLD, 7f);
+        content.beginText();
+        content.newLineAtOffset(x + colWidth * 5 + 3, labelY - 12);
+        content.showText("Approved By:");
+        content.endText();
+
+        return y - blockHeight;
+    }
+
+    private Map<String, Object> findCapfEntryForRole(List<Map<String, Object>> approved, String[] keywords, int fallbackIndex, java.util.Set<Integer> usedIndexes) {
+        if (approved == null || approved.isEmpty()) return null;
+        if (keywords != null && keywords.length > 0) {
+            for (int i = 0; i < approved.size(); i++) {
+                if (usedIndexes != null && usedIndexes.contains(i)) continue;
+                Map<String, Object> entry = approved.get(i);
+                String dept = entry.get("departmentName") != null ? entry.get("departmentName").toString().toLowerCase() : "";
+                String role = entry.get("role") != null ? entry.get("role").toString().toLowerCase() : "";
+                String combined = (dept + " " + role).trim();
+                if (combined.isEmpty()) continue;
+                boolean allMatch = true;
+                for (String kw : keywords) {
+                    if (kw == null || kw.isEmpty()) continue;
+                    if (!combined.contains(kw.toLowerCase())) {
+                        allMatch = false;
+                        break;
+                    }
+                }
+                if (allMatch) {
+                    if (usedIndexes != null) usedIndexes.add(i);
+                    return entry;
+                }
+            }
+            // If keywords are provided and no match, do not fallback to index.
+            return null;
+        }
+        // Fallback by level/order if role match isn't found
+        if (fallbackIndex >= 0 && fallbackIndex < approved.size()) {
+            if (usedIndexes == null || !usedIndexes.contains(fallbackIndex)) {
+                if (usedIndexes != null) usedIndexes.add(fallbackIndex);
+                return approved.get(fallbackIndex);
+            }
+        }
+        return null;
+    }
+
+    private String formatApprovalDate(Object raw) {
+        if (raw == null) return "";
+        try {
+            String s = raw.toString();
+            if (s.trim().isEmpty()) return "";
+            java.text.SimpleDateFormat out = new java.text.SimpleDateFormat("dd/MM/yyyy");
+            if (s.matches("^\\d{4}-\\d{2}-\\d{2}.*")) {
+                java.text.SimpleDateFormat in = new java.text.SimpleDateFormat("yyyy-MM-dd");
+                return out.format(in.parse(s.substring(0, 10)));
+            }
+            if (s.matches("^\\d{2}/\\d{2}/\\d{4}.*")) {
+                return s.substring(0, 10);
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
+    private List<Map<String, Object>> parseApprovalHistory(String approvalHistoryJson) {
+        if (approvalHistoryJson == null || approvalHistoryJson.trim().isEmpty()) return new java.util.ArrayList<>();
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            return mapper.readValue(approvalHistoryJson, new TypeReference<List<Map<String, Object>>>() {});
+        } catch (Exception e) {
+            log.warn("Error parsing approval history: " + e.getMessage(), e);
+            return new java.util.ArrayList<>();
+        }
+    }
+
+    private String findSignatureForUser(List<Map<String, Object>> history, Integer userId, String roleExpected, boolean allowFallback, Map<Integer, String> signatureFromDb) {
+        if (userId == null) return "";
+        if (history != null && !history.isEmpty()) {
+            for (Map<String, Object> entry : history) {
+                Object idObj = entry.get("approvedBy");
+                if (idObj == null) continue;
+                Integer id = idObj instanceof Integer ? (Integer) idObj : Integer.parseInt(idObj.toString());
+                if (!id.equals(userId)) continue;
+                String role = entry.get("role") != null ? entry.get("role").toString() : "";
+                if (roleExpected != null && !roleExpected.equalsIgnoreCase(role)) continue;
+                String action = entry.get("action") != null ? entry.get("action").toString() : "";
+                if ("REJECTED".equalsIgnoreCase(action)) continue;
+                Object sigObj = entry.get("signaturePath");
+                if (sigObj == null) return "";
+                String sig = sigObj.toString();
+                if (!sig.trim().isEmpty()) return sig;
+            }
+        }
+        if (allowFallback && signatureFromDb != null) {
+            String sig = signatureFromDb.get(userId);
+            return sig != null ? sig : "";
+        }
+        return "";
+    }
+
+    private Map<Integer, String> loadUserSignaturePaths(Integer[] userIds) {
+        Map<Integer, String> map = new java.util.HashMap<>();
+        if (userIds == null || userIds.length == 0) return map;
+        EntityManager em = getEntityManager();
+        try {
+            em.getTransaction().begin();
+            for (Integer id : userIds) {
+                if (id == null || map.containsKey(id)) continue;
+                CfgTblUser u = em.find(CfgTblUser.class, id);
+                if (u != null && u.getTxtSignaturePath() != null && !u.getTxtSignaturePath().trim().isEmpty()) {
+                    map.put(id, u.getTxtSignaturePath());
+                }
+            }
+            em.getTransaction().commit();
+        } catch (Exception e) {
+            if (em.getTransaction().isActive()) {
+                em.getTransaction().rollback();
+            }
+            log.warn("Error loading user signatures: " + e.getMessage(), e);
+        } finally {
+            if (em.isOpen()) em.close();
+        }
+        return map;
+    }
+
+    private Integer extractUserId(Object obj) {
+        if (obj == null) return null;
+        if (obj instanceof Number) {
+            return ((Number) obj).intValue();
+        }
+        if (obj instanceof Map) {
+            Map<?, ?> map = (Map<?, ?>) obj;
+            Object idObj = map.get("serUserId");
+            if (idObj == null) idObj = map.get("userId");
+            if (idObj == null) idObj = map.get("id");
+            if (idObj == null) return null;
+            try {
+                return idObj instanceof Integer ? (Integer) idObj : Integer.parseInt(idObj.toString());
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        if (obj instanceof String) {
+            String s = ((String) obj).trim();
+            try {
+                return Integer.parseInt(s);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private String extractUserName(Object obj) {
+        if (obj == null) return null;
+        if (obj instanceof String) {
+            String s = ((String) obj).trim();
+            return s.isEmpty() ? null : s;
+        }
+        if (obj instanceof Map) {
+            Map<?, ?> map = (Map<?, ?>) obj;
+            Object nameObj = map.get("txtUserName");
+            if (nameObj == null) nameObj = map.get("userName");
+            if (nameObj == null) nameObj = map.get("name");
+            return nameObj != null ? nameObj.toString() : null;
+        }
+        return null;
+    }
+
+    private Integer resolveUserIdByName(String userName) {
+        if (userName == null || userName.trim().isEmpty()) return null;
+        EntityManager em = getEntityManager();
+        try {
+            String cleaned = userName.trim();
+            int parenIdx = cleaned.indexOf('(');
+            if (parenIdx > 0) {
+                cleaned = cleaned.substring(0, parenIdx).trim();
+            }
+            TypedQuery<Integer> q = em.createQuery(
+                "select u.serUserId from CfgTblUser u where lower(u.txtUserName) = :name", Integer.class);
+            q.setParameter("name", cleaned.toLowerCase());
+            List<Integer> ids = q.setMaxResults(1).getResultList();
+            return ids.isEmpty() ? null : ids.get(0);
+        } catch (Exception e) {
+            log.warn("Error resolving userId by name: " + e.getMessage(), e);
+            return null;
+        } finally {
+            if (em.isOpen()) em.close();
+        }
+    }
+
+    private Integer extractUserIdByIndex(Object listObj, int index) {
+        if (!(listObj instanceof java.util.List)) return null;
+        java.util.List<?> list = (java.util.List<?>) listObj;
+        if (index < 0 || index >= list.size()) return null;
+        return extractUserId(list.get(index));
+    }
+
+    private Object extractUserByIndex(Object listObj, int index) {
+        if (!(listObj instanceof java.util.List)) return null;
+        java.util.List<?> list = (java.util.List<?>) listObj;
+        if (index < 0 || index >= list.size()) return null;
+        return list.get(index);
+    }
+
+    private void drawSignatureImage(PDDocument document, PDPageContentStream content, String signaturePath,
+                                    float x, float y, float maxWidth, float maxHeight) {
+        try {
+            String rootPath = System.getProperty("user.home") + File.separator + ".vim_dms_uploads";
+            File sigFile = resolveSignatureFile(rootPath, signaturePath);
+            if (sigFile == null || !sigFile.exists()) return;
+            org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject img =
+                org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject.createFromFile(sigFile.getAbsolutePath(), document);
+            float imgW = img.getWidth();
+            float imgH = img.getHeight();
+            if (imgW <= 0 || imgH <= 0) return;
+            float scale = Math.min(maxWidth / imgW, maxHeight / imgH);
+            float drawW = imgW * scale;
+            float drawH = imgH * scale;
+            float drawX = x + (maxWidth - drawW) / 2f;
+            float drawY = y + (maxHeight - drawH) / 2f;
+            content.drawImage(img, drawX, drawY, drawW, drawH);
+        } catch (Exception e) {
+            log.warn("Error drawing signature image: " + e.getMessage());
+        }
+    }
+
+    private File resolveSignatureFile(String rootPath, String signaturePath) {
+        if (signaturePath == null || signaturePath.trim().isEmpty()) return null;
+        File direct = new File(signaturePath);
+        if (!direct.isAbsolute()) {
+            direct = new File(rootPath + File.separator + signaturePath);
+        }
+        if (!direct.exists()) {
+            File inSignatures = new File(rootPath + File.separator + "signatures" + File.separator + signaturePath);
+            if (inSignatures.exists()) {
+                direct = inSignatures;
+            }
+        }
+        String directName = direct.getName().toLowerCase();
+        if (direct.exists() && !directName.endsWith(".webp")) {
+            return direct;
+        }
+        if (direct.exists() && directName.endsWith(".webp")) {
+            // Try to find a PNG/JPG alternative for the same user
+            String fileName = direct.getName();
+            Integer userId = extractUserIdFromSignatureName(fileName);
+            File dir = direct.getParentFile();
+            if (dir != null && userId != null) {
+                File[] matches = dir.listFiles((d, name) -> {
+                    String lower = name.toLowerCase();
+                    return lower.startsWith("signature_" + userId + "_") &&
+                        (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg"));
+                });
+                if (matches != null && matches.length > 0) {
+                    return matches[0];
+                }
+            }
+        }
+        if (direct.exists() && directName.endsWith(".webp")) {
+            return null;
+        }
+        return direct.exists() ? direct : null;
+    }
+
+    private Integer extractUserIdFromSignatureName(String fileName) {
+        if (fileName == null) return null;
+        try {
+            // Expected: signature_{userId}_xxxx.ext
+            if (!fileName.startsWith("signature_")) return null;
+            String rest = fileName.substring("signature_".length());
+            int idx = rest.indexOf('_');
+            if (idx <= 0) return null;
+            String idStr = rest.substring(0, idx);
+            return Integer.parseInt(idStr);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Integer loadUserDepartmentId(EntityManager em, Integer userId) {
+        if (em == null || userId == null) return null;
+        try {
+            Object result = em.createNativeQuery(
+                "select ser_department_id from cfg_tbl_user where ser_user_id = :id")
+                .setParameter("id", userId)
+                .getSingleResult();
+            if (result == null) return null;
+            if (result instanceof Number) return ((Number) result).intValue();
+            return Integer.parseInt(result.toString());
+        } catch (Exception e) {
+            log.warn("Error loading user department: " + e.getMessage(), e);
+            return null;
+        }
+    }
+
+    private Integer findDepartmentHeadUserId(EntityManager em, Integer departmentId) {
+        if (em == null || departmentId == null) return null;
+        try {
+            List<?> rows = em.createNativeQuery(
+                "select u.ser_user_id " +
+                "from cfg_tbl_user u " +
+                "left join cfg_tbl_role r on r.ser_role_id = u.ser_role_id " +
+                "where u.ser_department_id = :dept " +
+                "and (upper(r.txt_role_name) like '%HEAD%' or upper(r.txt_role_name) like '%HOD%') " +
+                "and (u.bl_is_active = 1 or u.bl_is_active is null) " +
+                "and (u.bl_is_deleted = 0 or u.bl_is_deleted is null) " +
+                "limit 1")
+                .setParameter("dept", departmentId)
+                .getResultList();
+            if (rows == null || rows.isEmpty()) return null;
+            Object val = rows.get(0);
+            if (val instanceof Number) return ((Number) val).intValue();
+            return Integer.parseInt(val.toString());
+        } catch (Exception e) {
+            log.warn("Error finding department head user: " + e.getMessage(), e);
+            return null;
         }
     }
 
@@ -2585,7 +3111,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
      */
     private String generateApprovalEmailHtml(String recipientName, Integer level, String applicationCode, 
                                             String formName, String status, String remarks, 
-                                            boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackUrl) {
+boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackUrl, String approvalHistoryJson, String baseUrl) {
         StringBuilder html = new StringBuilder();
         html.append("<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
         html.append("<style>");
@@ -2614,6 +3140,12 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         html.append(".status-pending{background-color:#fef5e7;color:#f39c12}");
         html.append(".status-rejected{background-color:#fadbd8;color:#e74c3c}");
         html.append(".status-in-progress{background-color:#d6eaf8;color:#3498db}");
+        html.append(".history{margin-top:20px}");
+        html.append(".history h3{margin:0 0 10px 0;font-size:16px;color:#333}");
+        html.append(".history table{width:100%;border-collapse:collapse;font-size:12px}");
+        html.append(".history th,.history td{border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top}");
+        html.append(".history th{background:#f3f4f6;font-weight:600}");
+        html.append(".sig-img{max-height:36px;display:block;margin-top:4px}");
         html.append("</style></head><body>");
         html.append("<div class='email-container'>");
         html.append("<div class='header'><h1>Application Notification</h1></div>");
@@ -2636,6 +3168,11 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             html.append("<div class='remarks-box'><strong>Remarks:</strong><br>").append(escapeHtml(remarks)).append("</div>");
         }
         html.append("</div>");
+
+        String historyHtml = buildApprovalHistoryHtml(approvalHistoryJson, baseUrl);
+        if (historyHtml != null && !historyHtml.isEmpty()) {
+            html.append(historyHtml);
+        }
         
         if (showActionButtons && approveUrl != null && rejectUrl != null) {
             html.append("<div class='button-container'>");
@@ -2658,6 +3195,58 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         html.append("</div></body></html>");
         
         return html.toString();
+    }
+
+    private String buildApprovalHistoryHtml(String approvalHistoryJson, String baseUrl) {
+        if (approvalHistoryJson == null || approvalHistoryJson.trim().isEmpty()) return "";
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            List<Map<String, Object>> list = mapper.readValue(approvalHistoryJson, new TypeReference<List<Map<String, Object>>>() {});
+            if (list == null || list.isEmpty()) return "";
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("<div class='history'>");
+            sb.append("<h3>Prior Approvals</h3>");
+            sb.append("<table>");
+            sb.append("<thead><tr>");
+            sb.append("<th>Level</th><th>Approver</th><th>Role</th><th>Status</th><th>Date</th><th>Signature</th>");
+            sb.append("</tr></thead><tbody>");
+
+            for (Map<String, Object> entry : list) {
+                String level = entry.get("level") != null ? String.valueOf(entry.get("level")) : "";
+                String name = entry.get("approverName") != null ? String.valueOf(entry.get("approverName")) : "";
+                String role = entry.get("role") != null ? String.valueOf(entry.get("role")) : "";
+                if (role == null || role.trim().isEmpty()) {
+                    role = entry.get("departmentName") != null ? String.valueOf(entry.get("departmentName")) : "";
+                }
+                String action = entry.get("action") != null ? String.valueOf(entry.get("action")) :
+                               entry.get("status") != null ? String.valueOf(entry.get("status")) : "";
+                String date = entry.get("approvedDate") != null ? String.valueOf(entry.get("approvedDate")) : "";
+                String signaturePath = entry.get("signaturePath") != null ? String.valueOf(entry.get("signaturePath")) : "";
+                String approvedBy = entry.get("approvedBy") != null ? String.valueOf(entry.get("approvedBy")) : "";
+
+                String sigHtml = "";
+                if (!signaturePath.trim().isEmpty() && approvedBy != null && !approvedBy.trim().isEmpty() && baseUrl != null) {
+                    String sigUrl = baseUrl + "/getSignature?userId=" + approvedBy;
+                    sigHtml = "<img class='sig-img' src='" + sigUrl + "' alt='Signature' />";
+                }
+
+                sb.append("<tr>");
+                sb.append("<td>").append(escapeHtml(level)).append("</td>");
+                sb.append("<td>").append(escapeHtml(name)).append("</td>");
+                sb.append("<td>").append(escapeHtml(role)).append("</td>");
+                sb.append("<td>").append(escapeHtml(action)).append("</td>");
+                sb.append("<td>").append(escapeHtml(date)).append("</td>");
+                sb.append("<td>").append(sigHtml).append("</td>");
+                sb.append("</tr>");
+            }
+
+            sb.append("</tbody></table></div>");
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("Error building approval history HTML: " + e.getMessage(), e);
+            return "";
+        }
     }
     
     /**

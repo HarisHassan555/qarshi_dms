@@ -192,6 +192,36 @@
     font-size: 12px;
 }
 
+/* Form layout fixes for embedded card */
+.panel .grid {
+    align-items: start;
+}
+
+.panel .grid > div {
+    min-width: 0;
+}
+
+ng-select, ng-select .ng-select-container {
+    width: 100%;
+}
+
+/* Signature row responsiveness */
+.signature-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+}
+
+.signature-grid > div {
+    min-width: 0;
+}
+
+@media (max-width: 900px) {
+    .panel .grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+
 @media (max-width: 900px) {
     .xyz-paper {
         width: 100%;

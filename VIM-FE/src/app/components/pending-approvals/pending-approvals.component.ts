@@ -106,7 +106,10 @@ export class PendingApprovalsComponent implements OnInit {
     const searchLower = this.search.toLowerCase();
     return this.pendingApprovals.filter(app =>
       (app.txtFormCode && app.txtFormCode.toLowerCase().includes(searchLower)) ||
-      (app.formName && app.formName.toLowerCase().includes(searchLower))
+      (app.formName && app.formName.toLowerCase().includes(searchLower)) ||
+      (app.intCurrentApprovalLevel !== undefined && app.intCurrentApprovalLevel !== null &&
+        String(app.intCurrentApprovalLevel).toLowerCase().includes(searchLower)) ||
+      (app.dteCreatedDate && new Date(app.dteCreatedDate).toLocaleString().toLowerCase().includes(searchLower))
     );
   }
 

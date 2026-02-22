@@ -1,6 +1,314 @@
 /* Application Component Styles */
 
+.app-form-grid {
+    display: grid;
+    gap: 20px;
+    grid-template-columns: 1fr;
+}
 
+@media (min-width: 1400px) {
+    .app-form-grid {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        align-items: stretch;
+    }
+}
 
+.app-form-card,
+.app-preview-card {
+    background: #ffffff;
+    border: 1px solid #e0e6ed;
+    border-radius: 10px;
+    padding: 16px;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
 
+.app-preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e0e6ed;
+    margin-bottom: 12px;
+}
 
+.app-preview-body {
+    max-height: 70vh;
+    min-height: 420px;
+    overflow-x: auto;
+    overflow-y: auto;
+    padding-right: 0;
+    height: 100%;
+    flex: 1;
+}
+
+.app-preview-empty {
+    min-height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.app-preview-canvas {
+    background: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 14px;
+    min-height: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    overflow: visible;
+    /* height: 100%; */
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.app-preview-scale {
+    width: 100%;
+    max-width: 210mm;
+    transform: scale(0.72);
+    transform-origin: top center;
+}
+
+@media (max-width: 1600px) {
+    .app-preview-scale {
+        transform: scale(0.68);
+    }
+}
+
+@media (max-width: 1280px) {
+    .app-preview-scale {
+        transform: scale(0.62);
+    }
+}
+
+@media (max-width: 1024px) {
+    .app-preview-scale {
+        transform: scale(0.56);
+    }
+    .app-preview-body {
+        max-height: 60vh;
+        min-height: 360px;
+    }
+}
+
+@media (max-width: 900px) {
+    .app-preview-scale {
+        transform: scale(0.8);
+    }
+    .app-preview-body {
+        max-height: none;
+        min-height: 0;
+    }
+    .app-preview-canvas {
+        padding: 10px;
+    }
+}
+
+/* Budget Approval preview styles (copied from budget-approval component) */
+.xyz-page-inline {
+    display: flex;
+    justify-content: center;
+}
+
+.xyz-paper {
+    width: 210mm;
+    min-height: 297mm;
+    background: #ffffff;
+    color: #000000;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 13.5px;
+    line-height: 1.35;
+    padding: 18mm 16mm 16mm 16mm;
+    box-sizing: border-box;
+    border: 1px solid #cfcfcf;
+    display: flex;
+    flex-direction: column;
+    margin: 0 auto;
+}
+
+.xyz-date-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 6px;
+}
+
+.xyz-header {
+    display: grid;
+    grid-template-columns: 90px 1fr 90px;
+    align-items: end;
+    column-gap: 12px;
+    margin-bottom: 6px;
+}
+
+.xyz-logo {
+    align-self: start;
+    margin-top: -10px;
+}
+
+.xyz-logo img {
+    width: 65px;
+    height: auto;
+    display: block;
+}
+
+.xyz-date {
+    font-size: 14px;
+    text-align: right;
+}
+
+.xyz-company {
+    text-align: center;
+    margin: 0;
+}
+
+.xyz-header-spacer {
+    height: 1px;
+}
+
+.xyz-company-name {
+    font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif;
+    font-size: 30px;
+    font-weight: 700;
+}
+
+.xyz-company-address {
+    font-family: Verdana, Arial, sans-serif;
+    font-size: 12px;
+    color: #000000;
+    margin-top: 2px;
+}
+
+.xyz-rule {
+    height: 1px;
+    background: #000000;
+    margin: 8px 0 12px 0;
+}
+
+.xyz-rule.thick {
+    position: relative;
+    height: 2px;
+    background: #000;
+}
+
+.xyz-rule.thick::before,
+.xyz-rule.thick::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: #000;
+}
+
+.xyz-rule.thick::before {
+    top: -2px;
+}
+
+.xyz-rule.thick::after {
+    bottom: -2px;
+}
+
+.xyz-title {
+    text-align: center;
+    font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif;
+    font-weight: 700;
+    font-size: 26px;
+    line-height: 1.25;
+    margin: 6px 0 16px 0;
+}
+
+.xyz-dynamic {
+    margin-top: 6px;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 14px;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+}
+
+.xyz-dynamic table {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 14px;
+    table-layout: fixed !important;
+}
+
+.xyz-dynamic th,
+.xyz-dynamic td {
+    border: 1px solid #000 !important;
+    padding: 4px 6px;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+}
+
+.xyz-dynamic thead th {
+    background: #8bc34a !important;
+    text-align: center;
+}
+
+.xyz-dynamic img {
+    max-width: 100% !important;
+    height: auto !important;
+}
+
+.xyz-signatures {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    font-size: 11px;
+}
+
+.xyz-footer {
+    margin-top: auto;
+}
+
+.xyz-signatures th,
+.xyz-signatures td {
+    border: 1px solid #000;
+    padding: 4px 6px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.xyz-signatures-blank td {
+    height: 56px;
+    padding: 0;
+    background: #ffffff;
+}
+
+.xyz-signatures th {
+    font-family: Calibri, "Calibri (Body)", Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    background: #8f8f8f;
+}
+
+.xyz-signatures th[colspan="2"] {
+    text-align: center;
+}
+
+.xyz-signatures td {
+    font-family: Calibri, "Calibri (Body)", Arial, sans-serif;
+    font-size: 12px;
+}
+
+@media (max-width: 900px) {
+    .xyz-paper {
+        width: 100%;
+        min-height: auto;
+        padding: 16px;
+    }
+}

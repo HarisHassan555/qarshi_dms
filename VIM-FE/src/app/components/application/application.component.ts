@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormBuilder, FormGroup, FormArray, Validators, FormControl } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
@@ -7,6 +7,9 @@ import { CustomFormService } from '../../services/custom-form/custom-form.servic
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
 import { NotificationService } from 'src/app/NotificationService';
 import { ApplicationPdfService } from 'src/app/services/application-pdf/application-pdf.service';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { BudgetApprovalComponent } from '../budget-approval/budget-approval.component';
+import { Store } from '@ngrx/store';
 
 interface FormField {
   serFieldId?: number;
@@ -42,6 +45,7 @@ interface CustomForm {
   styleUrls: ['./application.component.css']
 })
 export class ApplicationComponent implements OnInit {
+  @ViewChild(BudgetApprovalComponent) budgetApprovalCmp?: BudgetApprovalComponent;
   search = '';
   customForms: CustomForm[] = [];
   selectedForm: CustomForm | null = null;
@@ -50,6 +54,7 @@ export class ApplicationComponent implements OnInit {
   showBudgetApproval: boolean = false;
   selectedFormId: string = '';
   editData: any = null;
+  store: any;
 
   constructor(
     private permissionService: PermissionService,
@@ -58,7 +63,9 @@ export class ApplicationComponent implements OnInit {
     private applicationPdfService: ApplicationPdfService,
     private fb: FormBuilder,
     private notificationService: NotificationService,
-    private router: Router
+    private router: Router,
+    private sanitizer: DomSanitizer,
+    public storeData: Store<any>
   ) { }
 
   ngOnInit() {
@@ -67,6 +74,10 @@ export class ApplicationComponent implements OnInit {
       cfgTblRole: number | undefined;
       serUserId: number;
     };
+
+    this.storeData.select((d: any) => d.index).subscribe((d: any) => {
+      this.store = d;
+    });
 
     if (userJson) {
       // @ts-ignore
@@ -81,6 +92,7 @@ export class ApplicationComponent implements OnInit {
     this.initializeForm();
     this.checkEditMode();
   }
+
 
   checkEditMode() {
     const navigation = this.router.getCurrentNavigation();
@@ -146,6 +158,7 @@ export class ApplicationComponent implements OnInit {
     this.selectedFormId = (event.target as HTMLSelectElement).value;
     if (formId) {
       this.selectedForm = this.customForms.find(f => f.serFormId === formId) || null;
+      this.ensureSidebarHidden(true);
       if (this.selectedForm) {
         const formName = (this.selectedForm.name || '').trim().toLowerCase();
         if (formName === 'budget approval form') {
@@ -162,6 +175,7 @@ export class ApplicationComponent implements OnInit {
       this.selectedForm = null;
       this.generatedApplicationCode = null;
       this.showBudgetApproval = false;
+      this.ensureSidebarHidden(false);
       this.initializeForm();
     }
   }
@@ -171,7 +185,85 @@ export class ApplicationComponent implements OnInit {
     this.selectedForm = null;
     this.generatedApplicationCode = null;
     this.showBudgetApproval = false;
+    this.ensureSidebarHidden(false);
     this.initializeForm();
+  }
+
+  private ensureSidebarHidden(shouldHide: boolean) {
+    const isHidden = !!this.store?.sidebar;
+    if (shouldHide && !isHidden) {
+      this.storeData.dispatch({ type: 'toggleSidebar' });
+    } else if (!shouldHide && isHidden) {
+      this.storeData.dispatch({ type: 'toggleSidebar' });
+    }
+  }
+
+  isCapfSelected(): boolean {
+    const name = (this.selectedForm?.name || this.selectedForm?.txtFormName || '').toLowerCase();
+    return name.includes('capf');
+  }
+
+  isBudgetSelected(): boolean {
+    const name = (this.selectedForm?.name || this.selectedForm?.txtFormName || '').toLowerCase();
+    return name.includes('budget approval');
+  }
+
+  getPreviewFormData(): any {
+    const data: any = {};
+    if (!this.selectedForm || !this.applicationForm) return data;
+    const raw = this.applicationForm.getRawValue();
+    this.selectedForm.fields.forEach((field: FormField) => {
+      const key = this.getFieldName(field.label);
+      const value = raw[key];
+      if (value === undefined || value === null) return;
+      data[field.label] = value;
+      data[key] = value;
+    });
+    return data;
+  }
+
+  getPreviewApplication(): any {
+    return {
+      dteCreatedDate: new Date(),
+      txtFormCode: this.generatedApplicationCode || '',
+      cfgTblCustomForm: this.selectedForm ? { txtFormName: this.selectedForm.name || this.selectedForm.txtFormName } : null
+    };
+  }
+
+  getBudgetPreviewContent(): SafeHtml {
+    const html = this.budgetApprovalCmp?.editorContent || '';
+    return this.sanitizer.bypassSecurityTrustHtml(html);
+  }
+
+  getBudgetPreviewHeading(): string {
+    return this.budgetApprovalCmp?.formHeading || 'Budget Approval Form';
+  }
+
+  getBudgetPreviewDate(): string {
+    return this.budgetApprovalCmp?.currentDate || new Date().toLocaleDateString();
+  }
+
+  getBudgetPreparedBy(): any {
+    return this.budgetApprovalCmp?.preparedBy || null;
+  }
+
+  getBudgetReviewers(): any[] {
+    return this.budgetApprovalCmp?.selectedReviewers || [];
+  }
+
+  getBudgetRecommenders(): any[] {
+    return this.budgetApprovalCmp?.selectedRecommenders || [];
+  }
+
+  getBudgetApprover(): any {
+    return this.budgetApprovalCmp?.selectedApprover || null;
+  }
+
+  formatUserDisplay(user: any): string {
+    if (!user) return '';
+    const name = user.txtUserName || user.userName || '';
+    const role = user.cfgTblRole?.txtRoleName || user.txtRoleName || user.roleName || '';
+    return role ? `${name} (${role})` : name;
   }
 
   generateApplicationCode(formId: number) {
@@ -451,4 +543,3 @@ export class ApplicationComponent implements OnInit {
     return '';
   }
 }
-

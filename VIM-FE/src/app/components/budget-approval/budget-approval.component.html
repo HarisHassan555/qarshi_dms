@@ -9,22 +9,22 @@
         </div>
 
         <!-- Signature Selections -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="signature-grid mb-6">
             <div>
                 <label class="block mb-2 text-sm font-semibold">Prepared By</label>
                 <input type="text" [value]="preparedBy?.txtUserName || 'Current User'"
                     class="form-input bg-gray-50 dark:bg-gray-800" readonly>
             </div>
             <div>
-                <label class="block mb-2 text-sm font-semibold">Reviewed By (Multi)</label>
-                <ng-select [items]="users" bindLabel="txtUserName" placeholder="Select Reviewers"
-                    [(ngModel)]="selectedReviewers" [multiple]="true" [clearable]="true"
-                    class="custom-multiselect"></ng-select>
-            </div>
-            <div>
                 <label class="block mb-2 text-sm font-semibold">Recommended By (Multi)</label>
                 <ng-select [items]="users" bindLabel="txtUserName" placeholder="Select Recommenders"
                     [(ngModel)]="selectedRecommenders" [multiple]="true" [clearable]="true"
+                    class="custom-multiselect"></ng-select>
+            </div>
+            <div>
+                <label class="block mb-2 text-sm font-semibold">Reviewed By (Multi)</label>
+                <ng-select [items]="users" bindLabel="txtUserName" placeholder="Select Reviewers"
+                    [(ngModel)]="selectedReviewers" [multiple]="true" [clearable]="true"
                     class="custom-multiselect"></ng-select>
             </div>
             <div>

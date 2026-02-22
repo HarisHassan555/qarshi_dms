@@ -25,20 +25,24 @@
                     </select>
                 </div>
 
-                <!-- Budget Approval Specialized Component -->
-                <div *ngIf="showBudgetApproval" class="mt-5">
-                    <app-budget-approval [serFormId]="selectedForm?.serFormId" [formCode]="generatedApplicationCode"
-                        [editData]="editData" (onReset)="resetBudgetForm()">
-                    </app-budget-approval>
-                </div>
+                <!-- Form + Preview Grid -->
+                <div *ngIf="showBudgetApproval || (selectedForm && applicationForm)" class="app-form-grid mt-6">
+                    <!-- Left: Form Input -->
+                    <div class="app-form-card">
+                        <!-- Budget Approval Specialized Component -->
+                        <div *ngIf="showBudgetApproval">
+                            <app-budget-approval [serFormId]="selectedForm?.serFormId" [formCode]="generatedApplicationCode"
+                                [editData]="editData" (onReset)="resetBudgetForm()">
+                            </app-budget-approval>
+                        </div>
 
-                <!-- Dynamic Form Fields -->
-                <div *ngIf="!showBudgetApproval && selectedForm && applicationForm" class="mt-5">
-                    <h6 class="mb-4 text-lg font-semibold dark:text-white-light">
-                        {{ selectedForm.name || selectedForm.txtFormName }}
-                    </h6>
+                        <!-- Dynamic Form Fields -->
+                        <div *ngIf="!showBudgetApproval && selectedForm && applicationForm">
+                            <h6 class="mb-4 text-lg font-semibold dark:text-white-light">
+                                {{ selectedForm.name || selectedForm.txtFormName }}
+                            </h6>
 
-                    <form [formGroup]="applicationForm" (ngSubmit)="onSubmit()" class="space-y-4">
+                            <form [formGroup]="applicationForm" (ngSubmit)="onSubmit()" class="space-y-4">
                         <!-- Application Code (Auto-generated, Read-only) -->
                         <div *ngIf="generatedApplicationCode" class="mb-4">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -276,7 +280,93 @@
                                 Submit Application
                             </button>
                         </div>
-                    </form>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Right: Live Preview -->
+                    <div class="app-preview-card">
+                        <div class="app-preview-header">
+                            <h6 class="text-base font-semibold dark:text-white-light">Preview</h6>
+                            <span class="text-xs text-gray-500">Live view of the selected form</span>
+                        </div>
+
+                        <!-- Budget Approval Preview -->
+                        <div *ngIf="showBudgetApproval" class="app-preview-body">
+                            <div class="app-preview-canvas">
+                                <div class="xyz-page-inline app-preview-scale">
+                                    <div class="xyz-paper">
+                                    <div class="xyz-date-row">
+                                        <div class="xyz-date">Date: {{ getBudgetPreviewDate() }}</div>
+                                    </div>
+
+                                    <div class="xyz-header">
+                                        <div class="xyz-logo">
+                                            <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
+                                        </div>
+                                        <div class="xyz-company">
+                                            <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
+                                            <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+                                        </div>
+                                        <div class="xyz-header-spacer"></div>
+                                    </div>
+
+                                    <div class="xyz-rule thick"></div>
+
+                                    <div class="xyz-title">{{ getBudgetPreviewHeading() }}</div>
+
+                                    <div class="xyz-dynamic">
+                                        <div [innerHTML]="getBudgetPreviewContent()"></div>
+                                    </div>
+
+                                    <div class="xyz-footer">
+                                        <table class="xyz-signatures">
+                                            <tr class="xyz-signatures-blank">
+                                                <td></td>
+                                                <td></td>
+                                                <td></td>
+                                                <td></td>
+                                                <td></td>
+                                                <td></td>
+                                            </tr>
+                                            <tr>
+                                                <th>Prepared by:</th>
+                                                <th colspan="2">Reviewed by:</th>
+                                                <th colspan="2">Recommended by:</th>
+                                                <th>Approved by:</th>
+                                            </tr>
+                                            <tr>
+                                                <td>{{ formatUserDisplay(getBudgetPreparedBy()) }}</td>
+                                                <td>{{ formatUserDisplay(getBudgetReviewers()[0]) }}</td>
+                                                <td>{{ formatUserDisplay(getBudgetReviewers()[1]) }}</td>
+                                                <td>{{ formatUserDisplay(getBudgetRecommenders()[0]) }}</td>
+                                                <td>{{ formatUserDisplay(getBudgetRecommenders()[1]) }}</td>
+                                                <td>{{ formatUserDisplay(getBudgetApprover()) }}</td>
+                                            </tr>
+                                        </table>
+                                    </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CAPF Preview -->
+                        <div *ngIf="!showBudgetApproval && isCapfSelected()" class="app-preview-body">
+                            <div class="app-preview-canvas">
+                                <div class="app-preview-scale">
+                                    <app-abc [formData]="getPreviewFormData()" [formFields]="selectedForm?.fields || []"
+                                        [application]="getPreviewApplication()" [isEmbedded]="true"></app-abc>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Generic Preview Placeholder -->
+                        <div *ngIf="!showBudgetApproval && !isCapfSelected()" class="app-preview-empty">
+                            <p class="text-sm text-gray-500">
+                                Preview is available for CAPF and Budget Approval forms.
+                            </p>
+                        </div>
+                    </div>
                 </div>
 
             </div>

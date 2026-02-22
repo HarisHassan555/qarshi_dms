@@ -7,7 +7,7 @@
                         <icon-trash-lines />
                         Delete
                     </button> -->
-                    <h5 class="text-xl font-bold dark:text-white-light">Media House</h5>
+                    <h5 class="text-xl font-bold dark:text-white-light">{{ entityLabel }}</h5>
                 </div>
                 <div class="ltr:ml-auto rtl:mr-auto flex gap-2">
                     <div>
@@ -53,42 +53,42 @@
 
 <!-- Add/Edit Modal -->
 <modal #modal>
-    <ng-template #modalHeader> <div>{{form.controls['serCustomerId'].value ? 'Edit' : 'Add'}} Media House </div> </ng-template>
+    <ng-template #modalHeader> <div>{{form.controls['serCustomerId'].value ? 'Edit' : 'Add'}} {{ entityLabel }} </div> </ng-template>
     <ng-template #modalBody>
         <form class="space-y-2 text-sm" [formGroup]="form" novalidate>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <label for="code">Media House Code*</label>
-                    <input formControlName="txtCustomerCode" id="code" type="text" placeholder="Enter Media House Code" class="form-input" />
-                    <ng-container *ngIf="isSubmit && form.controls['txtCustomerCode'].invalid">
-                        <p class="mt-1 text-danger">Media House Code is required</p>
-                    </ng-container>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label for="code">{{ entityCodeLabel }}*</label>
+                        <input formControlName="txtCustomerCode" id="code" type="text" [placeholder]="'Enter ' + entityCodeLabel" class="form-input" />
+                        <ng-container *ngIf="isSubmit && form.controls['txtCustomerCode'].invalid">
+                            <p class="mt-1 text-danger">{{ entityCodeLabel }} is required</p>
+                        </ng-container>
+                    </div>
+                    <div>
+                        <label for="name">{{ entityNameLabel }}*</label>
+                        <input formControlName="txtCustomerName" id="name" type="text" [placeholder]="'Enter ' + entityNameLabel" class="form-input" />
+                        <ng-container *ngIf="isSubmit && form.controls['txtCustomerName'].invalid">
+                            <p class="mt-1 text-danger">{{ entityNameLabel }} is required</p>
+                        </ng-container>
+                    </div>
                 </div>
-                <div>
-                    <label for="name">Media House Name*</label>
-                    <input formControlName="txtCustomerName" id="name" type="text" placeholder="Enter Media House Name" class="form-input" />
-                    <ng-container *ngIf="isSubmit && form.controls['txtCustomerName'].invalid">
-                        <p class="mt-1 text-danger">Media House Name is required</p>
-                    </ng-container>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label for="cnic">CNIC</label>
+                        <input formControlName="txtCnicNo" id="cnic" type="text" placeholder="Enter CNIC" class="form-input" />
+                        <ng-container *ngIf="isSubmit && form.controls['txtCnicNo'].invalid">
+                            <!--<p class="mt-1 text-danger" *ngIf="form.controls['txtCnicNo'].errors?.['required']">CNIC is required</p>-->
+                            <p class="mt-1 text-danger" *ngIf="form.controls['txtCnicNo'].errors?.['pattern']">Invalid CNIC format. Please use the format: 12345-1234567-1</p>
+                        </ng-container>
+                    </div>
+                    <div>
+                        <label for="ntn">NTN*</label>
+                        <input formControlName="txtNtnNo" id="ntn" type="text" placeholder="Enter NTN" class="form-input" />
+                        <ng-container *ngIf="isSubmit && form.controls['txtNtnNo'].invalid">
+                            <p class="mt-1 text-danger">NTN is required</p>
+                        </ng-container>
+                    </div>
                 </div>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <label for="cnic">CNIC</label>
-                    <input formControlName="txtCnicNo" id="cnic" type="text" placeholder="Enter CNIC" class="form-input" />
-                    <ng-container *ngIf="isSubmit && form.controls['txtCnicNo'].invalid">
-                        <!--<p class="mt-1 text-danger" *ngIf="form.controls['txtCnicNo'].errors?.['required']">CNIC is required</p>-->
-                        <p class="mt-1 text-danger" *ngIf="form.controls['txtCnicNo'].errors?.['pattern']">Invalid CNIC format. Please use the format: 12345-1234567-1</p>
-                    </ng-container>
-                </div>
-                <div>
-                    <label for="ntn">NTN*</label>
-                    <input formControlName="txtNtnNo" id="ntn" type="text" placeholder="Enter NTN" class="form-input" />
-                    <ng-container *ngIf="isSubmit && form.controls['txtNtnNo'].invalid">
-                        <p class="mt-1 text-danger">NTN is required</p>
-                    </ng-container>
-                </div>
-            </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div [formGroup]="cfgTblCountry">
                     <label for="country">Country*</label>
@@ -179,7 +179,7 @@
                     </label>
                 </div>
             </div>
-
+            </ng-template>
         </form>
     </ng-template>
     <ng-template #modalFooter>

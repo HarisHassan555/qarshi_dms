@@ -576,10 +576,7 @@ export class ApplicationDetailsComponent implements OnInit {
 
   showApprovalActions(): boolean {
     if (!this.fromPendingApprovals || !this.applicationDetails) return false;
-    const status = (this.applicationDetails.txtStatus || '').toUpperCase();
-    if (status === 'APPROVED' || status === 'REJECTED') return false;
-    if (this.hasUserAlreadyActed()) return false;
-    if (this.isCurrentLevelAlreadyHandled()) return false;
+    // Always show action buttons from Pending Approvals view
     return true;
   }
 

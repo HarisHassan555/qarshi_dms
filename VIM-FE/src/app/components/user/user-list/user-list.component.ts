@@ -20,6 +20,7 @@ export class UserListComponent implements OnInit {
   blnStatus = false;
 
   users: any;
+  filteredUsers: any[] = [];
   roles: any;
   passwordPolicies: any;
   customers: any;
@@ -101,7 +102,7 @@ export class UserListComponent implements OnInit {
           return user;
         });
 
-        console.log(this.users);
+        this.filteredUsers = this.getDisplayedUsers();
 
       });
   }
@@ -186,6 +187,25 @@ export class UserListComponent implements OnInit {
           this.notificationService.showMessage('Error occurred while saving', 'danger');
         }
       });
+  }
+
+  getDisplayedUsers(): any[] {
+    if (!this.users || !Array.isArray(this.users)) return [];
+    if (!this.search || !this.search.trim()) return this.users;
+    const needle = this.search.toLowerCase().trim();
+    return this.users.filter((u: any) => {
+      const roleName = u?.cfgTblRole?.txtRoleName || '';
+      const statusText = u?.blnStatus ? 'active' : 'inactive';
+      const haystack = [
+        u?.txtUserName,
+        u?.txtCnic,
+        u?.txtContactNo,
+        u?.txtAddress,
+        roleName,
+        statusText
+      ].map(v => (v ?? '').toString().toLowerCase());
+      return haystack.some(v => v.includes(needle));
+    });
   }
 
   onChangeRole($event: any) {

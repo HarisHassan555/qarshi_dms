@@ -25,7 +25,7 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         signatureUrl: string;
         approvedDateText: string;
     }> = [
-        { label: 'User Deptt. (HoD)', keywords: ['user', 'hod', 'department', 'head'], signatureUrl: '', approvedDateText: '' },
+        { label: 'User Deptt. (HoD)', keywords: ['user dept', 'hod'], signatureUrl: '', approvedDateText: '' },
         { label: 'Technical Expert', keywords: ['technical', 'expert'], signatureUrl: '', approvedDateText: '' },
         { label: 'Procurement', keywords: ['procurement'], signatureUrl: '', approvedDateText: '' },
         { label: 'Finance', keywords: ['finance'], signatureUrl: '', approvedDateText: '' },
@@ -233,19 +233,13 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         const keywordsLower = (slot.keywords || []).map(k => k.toLowerCase());
         const byDept = this.approvalHistory.find((e: any) => {
             const deptName = (e.departmentName || '').toString().toLowerCase();
-            return keywordsLower.some(k => deptName.includes(k));
+            const roleName = (e.role || '').toString().toLowerCase();
+            const combined = `${deptName} ${roleName}`.trim();
+            if (!combined) return false;
+            return keywordsLower.every(k => combined.includes(k));
         });
         if (byDept) {
             return byDept;
-        }
-
-        const slotIndex = this.signatureSlots.findIndex(s => s.keywords === slot.keywords);
-        if (slotIndex >= 0) {
-            const order = slotIndex + 1;
-            const byLevel = this.approvalHistory.find((e: any) => e.level === order);
-            if (byLevel) {
-                return byLevel;
-            }
         }
 
         return null;

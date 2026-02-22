@@ -1,4 +1,5 @@
 import { Component, OnInit, ViewChild } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { FormBuilder, FormControl, FormGroup, Validators } from '@angular/forms';
 import { NotificationService } from 'src/app/NotificationService';
 import { CityService } from 'src/app/services/city/city.service';
@@ -44,21 +45,36 @@ export class CustomerComponent implements OnInit {
     { field: 'actions', title: 'Actions', sort: false, headerClass: 'justify-center' },
   ];
 
+  entityLabel = 'Media House';
+  entityCodeLabel = 'Media House Code';
+  entityNameLabel = 'Media House Name';
+
   constructor(
     private fb: FormBuilder,
     private customerService: CustomerService,
     private cityService: CityService,
     private countryService: CountryService,
-    private notificationService: NotificationService
+    private notificationService: NotificationService,
+    private route: ActivatedRoute
   ) { }
 
   ngOnInit() {
+    this.cols = this.cols.map((col: any) => {
+      if (col.field === 'txtCustomerCode') {
+        return { ...col, title: this.entityCodeLabel };
+      }
+      if (col.field === 'txtCustomerName') {
+        return { ...col, title: this.entityNameLabel };
+      }
+      return col;
+    });
+
     this.form = this.fb.group({
       serCustomerId: [''],
       txtCustomerCode: ['', Validators.required],
       txtCustomerName: ['', Validators.required],
 
-      txtCnicNo: ['',Validators.pattern(/^\d{5}-\d{7}-\d{1}$/)],
+      txtCnicNo: ['', Validators.pattern(/^\d{5}-\d{7}-\d{1}$/)],
       txtNtnNo: ['', Validators.required],
 
       cfgTblCountry: this.fb.group({
@@ -74,7 +90,7 @@ export class CustomerComponent implements OnInit {
 
 
       txtSapNo: ['', Validators.required],
-      txtEmailAddress: ['',Validators.email],
+      txtEmailAddress: ['', Validators.email],
 
       txtSTR: [''],
       txtBillingAddress: ['', Validators.required],
@@ -109,13 +125,14 @@ export class CustomerComponent implements OnInit {
 
   getCustomers() {
     this.customers = [];
-    this.customerService
-      .getAll()
-      .subscribe((data: any) => {
-        if (data) {
-          this.customers = data;
-        }
-      });
+    const source$ = this.entityLabel === 'Vendor'
+      ? this.customerService.getCustomers()
+      : this.customerService.getAll();
+    source$.subscribe((data: any) => {
+      if (data) {
+        this.customers = data;
+      }
+    });
   }
 
   onChangeCountry(evt: any) {
