@@ -600,37 +600,68 @@ export class ApplicationDetailsComponent implements OnInit {
       const jsPDF = (jsPDFModule.default || jsPDFModule) as any;
 
       // ── Temporarily strip visual noise before screenshot ──────────────
+      const isCapf = this.isCapfForm();
       // Collect all .page elements inside the target and remove their
       // min-height (which adds huge empty space) and border.
       const pageEls = Array.from(element.querySelectorAll('.page')) as HTMLElement[];
       const paperEls = Array.from(element.querySelectorAll('.xyz-paper')) as HTMLElement[];
 
       // Also strip the element itself if it has a border/min-height
-      const savedElementStyles: { el: HTMLElement; minHeight: string; maxHeight: string; border: string; boxShadow: string; overflow: string }[] = [
-        ...pageEls,
-        ...paperEls,
-        element
-      ].map(el => {
-        const saved = {
-          el,
-          minHeight: el.style.minHeight,
-          maxHeight: el.style.maxHeight,
-          border: el.style.border,
-          boxShadow: el.style.boxShadow,
-          overflow: el.style.overflow
-        };
-        el.style.minHeight = 'auto';
-        el.style.maxHeight = 'none';
-        el.style.border = 'none';
-        el.style.boxShadow = 'none';
-        el.style.overflow = 'visible';
-        return saved;
-      });
+      const savedElementStyles: { el: HTMLElement; minHeight: string; maxHeight: string; border: string; boxShadow: string; overflow: string }[] = [];
+      if (!isCapf) {
+        savedElementStyles.push(
+          ...[...pageEls, ...paperEls, element].map(el => {
+            const saved = {
+              el,
+              minHeight: el.style.minHeight,
+              maxHeight: el.style.maxHeight,
+              border: el.style.border,
+              boxShadow: el.style.boxShadow,
+              overflow: el.style.overflow
+            };
+            el.style.minHeight = 'auto';
+            el.style.maxHeight = 'none';
+            el.style.border = 'none';
+            el.style.boxShadow = 'none';
+            el.style.overflow = 'visible';
+            return saved;
+          })
+        );
+      }
 
       const captureTarget = (element.querySelector('.page') as HTMLElement) || element;
       const hadPdfCapture = element.classList.contains('pdf-capture');
-      if (!hadPdfCapture) {
+      const hadPdfFix = element.classList.contains('pdf-fix');
+      if (!hadPdfCapture && !isCapf) {
         element.classList.add('pdf-capture');
+      }
+      if (!hadPdfFix && isCapf) {
+        element.classList.add('pdf-fix');
+      }
+
+      const emptyLineSnapshots: { el: HTMLElement; html: string }[] = [];
+      const boxcheckSnapshots: { el: HTMLElement; transform: string }[] = [];
+      const boxcheckSpanSnapshots: { el: HTMLElement; transform: string }[] = [];
+      const sbSubSnapshots: { el: HTMLElement; textAlign: string; width: string; display: string; paddingRight: string; boxSizing: string; marginLeft: string }[] = [];
+      if (isCapf) {
+        element.querySelectorAll('.line, .date-line, .inline-line').forEach((el) => {
+          const ht = el as HTMLElement;
+          if ((ht.textContent || '').trim() === '') {
+            emptyLineSnapshots.push({ el: ht, html: ht.innerHTML });
+            ht.innerHTML = '<span class="pdf-empty">&nbsp;</span>';
+          }
+        });
+
+        element.querySelectorAll('.boxcheck').forEach((el) => {
+          const ht = el as HTMLElement;
+          boxcheckSnapshots.push({ el: ht, transform: ht.style.transform });
+          ht.style.transform = 'translateY(6px)';
+        });
+        element.querySelectorAll('.boxcheck > span').forEach((el) => {
+          const ht = el as HTMLElement;
+          boxcheckSpanSnapshots.push({ el: ht, transform: ht.style.transform });
+          ht.style.transform = 'translateY(-6px)';
+        });
       }
 
       // Small timeout so browser repaints before capture
@@ -685,9 +716,29 @@ export class ApplicationDetailsComponent implements OnInit {
         el.style.boxShadow = boxShadow;
         el.style.overflow = overflow;
       });
-      if (!hadPdfCapture) {
+      if (!hadPdfCapture && !isCapf) {
         element.classList.remove('pdf-capture');
       }
+      if (!hadPdfFix && isCapf) {
+        element.classList.remove('pdf-fix');
+      }
+      emptyLineSnapshots.forEach(({ el, html }) => {
+        el.innerHTML = html;
+      });
+      boxcheckSnapshots.forEach(({ el, transform }) => {
+        el.style.transform = transform;
+      });
+      boxcheckSpanSnapshots.forEach(({ el, transform }) => {
+        el.style.transform = transform;
+      });
+      sbSubSnapshots.forEach(({ el, textAlign, width, display, paddingRight, boxSizing, marginLeft }) => {
+        el.style.textAlign = textAlign;
+        el.style.width = width;
+        el.style.display = display;
+        el.style.paddingRight = paddingRight;
+        el.style.boxSizing = boxSizing;
+        el.style.marginLeft = marginLeft;
+      });
 
       const pdfBlob = pdf.output('blob');
       const pdfUrl = URL.createObjectURL(pdfBlob);

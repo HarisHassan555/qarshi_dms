@@ -33,16 +33,21 @@
       <div class="box-title">PART-1 (TO BE FILLED BY <span class="u">CONCERNED</span> DEPARTMENT)</div>
 
       <div class="row">
+        <div class="capf-right" style="margin-left: auto;">
+          <div class="capf-box">
+            <div class="label">CAPF #</div>
+            <div class="capf-num">{{ getCapfNumber() }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
         <div class="field">
           <div class="label">DIVISION / DEPARTMENT:</div>
           <div class="line">{{ getFieldValue('DIVISION / DEPARTMENT') }}</div>
         </div>
 
-        <div class="capf-right" style="flex-direction: column; align-items: flex-end;">
-          <div class="capf-box" style="margin-bottom: 8px;">
-            <div class="label">CAPF #</div>
-            <div class="capf-num">{{ getCapfNumber() }}</div>
-          </div>
+        <div class="capf-right">
           <div class="capf-box">
             <div class="label">Date:</div>
             <div class="date-line">{{ getDate() }}</div>
@@ -224,7 +229,7 @@
         </div>
       </div>
 
-      <div class="two-col">
+      <div class="two-col part2-sign">
         <div class="sign-block">
           <div class="sb-label">Checked By:</div>
           <div class="sb-line"></div>
@@ -255,7 +260,7 @@
         (REPORT ATTACHED)
       </div>
 
-      <div class="two-col">
+      <div class="two-col job-sign">
         <div class="sign-block">
           <div class="sb-label">Checked By:</div>
           <div class="sb-line"></div>

@@ -7,8 +7,8 @@ This guide explains how to configure IntelliJ IDEA to run the VIM (Vendor Invoic
 - **Project Type**: Spring Boot WAR application
 - **Main Class**: `com.bezkoder.spring.login.SpringBootSecurityJwtApplication`
 - **Packaging**: WAR
-- **Final WAR Name**: `VIM.war`
-- **Context Path**: `/VIM`
+- **Final WAR Name**: `velocity.war`
+- **Context Path**: `/velocity`
 - **Java Version**: 17
 - **Build Tool**: Maven
 
@@ -66,7 +66,7 @@ This guide explains how to configure IntelliJ IDEA to run the VIM (Vendor Invoic
 - **Name**: `VIM Tomcat`
 - **Application server**: Select your configured Tomcat server
 - **Open browser**: Check this if you want to open browser automatically
-- **URL**: `http://localhost:8080/VIM` (matches your context path)
+- **URL**: `http://localhost:8080/velocity`
 
 #### **Deployment Tab:**
 1. Click the **+** button under "Deploy at the server startup"
@@ -76,12 +76,12 @@ This guide explains how to configure IntelliJ IDEA to run the VIM (Vendor Invoic
    - OR **vendor-invoice-management:war** (if the artifact name is different)
 4. Select the WAR artifact and click **OK**
 5. After adding the artifact, you'll see it in the list with a column for **Application context**
-6. In the **Application context** column, enter: `/VIM`
-   - This must match your `server.servlet.context-path=/VIM` from `application.properties`
+6. In the **Application context** column, enter: `/velocity`
+   - This provides the `/velocity` prefix for all endpoints
 7. The **Type** should automatically be set to **war exploded** or **war**
 
 **What gets deployed:**
-- The WAR file will be automatically deployed to: `%CATALINA_BASE%\webapps\VIM`
+- The WAR file will be automatically deployed to: `%CATALINA_BASE%\webapps\velocity`
 - IntelliJ manages this automatically - you don't need to manually specify a deployment directory
 - The physical deployment happens in: `C:\Users\<YourUsername>\.IntelliJIdea<version>\system\tomcat\<ServerName>\webapps\VIM`
 
@@ -143,15 +143,15 @@ Update `VIM-BE\src\main\resources\application.properties` if your database setti
    - Start Tomcat server
    - Open the browser (if configured)
 
-4. Access your application at: `http://localhost:8080/VIM`
+4. Access your application at: `http://localhost:8080/velocity`
 
 ## Step 7: Verify Deployment
 
 ### Check Deployment Directory
 
 The deployment happens in one of these locations:
-- **IntelliJ-managed**: `C:\Users\<YourUsername>\.IntelliJIdea<version>\system\tomcat\<ServerName>\webapps\VIM`
-- **Custom CATALINA_BASE**: `<YourCustomBase>\webapps\VIM`
+- **IntelliJ-managed**: `C:\Users\<YourUsername>\.IntelliJIdea<version>\system\tomcat\<ServerName>\webapps\velocity`
+- **Custom CATALINA_BASE**: `<YourCustomBase>\webapps\velocity`
 
 ### Check Logs
 
@@ -171,7 +171,8 @@ The deployment happens in one of these locations:
 - Or stop the service using port 8080
 
 ### Issue: Context path mismatch
-**Solution**: Ensure the Application context in Deployment tab matches `server.servlet.context-path` in `application.properties` (should be `/VIM`)
+**Solution**: Ensure the Application context in Deployment tab is `/velocity`.
+If you choose to run as a standalone Spring Boot app (not Tomcat), set `server.servlet.context-path=/velocity` in `application.properties`.
 
 ### Issue: Database connection errors
 **Solution**: 
@@ -190,8 +191,8 @@ The deployment happens in one of these locations:
 |---------|-------|
 | **Server Type** | Tomcat Server (Local) |
 | **HTTP Port** | 8080 |
-| **Application Context** | `/VIM` |
-| **WAR Artifact** | `VIM:war` |
+| **Application Context** | `/velocity` |
+| **WAR Artifact** | `velocity:war` |
 | **CATALINA_BASE** | Auto-managed by IntelliJ (recommended) |
 | **Deployment Directory** | `%CATALINA_BASE%\webapps\VIM` |
 | **Main Class** | `com.bezkoder.spring.login.SpringBootSecurityJwtApplication` |
@@ -206,5 +207,4 @@ If you prefer to run as a standalone Spring Boot application (without external T
 3. This will use the embedded Undertow server (as configured in `pom.xml`)
 
 However, since the project is packaged as WAR and extends `SpringBootServletInitializer`, deploying to Tomcat is the recommended approach for production-like testing.
-
 

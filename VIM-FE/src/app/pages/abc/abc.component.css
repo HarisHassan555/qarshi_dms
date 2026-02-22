@@ -67,7 +67,7 @@
       padding: 10mm !important;
       border: 1px solid var(--line) !important;
       box-shadow: none !important;
-      overflow: hidden !important;
+      overflow: visible !important;
     }
 
     .abc-wrapper.pdf-capture .box,
@@ -79,6 +79,57 @@
       page-break-inside: avoid;
     }
 
+    /* PDF capture fixes: prevent text clipping and keep lines at correct baseline */
+    .abc-wrapper.pdf-capture .line,
+    .abc-wrapper.pdf-capture .date-line,
+    .abc-wrapper.pdf-capture .inline-line {
+      min-height: 30px;
+      padding-top: 3px;
+      padding-bottom: 10px;
+      line-height: 1.6;
+      overflow: visible;
+    }
+
+    .abc-wrapper.pdf-capture .line::after,
+    .abc-wrapper.pdf-capture .date-line::after,
+    .abc-wrapper.pdf-capture .inline-line::after {
+      bottom: 0;
+    }
+
+    /* PDF snapshot fix: minimal adjustments to avoid text clipping */
+    .abc-wrapper.pdf-fix .line,
+    .abc-wrapper.pdf-fix .date-line,
+    .abc-wrapper.pdf-fix .inline-line {
+      overflow: visible;
+      align-items: flex-start;
+      padding-top: 0;
+      padding-bottom: 12px;
+      line-height: 1.4;
+      min-height: 34px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .abc-wrapper.pdf-fix .line::after,
+    .abc-wrapper.pdf-fix .date-line::after,
+    .abc-wrapper.pdf-fix .inline-line::after {
+      content: none;
+    }
+
+    .abc-wrapper.pdf-fix .pdf-empty {
+      display: inline-block;
+      min-height: 12px;
+      line-height: 1.4;
+    }
+
+    /* PDF: lower checkbox box while keeping tick centered */
+    .abc-wrapper.pdf-fix .boxcheck {
+      transform: translateY(6px);
+    }
+
+    .abc-wrapper.pdf-fix .boxcheck > span {
+      display: inline-block;
+      transform: translateY(-6px);
+    }
 
 
     /* COMMON */
@@ -261,11 +312,12 @@
 
     .line {
       flex: 1;
-      border-bottom: 1px solid var(--line);
+      border-bottom: none;
       min-width: 40px;
-      min-height: 20px;
-      padding-bottom: 2px;
-      line-height: 1.3;
+      min-height: 26px;
+      padding-top: 2px;
+      padding-bottom: 7px;
+      line-height: 1.4;
       display: flex;
       align-items: flex-end;
       overflow: visible;
@@ -273,6 +325,16 @@
       word-break: break-word;
       overflow-wrap: break-word;
       box-sizing: border-box;
+      position: relative;
+    }
+
+    .line::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 2px;
+      border-bottom: 1px solid var(--line);
     }
     
     /* Prevent lines in fields with labels from stretching too much */
@@ -314,7 +376,7 @@
       font-size: 20px;
       letter-spacing: 2px;
       border-bottom: 1px solid var(--line);
-      padding: 0 6px 4px 6px;
+      padding: 0 6px 5px 6px;
       min-width: 86px;
       text-align: right;
       line-height: 1.2;
@@ -322,10 +384,21 @@
 
     .date-line {
       width: 150px;
+      border-bottom: none;
+      min-height: 26px;
+      padding-top: 2px;
+      padding-bottom: 7px;
+      line-height: 1.4;
+      position: relative;
+    }
+
+    .date-line::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 2px;
       border-bottom: 1px solid var(--line);
-      min-height: 20px;
-      padding-bottom: 4px;
-      line-height: 1.2;
     }
 
     /* CHECKBOXES */
@@ -347,8 +420,8 @@
       flex: 1;
       display: flex;
       align-items: center;
-      justify-content: flex-start;
-      gap: 20px;
+      justify-content: center;
+      gap: 60px;
       max-width: 100%;
     }
 
@@ -512,6 +585,71 @@
       font-weight: 700;
       margin-top: -2px;
       padding-left: 4px;
+      text-align: left;
+    }
+    /* Signature blocks: label left, line to the right, sub centered under line */
+    .part2-sign .sign-block,
+    .job-sign .sign-block {
+      display: grid;
+      grid-template-columns: auto 120px;
+      grid-template-rows: auto auto;
+      column-gap: 2px;
+      align-items: end;
+    }
+
+    .part2-sign .sign-block .sb-label,
+    .job-sign .sign-block .sb-label {
+      grid-column: 1;
+      grid-row: 1;
+      width: auto;
+      white-space: nowrap;
+    }
+
+    .part2-sign .sign-block .sb-line,
+    .job-sign .sign-block .sb-line {
+      grid-column: 2;
+      grid-row: 1;
+      width: 120px;
+      margin-left: 0;
+      display: block;
+    }
+
+    .part2-sign .sign-block .sb-sub,
+    .job-sign .sign-block .sb-sub {
+      grid-column: 2;
+      grid-row: 2;
+      width: 120px;
+      margin-left: 0;
+      text-align: center;
+      display: block;
+      white-space: nowrap;
+    }
+
+    /* Job completion: move line + (Sign & Desg.) closer to Checked By label */
+    .job-sign .sign-block:first-child .sb-line,
+    .job-sign .sign-block:first-child .sb-sub {
+      grid-column: 1;
+      width: 120px;
+      text-align: center;
+      margin-left: 95px;
+    }
+
+    .part2-sign .sign-block:first-child .sb-line,
+    .part2-sign .sign-block:first-child .sb-sub {
+      grid-column: 1;
+      width: 120px;
+      text-align: center;
+      margin-left: 95px;
+    }
+
+    .part2-sign .sign-block:last-child,
+    .job-sign .sign-block:last-child {
+      justify-content: end;
+    }
+
+    .part2-sign .sign-block:last-child .sb-label,
+    .job-sign .sign-block:last-child .sb-label {
+      text-align: right;
     }
 
     .job-title {
@@ -532,11 +670,23 @@
 
     .inline-line {
       display: inline-block;
-      border-bottom: 1px solid var(--line);
-      height: 16px;
+      border-bottom: none;
+      min-height: 22px;
       vertical-align: baseline;
       width: 140px;
       margin: 0 6px;
+      padding-top: 2px;
+      padding-bottom: 7px;
+      position: relative;
+    }
+
+    .inline-line::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 2px;
+      border-bottom: 1px solid var(--line);
     }
 
     .inline-line.short {
@@ -587,8 +737,13 @@
     :host-context(.pdf-compact) .line {
       height: 16px !important;
       min-height: 16px !important;
-      padding-bottom: 2px !important;
+      padding-top: 1px !important;
+      padding-bottom: 4px !important;
       border-bottom-width: 1px !important;
+    }
+
+    :host-context(.pdf-compact) .line::after {
+      bottom: 1px !important;
     }
 
     :host-context(.pdf-compact) .line.xl {
@@ -701,3 +856,4 @@
       padding: 2px 4px !important;
       font-size: 10px !important;
     }
+

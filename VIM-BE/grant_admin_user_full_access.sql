@@ -302,4 +302,3 @@ SELECT
         THEN 'ERROR - admin user not found. Please check if user "admin" exists in cfg_tbl_user table.'
         ELSE 'WARNING - Some permissions may be missing. Check verification queries above.'
     END AS 'Status';
-
