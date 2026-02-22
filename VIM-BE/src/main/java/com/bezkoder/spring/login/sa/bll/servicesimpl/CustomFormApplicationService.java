@@ -57,6 +57,12 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     }
 
     @Override
+    public String updateApplicationPdf(Integer applicationId, byte[] pdfData, String pdfName, String pdfMime) {
+        logger.debug("updateApplicationPdf() - applicationId: " + applicationId);
+        return customFormApplicationDAO.updateApplicationPdf(applicationId, pdfData, pdfName, pdfMime);
+    }
+
+    @Override
     public String deleteApplication(Integer applicationId) {
         logger.debug("deleteApplication() - applicationId: " + applicationId);
         return customFormApplicationDAO.deleteApplication(applicationId);
@@ -102,5 +108,11 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     public String sendBackApplication(Integer applicationId, String remarks) {
         logger.debug("sendBackApplication() - applicationId: " + applicationId);
         return customFormApplicationDAO.sendBackApplication(applicationId, remarks);
+    }
+
+    @Override
+    public String sendSubmissionEmailsForApplication(Integer applicationId) {
+        logger.debug("sendSubmissionEmailsForApplication() - applicationId: " + applicationId);
+        return customFormApplicationDAO.sendSubmissionEmailsForApplication(applicationId);
     }
 }

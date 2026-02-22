@@ -492,12 +492,12 @@
     
     .sig-line {
       border-bottom: 1px solid var(--line);
-      height: 18px;
+      height: 32px;
       margin-bottom: 4px;
     }
 
     .sig-img {
-      max-height: 16px;
+      max-height: 36px;
       max-width: 100%;
       object-fit: contain;
       display: block;

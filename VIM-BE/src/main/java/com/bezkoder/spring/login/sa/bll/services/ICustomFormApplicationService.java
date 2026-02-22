@@ -17,6 +17,8 @@ public interface ICustomFormApplicationService {
 
     String updateApplication(CfgTblCustomFormApplication application);
 
+    String updateApplicationPdf(Integer applicationId, byte[] pdfData, String pdfName, String pdfMime);
+
     String deleteApplication(Integer applicationId);
 
     List<CfgTblCustomFormApplication> getApplicationsByStatus(String status);
@@ -32,4 +34,6 @@ public interface ICustomFormApplicationService {
     String rejectApplication(Integer applicationId, String remarks);
 
     String sendBackApplication(Integer applicationId, String remarks);
+
+    String sendSubmissionEmailsForApplication(Integer applicationId);
 }

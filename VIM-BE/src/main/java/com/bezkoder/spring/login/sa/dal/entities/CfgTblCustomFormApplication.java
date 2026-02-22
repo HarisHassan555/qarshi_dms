@@ -77,6 +77,9 @@ public class CfgTblCustomFormApplication implements Serializable {
     @Column(name="ser_modified_user")
     private Integer serModifiedUser;
 
+    @Transient
+    private Boolean deferEmail;
+
     //bi-directional many-to-one association to CfgTblCustomForm
     @ManyToOne(fetch=FetchType.LAZY)
     @JoinColumn(name="ser_form_id", insertable=false, updatable=false)
@@ -244,6 +247,14 @@ public class CfgTblCustomFormApplication implements Serializable {
 
     public void setSerModifiedUser(Integer serModifiedUser) {
         this.serModifiedUser = serModifiedUser;
+    }
+
+    public Boolean getDeferEmail() {
+        return deferEmail;
+    }
+
+    public void setDeferEmail(Boolean deferEmail) {
+        this.deferEmail = deferEmail;
     }
 
     public CfgTblCustomForm getCfgTblCustomForm() {

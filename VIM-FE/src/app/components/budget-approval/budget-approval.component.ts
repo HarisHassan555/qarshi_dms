@@ -1,10 +1,12 @@
 import { Component, ViewChild, Input, Output, EventEmitter, OnInit } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Router } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 import { BudgetApprovalService } from 'src/app/services/budget-approval/budget-approval.service';
 import { CustomFormApplicationService } from 'src/app/services/custom-form-application/custom-form-application.service';
 import { UserService } from 'src/app/services/user/user.service';
 import { NotificationService } from 'src/app/NotificationService';
+import { ApplicationPdfService } from 'src/app/services/application-pdf/application-pdf.service';
 import { QuillEditorComponent } from 'ngx-quill';
 import * as QuillNamespace from 'quill';
 const Quill: any = QuillNamespace;
@@ -80,6 +82,7 @@ export class BudgetApprovalComponent implements OnInit {
         private router: Router,
         private budgetApprovalService: BudgetApprovalService,
         private customFormApplicationService: CustomFormApplicationService,
+        private applicationPdfService: ApplicationPdfService,
         private userService: UserService,
         private notificationService: NotificationService,
         private sanitizer: DomSanitizer
@@ -217,7 +220,7 @@ export class BudgetApprovalComponent implements OnInit {
         }
     }
 
-    save() {
+    async save() {
         // ALWAYS use the live HTML from the quill root to ensure table content is included
         const quillHtml = this.editor?.quillEditor?.root?.innerHTML ?? '';
         const content = quillHtml || this.editorContent;
@@ -235,6 +238,16 @@ export class BudgetApprovalComponent implements OnInit {
         }
 
         // Prepare payload for application submission/update
+        const applicationFormData = {
+            content: content,
+            heading: this.formHeading,
+            date: this.currentDate,
+            preparedBy: this.preparedBy,
+            reviewers: this.selectedReviewers,
+            recommenders: this.selectedRecommenders,
+            approver: this.selectedApprover
+        };
+
         const payload: any = {
             serApplicationId: this.serApplicationId,
             serFormId: this.serFormId,
@@ -256,28 +269,85 @@ export class BudgetApprovalComponent implements OnInit {
             blnStatus: true
         };
 
+        if (!this.isEditMode) {
+            payload.deferEmail = true;
+        }
+
         const request = this.isEditMode
             ? this.customFormApplicationService.updateApplication(payload)
             : this.customFormApplicationService.submitApplication(payload);
 
-        request.subscribe({
-            next: (response: any) => {
-                if (response && response.status === 'Success') {
+        try {
+            const response: any = await firstValueFrom(request);
+            if (response && response.status === 'Success') {
+                let showSuccessToast = true;
+                if (!this.isEditMode) {
+                    const applicationId = Number(response.applicationId);
+                    if (!applicationId) {
+                        this.notificationService.showMessage('Application submitted but ID was not returned.', 'warning');
+                        showSuccessToast = false;
+                    } else {
+                        try {
+                            await this.uploadBudgetPdfAndSendEmails(applicationId, applicationFormData);
+                        } catch (emailError: any) {
+                            console.error('Failed to upload budget PDF or send emails:', emailError);
+                            this.notificationService.showMessage('Application submitted, but approval email could not be sent.', 'warning');
+                            showSuccessToast = false;
+                        }
+                    }
+                }
+
+                if (showSuccessToast) {
                     this.notificationService.showMessage(
                         this.isEditMode ? 'Application updated successfully!' : 'Application submitted successfully!',
                         'success'
                     );
-                    this.savedContent = this.sanitizer.bypassSecurityTrustHtml(content);
-                    this.viewMode = true;
-                } else {
-                    this.notificationService.showMessage(response?.message || 'Failed to save application', 'danger');
                 }
-            },
-            error: (err: any) => {
-                this.notificationService.showMessage('Error saving application', 'danger');
-                console.error('Error saving budget approval', err);
+                this.savedContent = this.sanitizer.bypassSecurityTrustHtml(content);
+                this.viewMode = true;
+            } else {
+                this.notificationService.showMessage(response?.message || 'Failed to save application', 'danger');
             }
-        });
+        } catch (err: any) {
+            this.notificationService.showMessage('Error saving application', 'danger');
+            console.error('Error saving budget approval', err);
+        }
+    }
+
+    private async uploadBudgetPdfAndSendEmails(applicationId: number, applicationFormData: any): Promise<void> {
+        const applicationResponse: any = await firstValueFrom(
+            this.customFormApplicationService.getApplicationById(applicationId)
+        );
+        const application = applicationResponse || {};
+        const formName = 'Budget Approval Form';
+        const formCode = (application?.txtFormCode || this.formCode || '').trim();
+
+        const htmlContent = this.applicationPdfService.buildPdfHtmlForApplication(
+            application,
+            null,
+            [],
+            applicationFormData,
+            { formName, txtFormCode: formCode }
+        );
+        if (!htmlContent) {
+            throw new Error('PDF HTML generation failed');
+        }
+
+        const filename = `application_${formCode || applicationId}.pdf`;
+        const pdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(htmlContent, filename);
+        const pdfResponse: any = await firstValueFrom(
+            this.customFormApplicationService.updateApplicationPdf(applicationId, pdfBlob, filename)
+        );
+        if (!pdfResponse || pdfResponse.status !== 'Success') {
+            throw new Error(pdfResponse?.message || 'Failed to update application PDF');
+        }
+
+        const emailResponse: any = await firstValueFrom(
+            this.customFormApplicationService.sendSubmissionEmails(applicationId)
+        );
+        if (!emailResponse || emailResponse.status !== 'Success') {
+            throw new Error(emailResponse?.message || 'Failed to send submission emails');
+        }
     }
 
     formatUserForSignature(selectedUsers: any[], index: number): string {

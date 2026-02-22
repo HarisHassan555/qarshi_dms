@@ -7,6 +7,7 @@ import org.apache.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -132,6 +133,48 @@ public class CustomFormApplicationController {
             return result;
         } catch (Exception ex) {
             logger.error("Error updating application: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return result;
+        }
+    }
+
+    @RequestMapping(value = "/updateApplicationPdf",
+                    method = RequestMethod.POST,
+                    consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+                    produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> updateApplicationPdf(@RequestParam Integer applicationId,
+                                                    @RequestParam("pdf") MultipartFile pdf,
+                                                    HttpServletRequest request,
+                                                    HttpServletResponse response) {
+        logger.debug("updateApplicationPdf() - applicationId: " + applicationId);
+        Map<String, Object> result = new HashMap<>();
+        try {
+            if (applicationId == null) {
+                result.put("status", "Failure");
+                result.put("message", "Application ID is required");
+                return result;
+            }
+            if (pdf == null || pdf.isEmpty()) {
+                result.put("status", "Failure");
+                result.put("message", "PDF file is required");
+                return result;
+            }
+
+            String pdfName = pdf.getOriginalFilename();
+            String pdfMime = pdf.getContentType();
+            String status = customFormApplicationService.updateApplicationPdf(applicationId, pdf.getBytes(), pdfName, pdfMime);
+            if ("Success".equals(status)) {
+                result.put("status", "Success");
+                result.put("message", "Application PDF updated successfully");
+            } else {
+                result.put("status", "Failure");
+                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8) : "Failed to update application PDF");
+            }
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error updating application PDF: " + ex.getMessage(), ex);
             result.put("status", "Failure");
             result.put("message", ex.getMessage());
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
@@ -426,6 +469,81 @@ public class CustomFormApplicationController {
             return result;
         } catch (Exception ex) {
             logger.error("Error sending back application: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return result;
+        }
+    }
+
+    /**
+     * GET endpoint for email-based send back (accessed via email link)
+     * This allows users to send back applications directly from email
+     */
+    @RequestMapping(value = "/sendBackApplicationFromEmail",
+                    method = RequestMethod.GET,
+                    produces = MediaType.TEXT_HTML_VALUE)
+    public String sendBackApplicationFromEmail(@RequestParam Integer applicationId,
+                                               @RequestParam Integer userId,
+                                               HttpServletRequest request,
+                                               HttpServletResponse response) {
+        logger.debug("sendBackApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
+        try {
+            String status = customFormApplicationService.sendBackApplication(applicationId, "Sent back via email");
+            if ("Success".equals(status)) {
+                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Application Sent Back</title>" +
+                       "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                       ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}" +
+                       ".success{color:#f39c12;font-size:24px;margin-bottom:20px}" +
+                       ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                       "<div class='container'><div class='success'>â†© Application Sent Back</div>" +
+                       "<div class='message'>The application has been sent back. You can close this window.</div></div></body></html>";
+            } else {
+                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Send Back Failed</title>" +
+                       "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                       ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}" +
+                       ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
+                       ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                       "<div class='container'><div class='error'>âœ— Send Back Failed</div>" +
+                       "<div class='message'>" + (status != null && status.startsWith("Failure:") ? status.substring(8) : "Failed to send back application") +
+                       "</div></div></body></html>";
+            }
+        } catch (Exception ex) {
+            logger.error("Error sending back application from email: " + ex.getMessage(), ex);
+            return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Error</title>" +
+                   "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                   ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}" +
+                   ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
+                   ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                   "<div class='container'><div class='error'>âœ— Error</div>" +
+                   "<div class='message'>An error occurred: " + ex.getMessage() + "</div></div></body></html>";
+        }
+    }
+
+    @RequestMapping(value = "/sendSubmissionEmails", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> sendSubmissionEmails(@RequestParam Integer applicationId,
+                                                    HttpServletRequest request,
+                                                    HttpServletResponse response) {
+        logger.debug("sendSubmissionEmails() - applicationId: " + applicationId);
+        Map<String, Object> result = new HashMap<>();
+        try {
+            if (applicationId == null) {
+                result.put("status", "Failure");
+                result.put("message", "Application ID is required");
+                return result;
+            }
+
+            String status = customFormApplicationService.sendSubmissionEmailsForApplication(applicationId);
+            if ("Success".equals(status)) {
+                result.put("status", "Success");
+                result.put("message", "Submission emails sent successfully");
+            } else {
+                result.put("status", "Failure");
+                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8) : "Failed to send submission emails");
+            }
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error sending submission emails: " + ex.getMessage(), ex);
             result.put("status", "Failure");
             result.put("message", ex.getMessage());
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);

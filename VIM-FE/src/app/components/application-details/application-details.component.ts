@@ -7,7 +7,7 @@ import { DepartmentService } from '../../services/department/department.service'
 import { NotificationService } from 'src/app/NotificationService';
 import { AbcComponent } from '../../pages/abc/abc.component';
 import { urls } from 'src/app/utils/urls';
-import { finalize } from 'rxjs';
+import { finalize, firstValueFrom } from 'rxjs';
 
 @Component({
   selector: 'app-application-details',
@@ -643,7 +643,7 @@ export class ApplicationDetailsComponent implements OnInit {
     this.sendBackModal.open();
   }
 
-  approveApplication() {
+  async approveApplication() {
     if (!this.selectedApplicationForRemarks?.serApplicationId) {
       this.notificationService.showMessage('Invalid application', 'danger');
       return;
@@ -651,6 +651,36 @@ export class ApplicationDetailsComponent implements OnInit {
 
     if (this.isApproving) return;
     this.isApproving = true;
+
+    try {
+      const pdfBlob = await this.generatePdf(false);
+      if (!pdfBlob) {
+        this.isApproving = false;
+        this.notificationService.showMessage('Unable to generate PDF for approval', 'danger');
+        return;
+      }
+
+      const filename = `${this.applicationDetails?.txtFormCode || 'application'}.pdf`;
+      const uploadResponse: any = await firstValueFrom(
+        this.customFormApplicationService.updateApplicationPdf(
+          this.selectedApplicationForRemarks.serApplicationId,
+          pdfBlob,
+          filename
+        )
+      );
+
+      if (!uploadResponse || uploadResponse.status !== 'Success') {
+        this.isApproving = false;
+        this.notificationService.showMessage(uploadResponse?.message || 'Failed to upload application PDF', 'danger');
+        return;
+      }
+    } catch (e) {
+      console.error('Error preparing approval PDF:', e);
+      this.isApproving = false;
+      this.notificationService.showMessage('Error preparing approval PDF', 'danger');
+      return;
+    }
+
     this.customFormApplicationService.approveApplication(
       this.selectedApplicationForRemarks.serApplicationId,
       this.remarksText
@@ -1024,7 +1054,7 @@ export class ApplicationDetailsComponent implements OnInit {
     }
   }
 
-  async generatePdf() {
+  async generatePdf(download: boolean = true): Promise<Blob | null> {
     this.isGeneratingPdf = true;
     this.pdfBlobUrl = null;
 
@@ -1043,7 +1073,7 @@ export class ApplicationDetailsComponent implements OnInit {
       console.error('Content element not found:', elementId);
       this.notificationService.showMessage('Content to generate PDF not found', 'danger');
       this.isGeneratingPdf = false;
-      return;
+      return null;
     }
 
     const filename = `${this.applicationDetails?.txtFormCode || 'application'}.pdf`;
@@ -1204,17 +1234,22 @@ export class ApplicationDetailsComponent implements OnInit {
       this.pdfBlobUrl = pdfUrl;
       this.isGeneratingPdf = false;
 
-      const link = document.createElement('a');
-      link.href = pdfUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      if (download) {
+        const link = document.createElement('a');
+        link.href = pdfUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+
+      return pdfBlob;
 
     } catch (e) {
       console.error('Error generating PDF:', e);
       this.notificationService.showMessage('Error generating PDF', 'danger');
       this.isGeneratingPdf = false;
+      return null;
     }
   }
 }

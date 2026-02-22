@@ -457,17 +457,20 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             entityManager.persist(application);
             entityManager.getTransaction().commit();
             
-            // Send email notifications after successful submission
-            try {
-                if (isBudgetApproval) {
-                    sendBudgetApprovalNextEmail(application, 0);
-                    sendSubmissionEmails(application); // still send submitter confirmation
-                } else {
-                    sendSubmissionEmails(application);
+            // Send email notifications after successful submission (unless deferred)
+            boolean deferEmail = Boolean.TRUE.equals(application.getDeferEmail());
+            if (!deferEmail) {
+                try {
+                    if (isBudgetApproval) {
+                        sendBudgetApprovalNextEmail(application, 0);
+                        sendSubmissionEmails(application); // still send submitter confirmation
+                    } else {
+                        sendSubmissionEmails(application);
+                    }
+                } catch (Exception emailEx) {
+                    log.error("Error sending submission emails: " + emailEx.getMessage(), emailEx);
+                    // Don't fail the submission if email fails
                 }
-            } catch (Exception emailEx) {
-                log.error("Error sending submission emails: " + emailEx.getMessage(), emailEx);
-                // Don't fail the submission if email fails
             }
             
             return "Success";
@@ -545,6 +548,43 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             log.error("Error updating application: " + errorMessage, e);
             e.printStackTrace();
             return "Failure: " + errorMessage;
+        } finally {
+            if (entityManager.isOpen()) {
+                entityManager.close();
+            }
+        }
+    }
+
+    @Override
+    public String updateApplicationPdf(Integer applicationId, byte[] pdfData, String pdfName, String pdfMime) {
+        EntityManager entityManager = getEntityManager();
+        try {
+            if (applicationId == null) {
+                return "Failure: Application ID is required";
+            }
+            if (pdfData == null || pdfData.length == 0) {
+                return "Failure: PDF data is empty";
+            }
+
+            entityManager.getTransaction().begin();
+            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+            if (application == null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Application not found";
+            }
+
+            application.setBlbPdfData(pdfData);
+            application.setTxtPdfName(pdfName != null && !pdfName.trim().isEmpty() ? pdfName : "application.pdf");
+            application.setTxtPdfMime(pdfMime != null && !pdfMime.trim().isEmpty() ? pdfMime : "application/pdf");
+            entityManager.merge(application);
+            entityManager.getTransaction().commit();
+            return "Success";
+        } catch (Exception e) {
+            if (entityManager.getTransaction().isActive()) {
+                entityManager.getTransaction().rollback();
+            }
+            log.error("Error updating application PDF: " + e.getMessage(), e);
+            return "Failure: " + (e.getMessage() != null ? e.getMessage() : "Unknown error");
         } finally {
             if (entityManager.isOpen()) {
                 entityManager.close();
@@ -1281,6 +1321,51 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         }
     }
 
+    @Override
+    public String sendSubmissionEmailsForApplication(Integer applicationId) {
+        EntityManager entityManager = getEntityManager();
+        try {
+            if (applicationId == null) {
+                return "Failure: Application ID is required";
+            }
+
+            entityManager.getTransaction().begin();
+            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+            if (application == null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Application not found";
+            }
+
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form =
+                application.getSerFormId() != null
+                    ? entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class, application.getSerFormId())
+                    : null;
+            boolean isBudgetApproval = isBudgetApprovalForm(form);
+
+            entityManager.getTransaction().commit();
+
+            try {
+                if (isBudgetApproval) {
+                    sendBudgetApprovalNextEmail(application, 0);
+                }
+                sendSubmissionEmails(application);
+            } catch (Exception emailEx) {
+                log.error("Error sending submission emails: " + emailEx.getMessage(), emailEx);
+            }
+            return "Success";
+        } catch (Exception e) {
+            if (entityManager.getTransaction().isActive()) {
+                entityManager.getTransaction().rollback();
+            }
+            log.error("Error in sendSubmissionEmailsForApplication: " + e.getMessage(), e);
+            return "Failure: " + (e.getMessage() != null ? e.getMessage() : "Unknown error");
+        } finally {
+            if (entityManager.isOpen()) {
+                entityManager.close();
+            }
+        }
+    }
+
     /**
      * Send email notifications when an application is approved
      * Sends email to:
@@ -1322,6 +1407,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                             application.getTxtRemarks(),
                             false, // Not for department head
                             null, // No action buttons for submitter
+                            null,
                             null
                         );
                         
@@ -1379,6 +1465,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                         String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId=" + application.getSerApplicationId() + 
                                                          "&userId=" + nextDeptHead.getSerUserId();
                                         
+                                        String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId=" + application.getSerApplicationId() +
+                                                "&userId=" + nextDeptHead.getSerUserId();
                                         String deptHeadHtmlMessage = generateApprovalEmailHtml(
                                             nextDeptHead.getTxtUserName() != null ? nextDeptHead.getTxtUserName() : "Department Head",
                                             nextLevelOrder,
@@ -1388,7 +1476,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                             null,
                                             true, // For department head
                                             approveUrl,
-                                            rejectUrl
+                                            rejectUrl,
+                                            sendBackUrl
                                         );
                                         
                                         if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
@@ -1533,6 +1622,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                     String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId=" + application.getSerApplicationId() + 
                                                      "&userId=" + firstDeptHead.getSerUserId();
                                     
+                                    String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId=" + application.getSerApplicationId() +
+                                            "&userId=" + firstDeptHead.getSerUserId();
                                     String deptHeadHtmlMessage = generateApprovalEmailHtml(
                                         firstDeptHead.getTxtUserName() != null ? firstDeptHead.getTxtUserName() : "Department Head",
                                         firstLevelOrder,
@@ -1542,7 +1633,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                         null,
                                         true, // For department head
                                         approveUrl,
-                                        rejectUrl
+                                        rejectUrl,
+                                        sendBackUrl
                                     );
                                     
                                     if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
@@ -1688,6 +1780,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId=" + application.getSerApplicationId() +
                 "&userId=" + next.userId;
 
+            String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId=" + application.getSerApplicationId() +
+                "&userId=" + next.userId;
             String html = generateApprovalEmailHtml(
                 next.name != null ? next.name : "User",
                 sequenceIndex + 1,
@@ -1697,7 +1791,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 null,
                 true,
                 approveUrl,
-                rejectUrl
+                rejectUrl,
+                sendBackUrl
             );
 
             if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
@@ -2490,7 +2585,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
      */
     private String generateApprovalEmailHtml(String recipientName, Integer level, String applicationCode, 
                                             String formName, String status, String remarks, 
-                                            boolean showActionButtons, String approveUrl, String rejectUrl) {
+                                            boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackUrl) {
         StringBuilder html = new StringBuilder();
         html.append("<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
         html.append("<style>");
@@ -2511,6 +2606,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         html.append(".btn-approve:hover{background-color:#229954;transform:translateY(-2px);box-shadow:0 4px 8px rgba(39,174,96,0.3)}");
         html.append(".btn-reject{background-color:#e74c3c;color:white}");
         html.append(".btn-reject:hover{background-color:#c0392b;transform:translateY(-2px);box-shadow:0 4px 8px rgba(231,76,60,0.3)}");
+        html.append(".btn-sendback{background-color:#f39c12;color:white}");
+        html.append(".btn-sendback:hover{background-color:#d68910;transform:translateY(-2px);box-shadow:0 4px 8px rgba(243,156,18,0.3)}");
         html.append(".footer{margin-top:30px;padding-top:20px;border-top:2px solid #ecf0f1;text-align:center;color:#95a5a6;font-size:12px}");
         html.append(".status-badge{display:inline-block;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;text-transform:uppercase}");
         html.append(".status-approved{background-color:#d5f4e6;color:#27ae60}");
@@ -2544,6 +2641,9 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             html.append("<div class='button-container'>");
             html.append("<a href='").append(approveUrl).append("' class='btn btn-approve' style='color:white;text-decoration:none;'>✓ Approve Application</a>");
             html.append("<a href='").append(rejectUrl).append("' class='btn btn-reject' style='color:white;text-decoration:none;'>✗ Reject Application</a>");
+            if (sendBackUrl != null) {
+                html.append("<a href='").append(sendBackUrl).append("' class='btn btn-sendback' style='color:white;text-decoration:none;'>Send Back</a>");
+            }
             html.append("</div>");
             html.append("<p style='text-align:center;color:#7f8c8d;font-size:12px;margin-top:20px;'>You can also review this application in the system dashboard.</p>");
         } else {

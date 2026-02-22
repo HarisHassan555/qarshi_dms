@@ -24,7 +24,9 @@ export class AuthInterceptor implements HttpInterceptor {
         const isUploadDocument = request.url.includes("uploadCandidateDocument");
         const authToken = localStorage.getItem('token');
         const isuploadDocument = request.url.includes("uploadDocument");
+        const isUpdateApplicationPdf = request.url.includes("updateApplicationPdf");
         const isEmailApproval = request.url.includes("approveApplicationFromEmail") || request.url.includes("rejectApplicationFromEmail");
+        const isFormDataRequest = request.body instanceof FormData;
         let ok: string;
 
 
@@ -35,7 +37,7 @@ export class AuthInterceptor implements HttpInterceptor {
         this.storeData.dispatch({ type: 'toggleMainLoader', payload: true });
 
         if (!isUserDetails) {
-            if (isSaleInvoiceEditUrl || isUploadDocument || isuploadDocument) {
+            if (isSaleInvoiceEditUrl || isUploadDocument || isuploadDocument || isUpdateApplicationPdf || isFormDataRequest) {
                 const authReq = request.clone({
                     setHeaders: {
                         Authorization: `Bearer ${authToken}`

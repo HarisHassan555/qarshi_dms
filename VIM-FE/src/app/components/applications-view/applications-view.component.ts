@@ -4,9 +4,11 @@ import { Router } from '@angular/router';
 import { PermissionService } from '../../services/shared-data/permission-service';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
+import { ApplicationPdfService } from '../../services/application-pdf/application-pdf.service';
 import { NotificationService } from 'src/app/NotificationService';
 import { saveAs } from 'file-saver';
 import { urls } from 'src/app/utils/urls';
+import { firstValueFrom } from 'rxjs';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
@@ -62,11 +64,13 @@ export class ApplicationsViewComponent implements OnInit {
   editFormFields: any[] = [];
   isSubmitting: boolean = false;
   isGeneratingPDF: boolean = false; // Flag to prevent multiple simultaneous PDF generations
+  isPreparingApprovalPdf: boolean = false;
 
   constructor(
     private permissionService: PermissionService,
     private customFormApplicationService: CustomFormApplicationService,
     private customFormService: CustomFormService,
+    private applicationPdfService: ApplicationPdfService,
     private notificationService: NotificationService,
     private router: Router,
     private fb: FormBuilder
@@ -678,9 +682,41 @@ export class ApplicationsViewComponent implements OnInit {
     this.sendBackModal.open();
   }
 
-  approveApplication() {
+  async approveApplication() {
     if (!this.selectedApplicationForRemarks || !this.selectedApplicationForRemarks.serApplicationId) {
       this.notificationService.showMessage('Invalid application', 'danger');
+      return;
+    }
+
+    if (this.isPreparingApprovalPdf) {
+      this.notificationService.showMessage('Preparing PDF, please wait...', 'warning');
+      return;
+    }
+
+    let uploadOk = false;
+    this.isPreparingApprovalPdf = true;
+    try {
+      const pdfResult = await this.generateApprovalPdfBlob(this.selectedApplicationForRemarks);
+      const uploadResponse: any = await firstValueFrom(
+        this.customFormApplicationService.updateApplicationPdf(
+          this.selectedApplicationForRemarks.serApplicationId,
+          pdfResult.blob,
+          pdfResult.filename
+        )
+      );
+      if (uploadResponse && uploadResponse.status === 'Success') {
+        uploadOk = true;
+      } else {
+        this.notificationService.showMessage(uploadResponse?.message || 'Failed to upload application PDF', 'danger');
+      }
+    } catch (e: any) {
+      console.error('Error preparing approval PDF:', e);
+      this.notificationService.showMessage('Error preparing approval PDF', 'danger');
+    } finally {
+      this.isPreparingApprovalPdf = false;
+    }
+
+    if (!uploadOk) {
       return;
     }
 
@@ -1205,6 +1241,267 @@ export class ApplicationsViewComponent implements OnInit {
         this.notificationService.showMessage('Error loading application details: ' + (error.error?.message || error.message), 'danger');
       }
     );
+  }
+
+  private async generateApprovalPdfBlob(application: Application): Promise<{ blob: Blob; filename: string }> {
+    if (!application.serApplicationId) {
+      throw new Error('Invalid application ID');
+    }
+
+    const requestedApplicationId = application.serApplicationId;
+    const requestedFormCode = application.txtFormCode;
+
+    const data: any = await firstValueFrom(this.customFormApplicationService.getApplicationById(requestedApplicationId));
+    if (!data || data.serApplicationId !== requestedApplicationId) {
+      throw new Error('Application data mismatch or not found');
+    }
+    if (requestedFormCode && data.txtFormCode && data.txtFormCode !== requestedFormCode) {
+      throw new Error('Application form code mismatch');
+    }
+
+    const form = this.forms.find(f => f.serFormId === data.serFormId);
+    let formFields: any[] = [];
+
+    if (form && form.cfgTblCustomFormFields) {
+      formFields = form.cfgTblCustomFormFields
+        .map((field: any) => ({
+          serFieldId: field.serFieldId,
+          label: field.txtFieldLabel,
+          type: field.txtFieldType,
+          required: field.blIsRequired || false,
+          placeholder: field.txtPlaceholder || '',
+          intFieldOrder: field.intFieldOrder || 0,
+          txtFieldOptions: field.txtFieldOptions
+        }))
+        .sort((a: any, b: any) => (a.intFieldOrder || 0) - (b.intFieldOrder || 0));
+    } else if (data.cfgTblCustomForm && data.cfgTblCustomForm.cfgTblCustomFormFields) {
+      formFields = data.cfgTblCustomForm.cfgTblCustomFormFields
+        .map((field: any) => ({
+          serFieldId: field.serFieldId,
+          label: field.txtFieldLabel,
+          type: field.txtFieldType,
+          required: field.blIsRequired || false,
+          placeholder: field.txtPlaceholder || '',
+          intFieldOrder: field.intFieldOrder || 0,
+          txtFieldOptions: field.txtFieldOptions
+        }))
+        .sort((a: any, b: any) => (a.intFieldOrder || 0) - (b.intFieldOrder || 0));
+    }
+
+    let applicationFormData: any = {};
+    if (data.txtApplicationData) {
+      try {
+        applicationFormData = JSON.parse(data.txtApplicationData);
+      } catch (e) {
+        console.error('Error parsing application data:', e);
+      }
+    }
+
+    const resolvedFormName = (form?.txtFormName || data?.cfgTblCustomForm?.txtFormName || application.formName || '').trim();
+    const resolvedFormCode = (data.txtFormCode || application.txtFormCode || '').trim();
+    const htmlContent = this.applicationPdfService.buildPdfHtmlForApplication(
+      data,
+      form,
+      formFields,
+      applicationFormData,
+      { formName: resolvedFormName, txtFormCode: resolvedFormCode }
+    );
+    if (!htmlContent) {
+      throw new Error('PDF HTML generation failed');
+    }
+
+    const filename = `application_${data.txtFormCode || data.serApplicationId}.pdf`;
+    const blob = await this.applicationPdfService.renderHtmlToPdfBlob(htmlContent, filename);
+    return { blob, filename };
+  }
+
+  private buildPdfHtmlForApproval(
+    data: any,
+    form: any,
+    formFields: any[],
+    applicationFormData: any,
+    application: Application
+  ): string {
+    let isCapf = false;
+    if (data.txtFormCode && data.txtFormCode.trim().toUpperCase().startsWith('CAPF')) {
+      isCapf = true;
+    } else if (form && form.txtFormName && form.txtFormName.trim().toUpperCase() === 'CAPF FORM') {
+      isCapf = true;
+    } else if (data.cfgTblCustomForm && data.cfgTblCustomForm.txtFormName && data.cfgTblCustomForm.txtFormName.trim().toUpperCase() === 'CAPF FORM') {
+      isCapf = true;
+    }
+
+    let htmlContent = '';
+    let handledBudgetApproval = false;
+    const resolvedFormName = (form?.txtFormName || data.cfgTblCustomForm?.txtFormName || application.formName || '').trim();
+    const resolvedFormCode = (data.txtFormCode || application.txtFormCode || '').trim();
+    const normalizedFormName = resolvedFormName.replace(/\s+/g, ' ').toUpperCase();
+    const normalizedFormCode = resolvedFormCode.toUpperCase();
+    const initialIsBudgetApproval = this.isBudgetApprovalForm(application);
+    const forceBudgetApprovalByCode = (application.txtFormCode || '').toUpperCase().startsWith('BDG');
+
+    const isBudgetApproval =
+      normalizedFormName === 'BUDGET APPROVAL FORM' ||
+      normalizedFormName.includes('BUDGET APPROVAL') ||
+      normalizedFormCode.startsWith('BDG') ||
+      normalizedFormCode.includes('BDG-') ||
+      normalizedFormCode.includes('BAF') ||
+      initialIsBudgetApproval ||
+      forceBudgetApprovalByCode;
+
+    if (forceBudgetApprovalByCode) {
+      handledBudgetApproval = true;
+      htmlContent = this.generateBudgetApprovalPdfHtml(data, formFields, applicationFormData, resolvedFormName || 'Budget Approval');
+    }
+
+    if (!handledBudgetApproval && isBudgetApproval) {
+      handledBudgetApproval = true;
+      htmlContent = this.generateBudgetApprovalPdfHtml(data, formFields, applicationFormData, resolvedFormName || 'Budget Approval');
+    } else if (!handledBudgetApproval && isCapf) {
+      let pipelines: any[] = [];
+      if (form && form.cfgTblFormApprovalPipelines) {
+        pipelines = form.cfgTblFormApprovalPipelines;
+      } else if (data.cfgTblCustomForm && data.cfgTblCustomForm.cfgTblFormApprovalPipelines) {
+        pipelines = data.cfgTblCustomForm.cfgTblFormApprovalPipelines;
+      }
+      if (pipelines) {
+        pipelines.sort((a: any, b: any) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0));
+      } else {
+        pipelines = [];
+      }
+
+      htmlContent = this.generateCapfAbcHtml(data, formFields, applicationFormData, pipelines);
+      if (!htmlContent || !htmlContent.includes('abc-wrapper')) {
+        throw new Error('ABC HTML generation failed');
+      }
+    } else if (!handledBudgetApproval) {
+      let pipelines: any[] = [];
+      if (form && form.cfgTblFormApprovalPipelines) {
+        pipelines = form.cfgTblFormApprovalPipelines;
+      } else if (data.cfgTblCustomForm && data.cfgTblCustomForm.cfgTblFormApprovalPipelines) {
+        pipelines = data.cfgTblCustomForm.cfgTblFormApprovalPipelines;
+      }
+      if (pipelines) {
+        pipelines.sort((a: any, b: any) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0));
+      } else {
+        pipelines = [];
+      }
+
+      htmlContent = this.generatePDFContent(data, resolvedFormName || 'Unknown Form', formFields, applicationFormData, pipelines);
+    }
+
+    return htmlContent;
+  }
+
+  private renderHtmlToPdfBlob(htmlContent: string, filename: string): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      let done = false;
+
+      const cleanup = (iframe: HTMLIFrameElement) => {
+        if (document.body.contains(iframe)) {
+          document.body.removeChild(iframe);
+        }
+      };
+
+      const existingIframes = document.querySelectorAll('iframe[data-pdf-generator]');
+      existingIframes.forEach((iframe: Element) => {
+        if (iframe.parentNode) {
+          iframe.parentNode.removeChild(iframe);
+        }
+      });
+
+      const iframe = document.createElement('iframe');
+      iframe.setAttribute('data-pdf-generator', 'true');
+      iframe.style.position = 'absolute';
+      iframe.style.left = '-9999px';
+      iframe.style.top = '0';
+      iframe.style.width = '900px';
+      iframe.style.height = '1200px';
+      iframe.style.border = 'none';
+      iframe.style.overflow = 'hidden';
+      document.body.appendChild(iframe);
+
+      const iframeDoc = iframe.contentDocument || (iframe.contentWindow as any)?.document;
+      if (!iframeDoc) {
+        cleanup(iframe);
+        reject(new Error('Could not access iframe document'));
+        return;
+      }
+
+      iframeDoc.open();
+      iframeDoc.write(htmlContent);
+      iframeDoc.close();
+
+      const generatePdf = () => {
+        if (done) return;
+        try {
+          const element = (iframeDoc.querySelector('.abc-wrapper') || iframeDoc.querySelector('.xyz-paper') || iframeDoc.body) as HTMLElement;
+          if (!element) {
+            done = true;
+            cleanup(iframe);
+            reject(new Error('PDF content element not found'));
+            return;
+          }
+
+          element.offsetHeight;
+          const opt = {
+            margin: [2, 5, 2, 5] as [number, number, number, number],
+            filename,
+            image: { type: 'jpeg' as const, quality: 0.98 },
+            html2canvas: {
+              scale: 1.5,
+              useCORS: true,
+              logging: false,
+              letterRendering: true,
+              allowTaint: true,
+              backgroundColor: '#ffffff',
+              windowWidth: element.scrollWidth || 900,
+              windowHeight: element.scrollHeight || 1200,
+              width: element.scrollWidth || 900,
+              height: element.scrollHeight || 1200,
+              onclone: (clonedDoc: Document) => {
+                const clonedElement = (clonedDoc.querySelector('.abc-wrapper') || clonedDoc.querySelector('.xyz-paper') || clonedDoc.body) as HTMLElement;
+                if (clonedElement) {
+                  clonedElement.offsetHeight;
+                }
+              }
+            },
+            jsPDF: {
+              unit: 'mm' as const,
+              format: 'a4' as const,
+              orientation: 'portrait' as const
+            }
+          };
+
+          html2pdf().set(opt).from(element).outputPdf('blob').then((pdfBlob: Blob) => {
+            if (done) return;
+            done = true;
+            cleanup(iframe);
+            resolve(pdfBlob);
+          }).catch((error: any) => {
+            if (done) return;
+            done = true;
+            cleanup(iframe);
+            reject(error);
+          });
+        } catch (error) {
+          if (done) return;
+          done = true;
+          cleanup(iframe);
+          reject(error);
+        }
+      };
+
+      iframe.onload = () => {
+        setTimeout(generatePdf, 1000);
+      };
+
+      setTimeout(() => {
+        if (!done) {
+          generatePdf();
+        }
+      }, 1500);
+    });
   }
 
   private generatePDFContent(application: any, formName: string, formFields: any[], applicationFormData: any, pipelines: any[]): string {

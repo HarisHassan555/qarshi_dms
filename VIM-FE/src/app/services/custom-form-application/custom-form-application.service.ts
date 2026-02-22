@@ -35,6 +35,13 @@ export class CustomFormApplicationService {
     return this.http.post(urls.API_URL + 'updateApplication', payload);
   }
 
+  updateApplicationPdf(applicationId: number, pdfBlob: Blob, filename?: string) {
+    const formData = new FormData();
+    formData.append('applicationId', String(applicationId));
+    formData.append('pdf', pdfBlob, filename || 'application.pdf');
+    return this.http.post(urls.API_URL + 'updateApplicationPdf', formData);
+  }
+
   deleteApplication(applicationId: number) {
     return this.http.post(urls.API_URL + 'deleteApplication?applicationId=' + applicationId, {});
   }
@@ -70,6 +77,10 @@ export class CustomFormApplicationService {
       applicationId: applicationId,
       remarks: remarks
     });
+  }
+
+  sendSubmissionEmails(applicationId: number) {
+    return this.http.post(urls.API_URL + 'sendSubmissionEmails?applicationId=' + applicationId, {});
   }
 }
 

@@ -1,10 +1,12 @@
 import { Component, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormBuilder, FormGroup, FormArray, Validators, FormControl } from '@angular/forms';
+import { firstValueFrom } from 'rxjs';
 import { PermissionService } from '../../services/shared-data/permission-service';
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
 import { NotificationService } from 'src/app/NotificationService';
+import { ApplicationPdfService } from 'src/app/services/application-pdf/application-pdf.service';
 
 interface FormField {
   serFieldId?: number;
@@ -53,6 +55,7 @@ export class ApplicationComponent implements OnInit {
     private permissionService: PermissionService,
     private customFormService: CustomFormService,
     private customFormApplicationService: CustomFormApplicationService,
+    private applicationPdfService: ApplicationPdfService,
     private fb: FormBuilder,
     private notificationService: NotificationService,
     private router: Router
@@ -308,7 +311,7 @@ export class ApplicationComponent implements OnInit {
     return `Row ${rowIndex + 1}`;
   }
 
-  onSubmit() {
+  async onSubmit() {
     if (this.applicationForm.valid && this.selectedForm) {
       const formData = { ...this.applicationForm.value };
 
@@ -348,37 +351,85 @@ export class ApplicationComponent implements OnInit {
         serSubmittedBy: userId,
         blIsActive: true,
         blIsDeleted: false,
-        blnStatus: true
+        blnStatus: true,
+        deferEmail: true
       };
 
-      // Submit to backend
-      this.customFormApplicationService.submitApplication(payload).subscribe(
-        (response: any) => {
-          if (response && response.status === 'Success') {
-            this.notificationService.showMessage(response.message || 'Application submitted successfully!', 'success');
-            // Reset form after successful submission
-            this.applicationForm.reset();
-            this.selectedForm = null;
-            this.generatedApplicationCode = null;
-            // Reset form selection dropdown
-            const selectElement = document.querySelector('select') as HTMLSelectElement;
-            if (selectElement) {
-              selectElement.value = '';
-            }
+      try {
+        const response: any = await firstValueFrom(this.customFormApplicationService.submitApplication(payload));
+        if (response && response.status === 'Success') {
+          const applicationId = Number(response.applicationId);
+          if (!applicationId) {
+            this.notificationService.showMessage('Application submitted but ID was not returned.', 'warning');
           } else {
-            this.notificationService.showMessage(response?.message || 'Failed to submit application', 'danger');
+            try {
+              await this.uploadPdfAndSendEmails(applicationId, formData);
+              this.notificationService.showMessage(response.message || 'Application submitted successfully!', 'success');
+            } catch (emailError: any) {
+              console.error('Failed to upload PDF or send emails:', emailError);
+              this.notificationService.showMessage('Application submitted, but approval email could not be sent.', 'warning');
+            }
           }
-        },
-        (error) => {
-          this.notificationService.showMessage('Error submitting application: ' + (error.error?.message || error.message), 'danger');
+
+          // Reset form after successful submission
+          this.applicationForm.reset();
+          this.selectedForm = null;
+          this.generatedApplicationCode = null;
+          const selectElement = document.querySelector('select') as HTMLSelectElement;
+          if (selectElement) {
+            selectElement.value = '';
+          }
+        } else {
+          this.notificationService.showMessage(response?.message || 'Failed to submit application', 'danger');
         }
-      );
+      } catch (error: any) {
+        this.notificationService.showMessage('Error submitting application: ' + (error.error?.message || error.message), 'danger');
+      }
     } else {
       this.notificationService.showMessage('Please fill all required fields', 'danger');
       // Mark all fields as touched to show validation errors
       Object.keys(this.applicationForm.controls).forEach(key => {
         this.applicationForm.get(key)?.markAsTouched();
       });
+    }
+  }
+
+  private async uploadPdfAndSendEmails(applicationId: number, formData: any): Promise<void> {
+    const applicationResponse: any = await firstValueFrom(
+      this.customFormApplicationService.getApplicationById(applicationId)
+    );
+    const application = applicationResponse || {};
+
+    const form = this.selectedForm;
+    const formFields = form?.fields || [];
+    const formName = (form?.txtFormName || form?.name || application?.cfgTblCustomForm?.txtFormName || '').trim();
+    const formCode = (application?.txtFormCode || this.generatedApplicationCode || form?.txtFormCode || '').trim();
+
+    const htmlContent = this.applicationPdfService.buildPdfHtmlForApplication(
+      application,
+      form,
+      formFields,
+      formData,
+      { formName, txtFormCode: formCode }
+    );
+    if (!htmlContent) {
+      throw new Error('PDF HTML generation failed');
+    }
+
+    const filename = `application_${formCode || applicationId}.pdf`;
+    const pdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(htmlContent, filename);
+    const pdfResponse: any = await firstValueFrom(
+      this.customFormApplicationService.updateApplicationPdf(applicationId, pdfBlob, filename)
+    );
+    if (!pdfResponse || pdfResponse.status !== 'Success') {
+      throw new Error(pdfResponse?.message || 'Failed to update application PDF');
+    }
+
+    const emailResponse: any = await firstValueFrom(
+      this.customFormApplicationService.sendSubmissionEmails(applicationId)
+    );
+    if (!emailResponse || emailResponse.status !== 'Success') {
+      throw new Error(emailResponse?.message || 'Failed to send submission emails');
     }
   }
 
