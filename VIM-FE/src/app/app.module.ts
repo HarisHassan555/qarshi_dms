@@ -97,6 +97,7 @@ import { SignatureComponent } from './components/signature/signature.component';
 import { CapfComponent } from './components/capf/capf.component';
 import { ApplicationComponent } from './components/application/application.component';
 import { ApplicationsViewComponent } from './components/applications-view/applications-view.component';
+import { PendingApprovalsComponent } from './components/pending-approvals/pending-approvals.component';
 import { ApplicationDetailsComponent } from './components/application-details/application-details.component';
 import { FormBuilderComponent } from './components/form-builder/form-builder.component';
 import { EmailApprovalComponent } from './components/email-approval/email-approval.component';
@@ -214,6 +215,7 @@ import { AbcComponent } from './pages/abc/abc.component';
         CapfComponent,
         ApplicationComponent,
         ApplicationsViewComponent,
+        PendingApprovalsComponent,
         ApplicationDetailsComponent,
         FormBuilderComponent,
         EmailApprovalComponent,

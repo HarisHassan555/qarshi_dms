@@ -35,7 +35,8 @@ export const canActivate: CanActivateFn = (
     'tax-category', 'product-category', 'product', 'users', 'password-policy', 'change-password', 
     'role', 'channel', 'service-order', 'vendor-view', 'payment', 'OrderDepartment', 'pdf-editor', 
     'SES', 'auditLog', 'transactions-details', 'report', 'order-details', 'application', 'applicationsview', 
-    'application-details', 'formbuilder', 'CAPF', 'approveApplicationFromEmail', 'rejectApplicationFromEmail'];
+    'application-details', 'formbuilder', 'CAPF', 'approveApplicationFromEmail', 'rejectApplicationFromEmail',
+    'pending-approvals'];
 
   let user: any = localStorage.getItem('user');
   if (user && user !== null) {

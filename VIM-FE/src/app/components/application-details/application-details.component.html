@@ -1,6 +1,9 @@
 <div class="panel border-[#e0e6ed] px-5 py-5 dark:border-[#1b2e4b]">
     <!-- Header with Back Button -->
-    <div class="mb-6 flex items-center justify-between">
+     <!-- <div class="mb-6 flex items-center justify-between">
+        
+     </div> -->
+    <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div class="flex items-center gap-4">
             <button (click)="goBack()" class="btn btn-outline-primary gap-2">
                 <icon-arrow-left class="h-4 w-4" />
@@ -8,28 +11,52 @@
             </button>
             <h5 class="text-xl font-bold dark:text-white-light">Application Details</h5>
         </div>
-        <div class="flex gap-2">
-            <button (click)="openSummaryModal()" class="btn btn-outline-info gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="8" x2="12" y2="12" />
-                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-                View Summary
-            </button>
-            <button *ngIf="!pdfBlobUrl" (click)="generatePdf()" [disabled]="isGeneratingPdf"
-                class="btn btn-primary gap-2">
-                <span *ngIf="isGeneratingPdf"
-                    class="animate-spin border-2 border-white border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
-                <icon-printer class="w-4 h-4" *ngIf="!isGeneratingPdf" />
-                {{ isGeneratingPdf ? 'Generating...' : 'Generate PDF' }}
-            </button>
-            <a *ngIf="pdfBlobUrl" [href]="pdfBlobUrl"
-                [download]="(applicationDetails?.txtFormCode || 'application') + '.pdf'" class="btn btn-success gap-2">
-                <icon-download class="w-4 h-4" />
-                Download PDF
-            </a>
+        <div class="flex w-full flex-col items-end gap-2 sm:w-auto">
+            <div class="flex flex-wrap gap-2 justify-end" *ngIf="showApprovalActions()">
+                <button (click)="openApproveModal()" class="btn btn-success gap-2"
+                    [disabled]="isApproving || isRejecting || isSendingBack">
+                    <icon-circle-check class="w-4 h-4" />
+                    Approve
+                </button>
+                <button (click)="openRejectModal()" class="btn btn-danger gap-2"
+                    [disabled]="isApproving || isRejecting || isSendingBack">
+                    <icon-x class="w-4 h-4" />
+                    Reject
+                </button>
+                <button (click)="openSendBackModal()" class="btn btn-warning gap-2"
+                    [disabled]="isApproving || isRejecting || isSendingBack">
+                    <icon-arrow-backward class="w-4 h-4" />
+                    Send Back
+                </button>
+            </div>
+            <div class="flex flex-wrap gap-2 justify-end">
+                <button (click)="openSummaryModal()" class="btn btn-outline-info gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    View Summary
+                </button>
+                <button *ngIf="showFeasibilityReportButton()" (click)="openFeasibilityReport()"
+                    class="btn btn-outline-secondary gap-2">
+                    <icon-file class="w-4 h-4" />
+                    View Feasibility Report
+                </button>
+                <button *ngIf="!pdfBlobUrl" (click)="generatePdf()" [disabled]="isGeneratingPdf"
+                    class="btn btn-primary gap-2">
+                    <span *ngIf="isGeneratingPdf"
+                        class="animate-spin border-2 border-white border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
+                    <icon-printer class="w-4 h-4" *ngIf="!isGeneratingPdf" />
+                    {{ isGeneratingPdf ? 'Generating...' : 'Generate PDF' }}
+                </button>
+                <a *ngIf="pdfBlobUrl" [href]="pdfBlobUrl"
+                    [download]="(applicationDetails?.txtFormCode || 'application') + '.pdf'" class="btn btn-success gap-2">
+                    <icon-download class="w-4 h-4" />
+                    Download PDF
+                </a>
+            </div>
         </div>
     </div>
 
@@ -122,7 +149,7 @@
             </div>
 
             <!-- Detailed Remarks Section (Square Card) -->
-            <div *ngIf="applicationDetails.txtRemarks"
+            <!-- <div *ngIf="applicationDetails.txtRemarks"
                 class="mt-6 bg-gray-50 dark:bg-gray-800/50 border border-dashed border-[#e0e6ed] dark:border-[#1b2e4b] p-5">
                 <div class="flex gap-3">
                     <div class="mt-1 flex-shrink-0 text-gray-400">
@@ -135,7 +162,7 @@
                         </p>
                     </div>
                 </div>
-            </div>
+            </div> -->
         </div>
 
         <!-- Form Data (Alternative for non-Budget Approval forms) -->
@@ -259,12 +286,48 @@
                 <div class="xyz-footer">
                     <table class="xyz-signatures">
                         <tr class="xyz-signatures-blank">
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
+                            <td>
+                                <div *ngIf="preparedBy && isUserApproved(preparedBy)">
+                                    <img *ngIf="getUserSignatureUrl(preparedBy)" [src]="getUserSignatureUrl(preparedBy)"
+                                        class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
+                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(preparedBy)">{{ getUserApprovalDate(preparedBy) }}</div>
+                                </div>
+                            </td>
+                            <td>
+                                <div *ngIf="reviewers?.[0] && isUserApproved(reviewers[0])">
+                                    <img *ngIf="getUserSignatureUrl(reviewers[0])" [src]="getUserSignatureUrl(reviewers[0])"
+                                        class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
+                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(reviewers[0])">{{ getUserApprovalDate(reviewers[0]) }}</div>
+                                </div>
+                            </td>
+                            <td>
+                                <div *ngIf="reviewers?.[1] && isUserApproved(reviewers[1])">
+                                    <img *ngIf="getUserSignatureUrl(reviewers[1])" [src]="getUserSignatureUrl(reviewers[1])"
+                                        class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
+                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(reviewers[1])">{{ getUserApprovalDate(reviewers[1]) }}</div>
+                                </div>
+                            </td>
+                            <td>
+                                <div *ngIf="recommenders?.[0] && isUserApproved(recommenders[0])">
+                                    <img *ngIf="getUserSignatureUrl(recommenders[0])" [src]="getUserSignatureUrl(recommenders[0])"
+                                        class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
+                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(recommenders[0])">{{ getUserApprovalDate(recommenders[0]) }}</div>
+                                </div>
+                            </td>
+                            <td>
+                                <div *ngIf="recommenders?.[1] && isUserApproved(recommenders[1])">
+                                    <img *ngIf="getUserSignatureUrl(recommenders[1])" [src]="getUserSignatureUrl(recommenders[1])"
+                                        class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
+                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(recommenders[1])">{{ getUserApprovalDate(recommenders[1]) }}</div>
+                                </div>
+                            </td>
+                            <td>
+                                <div *ngIf="approver && isUserApproved(approver)">
+                                    <img *ngIf="getUserSignatureUrl(approver)" [src]="getUserSignatureUrl(approver)"
+                                        class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
+                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(approver)">{{ getUserApprovalDate(approver) }}</div>
+                                </div>
+                            </td>
                         </tr>
                         <tr>
                             <th>Prepared by:</th>
@@ -274,20 +337,40 @@
                         </tr>
                         <tr>
                             <td>
-                                <span *ngIf="preparedBy">
-                                    {{ preparedBy.txtUserName }}<br>
-                                    ({{ preparedBy.cfgTblRole?.txtRoleName || 'Executive' }})
-                                </span>
+                                <div *ngIf="preparedBy">
+                                    <div>
+                                        {{ preparedBy.txtUserName }}<br>
+                                        ({{ preparedBy.cfgTblRole?.txtRoleName || 'Executive' }})
+                                    </div>
+                                </div>
                             </td>
-                            <td [innerHTML]="formatUserForSignature(reviewers, 0)"></td>
-                            <td [innerHTML]="formatUserForSignature(reviewers, 1)"></td>
-                            <td [innerHTML]="formatUserForSignature(recommenders, 0)"></td>
-                            <td [innerHTML]="formatUserForSignature(recommenders, 1)"></td>
                             <td>
-                                <span *ngIf="approver">
-                                    {{ approver.txtUserName }}<br>
-                                    ({{ approver.cfgTblRole?.txtRoleName || 'Approver' }})
-                                </span>
+                                <div *ngIf="reviewers?.[0]">
+                                    <div [innerHTML]="formatUserForSignature(reviewers, 0)"></div>
+                                </div>
+                            </td>
+                            <td>
+                                <div *ngIf="reviewers?.[1]">
+                                    <div [innerHTML]="formatUserForSignature(reviewers, 1)"></div>
+                                </div>
+                            </td>
+                            <td>
+                                <div *ngIf="recommenders?.[0]">
+                                    <div [innerHTML]="formatUserForSignature(recommenders, 0)"></div>
+                                </div>
+                            </td>
+                            <td>
+                                <div *ngIf="recommenders?.[1]">
+                                    <div [innerHTML]="formatUserForSignature(recommenders, 1)"></div>
+                                </div>
+                            </td>
+                            <td>
+                                <div *ngIf="approver">
+                                    <div>
+                                        {{ approver.txtUserName }}<br>
+                                        ({{ approver.cfgTblRole?.txtRoleName || 'Approver' }})
+                                    </div>
+                                </div>
                             </td>
                         </tr>
                     </table>
@@ -309,6 +392,136 @@
         </div> -->
     </div>
 </div>
+
+<!-- Approve Application Modal -->
+<modal #approveModal [closeOnOutsideClick]="false" *ngIf="selectedApplicationForRemarks">
+    <ng-template #modalHeader>
+        <div>Approve Application</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="space-y-4">
+            <p class="text-sm text-gray-600 dark:text-gray-400">
+                Are you sure you want to approve this application?
+            </p>
+            <div *ngIf="applicationDetails">
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Application Code: <span class="badge badge-outline-primary">{{ applicationDetails.txtFormCode }}</span>
+                </p>
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Form Name: {{ applicationDetails.cfgTblCustomForm?.txtFormName || 'Custom Form' }}
+                </p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Remarks (Optional)</label>
+                <textarea 
+                    [(ngModel)]="remarksText" 
+                    class="form-textarea" 
+                    rows="3" 
+                    placeholder="Enter any remarks or comments...">
+                </textarea>
+            </div>
+        </div>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''"
+            class="btn btn-outline-danger" [disabled]="isApproving">Cancel</button>
+        <button type="button" (click)="approveApplication()" class="btn btn-success ltr:ml-4 rtl:mr-4"
+            [disabled]="isApproving">
+            <span *ngIf="isApproving"
+                class="animate-spin border-2 border-white border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
+            {{ isApproving ? 'Approving...' : 'Approve' }}
+        </button>
+    </ng-template>
+</modal>
+
+<!-- Reject Application Modal -->
+<modal #rejectModal [closeOnOutsideClick]="false" *ngIf="selectedApplicationForRemarks">
+    <ng-template #modalHeader>
+        <div>Reject Application</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="space-y-4">
+            <p class="text-sm text-gray-600 dark:text-gray-400">
+                Are you sure you want to reject this application?
+            </p>
+            <div *ngIf="applicationDetails">
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Application Code: <span class="badge badge-outline-primary">{{ applicationDetails.txtFormCode }}</span>
+                </p>
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Form Name: {{ applicationDetails.cfgTblCustomForm?.txtFormName || 'Custom Form' }}
+                </p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Rejection Reason <span class="text-danger">*</span></label>
+                <textarea 
+                    [(ngModel)]="remarksText" 
+                    class="form-textarea" 
+                    rows="3" 
+                    placeholder="Please provide a reason for rejection..."
+                    required>
+                </textarea>
+            </div>
+        </div>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''"
+            class="btn btn-outline-danger" [disabled]="isRejecting">Cancel</button>
+        <button type="button" (click)="rejectApplication()"
+            [disabled]="isRejecting || !remarksText || remarksText.trim() === ''"
+            class="btn btn-danger ltr:ml-4 rtl:mr-4">
+            <span *ngIf="isRejecting"
+                class="animate-spin border-2 border-white border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
+            {{ isRejecting ? 'Rejecting...' : 'Reject' }}
+        </button>
+    </ng-template>
+</modal>
+
+<!-- Send Back Application Modal -->
+<modal #sendBackModal [closeOnOutsideClick]="false" *ngIf="selectedApplicationForRemarks">
+    <ng-template #modalHeader>
+        <div>Send Back Application</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="space-y-4">
+            <p class="text-sm text-gray-600 dark:text-gray-400">
+                Are you sure you want to send this application back to the previous department for re-approval?
+            </p>
+            <div *ngIf="applicationDetails">
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Application Code: <span class="badge badge-outline-primary">{{ applicationDetails.txtFormCode }}</span>
+                </p>
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Form Name: {{ applicationDetails.cfgTblCustomForm?.txtFormName || 'Custom Form' }}
+                </p>
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Current Approval Level: <span class="badge badge-outline-info">Level {{ applicationDetails.intCurrentApprovalLevel || 0 }}</span>
+                </p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Remarks <span class="text-danger">*</span></label>
+                <textarea 
+                    [(ngModel)]="remarksText" 
+                    class="form-textarea" 
+                    rows="3" 
+                    placeholder="Please provide remarks for sending back this application..."
+                    required>
+                </textarea>
+            </div>
+        </div>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''"
+            class="btn btn-outline-danger" [disabled]="isSendingBack">Cancel</button>
+        <button type="button" (click)="sendBackApplication()"
+            [disabled]="isSendingBack || !remarksText || remarksText.trim() === ''"
+            class="btn btn-warning ltr:ml-4 rtl:mr-4">
+            <span *ngIf="isSendingBack"
+                class="animate-spin border-2 border-white border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
+            {{ isSendingBack ? 'Sending...' : 'Send Back' }}
+        </button>
+    </ng-template>
+</modal>
 
 <!-- ═══════════ APPROVAL SUMMARY MODAL ═══════════ -->
 <div *ngIf="showSummaryModal" class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
@@ -391,11 +604,11 @@
                                     <span class="text-lg font-bold text-green-600 dark:text-green-400">{{
                                         countStages(pipelines, 'APPROVED') }}</span>
                                 </div>
-                                <div class="flex flex-col items-center">
+                                <!-- <div class="flex flex-col items-center">
                                     <span class="text-xs text-gray-400 font-medium uppercase tracking-wider">Wait</span>
                                     <span class="text-lg font-bold text-yellow-600 dark:text-yellow-400">{{
                                         countStages(pipelines, 'CURRENT') }}</span>
-                                </div>
+                                </div> -->
                                 <div class="flex flex-col items-center">
                                     <span
                                         class="text-xs text-gray-400 font-medium uppercase tracking-wider">Pending</span>
@@ -407,184 +620,70 @@
                         </div>
                     </div>
 
+                    <!-- Logical Summary -->
+                    <div class="bg-white dark:bg-[#1b2e4b] border border-gray-100 dark:border-gray-700 rounded-lg p-4 shadow-sm mt-4">
+                        <div class="text-xs text-gray-500 dark:text-gray-300 leading-6">
+                            <span class="font-semibold text-gray-700 dark:text-white">Summary:</span>
+                            <span [innerHTML]="getWorkflowSummaryHtml(pipelines)"></span>
+                        </div>
+                    </div>
+
+                    <!-- HOD Performance Table -->
+                    <div class="bg-white dark:bg-[#1b2e4b] border border-gray-100 dark:border-gray-700 rounded-lg p-4 shadow-sm mt-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h4 class="text-sm font-bold text-gray-800 dark:text-white">HOD Performance</h4>
+                            <span class="text-[11px] text-gray-400">Time to approve/reject by department</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full text-xs">
+                                <thead>
+                                    <tr class="text-left text-gray-500 border-b border-gray-100 dark:border-gray-700">
+                                        <th class="py-2 pr-4">Department</th>
+                                        <th class="py-2 pr-4">HOD</th>
+                                        <th class="py-2 pr-4">Status</th>
+                                        <th class="py-2 pr-4">Approved At</th>
+                                        <th class="py-2 pr-4">Time Taken</th>
+                                        <th class="py-2">Source</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr *ngFor="let pipeline of pipelines; let i = index"
+                                        class="border-b border-gray-50 dark:border-gray-800">
+                                        <td class="py-2 pr-4 text-gray-700 dark:text-gray-300">
+                                            {{ getPipelineDepartmentName(pipeline, i) }}
+                                        </td>
+                                        <td class="py-2 pr-4 text-gray-700 dark:text-gray-300">
+                                            {{ getStageApproverName(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                        </td>
+                                        <td class="py-2 pr-4">
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold"
+                                                [ngClass]="{
+                                                    'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'APPROVED',
+                                                    'bg-yellow-50 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'CURRENT',
+                                                    'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'REJECTED',
+                                                    'bg-gray-50 text-gray-400 dark:bg-gray-800 dark:text-gray-500': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'PENDING'
+                                                }">
+                                                {{ getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) }}
+                                            </span>
+                                        </td>
+                                        <td class="py-2 pr-4 text-gray-500">
+                                            {{ getStageApprovedAt(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                        </td>
+                                        <td class="py-2 pr-4 text-gray-500">
+                                            {{ getStageTimeTaken(i, pipelines) || '--' }}
+                                        </td>
+                                        <td class="py-2 text-gray-500">
+                                            {{ formatApprovedVia(getStageApprovedVia(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId)) || '--' }}
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
                     <!-- ── Timeline Section ── -->
                     <!-- ── Linear Timeline ── -->
-                    <div class="relative mt-2">
-                        <!-- Connecting Line -->
-                        <div class="absolute left-[88px] top-6 bottom-6 w-0.5 bg-gray-100 dark:bg-[#1b2e4b]"></div>
-
-                        <div *ngFor="let pipeline of pipelines; let i = index; let last = last"
-                            class="group relative flex items-start gap-6 mb-8 last:mb-0">
-
-                            <!-- 1. Left: Date/Time (Align right) -->
-                            <div class="w-[60px] flex-shrink-0 text-right pt-1.5 min-h-[48px]">
-                                <ng-container
-                                    *ngIf="getDepartmentApprovalDate(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) as dt">
-                                    <div class="text-[11px] font-bold text-gray-600 dark:text-gray-300 leading-tight">
-                                        {{ dt | date:'MMM d' }}
-                                    </div>
-                                    <div class="text-[10px] text-gray-400 font-medium mt-0.5">
-                                        {{ dt | date:'h:mm a' }}
-                                    </div>
-                                </ng-container>
-                                <ng-container
-                                    *ngIf="!getDepartmentApprovalDate(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId)">
-                                    <span
-                                        class="text-[10px] text-gray-300 dark:text-gray-600 font-medium italic">--</span>
-                                </ng-container>
-                            </div>
-
-                            <!-- 2. Center: Status Dot -->
-                            <div class="relative z-10 flex-shrink-0 flex items-center justify-center w-14">
-                                <ng-container
-                                    [ngSwitch]="getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId)">
-
-                                    <!-- APPROVED -->
-                                    <div *ngSwitchCase="'APPROVED'"
-                                        class="w-8 h-8 rounded-full bg-green-500 border-4 border-white dark:border-[#0e1726] flex items-center justify-center shadow-md ring-1 ring-black/5">
-                                        <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24"
-                                            stroke="currentColor" stroke-width="3">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                                        </svg>
-                                    </div>
-
-                                    <!-- CURRENT -->
-                                    <div *ngSwitchCase="'CURRENT'"
-                                        class="w-8 h-8 rounded-full bg-yellow-400 border-4 border-white dark:border-[#0e1726] flex items-center justify-center shadow-lg ring-4 ring-yellow-400/20 animate-pulse">
-                                        <div class="w-2.5 h-2.5 bg-white rounded-full"></div>
-                                    </div>
-
-                                    <!-- REJECTED -->
-                                    <div *ngSwitchCase="'REJECTED'"
-                                        class="w-8 h-8 rounded-full bg-red-500 border-4 border-white dark:border-[#0e1726] flex items-center justify-center shadow-md ring-1 ring-black/5">
-                                        <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24"
-                                            stroke="currentColor" stroke-width="3">
-                                            <path stroke-linecap="round" stroke-linejoin="round"
-                                                d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                    </div>
-
-                                    <!-- PENDING -->
-                                    <div *ngSwitchDefault
-                                        class="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 border-4 border-white dark:border-[#0e1726] flex items-center justify-center shadow-sm">
-                                        <span class="text-[10px] font-bold text-gray-400">{{ i + 1 }}</span>
-                                    </div>
-                                </ng-container>
-                            </div>
-
-                            <!-- 3. Right: Content Card -->
-                            <div class="flex-1 pt-1">
-                                <div
-                                    class="relative bg-white dark:bg-[#1b2e4b] border border-gray-100 dark:border-gray-700 rounded-lg p-4 shadow-sm transition-shadow hover:shadow-md
-                                            group-last:border-transparent group-last:bg-transparent group-last:shadow-none group-last:p-0 group-last:pl-4">
-
-                                    <!-- Header Row -->
-                                    <div class="flex items-start justify-between mb-2">
-                                        <div>
-                                            <h3
-                                                class="text-sm font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                                                {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' + (i +
-                                                1) }}
-                                            </h3>
-
-                                            <!-- Approver Name -->
-                                            <div *ngIf="getStageApproverName(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) as approver"
-                                                class="flex items-center gap-1.5 mt-1 text-xs text-gray-500 font-medium">
-                                                <div
-                                                    class="w-4 h-4 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500">
-                                                    <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none"
-                                                        stroke="currentColor" stroke-width="2">
-                                                        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                                                        <circle cx="12" cy="7" r="4" />
-                                                    </svg>
-                                                </div>
-                                                {{ approver }}
-                                            </div>
-                                        </div>
-
-                                        <!-- Status Badge -->
-                                        <div
-                                            [ngSwitch]="getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId)">
-                                            <span *ngSwitchCase="'APPROVED'"
-                                                class="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-100 dark:border-green-800">
-                                                APPROVED
-                                            </span>
-                                            <span *ngSwitchCase="'CURRENT'"
-                                                class="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold bg-yellow-50 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 border border-yellow-100 dark:border-yellow-800">
-                                                IN PROGRESS
-                                            </span>
-                                            <span *ngSwitchCase="'REJECTED'"
-                                                class="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400 border border-red-100 dark:border-red-800">
-                                                REJECTED
-                                            </span>
-                                            <span *ngSwitchDefault
-                                                class="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold bg-gray-50 text-gray-400 dark:bg-gray-800 dark:text-gray-500 border border-gray-100 dark:border-gray-700">
-                                                waiting
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <!-- Details Block (If not pending) -->
-                                    <ng-container
-                                        *ngIf="getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) !== 'PENDING'">
-
-                                        <!-- Remarks Output -->
-                                        <div *ngIf="getDepartmentRemarks(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) as remarks"
-                                            class="mt-3 text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-[#0e1726]/50 p-2.5 rounded border border-gray-100 dark:border-gray-700 italic border-l-2 border-l-primary/30">
-                                            "{{ remarks }}"
-                                        </div>
-
-                                        <!-- Meta Footer -->
-                                        <div
-                                            class="flex flex-wrap gap-4 mt-3 pt-3 border-t border-dashed border-gray-100 dark:border-gray-700">
-                                            <!-- Time Taken -->
-                                            <div *ngIf="getStageTimeTaken(i, pipelines) as time"
-                                                class="flex items-center gap-1.5 text-[11px] text-gray-400 font-medium">
-                                                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"
-                                                    stroke="currentColor" stroke-width="2">
-                                                    <circle cx="12" cy="12" r="10" />
-                                                    <polyline points="12 6 12 12 16 14" />
-                                                </svg>
-                                                <span>{{ time }}</span>
-                                            </div>
-                                            <!-- Via -->
-                                            <div *ngIf="getStageApprovedVia(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) as via"
-                                                class="flex items-center gap-1.5 text-[11px] text-gray-400 font-medium">
-                                                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"
-                                                    stroke="currentColor" stroke-width="2">
-                                                    <path
-                                                        d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                                                    <path
-                                                        d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                                                </svg>
-                                                <span>{{ via }}</span>
-                                            </div>
-                                        </div>
-                                    </ng-container>
-
-                                </div>
-                            </div>
-
-                        </div>
-
-                        <!-- No Data State -->
-                        <div *ngIf="!pipelines || pipelines.length === 0"
-                            class="flex flex-col items-center justify-center py-12 text-center text-gray-400">
-                            <div
-                                class="w-16 h-16 bg-gray-50 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 opacity-40" fill="none"
-                                    viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                </svg>
-                            </div>
-                            <h3 class="text-base font-semibold text-gray-900 dark:text-white-light">No Approval Flow
-                            </h3>
-                            <p class="text-sm mt-1 max-w-xs mx-auto">This form allows direct submission without a
-                                defined approval pipeline.</p>
-                        </div>
-
-                    </div>
+                    
                 </ng-container>
             </div>
         </div>
@@ -592,6 +691,35 @@
         <!-- Sticky Footer -->
         <div class="p-4 bg-gray-50 dark:bg-[#0e1726] border-t border-gray-100 dark:border-[#1b2e4b] flex justify-end">
             <button (click)="closeSummaryModal()" class="btn btn-outline-primary px-6">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Feasibility Report Preview Modal -->
+<div *ngIf="showFeasibilityModal" class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+    (click)="closeFeasibilityModal()">
+    <div class="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"></div>
+    <div class="relative w-full max-w-5xl max-h-[85vh] flex flex-col rounded-xl shadow-2xl
+                bg-white dark:bg-[#0e1726] border border-gray-100 dark:border-[#1b2e4b] overflow-hidden"
+        (click)="$event.stopPropagation()">
+        <div class="flex items-center justify-between px-6 py-5 border-b border-gray-100 dark:border-[#1b2e4b]">
+            <div class="text-lg font-bold text-gray-900 dark:text-white">Feasibility Report</div>
+            <button (click)="closeFeasibilityModal()"
+                class="group p-2 rounded-full hover:bg-gray-50 dark:hover:bg-[#1b2e4b] text-gray-400 hover:text-gray-600 transition-all duration-200">
+                <div class="group-hover:rotate-90 transition-transform duration-300">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </div>
+            </button>
+        </div>
+        <div class="flex-1 overflow-auto bg-gray-50 dark:bg-[#0e1726] p-4">
+            <img *ngIf="isFeasibilityImage()" [src]="feasibilityPreviewUrl"
+                class="max-w-full mx-auto rounded border border-gray-200 dark:border-gray-700" />
+            <iframe *ngIf="!isFeasibilityImage()" [src]="feasibilityPreviewUrl"
+                class="w-full h-[70vh] rounded border border-gray-200 dark:border-gray-700"></iframe>
         </div>
     </div>
 </div>

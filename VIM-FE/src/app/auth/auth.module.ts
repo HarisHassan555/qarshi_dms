@@ -31,8 +31,7 @@ const routes: Routes = [
     { 
         path: 'auth/signin', 
         component: BoxedSigninComponent, 
-        title: 'Signin',
-        canActivate: [canActivate]  
+        title: 'Signin'
     },
     // { path: 'auth/boxed-signup', component: BoxedSignupComponent, title: 'Boxed Signup | VRISTO - Multipurpose Tailwind Dashboard Template' },
     // { path: 'auth/cover-lockscreen', component: CoverLockscreenComponent, title: 'Cover Lockscreen | VRISTO - Multipurpose Tailwind Dashboard Template' },

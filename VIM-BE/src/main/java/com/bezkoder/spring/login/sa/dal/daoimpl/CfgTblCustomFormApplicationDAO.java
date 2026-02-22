@@ -16,6 +16,15 @@ import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApplication;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
 import java.io.InputStream;
 import java.util.Properties;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import java.util.Map;
+import java.io.ByteArrayOutputStream;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
 
 @Repository
 public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicationDAO {
@@ -370,6 +379,13 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 application.setSerSubmittedBy(commonService.getCurrentLoggedInUser());
             }
 
+            // Detect Budget Approval form
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm formForBudget =
+                application.getSerFormId() != null
+                    ? entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class, application.getSerFormId())
+                    : null;
+            boolean isBudgetApproval = isBudgetApprovalForm(formForBudget);
+
             // Generate application code based on form's convention if not provided
             if (application.getTxtFormCode() == null || application.getTxtFormCode().trim().isEmpty()) {
                 if (application.getSerFormId() != null) {
@@ -380,12 +396,75 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 }
             }
 
+            // Auto-sign "Prepared By" for Budget Approval on submission
+            if (isBudgetApproval) {
+                try {
+                    Map<String, Object> appData = parseApplicationData(application);
+                    BudgetApprover preparedBy = getPreparedBy(appData, entityManager);
+                    if (preparedBy == null || preparedBy.userId == null) {
+                        Integer fallbackUserId = application.getSerSubmittedBy();
+                        if (fallbackUserId == null) {
+                            fallbackUserId = application.getSerCreatedUser();
+                        }
+                        if (fallbackUserId != null) {
+                            preparedBy = buildBudgetApprover(java.util.Collections.singletonMap("serUserId", fallbackUserId), "PREPARED", entityManager);
+                        }
+                    }
+                    List<java.util.Map<String, Object>> approvalHistory = new java.util.ArrayList<>();
+
+                    if (preparedBy != null && preparedBy.userId != null) {
+                        java.util.Map<String, Object> approvalEntry = new java.util.HashMap<>();
+                        approvalEntry.put("level", 0);
+                        approvalEntry.put("departmentId", null);
+                        approvalEntry.put("departmentName", "Prepared By");
+                        approvalEntry.put("remarks", "Auto-signed on submission");
+                        approvalEntry.put("approvedBy", preparedBy.userId);
+                        approvalEntry.put("approverName", preparedBy.name != null ? preparedBy.name : "Prepared By");
+                        approvalEntry.put("approvedDate", commonService.getCurrentTimeStamp_new().toString());
+                        approvalEntry.put("signaturePath", preparedBy.signaturePath != null ? preparedBy.signaturePath : "");
+                        approvalEntry.put("approvedVia", "SYSTEM");
+                        approvalEntry.put("action", "APPROVED");
+                        approvalEntry.put("role", "PREPARED");
+                        approvalHistory.add(approvalEntry);
+
+                        ObjectMapper mapper = new ObjectMapper();
+                        application.setTxtApprovalHistory(mapper.writeValueAsString(approvalHistory));
+                    }
+
+                    application.setIntCurrentApprovalLevel(0);
+                    application.setTxtStatus("IN_PROGRESS");
+                } catch (Exception e) {
+                    log.warn("Error preparing budget approval auto-sign: " + e.getMessage(), e);
+                }
+            }
+
+            // Generate and store PDF on creation (summary)
+            if (application.getBlbPdfData() == null || application.getBlbPdfData().length == 0) {
+                try {
+                    Map<String, Object> appData = parseApplicationData(application);
+                    byte[] pdfBytes = generateApplicationPdf(application, formForBudget, appData);
+                    if (pdfBytes != null && pdfBytes.length > 0) {
+                        String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
+                        application.setBlbPdfData(pdfBytes);
+                        application.setTxtPdfName(code + ".pdf");
+                        application.setTxtPdfMime("application/pdf");
+                    }
+                } catch (Exception e) {
+                    log.warn("Error generating application PDF: " + e.getMessage(), e);
+                }
+            }
+
             entityManager.persist(application);
             entityManager.getTransaction().commit();
             
             // Send email notifications after successful submission
             try {
-                sendSubmissionEmails(application);
+                if (isBudgetApproval) {
+                    sendBudgetApprovalNextEmail(application, 0);
+                    sendSubmissionEmails(application); // still send submitter confirmation
+                } else {
+                    sendSubmissionEmails(application);
+                }
             } catch (Exception emailEx) {
                 log.error("Error sending submission emails: " + emailEx.getMessage(), emailEx);
                 // Don't fail the submission if email fails
@@ -435,6 +514,21 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             existingApplication.setBlnStatus(application.getBlnStatus());
             existingApplication.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
             existingApplication.setSerModifiedUser(commonService.getCurrentLoggedInUser());
+
+            // Add signature and timestamp to txtApplicationData
+            ObjectMapper objectMapper = new ObjectMapper();
+            try {
+                String applicationDataJson = existingApplication.getTxtApplicationData();
+                Map<String, Object> applicationData = objectMapper.readValue(applicationDataJson, new TypeReference<Map<String, Object>>() {});
+
+                applicationData.put("approvedBySignature", commonService.getCurrentUserName());
+                applicationData.put("approvedTimestamp", commonService.getCurrentTimeStamp_new().toString());
+
+                existingApplication.setTxtApplicationData(objectMapper.writeValueAsString(applicationData));
+            } catch (Exception jsonException) {
+                log.error("Error processing application data JSON for signature/timestamp: " + jsonException.getMessage(), jsonException);
+                // Optionally, handle this error more gracefully, e.g., by not updating txtApplicationData
+            }
 
             entityManager.merge(existingApplication);
             entityManager.getTransaction().commit();
@@ -530,28 +624,34 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         try {
             entityManager.getTransaction().begin();
             
-            // First, find the department where this user is the head
-            com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment department = null;
+            // First, find all departments where this user is the head
+            java.util.List<com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment> departments = new java.util.ArrayList<>();
             try {
-                List<com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment> departments = entityManager.createQuery(
+                departments = entityManager.createQuery(
                     "SELECT d FROM HrTblDepartment d " +
                     "WHERE d.serDepartmentHeadId = :headUserId " +
                     "AND (d.blIsDeleted = false OR d.blIsDeleted IS NULL)")
                     .setParameter("headUserId", departmentHeadUserId)
                     .getResultList();
-                if (!departments.isEmpty()) {
-                    department = departments.get(0);
-                }
             } catch (Exception e) {
                 log.warn("Error finding department for head user " + departmentHeadUserId + ": " + e.getMessage());
             }
             
-            if (department == null) {
+            if (departments == null || departments.isEmpty()) {
                 entityManager.getTransaction().commit();
                 return new java.util.ArrayList<>();
             }
             
-            Integer departmentId = department.getSerDepartmentId();
+            java.util.Set<Integer> departmentIds = new java.util.HashSet<>();
+            for (com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment dept : departments) {
+                if (dept != null && dept.getSerDepartmentId() != null) {
+                    departmentIds.add(dept.getSerDepartmentId());
+                }
+            }
+            if (departmentIds.isEmpty()) {
+                entityManager.getTransaction().commit();
+                return new java.util.ArrayList<>();
+            }
             
             // Get applications with PENDING or IN_PROGRESS status (capped to avoid MySQL sort buffer overflow)
             List<CfgTblCustomFormApplication> allPendingApplications = entityManager.createQuery(
@@ -586,34 +686,29 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                         new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {}
                     );
                     
-                    // Find the pipeline entry for this department
-                    Integer departmentOrder = null;
+                    Integer currentLevel = app.getIntCurrentApprovalLevel();
+                    if (currentLevel == null) {
+                        currentLevel = 0;
+                    }
+
+                    // Check if any department headed by this user matches the current approval level
                     for (java.util.Map<String, Object> pipeline : pipelines) {
                         Object deptIdObj = pipeline.get("serDepartmentId");
-                        if (deptIdObj != null) {
-                            Integer deptId = deptIdObj instanceof Integer ? (Integer) deptIdObj : 
-                                            Integer.parseInt(deptIdObj.toString());
-                            if (deptId.equals(departmentId)) {
-                                Object orderObj = pipeline.get("intApprovalOrder");
-                                if (orderObj != null) {
-                                    departmentOrder = orderObj instanceof Integer ? (Integer) orderObj : 
-                                                    Integer.parseInt(orderObj.toString());
-                                    break;
-                                }
-                            }
+                        Object orderObj = pipeline.get("intApprovalOrder");
+                        if (deptIdObj == null || orderObj == null) {
+                            continue;
                         }
-                    }
-                    
-                    // Check if current approval level matches this department's order
-                    // Approval level 0 means first department (order 1), level 1 means second department (order 2), etc.
-                    if (departmentOrder != null) {
-                        Integer currentLevel = app.getIntCurrentApprovalLevel();
-                        if (currentLevel == null) {
-                            currentLevel = 0;
+                        Integer deptId = deptIdObj instanceof Integer ? (Integer) deptIdObj :
+                                        Integer.parseInt(deptIdObj.toString());
+                        if (!departmentIds.contains(deptId)) {
+                            continue;
                         }
-                        // Current level should be (departmentOrder - 1) for this department to be the approver
+                        Integer departmentOrder = orderObj instanceof Integer ? (Integer) orderObj :
+                                                Integer.parseInt(orderObj.toString());
+                        // Approval level 0 means first department (order 1), level 1 means second department (order 2), etc.
                         if (currentLevel.equals(departmentOrder - 1)) {
                             filteredApplications.add(app);
+                            break;
                         }
                     }
                 } catch (Exception e) {
@@ -638,10 +733,15 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
 
     @Override
     public String approveApplication(Integer applicationId, String remarks) {
+        return approveApplication(applicationId, remarks, null, "SYSTEM");
+    }
+
+    @Override
+    public String approveApplication(Integer applicationId, String remarks, Integer approverUserId, String approvedVia) {
         EntityManager entityManager = getEntityManager();
         try {
             entityManager.getTransaction().begin();
-            
+
             CfgTblCustomFormApplication application = entityManager.find(
                 CfgTblCustomFormApplication.class, applicationId);
             if (application == null) {
@@ -649,6 +749,28 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 return "Failure: Application not found";
             }
             
+            // Resolve approver (current logged in user or explicit userId)
+            Integer resolvedApproverId = approverUserId;
+            if (resolvedApproverId == null || resolvedApproverId <= 0) {
+                resolvedApproverId = commonService.getCurrentLoggedInUser();
+            }
+            if (resolvedApproverId == null || resolvedApproverId <= 0) {
+                entityManager.getTransaction().rollback();
+                return "Failure: User not authenticated";
+            }
+
+            CfgTblUser approverUser = commonService.getCurrentUser(resolvedApproverId);
+            if (approverUser == null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Approver user not found";
+            }
+
+            String approverSignaturePath = approverUser.getTxtSignaturePath();
+            if (approverSignaturePath == null || approverSignaturePath.trim().isEmpty()) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Signature not uploaded. Please upload your signature before approving.";
+            }
+
             // Get the form to check approval pipeline
             com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form = 
                 entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class, 
@@ -657,6 +779,92 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             if (form == null) {
                 entityManager.getTransaction().rollback();
                 return "Failure: Form not found";
+            }
+
+            boolean isBudgetApproval = isBudgetApprovalForm(form);
+            if (isBudgetApproval) {
+                Map<String, Object> appData = parseApplicationData(application);
+                List<BudgetApprover> sequence = getBudgetApprovalSequence(appData, entityManager);
+                if (sequence.isEmpty()) {
+                    entityManager.getTransaction().rollback();
+                    return "Failure: Budget approval sequence not configured";
+                }
+
+                Integer currentLevel = application.getIntCurrentApprovalLevel();
+                if (currentLevel == null) currentLevel = 0;
+                if (currentLevel < 0 || currentLevel >= sequence.size()) {
+                    entityManager.getTransaction().rollback();
+                    return "Failure: Approval already completed";
+                }
+
+                BudgetApprover expected = sequence.get(currentLevel);
+                if (expected.userId == null || !expected.userId.equals(resolvedApproverId)) {
+                    entityManager.getTransaction().rollback();
+                    return "Failure: You are not authorized to approve at this stage";
+                }
+
+                // Get or create approval history array
+                List<java.util.Map<String, Object>> approvalHistory = new java.util.ArrayList<>();
+                String historyJson = application.getTxtApprovalHistory();
+                if (historyJson != null && !historyJson.trim().isEmpty()) {
+                    try {
+                        ObjectMapper mapper = new ObjectMapper();
+                        approvalHistory = mapper.readValue(
+                            historyJson,
+                            new TypeReference<List<java.util.Map<String, Object>>>() {}
+                        );
+                    } catch (Exception e) {
+                        log.warn("Error parsing approval history, starting fresh: " + e.getMessage());
+                        approvalHistory = new java.util.ArrayList<>();
+                    }
+                }
+
+                java.util.Map<String, Object> approvalEntry = new java.util.HashMap<>();
+                approvalEntry.put("level", currentLevel + 1);
+                approvalEntry.put("departmentId", null);
+                approvalEntry.put("departmentName", expected.role);
+                approvalEntry.put("remarks", remarks != null ? remarks : "");
+                approvalEntry.put("approvedBy", resolvedApproverId);
+                approvalEntry.put("approverName", approverUser.getTxtUserName());
+                approvalEntry.put("approvedDate", commonService.getCurrentTimeStamp_new().toString());
+                approvalEntry.put("signaturePath", approverSignaturePath);
+                approvalEntry.put("approvedVia", approvedVia != null ? approvedVia : "SYSTEM");
+                approvalEntry.put("action", "APPROVED");
+                approvalEntry.put("role", expected.role);
+                approvalHistory.add(approvalEntry);
+
+                try {
+                    ObjectMapper mapper = new ObjectMapper();
+                    String updatedHistoryJson = mapper.writeValueAsString(approvalHistory);
+                    application.setTxtApprovalHistory(updatedHistoryJson);
+                } catch (Exception e) {
+                    log.error("Error serializing approval history: " + e.getMessage());
+                }
+
+                currentLevel++;
+                if (currentLevel >= sequence.size()) {
+                    application.setTxtStatus("APPROVED");
+                } else {
+                    application.setTxtStatus("IN_PROGRESS");
+                }
+                application.setIntCurrentApprovalLevel(currentLevel);
+                application.setSerCurrentApprover(resolvedApproverId);
+                application.setTxtRemarks(remarks);
+                application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+                application.setSerModifiedUser(resolvedApproverId);
+
+                entityManager.merge(application);
+                entityManager.getTransaction().commit();
+
+                try {
+                    if (currentLevel < sequence.size()) {
+                        sendBudgetApprovalNextEmail(application, currentLevel);
+                    }
+                } catch (Exception emailEx) {
+                    log.error("Error sending budget approval emails: " + emailEx.getMessage(), emailEx);
+                }
+
+                return "Success";
             }
             
             // Deserialize approval pipeline
@@ -735,8 +943,12 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             approvalEntry.put("departmentId", departmentId);
             approvalEntry.put("departmentName", departmentName != null ? departmentName : (departmentId != null ? "Department " + departmentId : "Unknown"));
             approvalEntry.put("remarks", remarks != null ? remarks : "");
-            approvalEntry.put("approvedBy", commonService.getCurrentLoggedInUser());
+            approvalEntry.put("approvedBy", resolvedApproverId);
+            approvalEntry.put("approverName", approverUser.getTxtUserName());
             approvalEntry.put("approvedDate", commonService.getCurrentTimeStamp_new().toString());
+            approvalEntry.put("signaturePath", approverSignaturePath);
+            approvalEntry.put("approvedVia", approvedVia != null ? approvedVia : "SYSTEM");
+            approvalEntry.put("action", "APPROVED");
             approvalHistory.add(approvalEntry);
             
             // Save updated history
@@ -762,10 +974,10 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 application.setIntCurrentApprovalLevel(currentLevel);
             }
             
-            application.setSerCurrentApprover(commonService.getCurrentLoggedInUser());
+            application.setSerCurrentApprover(resolvedApproverId);
             application.setTxtRemarks(remarks);
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
-            application.setSerModifiedUser(commonService.getCurrentLoggedInUser());
+            application.setSerModifiedUser(resolvedApproverId);
             
             entityManager.merge(application);
             entityManager.getTransaction().commit();
@@ -808,12 +1020,98 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 entityManager.getTransaction().rollback();
                 return "Failure: Application not found";
             }
-            
+
+            // Get the form to check approval pipeline
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form =
+                entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class,
+                    application.getSerFormId());
+
+            // Resolve approver
+            Integer resolvedApproverId = commonService.getCurrentLoggedInUser();
+            CfgTblUser approverUser = null;
+            if (resolvedApproverId != null && resolvedApproverId > 0) {
+                approverUser = commonService.getCurrentUser(resolvedApproverId);
+            }
+
             application.setTxtStatus("REJECTED");
-            application.setSerCurrentApprover(commonService.getCurrentLoggedInUser());
+            application.setSerCurrentApprover(resolvedApproverId);
             application.setTxtRemarks(remarks);
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
-            application.setSerModifiedUser(commonService.getCurrentLoggedInUser());
+            application.setSerModifiedUser(resolvedApproverId);
+
+            // Append rejection to approval history for performance reporting
+            try {
+                Integer currentLevel = application.getIntCurrentApprovalLevel();
+                if (currentLevel == null) {
+                    currentLevel = 0;
+                }
+
+                Integer departmentId = null;
+                String departmentName = null;
+                Integer pipelineOrder = null;
+
+                if (form != null && form.getTxtApprovalPipeline() != null &&
+                    !form.getTxtApprovalPipeline().trim().isEmpty()) {
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    List<java.util.Map<String, Object>> pipelines = mapper.readValue(
+                        form.getTxtApprovalPipeline(),
+                        new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {}
+                    );
+
+                    if (!pipelines.isEmpty() && currentLevel < pipelines.size()) {
+                        java.util.Map<String, Object> currentPipeline = pipelines.get(currentLevel);
+                        if (currentPipeline != null) {
+                            Object deptIdObj = currentPipeline.get("serDepartmentId");
+                            Object orderObj = currentPipeline.get("intApprovalOrder");
+                            if (deptIdObj != null) {
+                                departmentId = deptIdObj instanceof Integer ? (Integer) deptIdObj :
+                                    Integer.parseInt(deptIdObj.toString());
+                                com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment dept =
+                                    entityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, departmentId);
+                                if (dept != null) {
+                                    departmentName = dept.getTxtDepartmentName();
+                                }
+                            }
+                            if (orderObj != null) {
+                                pipelineOrder = orderObj instanceof Integer ? (Integer) orderObj :
+                                    Integer.parseInt(orderObj.toString());
+                            }
+                        }
+                    }
+                }
+
+                // Load existing approval history
+                List<java.util.Map<String, Object>> approvalHistory = new java.util.ArrayList<>();
+                String historyJson = application.getTxtApprovalHistory();
+                if (historyJson != null && !historyJson.trim().isEmpty()) {
+                    try {
+                        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                        approvalHistory = mapper.readValue(
+                            historyJson,
+                            new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {}
+                        );
+                    } catch (Exception e) {
+                        approvalHistory = new java.util.ArrayList<>();
+                    }
+                }
+
+                java.util.Map<String, Object> rejectionEntry = new java.util.HashMap<>();
+                rejectionEntry.put("level", pipelineOrder != null ? pipelineOrder : (currentLevel + 1));
+                rejectionEntry.put("departmentId", departmentId);
+                rejectionEntry.put("departmentName", departmentName != null ? departmentName : (departmentId != null ? "Department " + departmentId : "Unknown"));
+                rejectionEntry.put("remarks", remarks != null ? remarks : "");
+                rejectionEntry.put("approvedBy", resolvedApproverId);
+                rejectionEntry.put("approverName", approverUser != null ? approverUser.getTxtUserName() : "");
+                rejectionEntry.put("approvedDate", commonService.getCurrentTimeStamp_new().toString());
+                rejectionEntry.put("approvedVia", "SYSTEM");
+                rejectionEntry.put("action", "REJECTED");
+                approvalHistory.add(rejectionEntry);
+
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                application.setTxtApprovalHistory(mapper.writeValueAsString(approvalHistory));
+            } catch (Exception e) {
+                log.warn("Error updating approval history for rejection: " + e.getMessage());
+            }
             
             entityManager.merge(application);
             entityManager.getTransaction().commit();
@@ -1027,8 +1325,14 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                             null
                         );
                         
-                        emailService.sendHtmlEmail(java.util.Arrays.asList(submittedByUser.getTxtAddress()), 
-                                                  submitterSubject, submitterHtmlMessage);
+                        if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                            emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
+                                submitterSubject, submitterHtmlMessage,
+                                application.getBlbPdfData(), application.getTxtPdfName(), application.getTxtPdfMime());
+                        } else {
+                            emailService.sendHtmlEmail(java.util.Arrays.asList(submittedByUser.getTxtAddress()), 
+                                submitterSubject, submitterHtmlMessage);
+                        }
                         log.info("Approval email sent to submitter: " + submittedByUser.getTxtAddress());
                     }
                 } catch (Exception e) {
@@ -1087,8 +1391,14 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                             rejectUrl
                                         );
                                         
-                                        emailService.sendHtmlEmail(java.util.Arrays.asList(nextDeptHead.getTxtAddress()), 
-                                                                  deptHeadSubject, deptHeadHtmlMessage);
+                                        if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                                            emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(nextDeptHead.getTxtAddress()), 
+                                                deptHeadSubject, deptHeadHtmlMessage,
+                                                application.getBlbPdfData(), application.getTxtPdfName(), application.getTxtPdfMime());
+                                        } else {
+                                            emailService.sendHtmlEmail(java.util.Arrays.asList(nextDeptHead.getTxtAddress()), 
+                                                deptHeadSubject, deptHeadHtmlMessage);
+                                        }
                                         log.info("Approval notification email sent to next level department head: " + nextDeptHead.getTxtAddress());
                                     }
                                 }
@@ -1135,6 +1445,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             if (form != null) {
                 formName = form.getTxtFormName();
             }
+
+            boolean isBudgetApproval = isBudgetApprovalForm(form);
             
             // Get approval pipeline from form
             List<java.util.Map<String, Object>> pipelines = new java.util.ArrayList<>();
@@ -1186,7 +1498,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             }
             
             // 2. Send email to the first level department head (if approval pipeline exists)
-            if (pipelines != null && !pipelines.isEmpty()) {
+            if (!isBudgetApproval && pipelines != null && !pipelines.isEmpty()) {
                 try {
                     emailEntityManager.getTransaction().begin();
                     // Get the first level pipeline (index 0)
@@ -1233,8 +1545,14 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                         rejectUrl
                                     );
                                     
-                                    emailService.sendHtmlEmail(java.util.Arrays.asList(firstDeptHead.getTxtAddress()), 
-                                                              deptHeadSubject, deptHeadHtmlMessage);
+                                    if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                                        emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(firstDeptHead.getTxtAddress()), 
+                                            deptHeadSubject, deptHeadHtmlMessage,
+                                            application.getBlbPdfData(), application.getTxtPdfName(), application.getTxtPdfMime());
+                                    } else {
+                                        emailService.sendHtmlEmail(java.util.Arrays.asList(firstDeptHead.getTxtAddress()), 
+                                            deptHeadSubject, deptHeadHtmlMessage);
+                                    }
                                     log.info("Submission notification email sent to first level department head: " + firstDeptHead.getTxtAddress());
                                 }
                             }
@@ -1257,6 +1575,914 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 emailEntityManager.close();
             }
         }
+    }
+
+    private boolean isBudgetApprovalForm(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form) {
+        if (form == null) return false;
+        String name = form.getTxtFormName() != null ? form.getTxtFormName().toUpperCase() : "";
+        String code = form.getTxtFormCode() != null ? form.getTxtFormCode().toUpperCase() : "";
+        return name.contains("BUDGET APPROVAL") || code.startsWith("BDG");
+    }
+
+    private Map<String, Object> parseApplicationData(CfgTblCustomFormApplication application) {
+        try {
+            String raw = application.getTxtApplicationData();
+            if (raw == null || raw.trim().isEmpty()) return new java.util.HashMap<>();
+            ObjectMapper mapper = new ObjectMapper();
+            return mapper.readValue(raw, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            log.warn("Error parsing application data: " + e.getMessage());
+            return new java.util.HashMap<>();
+        }
+    }
+
+    private BudgetApprover getPreparedBy(Map<String, Object> appData, EntityManager em) {
+        Object obj = appData.get("preparedBy");
+        return buildBudgetApprover(obj, "PREPARED", em);
+    }
+
+    private List<BudgetApprover> getBudgetApprovalSequence(Map<String, Object> appData, EntityManager em) {
+        List<BudgetApprover> seq = new java.util.ArrayList<>();
+        Object reviewersObj = appData.get("reviewers");
+        if (reviewersObj instanceof List) {
+            for (Object r : (List<?>) reviewersObj) {
+                BudgetApprover b = buildBudgetApprover(r, "REVIEWER", em);
+                if (b != null && b.userId != null) seq.add(b);
+            }
+        }
+        Object recommendersObj = appData.get("recommenders");
+        if (recommendersObj instanceof List) {
+            for (Object r : (List<?>) recommendersObj) {
+                BudgetApprover b = buildBudgetApprover(r, "RECOMMENDER", em);
+                if (b != null && b.userId != null) seq.add(b);
+            }
+        }
+        Object approverObj = appData.get("approver");
+        BudgetApprover approver = buildBudgetApprover(approverObj, "APPROVER", em);
+        if (approver != null && approver.userId != null) seq.add(approver);
+        return seq;
+    }
+
+    private BudgetApprover buildBudgetApprover(Object userObj, String role, EntityManager em) {
+        if (userObj == null) return null;
+        Integer userId = null;
+        String name = null;
+        String email = null;
+        String signaturePath = null;
+
+        if (userObj instanceof Map) {
+            Map<?, ?> map = (Map<?, ?>) userObj;
+            Object idObj = map.get("serUserId");
+            if (idObj == null) idObj = map.get("userId");
+            if (idObj != null) userId = Integer.parseInt(idObj.toString());
+            Object nameObj = map.get("txtUserName");
+            if (nameObj == null) nameObj = map.get("userName");
+            if (nameObj != null) name = nameObj.toString();
+            Object emailObj = map.get("txtAddress");
+            if (emailObj == null) emailObj = map.get("email");
+            if (emailObj != null) email = emailObj.toString();
+        }
+
+        if (userId != null) {
+            CfgTblUser user = em.find(CfgTblUser.class, userId);
+            if (user != null) {
+                if (name == null) name = user.getTxtUserName();
+                if (email == null) email = user.getTxtAddress();
+                signaturePath = user.getTxtSignaturePath();
+            }
+        }
+
+        BudgetApprover b = new BudgetApprover();
+        b.userId = userId;
+        b.name = name;
+        b.email = email;
+        b.role = role;
+        b.signaturePath = signaturePath;
+        return b;
+    }
+
+    private void sendBudgetApprovalNextEmail(CfgTblCustomFormApplication application, Integer sequenceIndex) {
+        EntityManager emailEntityManager = getEntityManager();
+        try {
+            emailEntityManager.getTransaction().begin();
+            Map<String, Object> appData = parseApplicationData(application);
+            List<BudgetApprover> seq = getBudgetApprovalSequence(appData, emailEntityManager);
+            if (sequenceIndex == null || sequenceIndex < 0 || sequenceIndex >= seq.size()) {
+                emailEntityManager.getTransaction().commit();
+                return;
+            }
+
+            BudgetApprover next = seq.get(sequenceIndex);
+            if (next.email == null || next.email.trim().isEmpty()) {
+                emailEntityManager.getTransaction().commit();
+                return;
+            }
+
+            String formName = "Budget Approval";
+            String subject = "Budget Approval Pending - " +
+                (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+
+            String baseUrl = getBaseUrl();
+            String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId=" + application.getSerApplicationId() +
+                "&userId=" + next.userId;
+            String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId=" + application.getSerApplicationId() +
+                "&userId=" + next.userId;
+
+            String html = generateApprovalEmailHtml(
+                next.name != null ? next.name : "User",
+                sequenceIndex + 1,
+                application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
+                formName,
+                application.getTxtStatus(),
+                null,
+                true,
+                approveUrl,
+                rejectUrl
+            );
+
+            if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(next.email), subject, html,
+                        application.getBlbPdfData(), application.getTxtPdfName(), application.getTxtPdfMime());
+            } else {
+                emailService.sendHtmlEmail(java.util.Arrays.asList(next.email), subject, html);
+            }
+            emailEntityManager.getTransaction().commit();
+        } catch (Exception e) {
+            if (emailEntityManager.getTransaction().isActive()) {
+                emailEntityManager.getTransaction().rollback();
+            }
+            log.error("Error sending budget approval email: " + e.getMessage(), e);
+        } finally {
+            if (emailEntityManager.isOpen()) {
+                emailEntityManager.close();
+            }
+        }
+    }
+
+    private byte[] generateApplicationPdf(CfgTblCustomFormApplication application,
+                                          com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+                                          Map<String, Object> appData) {
+        try {
+            if (isBudgetApprovalForm(form)) {
+                return generateBudgetApprovalPdf(application, form, appData);
+            }
+            if (isCapfForm(form)) {
+                return generateCapfPdf(application, form, appData);
+            }
+        } catch (Exception e) {
+            log.warn("Error generating budget approval PDF, falling back to summary: " + e.getMessage());
+        }
+        return generateSummaryPdf(application, form, appData);
+    }
+
+    private byte[] generateSummaryPdf(CfgTblCustomFormApplication application,
+                                      com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+                                      Map<String, Object> appData) {
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            document.addPage(page);
+
+            PDPageContentStream content = new PDPageContentStream(document, page);
+            content.setFont(PDType1Font.HELVETICA_BOLD, 14);
+            content.beginText();
+            content.newLineAtOffset(40, 800);
+            content.showText("Application Summary");
+            content.endText();
+
+            content.setFont(PDType1Font.HELVETICA, 10);
+            float y = 780;
+            y = writeLine(content, y, "Form: " + (form != null && form.getTxtFormName() != null ? form.getTxtFormName() : "N/A"));
+            y = writeLine(content, y, "Code: " + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A"));
+            y = writeLine(content, y, "Status: " + (application.getTxtStatus() != null ? application.getTxtStatus() : "N/A"));
+            y = writeLine(content, y, "Created: " + (application.getDteCreatedDate() != null ? application.getDteCreatedDate().toString() : "N/A"));
+
+            y -= 10;
+            y = writeLine(content, y, "Fields:");
+            for (Map.Entry<String, Object> entry : appData.entrySet()) {
+                String key = entry.getKey();
+                Object valObj = entry.getValue();
+                if (key != null) {
+                    String keyLower = key.toLowerCase();
+                    if (keyLower.contains("dataurl") || keyLower.contains("base64")) {
+                        continue;
+                    }
+                }
+                String val = formatPdfValue(valObj);
+                y = writeLine(content, y, "  " + key + ": " + val);
+                if (y < 60) {
+                    content.close();
+                    page = new PDPage(PDRectangle.A4);
+                    document.addPage(page);
+                    content = new PDPageContentStream(document, page);
+                    content.setFont(PDType1Font.HELVETICA, 10);
+                    y = 800;
+                }
+            }
+
+            content.close();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            document.save(baos);
+            return baos.toByteArray();
+        } catch (Exception e) {
+            log.warn("Error generating PDF: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private byte[] generateBudgetApprovalPdf(CfgTblCustomFormApplication application,
+                                             com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+                                             Map<String, Object> appData) {
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            document.addPage(page);
+
+            PDPageContentStream content = new PDPageContentStream(document, page);
+            float pageWidth = page.getMediaBox().getWidth();
+            float pageHeight = page.getMediaBox().getHeight();
+            float margin = 40f;
+            float y = pageHeight - margin;
+
+            String heading = pickFirstNonEmpty(
+                getValueByKeyContains(appData, "heading"),
+                getValueByKeyContains(appData, "title"),
+                getValueByKeyContains(appData, "subject"),
+                form != null ? form.getTxtFormName() : null,
+                "Budget Approval Form"
+            );
+
+            String dateStr = application != null && application.getDteCreatedDate() != null
+                ? new java.text.SimpleDateFormat("dd/MM/yyyy").format(application.getDteCreatedDate())
+                : new java.text.SimpleDateFormat("dd/MM/yyyy").format(new java.util.Date());
+
+            // Header: logo + company + date
+            content.setFont(PDType1Font.TIMES_BOLD, 12);
+            drawLogo(document, content, margin, y - 35, 45);
+            content.beginText();
+            content.newLineAtOffset(pageWidth - margin - 120, y - 10);
+            content.showText("Date: " + dateStr);
+            content.endText();
+
+            content.setFont(PDType1Font.TIMES_BOLD, 18);
+            float titleWidth = PDType1Font.TIMES_BOLD.getStringWidth("Qarshi Industries (Pvt) Ltd.") / 1000 * 18;
+            content.beginText();
+            content.newLineAtOffset((pageWidth - titleWidth) / 2, y - 30);
+            content.showText("Qarshi Industries (Pvt) Ltd.");
+            content.endText();
+
+            content.setFont(PDType1Font.TIMES_ROMAN, 10);
+            String address = "15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore";
+            float addrWidth = PDType1Font.TIMES_ROMAN.getStringWidth(address) / 1000 * 10;
+            content.beginText();
+            content.newLineAtOffset((pageWidth - addrWidth) / 2, y - 45);
+            content.showText(address);
+            content.endText();
+
+            // Double line
+            content.setLineWidth(0.8f);
+            content.moveTo(margin, y - 60);
+            content.lineTo(pageWidth - margin, y - 60);
+            content.stroke();
+            content.moveTo(margin, y - 62);
+            content.lineTo(pageWidth - margin, y - 62);
+            content.stroke();
+
+            // Heading
+            content.setFont(PDType1Font.TIMES_BOLD, 16);
+            float headingWidth = PDType1Font.TIMES_BOLD.getStringWidth(heading) / 1000 * 16;
+            content.beginText();
+            content.newLineAtOffset((pageWidth - headingWidth) / 2, y - 95);
+            content.showText(heading);
+            content.endText();
+
+            y = y - 120;
+
+            // Content body
+            content.setFont(PDType1Font.TIMES_ROMAN, 12);
+            String body = buildBudgetBody(appData);
+            y = drawWrappedText(content, body, margin, y, pageWidth - margin * 2, 14, 170);
+
+            // Signature table at bottom
+            float tableBottomY = 60f;
+            float tableHeight = 110f;
+            float tableTopY = tableBottomY + tableHeight;
+            if (y < tableTopY + 20) {
+                content.close();
+                page = new PDPage(PDRectangle.A4);
+                document.addPage(page);
+                content = new PDPageContentStream(document, page);
+                pageWidth = page.getMediaBox().getWidth();
+                pageHeight = page.getMediaBox().getHeight();
+                y = pageHeight - margin;
+            }
+
+            drawSignatureTable(content, margin, tableBottomY, pageWidth - margin * 2, tableHeight, appData);
+
+            content.close();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            document.save(baos);
+            return baos.toByteArray();
+        } catch (Exception e) {
+            log.warn("Error generating Budget Approval PDF: " + e.getMessage(), e);
+            return null;
+        }
+    }
+
+    private byte[] generateCapfPdf(CfgTblCustomFormApplication application,
+                                   com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+                                   Map<String, Object> appData) {
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            document.addPage(page);
+
+            PDPageContentStream content = new PDPageContentStream(document, page);
+            float pageWidth = page.getMediaBox().getWidth();
+            float pageHeight = page.getMediaBox().getHeight();
+            float margin = 26f;
+            float y = pageHeight - margin;
+
+            String dateStr = application != null && application.getDteCreatedDate() != null
+                ? new java.text.SimpleDateFormat("dd/MM/yyyy").format(application.getDteCreatedDate())
+                : new java.text.SimpleDateFormat("dd/MM/yyyy").format(new java.util.Date());
+
+            String division = pickFirstNonEmpty(getCapfValue(appData, "division"), getCapfValue(appData, "department"));
+            String department = pickFirstNonEmpty(getCapfValue(appData, "department"), division);
+            String section = pickFirstNonEmpty(getCapfValue(appData, "section"), "GEN");
+            String documentNo = pickFirstNonEmpty(getCapfValue(appData, "capfNumber"), getCapfValue(appData, "capf #"), getCapfValue(appData, "document no"), "CAPF");
+            String originalIssue = pickFirstNonEmpty(getCapfValue(appData, "original issue"), "01-01-2020");
+            String rev = pickFirstNonEmpty(getCapfValue(appData, "rev"), "05");
+            String revDate = pickFirstNonEmpty(getCapfValue(appData, "rev date"), dateStr);
+
+            String assetName = getCapfValue(appData, "assetName");
+            String specification = getCapfValue(appData, "specification");
+            String utility = getCapfValue(appData, "utility");
+            String feasibility = getCapfValue(appData, "feasibilityReport");
+            String reason = getCapfValue(appData, "reason");
+            String note = getCapfValue(appData, "note");
+
+            String vendorName = getCapfValue(appData, "vendorName");
+            String vendorAddress = getCapfValue(appData, "vendorAddress");
+            String approvedPrice = getCapfValue(appData, "approvedPrice");
+            String delivery = getCapfValue(appData, "deliveryPeriod");
+            String terms = getCapfValue(appData, "termsConditions");
+            String thirdParty = getCapfValue(appData, "thirdPartyAssessment");
+
+            // Outer border
+            content.setLineWidth(0.7f);
+            content.addRect(margin, margin, pageWidth - margin * 2, pageHeight - margin * 2);
+            content.stroke();
+
+            // Header row
+            drawLogo(document, content, margin + 6, y - 28, 22);
+            content.setFont(PDType1Font.TIMES_BOLD, 12);
+            content.beginText();
+            content.newLineAtOffset(margin + 40, y - 16);
+            content.showText("Qarshi Industries (Pvt) Ltd.");
+            content.endText();
+
+            y -= 36;
+
+            // Meta table (Division/Department/Section/Document No/Original Issue/Rev/Rev Date)
+            float metaHeight = 32f;
+            drawRect(content, margin + 6, y - metaHeight, pageWidth - margin * 2 - 12, metaHeight);
+            float metaY = y - metaHeight + 20;
+            content.setFont(PDType1Font.HELVETICA, 8);
+            drawMeta(content, margin + 10, metaY, "Division: " + nullSafe(division));
+            drawMeta(content, margin + 150, metaY, "Department: " + nullSafe(department));
+            drawMeta(content, margin + 300, metaY, "Section: " + nullSafe(section));
+            drawMeta(content, margin + 10, metaY - 12, "Document No: " + nullSafe(documentNo));
+            drawMeta(content, margin + 150, metaY - 12, "Original Issue: " + nullSafe(originalIssue));
+            drawMeta(content, margin + 300, metaY - 12, "Rev: " + nullSafe(rev));
+            drawMeta(content, margin + 360, metaY - 12, "Rev. Date: " + nullSafe(revDate));
+
+            y -= (metaHeight + 14);
+
+            // Title bar
+            content.setFont(PDType1Font.HELVETICA_BOLD, 10);
+            drawCentered(content, pageWidth, y, "CAPITAL ASSETS PURCHASE FORM");
+            y -= 16;
+            drawCentered(content, pageWidth, y, "PART I (TO BE FILLED BY CONCERNED DEPARTMENT)");
+            y -= 10;
+            drawLine(content, margin + 6, y, pageWidth - margin - 6, y);
+            y -= 12;
+
+            float lineStart = margin + 12;
+            float lineEnd = pageWidth - margin - 12;
+            float labelWidth = 140;
+            content.setFont(PDType1Font.HELVETICA, 9);
+
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DIVISION / DEPARTMENT:", nullSafe(division));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "CAPF #:", nullSafe(documentNo), 180);
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DATE:", nullSafe(dateStr), 180);
+            y -= 4;
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "NAME OF ASSET / ITEM:", nullSafe(assetName));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DETAIL SPECIFICATION:", nullSafe(specification));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "UTILITY & PURPOSE:", nullSafe(utility));
+
+            y -= 2;
+            y = drawYesNoRow(content, lineStart, y, lineEnd, "FEASIBILITY REPORT ATTACHED:", feasibility);
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "IF NO THEN MENTION REASON:", nullSafe(reason));
+
+            y -= 2;
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "NOTE:", nullSafe(note));
+
+            y -= 6;
+            drawLine(content, margin + 6, y, pageWidth - margin - 6, y);
+            y -= 10;
+            content.setFont(PDType1Font.HELVETICA_BOLD, 9);
+            drawCentered(content, pageWidth, y, "PARTICULARS OF SELECTED VENDOR(S) (AS PER APPROVED QUOTATION)");
+            y -= 12;
+            content.setFont(PDType1Font.HELVETICA, 9);
+
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "NAME:", nullSafe(vendorName));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "ADDRESS:", nullSafe(vendorAddress));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "APPROVED PRICE:", nullSafe(approvedPrice));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DELIVERY PERIOD & DATE:", nullSafe(delivery));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "TERMS & CONDITIONS:", nullSafe(terms));
+            y -= 2;
+            y = drawYesNoNaRow(content, lineStart, y, lineEnd, "Third Party assessment carried out:", thirdParty);
+
+            y -= 8;
+            drawLine(content, margin + 6, y, pageWidth - margin - 6, y);
+            y -= 8;
+            content.setFont(PDType1Font.HELVETICA_BOLD, 9);
+            drawCentered(content, pageWidth, y, "PART II (TO BE FILLED BY PROCUREMENT DEPARTMENT)");
+            y -= 10;
+            content.setFont(PDType1Font.HELVETICA, 8.5f);
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "P.O. NO. WITH DATE:", "");
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "PARTICULARS OF VENDOR(S):", "");
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DELIVERY DATE:", "");
+            y -= 8;
+            drawSignatureLineRow(content, lineStart, y, lineEnd, "Checked by:", "Verified by:");
+            y -= 14;
+            drawLine(content, margin + 6, y, pageWidth - margin - 6, y);
+            y -= 8;
+            content.setFont(PDType1Font.HELVETICA_BOLD, 9);
+            drawCentered(content, pageWidth, y, "JOB COMPLETION CERTIFICATE");
+            y -= 10;
+            content.setFont(PDType1Font.HELVETICA, 8.5f);
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "This is to certify that job against CAPF:", "");
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "GRN #:", "");
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "Date:", "");
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "Report Attached:", "");
+            drawSignatureLineRow(content, lineStart, y - 2, lineEnd, "Checked by:", "Verified by:");
+
+            content.close();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            document.save(baos);
+            return baos.toByteArray();
+        } catch (Exception e) {
+            log.warn("Error generating CAPF PDF: " + e.getMessage(), e);
+            return null;
+        }
+    }
+
+    private void drawLogo(PDDocument document, PDPageContentStream content, float x, float y, float size) {
+        try (InputStream is = getClass().getClassLoader().getResourceAsStream("static/assets/images/qarshi-logo.png")) {
+            if (is == null) return;
+            byte[] data = readAllBytes(is);
+            if (data == null || data.length == 0) return;
+            org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject image =
+                org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject.createFromByteArray(document, data, "qarshi-logo");
+            float width = size;
+            float height = size * (image.getHeight() / (float) image.getWidth());
+            content.drawImage(image, x, y, width, height);
+        } catch (Exception e) {
+            log.warn("Unable to load logo: " + e.getMessage());
+        }
+    }
+
+    private byte[] readAllBytes(InputStream is) throws java.io.IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        byte[] buf = new byte[4096];
+        int r;
+        while ((r = is.read(buf)) != -1) {
+            baos.write(buf, 0, r);
+        }
+        return baos.toByteArray();
+    }
+
+    private String buildBudgetBody(Map<String, Object> appData) {
+        String rawHtml = pickFirstNonEmpty(
+            getValueByKey(appData, "content"),
+            getValueByKey(appData, "editorContent"),
+            getValueByKey(appData, "html")
+        );
+        if (rawHtml != null && !rawHtml.trim().isEmpty()) {
+            return htmlToPlainText(rawHtml);
+        }
+
+        StringBuilder sb = new StringBuilder();
+        String background = getValueByKeyContains(appData, "background");
+        String proposal = getValueByKeyContains(appData, "proposal");
+        String request = getValueByKeyContains(appData, "request");
+        String finances = getValueByKeyContains(appData, "finance");
+        String note = getValueByKeyContains(appData, "note");
+
+        appendSection(sb, "Background", background);
+        appendSection(sb, "Proposal", proposal);
+        appendSection(sb, "Request", request);
+        appendSection(sb, "Finances", finances);
+        appendSection(sb, "Note", note);
+
+        if (sb.length() == 0) {
+            sb.append("No content provided.");
+        }
+        return sb.toString();
+    }
+
+    private void appendSection(StringBuilder sb, String title, String value) {
+        if (value == null || value.trim().isEmpty()) return;
+        if (sb.length() > 0) sb.append("\n\n");
+        sb.append(title).append(":\n").append(value.trim());
+    }
+
+    private String htmlToPlainText(String html) {
+        String text = html.replaceAll("(?i)<br\\s*/?>", "\n");
+        text = text.replaceAll("(?s)<[^>]*>", "");
+        text = text.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">");
+        return text.trim();
+    }
+
+    private String getValueByKeyContains(Map<String, Object> appData, String needle) {
+        if (appData == null || needle == null) return null;
+        String n = needle.toLowerCase();
+        for (Map.Entry<String, Object> entry : appData.entrySet()) {
+            String key = entry.getKey();
+            if (key != null && key.toLowerCase().contains(n)) {
+                Object val = entry.getValue();
+                if (val != null) return String.valueOf(val);
+            }
+        }
+        return null;
+    }
+
+    private String getValueByKey(Map<String, Object> appData, String key) {
+        if (appData == null || key == null) return null;
+        Object val = appData.get(key);
+        return val != null ? String.valueOf(val) : null;
+    }
+
+    private String pickFirstNonEmpty(String... values) {
+        if (values == null) return null;
+        for (String v : values) {
+            if (v != null && !v.trim().isEmpty()) return v.trim();
+        }
+        return null;
+    }
+
+    private float drawWrappedText(PDPageContentStream content, String text,
+                                  float x, float y, float maxWidth, float leading, float minY) throws java.io.IOException {
+        if (text == null) return y;
+        String[] paragraphs = text.split("\\r?\\n");
+        for (String para : paragraphs) {
+            if (para.trim().isEmpty()) {
+                y -= leading;
+                continue;
+            }
+            for (String line : wrapText(para, PDType1Font.TIMES_ROMAN, 12, maxWidth)) {
+                if (y < minY) {
+                    return y;
+                }
+                content.beginText();
+                content.newLineAtOffset(x, y);
+                content.showText(line);
+                content.endText();
+                y -= leading;
+            }
+            y -= 2;
+        }
+        return y;
+    }
+
+    private java.util.List<String> wrapText(String text, PDType1Font font, float fontSize, float maxWidth) throws java.io.IOException {
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        String[] words = text.split("\\s+");
+        StringBuilder line = new StringBuilder();
+        for (String word : words) {
+            String test = line.length() == 0 ? word : line + " " + word;
+            float width = font.getStringWidth(test) / 1000 * fontSize;
+            if (width > maxWidth && line.length() > 0) {
+                lines.add(line.toString());
+                line = new StringBuilder(word);
+            } else {
+                line = new StringBuilder(test);
+            }
+        }
+        if (line.length() > 0) lines.add(line.toString());
+        return lines;
+    }
+
+    private void drawSignatureTable(PDPageContentStream content, float x, float y, float width, float height, Map<String, Object> appData) throws java.io.IOException {
+        float colWidth = width / 6f;
+        float rowSig = 50f;
+        float rowHeader = 22f;
+        float rowNames = height - rowSig - rowHeader;
+
+        // Borders
+        content.setLineWidth(0.6f);
+        content.addRect(x, y, width, height);
+        content.stroke();
+        for (int i = 1; i < 6; i++) {
+            content.moveTo(x + colWidth * i, y);
+            content.lineTo(x + colWidth * i, y + height);
+            content.stroke();
+        }
+        content.moveTo(x, y + rowSig);
+        content.lineTo(x + width, y + rowSig);
+        content.stroke();
+        content.moveTo(x, y + rowSig + rowHeader);
+        content.lineTo(x + width, y + rowSig + rowHeader);
+        content.stroke();
+
+        // Header background
+        content.setNonStrokingColor(220, 220, 220);
+        content.addRect(x, y + rowSig, width, rowHeader);
+        content.fill();
+        content.setNonStrokingColor(0, 0, 0);
+
+        content.setFont(PDType1Font.HELVETICA_BOLD, 9);
+        float headerY = y + rowSig + 6;
+        drawCenteredHeader(content, "Prepared by:", x, colWidth, headerY);
+        drawCenteredHeader(content, "Reviewed by:", x + colWidth, colWidth * 2, headerY);
+        drawCenteredHeader(content, "Recommended by:", x + colWidth * 3, colWidth * 2, headerY);
+        drawCenteredHeader(content, "Approved by:", x + colWidth * 5, colWidth, headerY);
+
+        // Names row
+        java.util.Map<String, String> prepared = extractUserDisplay(appData.get("preparedBy"));
+        java.util.List<java.util.Map<String, String>> reviewers = extractUserListDisplay(appData.get("reviewers"));
+        java.util.List<java.util.Map<String, String>> recommenders = extractUserListDisplay(appData.get("recommenders"));
+        java.util.Map<String, String> approver = extractUserDisplay(appData.get("approver"));
+
+        String[] names = new String[] {
+            formatUserDisplay(prepared),
+            formatUserDisplay(reviewers.size() > 0 ? reviewers.get(0) : null),
+            formatUserDisplay(reviewers.size() > 1 ? reviewers.get(1) : null),
+            formatUserDisplay(recommenders.size() > 0 ? recommenders.get(0) : null),
+            formatUserDisplay(recommenders.size() > 1 ? recommenders.get(1) : null),
+            formatUserDisplay(approver)
+        };
+
+        content.setFont(PDType1Font.HELVETICA, 9);
+        for (int i = 0; i < names.length; i++) {
+            float tx = x + colWidth * i + 4;
+            float ty = y + 8;
+            for (String line : wrapText(names[i], PDType1Font.HELVETICA, 9, colWidth - 8)) {
+                content.beginText();
+                content.newLineAtOffset(tx, ty);
+                content.showText(line);
+                content.endText();
+                ty += 10;
+            }
+        }
+    }
+
+    private void drawCenteredHeader(PDPageContentStream content, String text, float x, float width, float y) throws java.io.IOException {
+        float textWidth = PDType1Font.HELVETICA_BOLD.getStringWidth(text) / 1000 * 9;
+        float tx = x + (width - textWidth) / 2;
+        content.beginText();
+        content.newLineAtOffset(tx, y);
+        content.showText(text);
+        content.endText();
+    }
+
+    private void drawRect(PDPageContentStream content, float x, float y, float width, float height) throws java.io.IOException {
+        content.addRect(x, y, width, height);
+        content.stroke();
+    }
+
+    private void drawLine(PDPageContentStream content, float x1, float y1, float x2, float y2) throws java.io.IOException {
+        content.moveTo(x1, y1);
+        content.lineTo(x2, y2);
+        content.stroke();
+    }
+
+    private void drawMeta(PDPageContentStream content, float x, float y, String text) throws java.io.IOException {
+        content.beginText();
+        content.newLineAtOffset(x, y);
+        content.showText(text != null ? text : "");
+        content.endText();
+    }
+
+    private void drawCentered(PDPageContentStream content, float pageWidth, float y, String text) throws java.io.IOException {
+        float size = 10f;
+        float textWidth = PDType1Font.HELVETICA_BOLD.getStringWidth(text) / 1000 * size;
+        content.beginText();
+        content.newLineAtOffset((pageWidth - textWidth) / 2, y);
+        content.showText(text);
+        content.endText();
+    }
+
+    private float drawLabeledLine(PDPageContentStream content, float x, float y, float labelWidth, float x2,
+                                  String label, String value) throws java.io.IOException {
+        return drawLabeledLine(content, x, y, labelWidth, x2, label, value, 0);
+    }
+
+    private float drawLabeledLine(PDPageContentStream content, float x, float y, float labelWidth, float x2,
+                                  String label, String value, float valueOffset) throws java.io.IOException {
+        content.beginText();
+        content.newLineAtOffset(x, y);
+        content.showText(label);
+        content.endText();
+        float lineY = y - 3;
+        float lineStart = x + labelWidth + valueOffset;
+        drawLine(content, lineStart, lineY, x2, lineY);
+        if (value != null && !value.trim().isEmpty()) {
+            content.beginText();
+            content.newLineAtOffset(lineStart + 2, y - 2);
+            content.showText(trimToWidth(value, PDType1Font.HELVETICA, 9, x2 - lineStart - 4));
+            content.endText();
+        }
+        return y - 14;
+    }
+
+    private float drawYesNoRow(PDPageContentStream content, float x, float y, float x2, String label, String value) throws java.io.IOException {
+        content.beginText();
+        content.newLineAtOffset(x, y);
+        content.showText(label);
+        content.endText();
+        float boxSize = 8f;
+        float start = x + 180;
+        drawBox(content, start, y - 6, boxSize);
+        drawBox(content, start + 30, y - 6, boxSize);
+        content.beginText();
+        content.newLineAtOffset(start + 12, y - 1);
+        content.showText("Yes");
+        content.endText();
+        content.beginText();
+        content.newLineAtOffset(start + 42, y - 1);
+        content.showText("No");
+        content.endText();
+
+        String v = value != null ? value.toLowerCase() : "";
+        if (v.contains("yes")) {
+            drawCheck(content, start + 1, y - 5);
+        } else if (v.contains("no")) {
+            drawCheck(content, start + 31, y - 5);
+        }
+        return y - 14;
+    }
+
+    private float drawYesNoNaRow(PDPageContentStream content, float x, float y, float x2, String label, String value) throws java.io.IOException {
+        content.beginText();
+        content.newLineAtOffset(x, y);
+        content.showText(label);
+        content.endText();
+        float boxSize = 8f;
+        float start = x + 220;
+        drawBox(content, start, y - 6, boxSize);
+        drawBox(content, start + 30, y - 6, boxSize);
+        drawBox(content, start + 60, y - 6, boxSize);
+        content.beginText();
+        content.newLineAtOffset(start + 12, y - 1);
+        content.showText("Yes");
+        content.endText();
+        content.beginText();
+        content.newLineAtOffset(start + 42, y - 1);
+        content.showText("No");
+        content.endText();
+        content.beginText();
+        content.newLineAtOffset(start + 72, y - 1);
+        content.showText("NA");
+        content.endText();
+
+        String v = value != null ? value.toLowerCase() : "";
+        if (v.contains("yes")) {
+            drawCheck(content, start + 1, y - 5);
+        } else if (v.contains("no")) {
+            drawCheck(content, start + 31, y - 5);
+        } else if (v.contains("na") || v.contains("n/a")) {
+            drawCheck(content, start + 61, y - 5);
+        }
+        return y - 14;
+    }
+
+    private void drawSignatureLineRow(PDPageContentStream content, float x, float y, float x2, String leftLabel, String rightLabel) throws java.io.IOException {
+        float mid = x + (x2 - x) / 2;
+        content.beginText();
+        content.newLineAtOffset(x, y);
+        content.showText(leftLabel);
+        content.endText();
+        drawLine(content, x + 55, y - 3, mid - 10, y - 3);
+        content.beginText();
+        content.newLineAtOffset(mid + 5, y);
+        content.showText(rightLabel);
+        content.endText();
+        drawLine(content, mid + 65, y - 3, x2, y - 3);
+    }
+
+    private void drawBox(PDPageContentStream content, float x, float y, float size) throws java.io.IOException {
+        content.addRect(x, y, size, size);
+        content.stroke();
+    }
+
+    private void drawCheck(PDPageContentStream content, float x, float y) throws java.io.IOException {
+        content.moveTo(x + 1, y + 3);
+        content.lineTo(x + 3, y + 1);
+        content.lineTo(x + 7, y + 6);
+        content.stroke();
+    }
+
+    private String trimToWidth(String text, PDType1Font font, float fontSize, float maxWidth) throws java.io.IOException {
+        if (text == null) return "";
+        String t = text.replaceAll("\\s+", " ").trim();
+        while (font.getStringWidth(t) / 1000 * fontSize > maxWidth && t.length() > 0) {
+            t = t.substring(0, t.length() - 1);
+        }
+        return t;
+    }
+
+    private String getCapfValue(Map<String, Object> appData, String key) {
+        if (appData == null || key == null) return null;
+        String k = key.toLowerCase();
+        for (Map.Entry<String, Object> entry : appData.entrySet()) {
+            String label = entry.getKey();
+            if (label == null) continue;
+            String normalized = label.replace(":", "").toLowerCase();
+            if (normalized.contains(k)) {
+                Object val = entry.getValue();
+                if (val != null) return String.valueOf(val);
+            }
+        }
+        return null;
+    }
+
+    private String nullSafe(String v) {
+        return v != null ? v : "";
+    }
+
+    private boolean isCapfForm(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form) {
+        if (form == null) return false;
+        String name = form.getTxtFormName();
+        String code = form.getTxtFormCode();
+        if (name != null && name.toLowerCase().contains("capf")) return true;
+        if (code != null && code.toLowerCase().startsWith("capf")) return true;
+        return false;
+    }
+
+    private java.util.Map<String, String> extractUserDisplay(Object obj) {
+        java.util.Map<String, String> result = new java.util.HashMap<>();
+        if (!(obj instanceof Map)) return result;
+        Map<?, ?> map = (Map<?, ?>) obj;
+        Object nameObj = map.get("txtUserName");
+        if (nameObj == null) nameObj = map.get("userName");
+        Object roleObj = null;
+        Object roleMap = map.get("cfgTblRole");
+        if (roleMap instanceof Map) {
+            roleObj = ((Map<?, ?>) roleMap).get("txtRoleName");
+        }
+        if (roleObj == null) roleObj = map.get("roleName");
+        if (nameObj != null) result.put("name", nameObj.toString());
+        if (roleObj != null) result.put("role", roleObj.toString());
+        return result;
+    }
+
+    private java.util.List<java.util.Map<String, String>> extractUserListDisplay(Object obj) {
+        java.util.List<java.util.Map<String, String>> list = new java.util.ArrayList<>();
+        if (!(obj instanceof java.util.List)) return list;
+        for (Object item : (java.util.List<?>) obj) {
+            list.add(extractUserDisplay(item));
+        }
+        return list;
+    }
+
+    private String formatUserDisplay(java.util.Map<String, String> data) {
+        if (data == null || data.isEmpty()) return "";
+        String name = data.getOrDefault("name", "");
+        String role = data.getOrDefault("role", "");
+        if (!role.isEmpty()) return name + " (" + role + ")";
+        return name;
+    }
+
+    private float writeLine(PDPageContentStream content, float y, String text) throws java.io.IOException {
+        content.beginText();
+        content.newLineAtOffset(40, y);
+        content.showText(text != null ? text : "");
+        content.endText();
+        return y - 14;
+    }
+
+    private String formatPdfValue(Object valObj) {
+        if (valObj == null) return "";
+        if (valObj instanceof Map) {
+            Map<?, ?> map = (Map<?, ?>) valObj;
+            if (map.containsKey("dataUrl") || map.containsKey("base64")) {
+                return "[attachment]";
+            }
+            return map.toString();
+        }
+        String val = valObj.toString();
+        if (val.length() > 200) {
+            return val.substring(0, 200) + "...";
+        }
+        return val;
+    }
+
+    private static class BudgetApprover {
+        Integer userId;
+        String name;
+        String email;
+        String role;
+        String signaturePath;
     }
 
     /**
@@ -1389,4 +2615,3 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                    .replace("'", "&#39;");
     }
 }
-

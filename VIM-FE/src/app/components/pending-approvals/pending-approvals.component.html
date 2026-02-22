@@ -1,0 +1,58 @@
+<div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+    <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+        <div class="flex items-center gap-2">
+            <h5 class="text-xl font-bold dark:text-white-light">Pending Approvals</h5>
+            <span class="badge badge-outline-warning" *ngIf="pendingApprovals.length > 0">
+                {{ pendingApprovals.length }} pending
+            </span>
+        </div>
+        <div class="ltr:ml-auto rtl:mr-auto flex gap-2">
+            <div>
+                <input [(ngModel)]="search" type="text" class="form-input" placeholder="Search pending approvals..." />
+            </div>
+        </div>
+    </div>
+
+    <div class="datatable invoice-table" *ngIf="getDisplayedPendingApprovals().length > 0">
+        <ng-datatable 
+            [rows]="getDisplayedPendingApprovals()" 
+            [columns]="cols" 
+            [hasCheckbox]="false" 
+            [sortable]="true"
+            [search]="search" 
+            skin="whitespace-nowrap bh-table-hover"
+            firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+            lastArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M11 19L17 12L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M6.99976 19L12.9998 12L6.99976 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg> '
+            previousArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M15 5L9 12L15 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+            nextArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M9 5L15 12L9 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'>
+
+            <ng-template slot="txtFormCode" let-value="data">
+                <span class="badge badge-outline-primary" *ngIf="value.txtFormCode">
+                    {{ value.txtFormCode }}
+                </span>
+                <span class="text-gray-400" *ngIf="!value.txtFormCode">-</span>
+            </ng-template>
+            <ng-template slot="intCurrentApprovalLevel" let-value="data">
+                <span class="badge badge-outline-info">
+                    Level {{ value.intCurrentApprovalLevel || 0 }}
+                </span>
+            </ng-template>
+            <ng-template slot="dteCreatedDate" let-value="data">
+                <span>{{ value.dteCreatedDate ? (value.dteCreatedDate | date:'short') : '-' }}</span>
+            </ng-template>
+            <ng-template slot="actions" let-value="data">
+                <div class="flex items-center justify-center">
+                    <a (click)="viewApplication(value)" class="hover:text-info" title="View Application">
+                        <icon-eye class="h-4.5 w-4.5" />
+                    </a>
+                </div>
+            </ng-template>
+        </ng-datatable>
+    </div>
+
+    <div *ngIf="getDisplayedPendingApprovals().length === 0" class="px-5 py-8 text-center">
+        <p class="text-gray-600 dark:text-gray-400">
+            No pending approvals found.
+        </p>
+    </div>
+</div>
