@@ -79,6 +79,7 @@
                 <div class="w-full max-w-[440px] lg:mt-16">
                     <div class="mb-10">
                         <h1 class="text-3xl font-extrabold uppercase !leading-snug text-primary md:text-4xl">Sign in</h1>
+                        <p class="text-sm font-semibold uppercase tracking-wide text-white-dark">Workflow Management System</p>
                         <p class="text-base font-bold leading-normal text-white-dark">Enter your email and password to login</p>
                     </div>
                     <form class="space-y-5 dark:text-white" (submit)="router.navigate(['/'])">
@@ -94,10 +95,18 @@
                         <div>
                             <label for="Password">Password</label>
                             <div class="relative text-white-dark">
-                                <input id="Password" type="password" placeholder="Enter Password" class="form-input ps-10 placeholder:text-white-dark" />
+                                <input id="Password" [type]="showPassword ? 'text' : 'password'" placeholder="Enter Password" class="form-input ps-10 pe-10 placeholder:text-white-dark" />
                                 <span class="absolute start-4 top-1/2 -translate-y-1/2">
                                     <icon-lock-dots [fill]="true" />
                                 </span>
+                                <button
+                                    type="button"
+                                    class="absolute end-3 top-1/2 -translate-y-1/2 text-white-dark hover:text-primary"
+                                    (click)="togglePasswordVisibility()"
+                                    aria-label="Toggle password visibility"
+                                >
+                                    <icon-eye />
+                                </button>
                             </div>
                         </div>
                         <div>

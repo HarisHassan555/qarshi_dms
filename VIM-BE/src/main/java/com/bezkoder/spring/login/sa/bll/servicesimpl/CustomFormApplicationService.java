@@ -83,7 +83,13 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     @Override
     public String approveApplication(Integer applicationId, String remarks) {
         logger.debug("approveApplication() - applicationId: " + applicationId);
-        return customFormApplicationDAO.approveApplication(applicationId, remarks);
+        return approveApplication(applicationId, remarks, null, "SYSTEM");
+    }
+
+    @Override
+    public String approveApplication(Integer applicationId, String remarks, Integer approverUserId, String approvedVia) {
+        logger.debug("approveApplication() - applicationId: " + applicationId + ", approverUserId: " + approverUserId);
+        return customFormApplicationDAO.approveApplication(applicationId, remarks, approverUserId, approvedVia);
     }
 
     @Override
@@ -98,4 +104,3 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
         return customFormApplicationDAO.sendBackApplication(applicationId, remarks);
     }
 }
-

@@ -12,6 +12,9 @@ import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeBodyPart;
 import javax.mail.internet.MimeMessage;
 import javax.mail.internet.MimeMultipart;
+import javax.activation.DataHandler;
+import javax.activation.DataSource;
+import javax.mail.util.ByteArrayDataSource;
 
 
 @Service
@@ -95,6 +98,50 @@ public class EmailService {
             Transport.send(message);
             System.out.println("HTML emails sent successfully!");
 
+        } catch (MessagingException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void sendHtmlEmailWithAttachment(List<String> recipients, String subject, String htmlContent,
+                                            byte[] attachmentBytes, String attachmentName, String attachmentMime) {
+        String username = properties.getProperty("mail.smtp.username");
+        String password = properties.getProperty("mail.smtp.password");
+
+        Session session = Session.getInstance(properties,
+                new javax.mail.Authenticator() {
+                    protected PasswordAuthentication getPasswordAuthentication() {
+                        return new PasswordAuthentication(username, password);
+                    }
+                });
+
+        try {
+            Message message = new MimeMessage(session);
+            message.setFrom(new InternetAddress(username));
+            for (String recipient : recipients) {
+                message.addRecipient(Message.RecipientType.TO, new InternetAddress(recipient));
+            }
+            message.setSubject(subject);
+
+            MimeBodyPart messageBodyPart = new MimeBodyPart();
+            messageBodyPart.setContent(htmlContent, "text/html; charset=utf-8");
+
+            Multipart multipart = new MimeMultipart();
+            multipart.addBodyPart(messageBodyPart);
+
+            if (attachmentBytes != null && attachmentBytes.length > 0) {
+                String mime = attachmentMime != null ? attachmentMime : "application/pdf";
+                String name = attachmentName != null ? attachmentName : "application.pdf";
+                DataSource dataSource = new ByteArrayDataSource(attachmentBytes, mime);
+                MimeBodyPart attachmentPart = new MimeBodyPart();
+                attachmentPart.setDataHandler(new DataHandler(dataSource));
+                attachmentPart.setFileName(name);
+                multipart.addBodyPart(attachmentPart);
+            }
+
+            message.setContent(multipart);
+            Transport.send(message);
+            System.out.println("HTML emails with attachment sent successfully!");
         } catch (MessagingException e) {
             e.printStackTrace();
         }

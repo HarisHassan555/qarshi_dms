@@ -18,6 +18,7 @@ import { AppService } from 'src/app/service/app.service';
 export class CoverLoginComponent {
     store: any;
     currYear: number = new Date().getFullYear();
+    showPassword: boolean = false;
     constructor(public translate: TranslateService, public storeData: Store<any>, public router: Router, private appSetting: AppService) {
         this.initStore();
     }
@@ -38,5 +39,9 @@ export class CoverLoginComponent {
             this.storeData.dispatch({ type: 'toggleRTL', payload: 'ltr' });
         }
         window.location.reload();
+    }
+
+    togglePasswordVisibility() {
+        this.showPassword = !this.showPassword;
     }
 }

@@ -3,6 +3,7 @@ import { Router, ActivatedRoute, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
 
 import { CommonModule } from '@angular/common';
+import { urls } from 'src/app/utils/urls';
 
 @Component({
     selector: 'app-abc',
@@ -17,6 +18,21 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
     @Input() formFields: any[] = [];
     @Input() application: any = null;
     @Input() isEmbedded: boolean = false;
+
+    signatureSlots: Array<{
+        label: string;
+        keywords: string[];
+        signatureUrl: string;
+        approvedDateText: string;
+    }> = [
+        { label: 'User Deptt. (HoD)', keywords: ['user', 'hod', 'department', 'head'], signatureUrl: '', approvedDateText: '' },
+        { label: 'Technical Expert', keywords: ['technical', 'expert'], signatureUrl: '', approvedDateText: '' },
+        { label: 'Procurement', keywords: ['procurement'], signatureUrl: '', approvedDateText: '' },
+        { label: 'Finance', keywords: ['finance'], signatureUrl: '', approvedDateText: '' },
+        { label: 'Core Team HTR. / CCT HO', keywords: ['core team', 'htr', 'cct', 'ho'], signatureUrl: '', approvedDateText: '' },
+    ];
+
+    private approvalHistory: any[] = [];
 
     // Session storage key for persistence across page refresh/new tabs
     private readonly SESSION_KEY = 'abc_form_state';
@@ -89,6 +105,7 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         } else {
             console.info("ℹ️  [ngOnInit] No form data to populate");
         }
+        this.refreshSignatureSlots();
     }
 
     /**
@@ -172,6 +189,76 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
             if (Object.keys(this.formData || {}).length > 0 || (this.formFields && this.formFields.length > 0)) {
                 this.populateForm();
             }
+        }
+
+        if (changes['application']) {
+            this.refreshSignatureSlots();
+        }
+    }
+
+    private refreshSignatureSlots() {
+        this.approvalHistory = this.parseApprovalHistory();
+
+        this.signatureSlots = this.signatureSlots.map((slot) => {
+            const entry = this.getApprovalEntryForSlot(slot);
+            const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
+            const approvedDate = entry?.approvedDate;
+            const hasSignature = !!entry?.signaturePath;
+            return {
+                ...slot,
+                signatureUrl: userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '',
+                approvedDateText: hasSignature ? this.formatApprovalDate(approvedDate) : ''
+            };
+        });
+    }
+
+    private parseApprovalHistory(): any[] {
+        try {
+            const historyJson = this.application?.txtApprovalHistory;
+            if (historyJson) {
+                const parsed = JSON.parse(historyJson);
+                return Array.isArray(parsed) ? parsed : [];
+            }
+        } catch (e) {
+            return [];
+        }
+        return [];
+    }
+
+    private getApprovalEntryForSlot(slot: { keywords: string[] }): any | null {
+        if (!this.approvalHistory || this.approvalHistory.length === 0) {
+            return null;
+        }
+
+        const keywordsLower = (slot.keywords || []).map(k => k.toLowerCase());
+        const byDept = this.approvalHistory.find((e: any) => {
+            const deptName = (e.departmentName || '').toString().toLowerCase();
+            return keywordsLower.some(k => deptName.includes(k));
+        });
+        if (byDept) {
+            return byDept;
+        }
+
+        const slotIndex = this.signatureSlots.findIndex(s => s.keywords === slot.keywords);
+        if (slotIndex >= 0) {
+            const order = slotIndex + 1;
+            const byLevel = this.approvalHistory.find((e: any) => e.level === order);
+            if (byLevel) {
+                return byLevel;
+            }
+        }
+
+        return null;
+    }
+
+    private formatApprovalDate(dateValue: any): string {
+        if (!dateValue) return '';
+        try {
+            const dt = new Date(dateValue);
+            if (isNaN(dt.getTime())) return String(dateValue);
+            return dt.toLocaleString();
+        } catch (e) {
+            return String(dateValue);
         }
     }
 
@@ -525,4 +612,6 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         return value === 'na' || value === 'n/a' || value === 'not applicable';
     }
 }
+
+
 

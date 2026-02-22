@@ -316,6 +316,20 @@
     font-size: 12px;
 }
 
+.xyz-sig-img {
+    max-height: 26px;
+    max-width: 100%;
+    object-fit: contain;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.xyz-sig-time {
+    font-size: 10px;
+    color: #6b7280;
+    margin-bottom: 4px;
+}
+
 @media (max-width: 1200px) {
     .xyz-page-inline {
         padding: 0;

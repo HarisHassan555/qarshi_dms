@@ -233,6 +233,11 @@ public class CustomFormApplicationController {
         try {
             Integer applicationId = (Integer) requestBody.get("applicationId");
             String remarks = (String) requestBody.get("remarks");
+            Integer approverUserId = null;
+            if (requestBody.get("approverUserId") != null) {
+                approverUserId = (Integer) requestBody.get("approverUserId");
+            }
+            String approvedVia = requestBody.get("approvedVia") != null ? String.valueOf(requestBody.get("approvedVia")) : "SYSTEM";
             
             if (applicationId == null) {
                 result.put("status", "Failure");
@@ -240,7 +245,7 @@ public class CustomFormApplicationController {
                 return result;
             }
             
-            String status = customFormApplicationService.approveApplication(applicationId, remarks);
+            String status = customFormApplicationService.approveApplication(applicationId, remarks, approverUserId, approvedVia);
             if ("Success".equals(status)) {
                 result.put("status", "Success");
                 result.put("message", "Application approved successfully");
@@ -309,7 +314,7 @@ public class CustomFormApplicationController {
                                               HttpServletResponse response) {
         logger.debug("approveApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
         try {
-            String status = customFormApplicationService.approveApplication(applicationId, "Approved via email");
+            String status = customFormApplicationService.approveApplication(applicationId, "Approved via email", userId, "EMAIL");
             if ("Success".equals(status)) {
                 return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Application Approved</title>" +
                        "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
@@ -428,4 +433,3 @@ public class CustomFormApplicationController {
         }
     }
 }
-

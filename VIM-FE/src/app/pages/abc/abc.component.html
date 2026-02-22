@@ -173,25 +173,12 @@
       </div>
 
       <div class="sig-row">
-        <div class="sig">
-          <div class="sig-line"></div>
-          <div class="sig-label">User Deptt. (HoD)</div>
-        </div>
-        <div class="sig">
-          <div class="sig-line"></div>
-          <div class="sig-label">Technical Expert</div>
-        </div>
-        <div class="sig">
-          <div class="sig-line"></div>
-          <div class="sig-label">Procurement</div>
-        </div>
-        <div class="sig">
-          <div class="sig-line"></div>
-          <div class="sig-label">Finance</div>
-        </div>
-        <div class="sig">
-          <div class="sig-line"></div>
-          <div class="sig-label">Core Team HTR. / CCT HO</div>
+        <div class="sig" *ngFor="let slot of signatureSlots">
+          <div class="sig-line">
+            <img *ngIf="slot.signatureUrl" [src]="slot.signatureUrl" class="sig-img" alt="Signature" crossorigin="anonymous">
+          </div>
+          <div class="sig-time" *ngIf="slot.signatureUrl && slot.approvedDateText">{{ slot.approvedDateText }}</div>
+          <div class="sig-label">{{ slot.label }}</div>
         </div>
       </div>
 

@@ -6,6 +6,7 @@ import { CustomFormApplicationService } from '../../services/custom-form-applica
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
 import { NotificationService } from 'src/app/NotificationService';
 import { saveAs } from 'file-saver';
+import { urls } from 'src/app/utils/urls';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
@@ -1584,49 +1585,131 @@ export class ApplicationsViewComponent implements OnInit {
   }
 
   private generateBudgetApprovalPdfHtml(application: any, formFields: any[], applicationFormData: any, formName: string): string {
-    const { heading, contentHtml } = this.buildBudgetApprovalContent(applicationFormData);
+    const { heading, contentHtml, preparedBy, reviewers, recommenders, approver } = this.buildBudgetApprovalContent(applicationFormData);
     const headingText = heading || formName || 'Budget Approval';
     const dateStr = application?.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleDateString() : new Date().toLocaleDateString();
-    return this.generateBudgetApprovalXyzHtml(headingText, dateStr, contentHtml);
+    return this.generateBudgetApprovalXyzHtml(headingText, dateStr, contentHtml, application?.txtApprovalHistory, preparedBy, reviewers, recommenders, approver);
   }
 
-  private generateBudgetApprovalXyzHtml(headingText: string, dateStr: string, contentHtml: string): string {
+  private generateBudgetApprovalXyzHtml(
+    headingText: string,
+    dateStr: string,
+    contentHtml: string,
+    approvalHistoryJson?: string,
+    preparedBy?: any,
+    reviewers: any[] = [],
+    recommenders: any[] = [],
+    approver?: any
+  ): string {
+    let approvalHistory: any[] = [];
+    if (approvalHistoryJson) {
+      try {
+        approvalHistory = JSON.parse(approvalHistoryJson);
+      } catch (e) {
+        approvalHistory = [];
+      }
+    }
+
+    const getUserId = (user: any): number | null => {
+      if (!user) return null;
+      return user.serUserId || user.userId || user.id || null;
+    };
+
+    const getUserSignatureUrl = (user: any): string => {
+      const userId = getUserId(user);
+      if (!userId) return '';
+      const entry = approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+      if (!entry || !entry.signaturePath) return '';
+      return `${urls.API_URL}getSignature?userId=${userId}`;
+    };
+
+    const isUserApproved = (user: any): boolean => {
+      const userId = getUserId(user);
+      if (!userId || !approvalHistory || approvalHistory.length === 0) return false;
+      const entry = approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+      if (!entry) return false;
+      if (!entry.signaturePath) return false;
+      const action = (entry.action || entry.status || '').toString().toUpperCase();
+      if (action === 'REJECTED') return false;
+      if (action === 'APPROVED') return true;
+      return !!entry.approvedDate;
+    };
+
+    const getUserApprovalDate = (user: any): string => {
+      const userId = getUserId(user);
+      if (!userId || !approvalHistory || approvalHistory.length === 0) return '';
+      const entry = approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+      if (!entry || !entry.approvedDate) return '';
+      try {
+        const dt = new Date(entry.approvedDate);
+        if (isNaN(dt.getTime())) return String(entry.approvedDate);
+        return dt.toLocaleString();
+      } catch (e) {
+        return String(entry.approvedDate);
+      }
+    };
+
+    const renderUserCell = (user: any, fallbackName?: string, fallbackRole?: string): string => {
+      if (!user && !fallbackName) return '';
+      const name = user?.txtUserName || fallbackName || '';
+      const role = user?.cfgTblRole?.txtRoleName || fallbackRole || '';
+      const sigUrl = getUserSignatureUrl(user);
+      const sigDate = getUserApprovalDate(user);
+      const approved = isUserApproved(user);
+      return `
+        ${approved && sigUrl ? `<img class="xyz-sig-img" src="${sigUrl}" alt="Signature" crossorigin="anonymous" />` : ''}
+        ${approved && sigDate ? `<div class="xyz-sig-time">${sigDate}</div>` : ''}
+        <div>${name}${role ? `<br>(${role})` : ''}</div>
+      `;
+    };
+
+    const renderUserNameCell = (user: any, fallbackName?: string, fallbackRole?: string): string => {
+      if (!user && !fallbackName) return '';
+      const name = user?.txtUserName || fallbackName || '';
+      const role = user?.cfgTblRole?.txtRoleName || fallbackRole || '';
+      return `<div>${name}${role ? `<br>(${role})` : ''}</div>`;
+    };
     const css = `
+    :root { --ink:#111827; --muted:#6b7280; --line:#c7cdd4; --accent:#0f766e; --soft:#eef4f3; }
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 0; background:#ffffff; color:#000; }
+    body { margin: 0; padding: 0; background:#ffffff; color:var(--ink); }
     .xyz-page { background:#ffffff; padding: 0; display:block; }
-    .xyz-paper { width: 210mm; min-height: 297mm; background:#ffffff; font-family: "Times New Roman", Times, serif; font-size: 13.5px; line-height: 1.35; border: none; padding: 18mm 16mm 16mm 16mm; display:flex; flex-direction:column; }
-    .xyz-date-row { display:flex; justify-content:flex-end; margin-bottom:6px; }
-    .xyz-date { font-size:14px; text-align:right; }
-    .xyz-header { display:grid; grid-template-columns:90px 1fr 90px; align-items:end; column-gap:12px; margin-bottom:6px; }
-    .xyz-logo { align-self:start; margin-top:-10px; }
-    .xyz-logo img { width:65px; height:auto; display:block; }
+    .xyz-paper { width: 210mm; min-height: 297mm; background:#ffffff; font-family: "Georgia", "Times New Roman", serif; font-size: 13.5px; line-height: 1.45; border: none; padding: 16mm 16mm 16mm 16mm; display:flex; flex-direction:column; }
+    .xyz-date-row { display:flex; justify-content:flex-end; margin-bottom:6px; font-family: "Calibri", "Arial", sans-serif; color:var(--muted); }
+    .xyz-date { font-size:12px; text-align:right; }
+    .xyz-header { display:grid; grid-template-columns:70px 1fr 140px; align-items:center; column-gap:10px; margin-bottom:4px; }
+    .xyz-logo { align-self:start; }
+    .xyz-logo img { width:58px; height:auto; display:block; }
     .xyz-company { text-align:center; }
-    .xyz-company-name { font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif; font-size:30px; font-weight:700; }
-    .xyz-company-address { font-family: Verdana, Arial, sans-serif; font-size:12px; color:#000; margin-top:2px; }
-    .xyz-rule { height:1px; background:#000; margin:8px 0 12px 0; position:relative; }
-    .xyz-rule::before, .xyz-rule::after { content:""; position:absolute; left:0; right:0; height:1px; background:#000; }
+    .xyz-company-name { font-family: "Cambria", "Georgia", "Times New Roman", serif; font-size:26px; font-weight:700; letter-spacing:0.2px; }
+    .xyz-company-address { font-family: "Calibri", "Arial", sans-serif; font-size:11.5px; color:var(--muted); margin-top:2px; }
+    .xyz-meta { text-align:right; font-family: "Calibri", "Arial", sans-serif; font-size:11.5px; color:var(--muted); }
+    .xyz-rule { height:1px; background:var(--line); margin:8px 0 12px 0; position:relative; }
+    .xyz-rule::before, .xyz-rule::after { content:""; position:absolute; left:0; right:0; height:1px; background:var(--line); }
     .xyz-rule::before { top:-2px; }
     .xyz-rule::after { bottom:-2px; }
-    .xyz-title { text-align:center; font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif; font-weight:700; font-size:26px; margin:6px 0 16px 0; }
+    .xyz-title { text-align:center; font-family: "Cambria", "Georgia", "Times New Roman", serif; font-weight:700; font-size:22px; letter-spacing:0.6px; text-transform:uppercase; margin:6px 0 14px 0; }
+    .xyz-dynamic { margin-top:4px; }
     .xyz-section { margin-bottom:10px; }
-    .xyz-section-title { font-family: "Times New Roman", Times, serif; font-size:14px; font-weight:700; text-decoration:underline; margin-bottom:3px; }
-    .xyz-section-text { font-family: "Times New Roman", Times, serif; font-size:14px; font-weight:400; text-align:justify; }
+    .xyz-section-title { font-family: "Georgia", "Times New Roman", serif; font-size:13.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; border-left:3px solid var(--accent); padding-left:8px; margin-bottom:4px; }
+    .xyz-section-text { font-family: "Georgia", "Times New Roman", serif; font-size:13.5px; font-weight:400; text-align:justify; color:var(--ink); }
     .xyz-list { margin: 4px 0 0 18px; padding: 0; }
     .xyz-list li { margin-bottom: 6px; }
     .xyz-bold { font-weight:700; }
-    .xyz-table { width:100%; border-collapse:collapse; margin:8px 0; font-size:14px; }
-    .xyz-table th, .xyz-table td { border:1px solid #000; padding:4px 6px; }
-    .xyz-table thead th { background:#8bc34a; text-align:center; }
+    .xyz-table { width:100%; border-collapse:collapse; margin:10px 0; font-size:13px; }
+    .xyz-table th, .xyz-table td { border:1px solid var(--line); padding:6px 8px; }
+    .xyz-table thead th { background:var(--soft); text-align:center; font-weight:700; }
     .xyz-table tbody td:first-child, .xyz-table tbody td:last-child { text-align:center; }
     .xyz-col-sr { width:8%; text-align:center; }
     .xyz-col-amount { width:18%; text-align:center; }
-    .xyz-note { margin-top:6px; font-size:11px; }
-    .xyz-signatures { width:100%; border-collapse:collapse; margin-top:12px; font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:12px; }
-    .xyz-signatures th, .xyz-signatures td { border:1px solid #000; padding:4px 6px; vertical-align:top; text-align:left; }
-    .xyz-signatures-blank td { height:56px; padding:0; background:#fff; }
-    .xyz-signatures th { font-size:14px; font-weight:700; background:#8f8f8f; }
+    .xyz-note { margin-top:6px; font-size:11.5px; color:var(--muted); }
+    .xyz-signatures { width:100%; border-collapse:collapse; margin-top:14px; font-family: "Calibri", "Arial", sans-serif; font-size:12px; }
+    .xyz-signatures th, .xyz-signatures td { border:1px solid var(--line); padding:6px 8px; vertical-align:top; text-align:left; }
+    .xyz-signatures-blank td { height:62px; padding:6px 8px; background:#fff; }
+    .xyz-signatures th { font-size:12.5px; font-weight:700; background:#e5e7eb; text-transform:uppercase; letter-spacing:0.3px; }
     .xyz-signatures th[colspan="2"] { text-align:center; }
+    .xyz-sig-img { max-height: 30px; max-width: 100%; object-fit: contain; display:block; margin-bottom:4px; }
+    .xyz-sig-time { font-size:10px; color:var(--muted); margin-bottom:4px; }
     .xyz-footer { margin-top:auto; }
     `;
 
@@ -1647,7 +1730,7 @@ export class ApplicationsViewComponent implements OnInit {
           <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
           <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
         </div>
-        <div></div>
+        <div class="xyz-meta">Form: ${headingText}</div>
       </div>
       <div class="xyz-rule"></div>
       <div class="xyz-title">${headingText}</div>
@@ -1655,7 +1738,13 @@ export class ApplicationsViewComponent implements OnInit {
 
       <div class="xyz-footer">
       <table class="xyz-signatures">
-        <tr class="xyz-signatures-blank"><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr class="xyz-signatures-blank">
+          <td>${isUserApproved(preparedBy) ? renderUserCell(preparedBy) : ''}</td>
+          <td>${isUserApproved(reviewers?.[0]) ? renderUserCell(reviewers?.[0]) : ''}</td>
+          <td>${isUserApproved(reviewers?.[1]) ? renderUserCell(reviewers?.[1]) : ''}</td>
+          <td>${isUserApproved(recommenders?.[0]) ? renderUserCell(recommenders?.[0]) : ''}</td>
+          <td>${isUserApproved(approver) ? renderUserCell(approver) : ''}</td>
+        </tr>
         <tr>
           <th>Prepared by:</th>
           <th colspan="2">Reviewed by:</th>
@@ -1663,11 +1752,11 @@ export class ApplicationsViewComponent implements OnInit {
           <th>Approved by:</th>
         </tr>
         <tr>
-          <td>Mr. Mahmood Khan<br>(Dy. Manager)</td>
-          <td>Mr. Tahir Sarwar<br>(AGM IT &amp; ERP)</td>
-          <td>Mr. Muhammad Azhar<br>(DGM Finance)</td>
-          <td>Mr. Yasir Ishaq Ansari<br>(CTO)</td>
-          <td>Dr. Amjad Aqeel<br>(CE / COO QIL &amp; DB)</td>
+          <td>${renderUserNameCell(preparedBy, preparedBy?.txtUserName, preparedBy?.cfgTblRole?.txtRoleName)}</td>
+          <td>${renderUserNameCell(reviewers?.[0], reviewers?.[0]?.txtUserName, reviewers?.[0]?.cfgTblRole?.txtRoleName)}</td>
+          <td>${renderUserNameCell(reviewers?.[1], reviewers?.[1]?.txtUserName, reviewers?.[1]?.cfgTblRole?.txtRoleName)}</td>
+          <td>${renderUserNameCell(recommenders?.[0], recommenders?.[0]?.txtUserName, recommenders?.[0]?.cfgTblRole?.txtRoleName)}</td>
+          <td>${renderUserNameCell(approver, approver?.txtUserName, approver?.cfgTblRole?.txtRoleName)}</td>
         </tr>
       </table>
       </div>
@@ -1691,6 +1780,27 @@ export class ApplicationsViewComponent implements OnInit {
       const div = document.createElement('div');
       div.textContent = String(text);
       return div.innerHTML;
+    };
+
+    const sanitizeBudgetHtml = (html: string): string => {
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = html;
+
+      const candidates = wrapper.querySelectorAll('button, input, a, [role="button"]');
+      candidates.forEach(el => {
+        const tag = el.tagName.toLowerCase();
+        const text = (el.textContent || '').toLowerCase();
+        const value = (el as HTMLInputElement).value ? (el as HTMLInputElement).value.toLowerCase() : '';
+        const type = tag === 'input' ? ((el as HTMLInputElement).type || '').toLowerCase() : '';
+        const hasResetText = text.includes('reset') || text.includes('close & reset');
+        const hasResetValue = value.includes('reset') || value.includes('close & reset');
+        const isResetType = type === 'reset';
+        if (hasResetText || hasResetValue || isResetType) {
+          el.remove();
+        }
+      });
+
+      return wrapper.innerHTML;
     };
 
     const getValueByLabelContains = (needle: string): any => {
@@ -1730,7 +1840,7 @@ export class ApplicationsViewComponent implements OnInit {
     };
 
     if (rawHtml) {
-      result.contentHtml = String(rawHtml);
+      result.contentHtml = sanitizeBudgetHtml(String(rawHtml));
       return result;
     }
 
@@ -2025,6 +2135,75 @@ export class ApplicationsViewComponent implements OnInit {
     const thirdPartyNo = thirdPartyValue && (thirdPartyValue.toLowerCase() === 'no' || thirdPartyValue.toLowerCase() === 'false');
     const thirdPartyNA = thirdPartyValue && (thirdPartyValue.toLowerCase() === 'na' || thirdPartyValue.toLowerCase() === 'n/a' || thirdPartyValue.toLowerCase() === 'not applicable');
 
+    // Parse approval history for signatures
+    let approvalHistory: any[] = [];
+    if (application?.txtApprovalHistory) {
+      try {
+        approvalHistory = JSON.parse(application.txtApprovalHistory);
+      } catch (e) {
+        approvalHistory = [];
+      }
+    }
+
+    const getApprovalEntryForSignature = (order: number, deptNameKeywords?: string[]): any | null => {
+      if (!approvalHistory || approvalHistory.length === 0) {
+        return null;
+      }
+
+      let entry = approvalHistory.find((e: any) => e.level === order);
+      if (entry) {
+        return entry;
+      }
+
+      if (deptNameKeywords && deptNameKeywords.length > 0) {
+        const keywordsLower = deptNameKeywords.map(k => k.toLowerCase());
+        entry = approvalHistory.find((e: any) => {
+          const deptName = (e.departmentName || '').toString().toLowerCase();
+          return keywordsLower.some(k => deptName.includes(k));
+        });
+        if (entry) {
+          return entry;
+        }
+      }
+
+      return null;
+    };
+
+    const getSignatureHtmlByIndex = (signatureIndex: number, deptNameKeywords?: string[]): string => {
+      const order = signatureIndex + 1;
+      const entry = getApprovalEntryForSignature(order, deptNameKeywords);
+      if (!entry) {
+        return '';
+      }
+      if (!entry.signaturePath) {
+        return '';
+      }
+      const userId = entry.approvedBy || entry.approverUserId || entry.userId;
+      if (!userId) {
+        return '';
+      }
+      const signatureUrl = `${urls.API_URL}getSignature?userId=${userId}`;
+      return `<img class="sig-img" src="${signatureUrl}" alt="Signature" crossorigin="anonymous" />`;
+    };
+
+    const getSignatureTimestampByIndex = (signatureIndex: number, deptNameKeywords?: string[]): string => {
+      const order = signatureIndex + 1;
+      const entry = getApprovalEntryForSignature(order, deptNameKeywords);
+      if (!entry || !entry.approvedDate) {
+        return '';
+      }
+      if (!entry.signaturePath) {
+        return '';
+      }
+      try {
+        const dt = new Date(entry.approvedDate);
+        if (isNaN(dt.getTime())) return String(entry.approvedDate);
+        return dt.toLocaleString();
+      } catch (e) {
+        return String(entry.approvedDate);
+      }
+    };
+
     // Helper function to check if a signature field should show "Approved"
     const isSignatureApproved = (signatureIndex: number): boolean => {
       const currentLevel = application.intCurrentApprovalLevel || 0;
@@ -2084,6 +2263,23 @@ export class ApplicationsViewComponent implements OnInit {
 
       return false;
     };
+
+    const sig0Html = getSignatureHtmlByIndex(0, ['user', 'hod', 'department', 'head']) ||
+      (isSignatureApproved(0) || isSignatureApprovedByDept(['user', 'hod', 'department', 'head']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : '');
+    const sig1Html = getSignatureHtmlByIndex(1, ['technical', 'expert']) ||
+      (isSignatureApproved(1) || isSignatureApprovedByDept(['technical', 'expert']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : '');
+    const sig2Html = getSignatureHtmlByIndex(2, ['procurement']) ||
+      (isSignatureApproved(2) || isSignatureApprovedByDept(['procurement']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : '');
+    const sig3Html = getSignatureHtmlByIndex(3, ['finance']) ||
+      (isSignatureApproved(3) || isSignatureApprovedByDept(['finance']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : '');
+    const sig4Html = getSignatureHtmlByIndex(4, ['core team', 'htr', 'cct', 'ho']) ||
+      (isSignatureApproved(4) || isSignatureApprovedByDept(['core team', 'htr', 'cct', 'ho']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : '');
+
+    const sig0Time = getSignatureTimestampByIndex(0, ['user', 'hod', 'department', 'head']);
+    const sig1Time = getSignatureTimestampByIndex(1, ['technical', 'expert']);
+    const sig2Time = getSignatureTimestampByIndex(2, ['procurement']);
+    const sig3Time = getSignatureTimestampByIndex(3, ['finance']);
+    const sig4Time = getSignatureTimestampByIndex(4, ['core team', 'htr', 'cct', 'ho']);
 
     // CSS styles for CAPF form PDF - exact copy of abc.component.css to ensure identical rendering
     const cssStyles = `
@@ -2455,6 +2651,21 @@ export class ApplicationsViewComponent implements OnInit {
       justify-content: center;
     }
 
+    .sig-img {
+      max-height: 16px;
+      max-width: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .sig-time {
+      font-size: 10px;
+      text-align: center;
+      margin-bottom: 2px;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+
     .sig-label {
       font-size: 12px;
       font-weight: 700;
@@ -2771,23 +2982,28 @@ export class ApplicationsViewComponent implements OnInit {
 
         <div class="sig-row">
           <div class="sig">
-            <div class="sig-line">${isSignatureApproved(0) || isSignatureApprovedByDept(['user', 'hod', 'department', 'head']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : ''}</div>
+            <div class="sig-line">${sig0Html}</div>
+            <div class="sig-time">${escapeHtml(sig0Time)}</div>
             <div class="sig-label">User Deptt. (HoD)</div>
           </div>
           <div class="sig">
-            <div class="sig-line">${isSignatureApproved(1) || isSignatureApprovedByDept(['technical', 'expert']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : ''}</div>
+            <div class="sig-line">${sig1Html}</div>
+            <div class="sig-time">${escapeHtml(sig1Time)}</div>
             <div class="sig-label">Technical Expert</div>
           </div>
           <div class="sig">
-            <div class="sig-line">${isSignatureApproved(2) || isSignatureApprovedByDept(['procurement']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : ''}</div>
+            <div class="sig-line">${sig2Html}</div>
+            <div class="sig-time">${escapeHtml(sig2Time)}</div>
             <div class="sig-label">Procurement</div>
           </div>
           <div class="sig">
-            <div class="sig-line">${isSignatureApproved(3) || isSignatureApprovedByDept(['finance']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : ''}</div>
+            <div class="sig-line">${sig3Html}</div>
+            <div class="sig-time">${escapeHtml(sig3Time)}</div>
             <div class="sig-label">Finance</div>
           </div>
           <div class="sig">
-            <div class="sig-line">${isSignatureApproved(4) || isSignatureApprovedByDept(['core team', 'htr', 'cct', 'ho']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : ''}</div>
+            <div class="sig-line">${sig4Html}</div>
+            <div class="sig-time">${escapeHtml(sig4Time)}</div>
             <div class="sig-label">Core Team HTR. / CCT HO</div>
           </div>
         </div>

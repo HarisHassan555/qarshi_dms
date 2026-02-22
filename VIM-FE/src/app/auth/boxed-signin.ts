@@ -22,6 +22,7 @@ import {NotificationService} from "../NotificationService";
 })
 export class BoxedSigninComponent {
     store: any;
+    showPassword: boolean = false;
 
     public signinForm = this.formBuilder.group({
         username: ['', Validators.required],
@@ -87,6 +88,10 @@ export class BoxedSigninComponent {
                 this.isError = true;
             });
 
+    }
+
+    togglePasswordVisibility() {
+        this.showPassword = !this.showPassword;
     }
 
     getUser() {

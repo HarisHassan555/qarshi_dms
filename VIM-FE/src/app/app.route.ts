@@ -41,6 +41,7 @@ import { SignatureComponent } from './components/signature/signature.component';
 import { CapfComponent } from './components/capf/capf.component';
 import { ApplicationComponent } from './components/application/application.component';
 import { ApplicationsViewComponent } from './components/applications-view/applications-view.component';
+import { PendingApprovalsComponent } from './components/pending-approvals/pending-approvals.component';
 import { ApplicationDetailsComponent } from './components/application-details/application-details.component';
 import { FormBuilderComponent } from './components/form-builder/form-builder.component';
 import { EmailApprovalComponent } from './components/email-approval/email-approval.component';
@@ -121,6 +122,7 @@ export const routes: Routes = [
             { path: 'CAPF', canActivate: [canActivate], component: CapfComponent, title: 'CAPF' },
             { path: 'application', canActivate: [canActivate], component: ApplicationComponent, title: 'Application' },
             { path: 'applicationsview', canActivate: [canActivate], component: ApplicationsViewComponent, title: 'Applications View' },
+            { path: 'pending-approvals', canActivate: [canActivate], component: PendingApprovalsComponent, title: 'Pending Approvals' },
             { path: 'application-details/:id', canActivate: [canActivate], component: ApplicationDetailsComponent, title: 'Application Details' },
             { path: 'formbuilder', canActivate: [canActivate], component: FormBuilderComponent, title: 'Form Builder' },
             { path: 'order', canActivate: [canActivate], component: OrderListComponent, title: 'Order' },

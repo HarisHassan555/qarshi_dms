@@ -54,6 +54,7 @@ export class PermissionService {
         'Velocity': [
             'Application',
             'Applications View',
+            'Pending Approvals',
             'Form Builder',
             'Budget Approval'
         ],

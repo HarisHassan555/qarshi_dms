@@ -46,6 +46,16 @@ public class CfgTblCustomFormApplication implements Serializable {
     @Column(name="txt_approval_history", columnDefinition = "JSON")
     private String txtApprovalHistory;
 
+    @Lob
+    @Column(name="blb_pdf_data")
+    private byte[] blbPdfData;
+
+    @Column(name="txt_pdf_name")
+    private String txtPdfName;
+
+    @Column(name="txt_pdf_mime")
+    private String txtPdfMime;
+
     @Column(name="bl_is_active")
     private Boolean blIsActive;
 
@@ -156,6 +166,30 @@ public class CfgTblCustomFormApplication implements Serializable {
         this.txtApprovalHistory = txtApprovalHistory;
     }
 
+    public byte[] getBlbPdfData() {
+        return blbPdfData;
+    }
+
+    public void setBlbPdfData(byte[] blbPdfData) {
+        this.blbPdfData = blbPdfData;
+    }
+
+    public String getTxtPdfName() {
+        return txtPdfName;
+    }
+
+    public void setTxtPdfName(String txtPdfName) {
+        this.txtPdfName = txtPdfName;
+    }
+
+    public String getTxtPdfMime() {
+        return txtPdfMime;
+    }
+
+    public void setTxtPdfMime(String txtPdfMime) {
+        this.txtPdfMime = txtPdfMime;
+    }
+
     public Boolean getBlIsActive() {
         return this.blIsActive;
     }
@@ -220,4 +254,3 @@ public class CfgTblCustomFormApplication implements Serializable {
         this.cfgTblCustomForm = cfgTblCustomForm;
     }
 }
-
