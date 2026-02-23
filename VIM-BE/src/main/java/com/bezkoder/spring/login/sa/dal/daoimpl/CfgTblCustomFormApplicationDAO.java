@@ -2544,7 +2544,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 content.endText();
             }
             String name = entry != null && entry.get("approverName") != null ? entry.get("approverName").toString() : "";
-            if (!name.trim().isEmpty()) {
+            if (name != null && !name.trim().isEmpty()) {
                 for (String line : wrapText(name, PDType1Font.HELVETICA, 6.5f, colWidth - 6)) {
                     content.beginText();
                     content.newLineAtOffset(x + colWidth * i + 4, nameY);

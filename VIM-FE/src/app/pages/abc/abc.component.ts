@@ -24,12 +24,13 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         keywords: string[];
         signatureUrl: string;
         approvedDateText: string;
+        approverName: string;
     }> = [
-        { label: 'User Deptt. (HoD)', keywords: ['user dept', 'hod'], signatureUrl: '', approvedDateText: '' },
-        { label: 'Technical Expert', keywords: ['technical', 'expert'], signatureUrl: '', approvedDateText: '' },
-        { label: 'Procurement', keywords: ['procurement'], signatureUrl: '', approvedDateText: '' },
-        { label: 'Finance', keywords: ['finance'], signatureUrl: '', approvedDateText: '' },
-        { label: 'Core Team HTR. / CCT HO', keywords: ['core team', 'htr', 'cct', 'ho'], signatureUrl: '', approvedDateText: '' },
+        { label: 'User Deptt. (HoD)', keywords: ['user dept', 'hod'], signatureUrl: '', approvedDateText: '', approverName: '' },
+        { label: 'Technical Expert', keywords: ['technical', 'expert'], signatureUrl: '', approvedDateText: '', approverName: '' },
+        { label: 'Procurement', keywords: ['procurement'], signatureUrl: '', approvedDateText: '', approverName: '' },
+        { label: 'Finance', keywords: ['finance'], signatureUrl: '', approvedDateText: '', approverName: '' },
+        { label: 'Core Team HTR. / CCT HO', keywords: ['core team', 'htr', 'cct', 'ho'], signatureUrl: '', approvedDateText: '', approverName: '' },
     ];
 
     private approvalHistory: any[] = [];
@@ -204,10 +205,12 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
             const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
             const approvedDate = entry?.approvedDate;
             const hasSignature = !!entry?.signaturePath;
+            const approverName = entry?.approverName || entry?.approvedByName || entry?.userName || '';
             return {
                 ...slot,
                 signatureUrl: userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '',
-                approvedDateText: hasSignature ? this.formatApprovalDate(approvedDate) : ''
+                approvedDateText: hasSignature ? this.formatApprovalDate(approvedDate) : '',
+                approverName: hasSignature ? approverName : ''
             };
         });
     }

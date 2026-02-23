@@ -178,6 +178,7 @@
             <img *ngIf="slot.signatureUrl" [src]="slot.signatureUrl" class="sig-img" alt="Signature" crossorigin="anonymous">
           </div>
           <div class="sig-time" *ngIf="slot.signatureUrl && slot.approvedDateText">{{ slot.approvedDateText }}</div>
+          <div class="sig-name" *ngIf="slot.signatureUrl && slot.approverName">{{ slot.approverName }}</div>
           <div class="sig-label">{{ slot.label }}</div>
         </div>
       </div>

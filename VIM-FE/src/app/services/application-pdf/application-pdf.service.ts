@@ -1165,6 +1165,15 @@ export class ApplicationPdfService {
       }
     };
 
+    const getSignatureNameByIndex = (signatureIndex: number, deptNameKeywords?: string[]): string => {
+      const order = signatureIndex + 1;
+      const entry = getApprovalEntryForSignature(order, deptNameKeywords);
+      if (!entry || !entry.signaturePath) {
+        return '';
+      }
+      return entry.approverName || entry.approvedByName || entry.userName || '';
+    };
+
     // Helper function to check if a signature field should show "Approved"
     const isSignatureApproved = (signatureIndex: number): boolean => {
       const currentLevel = application.intCurrentApprovalLevel || 0;
@@ -1236,6 +1245,12 @@ export class ApplicationPdfService {
     const sig2Time = getSignatureTimestampByIndex(2, ['procurement']);
     const sig3Time = getSignatureTimestampByIndex(3, ['finance']);
     const sig4Time = getSignatureTimestampByIndex(4, ['core team', 'htr', 'cct', 'ho']);
+
+    const sig0Name = getSignatureNameByIndex(0, ['user', 'hod', 'department', 'head']);
+    const sig1Name = getSignatureNameByIndex(1, ['technical', 'expert']);
+    const sig2Name = getSignatureNameByIndex(2, ['procurement']);
+    const sig3Name = getSignatureNameByIndex(3, ['finance']);
+    const sig4Name = getSignatureNameByIndex(4, ['core team', 'htr', 'cct', 'ho']);
 
     // CSS styles for CAPF form PDF - exact copy of abc.component.css to ensure identical rendering
 
@@ -1754,6 +1769,16 @@ export class ApplicationPdfService {
       white-space: nowrap;
     }
 
+    .sig-name {
+      font-size: 10px;
+      text-align: center;
+      margin-bottom: 2px;
+      line-height: 1.1;
+      white-space: normal;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+
     .sig-label {
       font-size: 12px;
       font-weight: 700;
@@ -2045,6 +2070,14 @@ export class ApplicationPdfService {
       height: 14px !important;
     }
 
+    :host-context(.pdf-compact) .sig-time {
+      font-size: 8.5px !important;
+    }
+
+    :host-context(.pdf-compact) .sig-name {
+      font-size: 8.5px !important;
+    }
+
     :host-context(.pdf-compact) .brand-row {
       margin-bottom: 2px !important;
     }
@@ -2284,26 +2317,31 @@ export class ApplicationPdfService {
           <div class="sig">
             <div class="sig-line">${sig0Html}</div>
             ${sig0Html ? '<div class="sig-time">' + escapeHtml(sig0Time) + '</div>' : ''}
+            ${sig0Html && sig0Name ? '<div class="sig-name">' + escapeHtml(sig0Name) + '</div>' : ''}
             <div class="sig-label">User Deptt. (HoD)</div>
           </div>
           <div class="sig">
             <div class="sig-line">${sig1Html}</div>
             ${sig1Html ? '<div class="sig-time">' + escapeHtml(sig1Time) + '</div>' : ''}
+            ${sig1Html && sig1Name ? '<div class="sig-name">' + escapeHtml(sig1Name) + '</div>' : ''}
             <div class="sig-label">Technical Expert</div>
           </div>
           <div class="sig">
             <div class="sig-line">${sig2Html}</div>
             ${sig2Html ? '<div class="sig-time">' + escapeHtml(sig2Time) + '</div>' : ''}
+            ${sig2Html && sig2Name ? '<div class="sig-name">' + escapeHtml(sig2Name) + '</div>' : ''}
             <div class="sig-label">Procurement</div>
           </div>
           <div class="sig">
             <div class="sig-line">${sig3Html}</div>
             ${sig3Html ? '<div class="sig-time">' + escapeHtml(sig3Time) + '</div>' : ''}
+            ${sig3Html && sig3Name ? '<div class="sig-name">' + escapeHtml(sig3Name) + '</div>' : ''}
             <div class="sig-label">Finance</div>
           </div>
           <div class="sig">
             <div class="sig-line">${sig4Html}</div>
             ${sig4Html ? '<div class="sig-time">' + escapeHtml(sig4Time) + '</div>' : ''}
+            ${sig4Html && sig4Name ? '<div class="sig-name">' + escapeHtml(sig4Name) + '</div>' : ''}
             <div class="sig-label">Core Team HTR. / CCT HO</div>
           </div>
         </div>
