@@ -190,6 +190,8 @@ export class ApplicationDetailsComponent implements OnInit {
             }
           });
           this.departmentNameMap = map;
+          this.enrichPipelineWithDepartmentNames();
+          this.applyDepartmentNamesToApprovalHistory();
         }
       },
       (error) => {
@@ -275,6 +277,9 @@ export class ApplicationDetailsComponent implements OnInit {
             this.approvalHistory = [];
           }
 
+          this.enrichPipelineWithDepartmentNames();
+          this.applyDepartmentNamesToApprovalHistory();
+
           this.isLoading = false;
         } else {
           this.notificationService.showMessage('Application not found', 'danger');
@@ -287,6 +292,115 @@ export class ApplicationDetailsComponent implements OnInit {
         this.router.navigate(['/applicationsview']);
       }
     );
+  }
+
+  private enrichPipelineWithDepartmentNames() {
+    if (!this.applicationDetails || !this.applicationDetails.cfgTblCustomForm || this.departmentNameMap.size === 0) {
+      return;
+    }
+    const form = this.applicationDetails.cfgTblCustomForm;
+
+    const applyNameToPipeline = (pipeline: any) => {
+      if (!pipeline) return;
+      const deptId = pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId || pipeline.departmentId;
+      if (!deptId) return;
+      const deptName = this.departmentNameMap.get(Number(deptId));
+      if (!deptName) return;
+      if (pipeline.hrTblDepartment && !pipeline.hrTblDepartment.txtDepartmentName) {
+        pipeline.hrTblDepartment.txtDepartmentName = deptName;
+      }
+      if (!pipeline.departmentName) pipeline.departmentName = deptName;
+      if (!pipeline.txtDepartmentName) pipeline.txtDepartmentName = deptName;
+    };
+
+    if (Array.isArray(form.cfgTblCustomFormApprovalPipelines)) {
+      form.cfgTblCustomFormApprovalPipelines.forEach(applyNameToPipeline);
+    }
+    if (Array.isArray(form.approvalPipelines)) {
+      form.approvalPipelines.forEach(applyNameToPipeline);
+    }
+
+    if (form.txtApprovalPipeline) {
+      try {
+        const pipelines = JSON.parse(form.txtApprovalPipeline);
+        if (Array.isArray(pipelines)) {
+          pipelines.forEach(applyNameToPipeline);
+          form.txtApprovalPipeline = JSON.stringify(pipelines);
+        }
+      } catch (e) {
+        // ignore parse errors
+      }
+    }
+  }
+
+  private applyDepartmentNamesToApprovalHistory() {
+    if (!this.applicationDetails || !this.approvalHistory || this.approvalHistory.length === 0) {
+      return;
+    }
+
+    const map = new Map<number, string>();
+    const mapByOrder = new Map<number, { deptId?: number; deptName?: string }>();
+    const pipelines = this.getPipelineData();
+    pipelines.forEach((pipeline: any) => {
+      const deptId = pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId || pipeline.departmentId;
+      const deptName =
+        pipeline.hrTblDepartment?.txtDepartmentName ||
+        pipeline.departmentName ||
+        pipeline.txtDepartmentName ||
+        (deptId ? this.departmentNameMap.get(Number(deptId)) : undefined);
+      if (deptId != null && deptName) {
+        map.set(Number(deptId), String(deptName));
+      }
+      const order = pipeline.intApprovalOrder || undefined;
+      if (order != null) {
+        mapByOrder.set(Number(order), {
+          deptId: deptId != null ? Number(deptId) : undefined,
+          deptName: deptName ? String(deptName) : undefined
+        });
+      }
+    });
+
+    let changed = false;
+    this.approvalHistory = this.approvalHistory.map((entry: any) => {
+      if (!entry) return entry;
+      if (entry.departmentName && entry.departmentName.trim() !== '') return entry;
+
+      const deptId = entry.departmentId || entry.serDepartmentId;
+      const level = entry.level || entry.intApprovalOrder;
+      let name = null as string | null;
+      let resolvedDeptId: number | undefined = deptId != null ? Number(deptId) : undefined;
+
+      if (resolvedDeptId != null) {
+        name = map.get(resolvedDeptId) || this.departmentNameMap.get(resolvedDeptId) || null;
+      }
+
+      if (!name && level != null) {
+        const byOrder = mapByOrder.get(Number(level));
+        if (byOrder?.deptName) {
+          name = byOrder.deptName;
+        }
+        if (resolvedDeptId == null && byOrder?.deptId != null) {
+          resolvedDeptId = byOrder.deptId;
+        }
+      }
+
+      if (!name) return entry;
+      changed = true;
+      return {
+        ...entry,
+        departmentId: resolvedDeptId ?? entry.departmentId,
+        departmentName: name,
+        role: entry.role || name
+      };
+    });
+
+    if (changed) {
+      try {
+        this.applicationDetails.txtApprovalHistory = JSON.stringify(this.approvalHistory);
+      } catch {
+        // ignore serialize errors
+      }
+    }
   }
 
   getFieldName(label: string): string {

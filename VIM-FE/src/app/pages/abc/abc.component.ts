@@ -21,15 +21,21 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
 
     signatureSlots: Array<{
         label: string;
-        keywords: string[];
+        order: number;
+        departmentId?: number;
         signatureUrl: string;
         approvedDateText: string;
+    }> = [];
+
+    private readonly fallbackSignatureSlots: Array<{
+        label: string;
+        keywords: string[];
     }> = [
-        { label: 'User Deptt. (HoD)', keywords: ['user dept', 'hod'], signatureUrl: '', approvedDateText: '' },
-        { label: 'Technical Expert', keywords: ['technical', 'expert'], signatureUrl: '', approvedDateText: '' },
-        { label: 'Procurement', keywords: ['procurement'], signatureUrl: '', approvedDateText: '' },
-        { label: 'Finance', keywords: ['finance'], signatureUrl: '', approvedDateText: '' },
-        { label: 'Core Team HTR. / CCT HO', keywords: ['core team', 'htr', 'cct', 'ho'], signatureUrl: '', approvedDateText: '' },
+        { label: 'User Deptt. (HoD)', keywords: ['user dept', 'hod'] },
+        { label: 'Technical Expert', keywords: ['technical', 'expert'] },
+        { label: 'Procurement', keywords: ['procurement'] },
+        { label: 'Finance', keywords: ['finance'] },
+        { label: 'Core Team HTR. / CCT HO', keywords: ['core team', 'htr', 'cct', 'ho'] },
     ];
 
     private approvalHistory: any[] = [];
@@ -198,14 +204,40 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
 
     private refreshSignatureSlots() {
         this.approvalHistory = this.parseApprovalHistory();
+        const pipelines = this.getPipelineData();
+        if (pipelines.length > 0) {
+            this.signatureSlots = pipelines.map((pipeline: any, index: number) => {
+                const order = pipeline.intApprovalOrder || (index + 1);
+                const departmentId = pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId || pipeline.departmentId;
+                const entry = this.getApprovalEntryForPipeline(order, departmentId);
+                const label =
+                    pipeline.hrTblDepartment?.txtDepartmentName ||
+                    pipeline.departmentName ||
+                    pipeline.txtDepartmentName ||
+                    entry?.departmentName ||
+                    `Department ${order}`;
+                const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
+                const approvedDate = entry?.approvedDate;
+                const hasSignature = !!entry?.signaturePath;
+                return {
+                    label,
+                    order,
+                    departmentId,
+                    signatureUrl: userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '',
+                    approvedDateText: hasSignature ? this.formatApprovalDate(approvedDate) : ''
+                };
+            });
+            return;
+        }
 
-        this.signatureSlots = this.signatureSlots.map((slot) => {
+        this.signatureSlots = this.fallbackSignatureSlots.map((slot, index) => {
             const entry = this.getApprovalEntryForSlot(slot);
             const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
             const approvedDate = entry?.approvedDate;
             const hasSignature = !!entry?.signaturePath;
             return {
-                ...slot,
+                label: slot.label,
+                order: index + 1,
                 signatureUrl: userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '',
                 approvedDateText: hasSignature ? this.formatApprovalDate(approvedDate) : ''
             };
@@ -243,6 +275,58 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         }
 
         return null;
+    }
+
+    private getApprovalEntryForPipeline(order: number, departmentId?: number, departmentName?: string): any | null {
+        if (!this.approvalHistory || this.approvalHistory.length === 0) {
+            return null;
+        }
+
+        let entry = null;
+        if (departmentId) {
+            entry = this.approvalHistory.find((e: any) =>
+                (e.level === order || e.intApprovalOrder === order) &&
+                (Number(e.departmentId) === Number(departmentId) || Number(e.serDepartmentId) === Number(departmentId))
+            );
+        }
+        if (!entry) {
+            entry = this.approvalHistory.find((e: any) => e.level === order || e.intApprovalOrder === order);
+        }
+        if (!entry && departmentId) {
+            entry = this.approvalHistory.find((e: any) =>
+                Number(e.departmentId) === Number(departmentId) || Number(e.serDepartmentId) === Number(departmentId)
+            );
+        }
+        if (!entry && departmentName) {
+            const nameLower = departmentName.toLowerCase();
+            entry = this.approvalHistory.find((e: any) =>
+                (e.departmentName || '').toString().toLowerCase() === nameLower
+            );
+        }
+
+        return entry || null;
+    }
+
+    private getPipelineData(): any[] {
+        if (!this.application || !this.application.cfgTblCustomForm) {
+            return [];
+        }
+        const form = this.application.cfgTblCustomForm;
+
+        let pipelines = form.approvalPipelines || form.cfgTblCustomFormApprovalPipelines;
+        if ((!pipelines || !Array.isArray(pipelines) || pipelines.length === 0) && form.txtApprovalPipeline) {
+            try {
+                pipelines = JSON.parse(form.txtApprovalPipeline);
+            } catch {
+                return [];
+            }
+        }
+        if (!pipelines || !Array.isArray(pipelines) || pipelines.length === 0) {
+            return [];
+        }
+        return [...pipelines].sort((a: any, b: any) =>
+            (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0)
+        );
     }
 
     private formatApprovalDate(dateValue: any): string {
