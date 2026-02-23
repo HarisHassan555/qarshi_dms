@@ -927,17 +927,22 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
                 application.setSerModifiedUser(resolvedApproverId);
 
-                // Regenerate PDF after approval to include latest signatures
-                try {
-                    byte[] pdfBytes = generateBudgetApprovalPdf(application, form, appData);
-                    if (pdfBytes != null && pdfBytes.length > 0) {
-                        String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
-                        application.setBlbPdfData(pdfBytes);
-                        application.setTxtPdfName(code + ".pdf");
-                        application.setTxtPdfMime("application/pdf");
+                // Regenerate PDF only when approval happens via email or when no PDF exists.
+                // UI approvals upload the latest printed PDF before approval; preserve that file.
+                boolean shouldRegeneratePdf = "EMAIL".equalsIgnoreCase(approvedVia) ||
+                    application.getBlbPdfData() == null || application.getBlbPdfData().length == 0;
+                if (shouldRegeneratePdf) {
+                    try {
+                        byte[] pdfBytes = generateBudgetApprovalPdf(application, form, appData);
+                        if (pdfBytes != null && pdfBytes.length > 0) {
+                            String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
+                            application.setBlbPdfData(pdfBytes);
+                            application.setTxtPdfName(code + ".pdf");
+                            application.setTxtPdfMime("application/pdf");
+                        }
+                    } catch (Exception e) {
+                        log.warn("Error regenerating budget approval PDF: " + e.getMessage(), e);
                     }
-                } catch (Exception e) {
-                    log.warn("Error regenerating budget approval PDF: " + e.getMessage(), e);
                 }
 
                 entityManager.merge(application);
@@ -1076,20 +1081,25 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
             application.setSerModifiedUser(resolvedApproverId);
 
-            // Regenerate CAPF PDF after approval to include latest signatures
-            try {
-                if (isCapfForm(form)) {
-                    Map<String, Object> appData = parseApplicationData(application);
-                    byte[] pdfBytes = generateCapfPdf(application, form, appData);
-                    if (pdfBytes != null && pdfBytes.length > 0) {
-                        String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
-                        application.setBlbPdfData(pdfBytes);
-                        application.setTxtPdfName(code + ".pdf");
-                        application.setTxtPdfMime("application/pdf");
+            // Regenerate CAPF PDF only when approval happens via email or when no PDF exists.
+            // UI approvals upload the latest printed PDF before approval; preserve that file.
+            boolean shouldRegeneratePdf = "EMAIL".equalsIgnoreCase(approvedVia) ||
+                application.getBlbPdfData() == null || application.getBlbPdfData().length == 0;
+            if (shouldRegeneratePdf) {
+                try {
+                    if (isCapfForm(form)) {
+                        Map<String, Object> appData = parseApplicationData(application);
+                        byte[] pdfBytes = generateCapfPdf(application, form, appData);
+                        if (pdfBytes != null && pdfBytes.length > 0) {
+                            String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
+                            application.setBlbPdfData(pdfBytes);
+                            application.setTxtPdfName(code + ".pdf");
+                            application.setTxtPdfMime("application/pdf");
+                        }
                     }
+                } catch (Exception e) {
+                    log.warn("Error regenerating CAPF PDF: " + e.getMessage(), e);
                 }
-            } catch (Exception e) {
-                log.warn("Error regenerating CAPF PDF: " + e.getMessage(), e);
             }
             
             entityManager.merge(application);
@@ -2496,17 +2506,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             "Chief Executive"
         };
 
-        String[][] roleKeywords = new String[][] {
-            new String[] { "user", "dept", "hod", "department" },
-            new String[] { "technical", "expert" },
-            new String[] { "procurement", "procure" },
-            new String[] { "finance" },
-            new String[] { "core team", "hrt", "cct" },
-            new String[] { "chief", "executive", "ceo" }
-        };
-
         float sigRowY = y - sigHeight;
-        java.util.Set<Integer> usedIndexes = new java.util.HashSet<>();
         @SuppressWarnings("unchecked")
         Map<String, Object>[] mapped = new Map[6];
         Integer[] approvedUserIds = new Integer[approved.size()];
@@ -2515,7 +2515,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         }
         Map<Integer, String> signatureFromDb = loadUserSignaturePaths(approvedUserIds);
         for (int i = 0; i < 6; i++) {
-            Map<String, Object> entry = findCapfEntryForRole(approved, roleKeywords[i], i, usedIndexes);
+            Map<String, Object> entry = i < approved.size() ? approved.get(i) : null;
             mapped[i] = entry;
             String sigPath = null;
             if (entry != null) {
@@ -3180,8 +3180,9 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         html.append(".history th{background:#f3f4f6;font-weight:600}");
         html.append(".sig-img{max-height:36px;display:block;margin-top:4px}");
         html.append("</style></head><body>");
+        String headerTitle = (formName != null && !formName.trim().isEmpty()) ? formName.trim() : "Application";
         html.append("<div class='email-container'>");
-        html.append("<div class='header'><h1>Application Notification</h1></div>");
+        html.append("<div class='header'><h1>").append(escapeHtml(headerTitle)).append("</h1></div>");
         html.append("<div class='content'>");
         html.append("<div class='greeting'>Dear ").append(escapeHtml(recipientName)).append(",</div>");
         
@@ -3207,11 +3208,17 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
             html.append(historyHtml);
         }
         
-        if (showActionButtons && approveUrl != null && rejectUrl != null) {
+        boolean isFirstLevel = level != null && level <= 1;
+        boolean canApproveReject = showActionButtons && isFirstLevel && approveUrl != null && rejectUrl != null;
+        boolean canSendBack = showActionButtons && sendBackUrl != null && (level == null || level >= 1);
+
+        if (showActionButtons && (canApproveReject || canSendBack)) {
             html.append("<div class='button-container'>");
-            html.append("<a href='").append(approveUrl).append("' class='btn btn-approve' style='color:white;text-decoration:none;'>✓ Approve Application</a>");
-            html.append("<a href='").append(rejectUrl).append("' class='btn btn-reject' style='color:white;text-decoration:none;'>✗ Reject Application</a>");
-            if (sendBackUrl != null) {
+            if (canApproveReject) {
+                html.append("<a href='").append(approveUrl).append("' class='btn btn-approve' style='color:white;text-decoration:none;'>✓ Approve Application</a>");
+                html.append("<a href='").append(rejectUrl).append("' class='btn btn-reject' style='color:white;text-decoration:none;'>✗ Reject Application</a>");
+            }
+            if (canSendBack) {
                 html.append("<a href='").append(sendBackUrl).append("' class='btn btn-sendback' style='color:white;text-decoration:none;'>Send Back</a>");
             }
             html.append("</div>");
@@ -3302,6 +3309,7 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         html.append(".detail-value{color:#333;flex:1}");
         html.append(".footer{margin-top:30px;padding-top:20px;border-top:2px solid #ecf0f1;text-align:center;color:#95a5a6;font-size:12px}");
         html.append("</style></head><body>");
+        String headerTitle = (formName != null && !formName.trim().isEmpty()) ? formName.trim() : "Application";
         html.append("<div class='email-container'>");
         html.append("<div class='header'><h1>Application Submitted Successfully</h1></div>");
         html.append("<div class='content'>");
