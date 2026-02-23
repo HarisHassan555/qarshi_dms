@@ -55,6 +55,7 @@ export class ApplicationComponent implements OnInit {
   selectedFormId: string = '';
   editData: any = null;
   store: any;
+  attachmentFiles: Record<string, File> = {};
 
   constructor(
     private permissionService: PermissionService,
@@ -132,7 +133,7 @@ export class ApplicationComponent implements OnInit {
             fields: (form.cfgTblCustomFormFields || []).map((field: any) => ({
               serFieldId: field.serFieldId,
               label: field.txtFieldLabel,
-              type: field.txtFieldType,
+              type: (field.txtFieldType || '').toString().trim().toLowerCase(),
               required: field.blIsRequired || false,
               placeholder: field.txtPlaceholder || '',
               intFieldOrder: field.intFieldOrder || 0,
@@ -187,6 +188,7 @@ export class ApplicationComponent implements OnInit {
     this.showBudgetApproval = false;
     this.ensureSidebarHidden(false);
     this.initializeForm();
+    this.attachmentFiles = {};
   }
 
   private ensureSidebarHidden(shouldHide: boolean) {
@@ -322,6 +324,20 @@ export class ApplicationComponent implements OnInit {
     this.applicationForm = this.fb.group(formControls);
   }
 
+  onAttachmentChange(field: FormField, event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input?.files && input.files.length > 0 ? input.files[0] : null;
+    const fieldName = this.getFieldName(field.label);
+    if (file) {
+      this.attachmentFiles[fieldName] = file;
+      this.applicationForm.get(fieldName)?.setValue(file.name);
+    } else {
+      delete this.attachmentFiles[fieldName];
+      this.applicationForm.get(fieldName)?.setValue('');
+    }
+    this.applicationForm.get(fieldName)?.markAsTouched();
+  }
+
   getFieldName(label: string): string {
     // Convert label to a valid form control name
     return label.toLowerCase()
@@ -406,6 +422,20 @@ export class ApplicationComponent implements OnInit {
   async onSubmit() {
     if (this.applicationForm.valid && this.selectedForm) {
       const formData = { ...this.applicationForm.value };
+
+      // Enforce feasibility attachment if the field exists
+      const feasibilityField = this.selectedForm.fields.find(f =>
+        (f.label || '').toLowerCase() === 'feasibility_attached_report' ||
+        (f.label || '').toLowerCase() === 'feasibility report attached'
+      );
+      if (feasibilityField && (feasibilityField.type === 'attachment' || feasibilityField.type === 'file')) {
+        const feasibilityFieldName = this.getFieldName(feasibilityField.label);
+        if (!this.attachmentFiles[feasibilityFieldName]) {
+          this.applicationForm.get(feasibilityFieldName)?.setErrors({ required: true });
+          this.notificationService.showMessage('Please upload feasibility report attachment.', 'danger');
+          return;
+        }
+      }
 
       // Convert table FormArrays to regular arrays for JSON serialization
       this.selectedForm.fields.forEach((field: FormField) => {

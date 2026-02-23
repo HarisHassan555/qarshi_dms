@@ -199,6 +199,25 @@
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                     </p>
                                 </div>
+
+                                <!-- Attachment / File Upload -->
+                                <div *ngIf="field.type === 'attachment' || field.type === 'file'">
+                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                        {{ field.label }}
+                                        <span *ngIf="field.required" class="text-danger">*</span>
+                                    </label>
+                                    <input type="file" class="form-input"
+                                        (change)="onAttachmentChange(field, $event)"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))" />
+                                    <p *ngIf="applicationForm.get(getFieldName(field.label))?.value"
+                                        class="mt-1 text-xs text-gray-500">
+                                        Selected: {{ applicationForm.get(getFieldName(field.label))?.value }}
+                                    </p>
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))"
+                                        class="mt-1 text-xs text-danger">
+                                        {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                                    </p>
+                                </div>
                             </div>
 
                             <!-- Table Field -->
