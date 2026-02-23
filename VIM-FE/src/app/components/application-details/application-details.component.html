@@ -340,7 +340,8 @@
                                 <div *ngIf="preparedBy">
                                     <div>
                                         {{ preparedBy.txtUserName }}<br>
-                                        ({{ preparedBy.cfgTblRole?.txtRoleName || 'Executive' }})
+                                        ({{ getUserRoleDisplay(preparedBy) || 'Role' }})<br>
+                                        {{ getUserDepartmentDisplay(preparedBy) || 'Department' }}
                                     </div>
                                 </div>
                             </td>
@@ -368,7 +369,8 @@
                                 <div *ngIf="approver">
                                     <div>
                                         {{ approver.txtUserName }}<br>
-                                        ({{ approver.cfgTblRole?.txtRoleName || 'Approver' }})
+                                        ({{ getUserRoleDisplay(approver) || 'Role' }})<br>
+                                        {{ getUserDepartmentDisplay(approver) || 'Department' }}
                                     </div>
                                 </div>
                             </td>
@@ -628,56 +630,61 @@
                         </div>
                     </div>
 
-                    <!-- HOD Performance Table -->
+                    <!-- Workflow Flow View -->
                     <div class="bg-white dark:bg-[#1b2e4b] border border-gray-100 dark:border-gray-700 rounded-lg p-4 shadow-sm mt-4">
                         <div class="flex items-center justify-between mb-3">
-                            <h4 class="text-sm font-bold text-gray-800 dark:text-white">HOD Performance</h4>
-                            <span class="text-[11px] text-gray-400">Time to approve/reject by department</span>
+                            <h4 class="text-sm font-bold text-gray-800 dark:text-white">Approval Flow</h4>
+                            <span class="text-[11px] text-gray-400">Departments with action details and time on arrows</span>
                         </div>
-                        <div class="overflow-x-auto">
-                            <table class="min-w-full text-xs">
-                                <thead>
-                                    <tr class="text-left text-gray-500 border-b border-gray-100 dark:border-gray-700">
-                                        <th class="py-2 pr-4">Department</th>
-                                        <th class="py-2 pr-4">HOD</th>
-                                        <th class="py-2 pr-4">Status</th>
-                                        <th class="py-2 pr-4">Approved At</th>
-                                        <th class="py-2 pr-4">Time Taken</th>
-                                        <th class="py-2">Source</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr *ngFor="let pipeline of pipelines; let i = index"
-                                        class="border-b border-gray-50 dark:border-gray-800">
-                                        <td class="py-2 pr-4 text-gray-700 dark:text-gray-300">
+                        <div class="approval-flow">
+                            <ng-container *ngFor="let pipeline of pipelines; let i = index">
+                                <div class="approval-node"
+                                    [ngClass]="{
+                                        'is-approved': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'APPROVED',
+                                        'is-pending': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'PENDING' || getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'CURRENT',
+                                        'is-rejected': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'REJECTED'
+                                    }">
+                                    <div class="approval-node-header">
+                                        <div class="approval-node-title">
                                             {{ getPipelineDepartmentName(pipeline, i) }}
-                                        </td>
-                                        <td class="py-2 pr-4 text-gray-700 dark:text-gray-300">
-                                            {{ getStageApproverName(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
-                                        </td>
-                                        <td class="py-2 pr-4">
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold"
-                                                [ngClass]="{
-                                                    'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'APPROVED',
-                                                    'bg-yellow-50 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'CURRENT',
-                                                    'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'REJECTED',
-                                                    'bg-gray-50 text-gray-400 dark:bg-gray-800 dark:text-gray-500': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'PENDING'
-                                                }">
-                                                {{ getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) }}
+                                        </div>
+                                        <div class="approval-node-status">
+                                            {{ getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'CURRENT'
+                                                ? 'PENDING'
+                                                : getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) }}
+                                        </div>
+                                    </div>
+                                    <div class="approval-node-body">
+                                        <div class="approval-node-row">
+                                            <span class="label">Approved By</span>
+                                            <span class="value">
+                                                {{ getStageApproverName(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
                                             </span>
-                                        </td>
-                                        <td class="py-2 pr-4 text-gray-500">
-                                            {{ getStageApprovedAt(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
-                                        </td>
-                                        <td class="py-2 pr-4 text-gray-500">
-                                            {{ getStageTimeTaken(i, pipelines) || '--' }}
-                                        </td>
-                                        <td class="py-2 text-gray-500">
-                                            {{ formatApprovedVia(getStageApprovedVia(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId)) || '--' }}
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                                        </div>
+                                        <div class="approval-node-row">
+                                            <span class="label">Action Time</span>
+                                            <span class="value">
+                                                {{ getStageApprovedAt(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                            </span>
+                                        </div>
+                                        <div class="approval-node-row">
+                                            <span class="label">Remarks</span>
+                                            <span class="value">
+                                                {{ getDepartmentRemarks(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div *ngIf="i < pipelines.length - 1" class="approval-arrow">
+                                    <div class="approval-arrow-label">
+                                        {{ getStageTimeTaken(i + 1, pipelines) || '--' }}
+                                    </div>
+                                    <div class="approval-arrow-track">
+                                        <div class="approval-arrow-line"></div>
+                                        <div class="approval-arrow-head"></div>
+                                    </div>
+                                </div>
+                            </ng-container>
                         </div>
                     </div>
 

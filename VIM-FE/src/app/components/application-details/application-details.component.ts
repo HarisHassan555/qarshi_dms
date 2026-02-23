@@ -1007,8 +1007,34 @@ export class ApplicationDetailsComponent implements OnInit {
   formatUserForSignature(selectedUsers: any[], index: number): string {
     if (!selectedUsers || !selectedUsers[index]) return '';
     const user = selectedUsers[index];
-    const role = user.cfgTblRole?.txtRoleName || 'Reviewer';
-    return `${user.txtUserName}<br>(${role})`;
+    const role = this.getUserRoleName(user);
+    const dept = this.getUserDepartmentName(user);
+    const roleLine = role ? `<br>(${role})` : '';
+    const deptLine = dept ? `<br>${dept}` : '';
+    return `${user.txtUserName}${roleLine}${deptLine}`;
+  }
+
+  private getUserDepartmentName(user: any): string {
+    if (!user) return '';
+    const directDept = user.hrTblDepartment?.txtDepartmentName || user.departmentName || user.txtDepartmentName || '';
+    if (directDept) return directDept;
+    const userId = this.getUserId(user);
+    if (!userId || !this.approvalHistory || this.approvalHistory.length === 0) return '';
+    const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+    return entry?.departmentName || '';
+  }
+
+  private getUserRoleName(user: any): string {
+    if (!user) return '';
+    return user.cfgTblRole?.txtRoleName || user.roleName || '';
+  }
+
+  getUserDepartmentDisplay(user: any): string {
+    return this.getUserDepartmentName(user);
+  }
+
+  getUserRoleDisplay(user: any): string {
+    return this.getUserRoleName(user);
   }
 
   getUserId(user: any): number | null {

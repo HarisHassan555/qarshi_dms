@@ -782,7 +782,13 @@ export class ApplicationPdfService {
       if (!user && !fallbackName) return '';
       const name = user?.txtUserName || fallbackName || '';
       const role = user?.cfgTblRole?.txtRoleName || fallbackRole || '';
-      return `<div>${name}${role ? `<br>(${role})` : ''}</div>`;
+      let dept = user?.hrTblDepartment?.txtDepartmentName || user?.departmentName || user?.txtDepartmentName || '';
+      if (!dept) {
+        const userId = getUserId(user);
+        const entry = userId ? approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId) : null;
+        dept = entry?.departmentName || '';
+      }
+      return `<div>${name}${role ? `<br>(${role})` : ''}${dept ? `<br>${dept}` : ''}</div>`;
     };
     const css = `
     :root { --ink:#111827; --muted:#6b7280; --line:#c7cdd4; --accent:#0f766e; --soft:#eef4f3; }
