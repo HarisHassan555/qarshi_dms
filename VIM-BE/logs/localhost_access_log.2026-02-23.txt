@@ -1536,6 +1536,7 @@
 127.0.0.1 - - [23/Feb/2026:10:43:46 +0500] "GET /velocity/main.b17dac19f7d37496.js HTTP/1.1" 200 5169152
 127.0.0.1 - - [23/Feb/2026:10:43:46 +0500] "GET /velocity/scripts.393da9fe47f045aa.js HTTP/1.1" 200 647168
 127.0.0.1 - - [23/Feb/2026:10:43:46 +0500] "GET /velocity/scripts.393da9fe47f045aa.js HTTP/1.1" 200 376832
+<<<<<<< Updated upstream
 127.0.0.1 - - [23/Feb/2026:22:44:01 +0500] "GET /velocity/pending-approvals HTTP/1.1" 404 -
 127.0.0.1 - - [23/Feb/2026:22:51:01 +0500] "GET /velocity/pending-approvals HTTP/1.1" 404 -
 127.0.0.1 - - [23/Feb/2026:22:51:06 +0500] "GET /velocity/styles.css HTTP/1.1" 404 -
@@ -1635,3 +1636,48 @@
 0:0:0:0:0:0:0:1 - - [23/Feb/2026:23:17:40 +0500] "GET /velocity/allSubMenuRole?roleId=1&userId=145 HTTP/1.1" 200 60234
 0:0:0:0:0:0:0:1 - - [23/Feb/2026:23:17:47 +0500] "GET /velocity/getNextApplicationCode?formId=572 HTTP/1.1" 200 50
 127.0.0.1 - - [23/Feb/2026:23:17:47 +0500] "GET /velocity/assets/images/qarshi-logo.png HTTP/1.1" 200 3957
+=======
+127.0.0.1 - - [23/Feb/2026:22:29:45 +0500] "GET /velocity/signature HTTP/1.1" 200 815
+127.0.0.1 - - [23/Feb/2026:22:29:45 +0500] "GET /velocity/styles.1cbc56f14fee1283.css HTTP/1.1" 200 379502
+127.0.0.1 - - [23/Feb/2026:22:29:45 +0500] "GET /velocity/runtime.c4127512b968521e.js HTTP/1.1" 200 3702
+127.0.0.1 - - [23/Feb/2026:22:29:45 +0500] "GET /velocity/polyfills.a1e4733db5f0b07c.js HTTP/1.1" 200 33894
+127.0.0.1 - - [23/Feb/2026:22:29:45 +0500] "GET /velocity/scripts.393da9fe47f045aa.js HTTP/1.1" 200 975120
+127.0.0.1 - - [23/Feb/2026:22:29:48 +0500] "GET /velocity/main.b17dac19f7d37496.js HTTP/1.1" 200 5366253
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:49 +0500] "OPTIONS /velocity/allSubMenuRole?roleId=1&userId=9 HTTP/1.1" 200 -
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:49 +0500] "OPTIONS /velocity/allSubMenuRole?roleId=1&userId=9 HTTP/1.1" 200 -
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:49 +0500] "OPTIONS /velocity/getUserSignaturePath HTTP/1.1" 200 -
+127.0.0.1 - - [23/Feb/2026:22:29:49 +0500] "GET /velocity/assets/images/qarshi-logo.png HTTP/1.1" 200 3957
+127.0.0.1 - - [23/Feb/2026:22:29:49 +0500] "GET /velocity/assets/images/qarshi-logo.png HTTP/1.1" 200 3957
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:50 +0500] "GET /velocity/getUserSignaturePath HTTP/1.1" 200 133
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:50 +0500] "OPTIONS /velocity/getSignature HTTP/1.1" 200 -
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:50 +0500] "GET /velocity/allSubMenuRole?roleId=1&userId=9 HTTP/1.1" 200 63215
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:50 +0500] "GET /velocity/allSubMenuRole?roleId=1&userId=9 HTTP/1.1" 200 63215
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:50 +0500] "OPTIONS /velocity/allMenu HTTP/1.1" 200 -
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:50 +0500] "GET /velocity/getSignature HTTP/1.1" 200 2247
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:50 +0500] "GET /velocity/allMenu HTTP/1.1" 200 30869
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:54 +0500] "OPTIONS /velocity/getAllCustomForms HTTP/1.1" 200 -
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:54 +0500] "OPTIONS /velocity/getAllApplicationsPendingApproval HTTP/1.1" 200 -
+127.0.0.1 - - [23/Feb/2026:22:29:54 +0500] "GET /velocity/assets/images/qarshi-logo.png HTTP/1.1" 200 3957
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:54 +0500] "GET /velocity/getAllCustomForms HTTP/1.1" 200 19247
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:54 +0500] "GET /velocity/getAllApplicationsPendingApproval HTTP/1.1" 200 5944805
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:59 +0500] "OPTIONS /velocity/getAllDepartments HTTP/1.1" 200 -
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:59 +0500] "OPTIONS /velocity/getApplicationById?applicationId=76 HTTP/1.1" 200 -
+127.0.0.1 - - [23/Feb/2026:22:29:59 +0500] "GET /velocity/assets/images/qarshi-logo.png HTTP/1.1" 200 3957
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:59 +0500] "GET /velocity/getAllCustomForms HTTP/1.1" 200 19247
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:59 +0500] "GET /velocity/getApplicationById?applicationId=76 HTTP/1.1" 200 374289
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:29:59 +0500] "GET /velocity/getAllDepartments HTTP/1.1" 200 9706
+127.0.0.1 - - [23/Feb/2026:22:29:59 +0500] "GET /velocity/assets/images/qarshi-logo.png HTTP/1.1" 200 3957
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:30:00 +0500] "GET /velocity/getSignature?userId=145 HTTP/1.1" 200 5410
+127.0.0.1 - - [23/Feb/2026:22:30:46 +0500] "GET /velocity/assets/images/qarshi-logo.png HTTP/1.1" 200 3957
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:30:46 +0500] "GET /velocity/getAllCustomForms HTTP/1.1" 200 19247
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:30:46 +0500] "GET /velocity/getAllApplicationsPendingApproval HTTP/1.1" 200 5944805
+127.0.0.1 - - [23/Feb/2026:22:30:48 +0500] "GET /velocity/assets/images/qarshi-logo.png HTTP/1.1" 200 3957
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:30:48 +0500] "GET /velocity/getAllCustomForms HTTP/1.1" 200 19247
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:30:49 +0500] "GET /velocity/allSubMenuRole?roleId=1&userId=9 HTTP/1.1" 200 63215
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:30:52 +0500] "OPTIONS /velocity/getNextApplicationCode?formId=572 HTTP/1.1" 200 -
+127.0.0.1 - - [23/Feb/2026:22:30:52 +0500] "GET /velocity/assets/images/qarshi-logo.png HTTP/1.1" 200 3957
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:30:52 +0500] "GET /velocity/getNextApplicationCode?formId=572 HTTP/1.1" 200 50
+127.0.0.1 - - [23/Feb/2026:22:30:59 +0500] "GET /velocity/assets/images/qarshi-logo.png HTTP/1.1" 200 3957
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:30:59 +0500] "GET /velocity/getAllCustomForms HTTP/1.1" 200 19247
+0:0:0:0:0:0:0:1 - - [23/Feb/2026:22:30:59 +0500] "GET /velocity/getAllApplicationsPendingApproval HTTP/1.1" 200 5944805
+>>>>>>> Stashed changes
