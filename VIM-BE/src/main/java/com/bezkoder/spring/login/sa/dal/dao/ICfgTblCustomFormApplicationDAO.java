@@ -27,6 +27,8 @@ public interface ICfgTblCustomFormApplicationDAO {
 
     List<CfgTblCustomFormApplication> getApplicationsPendingApprovalForDepartmentHead(Integer departmentHeadUserId);
 
+    List<CfgTblCustomFormApplication> getAllApplicationsPendingApproval();
+
     String approveApplication(Integer applicationId, String remarks);
 
     String approveApplication(Integer applicationId, String remarks, Integer approverUserId, String approvedVia);

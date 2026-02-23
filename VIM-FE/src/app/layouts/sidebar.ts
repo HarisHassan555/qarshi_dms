@@ -126,7 +126,6 @@ export class SidebarComponent {
         }
     }
 
-
     getMenus() {
 
         if (this.menus && this.menus.length) return;

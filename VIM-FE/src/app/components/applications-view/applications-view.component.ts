@@ -1949,17 +1949,14 @@ export class ApplicationsViewComponent implements OnInit {
       }
     };
 
-    const renderUserCell = (user: any, fallbackName?: string, fallbackRole?: string): string => {
-      if (!user && !fallbackName) return '';
-      const name = user?.txtUserName || fallbackName || '';
-      const role = user?.cfgTblRole?.txtRoleName || fallbackRole || '';
+    const renderUserCell = (user: any): string => {
+      if (!user) return '';
       const sigUrl = getUserSignatureUrl(user);
       const sigDate = getUserApprovalDate(user);
       const approved = isUserApproved(user);
       return `
         ${approved && sigUrl ? `<img class="xyz-sig-img" src="${sigUrl}" alt="Signature" crossorigin="anonymous" />` : ''}
         ${approved && sigDate ? `<div class="xyz-sig-time">${sigDate}</div>` : ''}
-        <div>${name}${role ? `<br>(${role})` : ''}</div>
       `;
     };
 

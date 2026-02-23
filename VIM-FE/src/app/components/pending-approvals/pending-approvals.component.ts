@@ -24,7 +24,6 @@ export class PendingApprovalsComponent implements OnInit {
   search = '';
   pendingApprovals: Application[] = [];
   forms: any[] = [];
-  currentUser: any;
 
   cols = [
     { field: 'txtFormCode', title: 'Application Code' },
@@ -42,19 +41,6 @@ export class PendingApprovalsComponent implements OnInit {
   ) {}
 
   ngOnInit() {
-    const userJson = localStorage.getItem('user');
-    if (userJson) {
-      try {
-        this.currentUser = JSON.parse(userJson);
-      } catch (e) {
-        this.notificationService.showMessage('Error loading user data.', 'danger');
-        return;
-      }
-    } else {
-      this.notificationService.showMessage('User not logged in.', 'danger');
-      return;
-    }
-
     this.loadForms();
     this.loadPendingApprovals();
   }
@@ -73,7 +59,7 @@ export class PendingApprovalsComponent implements OnInit {
   }
 
   loadPendingApprovals() {
-    this.customFormApplicationService.getApplicationsPendingApproval(this.currentUser.serUserId).subscribe(
+    this.customFormApplicationService.getAllApplicationsPendingApproval().subscribe(
       (data: any) => {
         if (data) {
           this.pendingApprovals = data.map((app: any) => ({

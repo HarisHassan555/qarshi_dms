@@ -263,6 +263,19 @@ public class CustomFormApplicationController {
         }
     }
 
+    @RequestMapping(value = "/getAllApplicationsPendingApproval", method = RequestMethod.GET)
+    public List<CfgTblCustomFormApplication> getAllApplicationsPendingApproval(HttpServletRequest request,
+                                                                               HttpServletResponse response) {
+        logger.debug("getAllApplicationsPendingApproval()");
+        try {
+            return customFormApplicationService.getAllApplicationsPendingApproval();
+        } catch (Exception ex) {
+            logger.error("Error fetching all applications pending approval: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return null;
+        }
+    }
+
     @RequestMapping(value = "/approveApplication",
                     method = RequestMethod.POST,
                     headers = "Accept=application/json",

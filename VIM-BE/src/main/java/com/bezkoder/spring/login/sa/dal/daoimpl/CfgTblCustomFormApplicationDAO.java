@@ -773,6 +773,39 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     @Override
+    @SuppressWarnings("unchecked")
+    public List<CfgTblCustomFormApplication> getAllApplicationsPendingApproval() {
+        EntityManager entityManager = getEntityManager();
+        try {
+            entityManager.getTransaction().begin();
+
+            List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
+                "SELECT a FROM CfgTblCustomFormApplication a " +
+                "LEFT JOIN FETCH a.cfgTblCustomForm f " +
+                "WHERE (a.txtStatus = 'PENDING' OR a.txtStatus = 'IN_PROGRESS') " +
+                "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
+                "ORDER BY a.dteCreatedDate DESC",
+                CfgTblCustomFormApplication.class)
+                .setFirstResult(0)
+                .setMaxResults(2000)
+                .getResultList();
+
+            entityManager.getTransaction().commit();
+            return applications;
+        } catch (Exception e) {
+            if (entityManager.getTransaction().isActive()) {
+                entityManager.getTransaction().rollback();
+            }
+            log.error("Error getting all applications pending approval: " + e.getMessage(), e);
+            throw e;
+        } finally {
+            if (entityManager.isOpen()) {
+                entityManager.close();
+            }
+        }
+    }
+
+    @Override
     public String approveApplication(Integer applicationId, String remarks) {
         return approveApplication(applicationId, remarks, null, "SYSTEM");
     }

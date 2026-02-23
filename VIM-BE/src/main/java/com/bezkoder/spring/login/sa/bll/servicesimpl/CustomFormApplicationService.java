@@ -87,6 +87,12 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     }
 
     @Override
+    public List<CfgTblCustomFormApplication> getAllApplicationsPendingApproval() {
+        logger.debug("getAllApplicationsPendingApproval()");
+        return customFormApplicationDAO.getAllApplicationsPendingApproval();
+    }
+
+    @Override
     public String approveApplication(Integer applicationId, String remarks) {
         logger.debug("approveApplication() - applicationId: " + applicationId);
         return approveApplication(applicationId, remarks, null, "SYSTEM");

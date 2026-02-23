@@ -58,6 +58,10 @@ export class CustomFormApplicationService {
     return this.http.get(urls.API_URL + 'getApplicationsPendingApproval?departmentHeadUserId=' + departmentHeadUserId);
   }
 
+  getAllApplicationsPendingApproval() {
+    return this.http.get(urls.API_URL + 'getAllApplicationsPendingApproval');
+  }
+
   approveApplication(applicationId: number, remarks?: string) {
     return this.http.post(urls.API_URL + 'approveApplication', {
       applicationId: applicationId,
