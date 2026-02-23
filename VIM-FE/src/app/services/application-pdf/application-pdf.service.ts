@@ -782,7 +782,13 @@ export class ApplicationPdfService {
       if (!user && !fallbackName) return '';
       const name = user?.txtUserName || fallbackName || '';
       const role = user?.cfgTblRole?.txtRoleName || fallbackRole || '';
-      return `<div>${name}${role ? `<br>(${role})` : ''}</div>`;
+      let dept = user?.hrTblDepartment?.txtDepartmentName || user?.departmentName || user?.txtDepartmentName || '';
+      if (!dept) {
+        const userId = getUserId(user);
+        const entry = userId ? approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId) : null;
+        dept = entry?.departmentName || '';
+      }
+      return `<div>${name}${role ? `<br>(${role})` : ''}${dept ? `<br>${dept}` : ''}</div>`;
     };
     const css = `
     :root { --ink:#111827; --muted:#6b7280; --line:#c7cdd4; --accent:#0f766e; --soft:#eef4f3; }
@@ -1710,6 +1716,16 @@ export class ApplicationPdfService {
       white-space: nowrap;
     }
 
+    .sig-name {
+      font-size: 10px;
+      text-align: center;
+      margin-bottom: 2px;
+      line-height: 1.1;
+      white-space: normal;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+
     .sig-label {
       font-size: 12px;
       font-weight: 700;
@@ -1999,6 +2015,14 @@ export class ApplicationPdfService {
     :host-context(.pdf-compact) .sig-line {
       margin-bottom: 2px !important;
       height: 14px !important;
+    }
+
+    :host-context(.pdf-compact) .sig-time {
+      font-size: 8.5px !important;
+    }
+
+    :host-context(.pdf-compact) .sig-name {
+      font-size: 8.5px !important;
     }
 
     :host-context(.pdf-compact) .brand-row {

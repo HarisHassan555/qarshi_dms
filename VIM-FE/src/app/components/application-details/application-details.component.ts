@@ -39,43 +39,162 @@ export class ApplicationDetailsComponent implements OnInit {
   isSendingBack: boolean = false;
   showFeasibilityModal: boolean = false;
   feasibilityPreviewUrl: any = null;
+  private feasibilityObjectUrl: string | null = null;
 
   hasFeasibilityReport(): boolean {
-    const report = this.applicationFormData?.feasibility_report_attached;
-    if (report) {
-      if (typeof report === 'object' && report.dataUrl) return true;
-      if (typeof report === 'string' && report.trim() !== '') return true;
-    }
+    const report = this.applicationFormData?.feasibility_report_attached
+      ?? this.applicationFormData?.feasibility_attached_report;
+    if (report && this.isPreviewableAttachment(report)) return true;
+    const fieldValue = this.getFeasibilityFieldValue();
+    if (fieldValue && this.isPreviewableAttachment(fieldValue)) return true;
     const raw = this.applicationDetails?.txtApplicationData;
     if (typeof raw === 'string' && raw.includes('feasibility_report_attached')) {
       return raw.includes('data:application') || raw.includes('base64,') || raw.includes('"feasibility_report_attached"');
     }
+    if (typeof raw === 'string' && raw.includes('feasibility_attached_report')) {
+      return raw.includes('data:application') || raw.includes('base64,') || raw.includes('"feasibility_attached_report"');
+    }
     return false;
   }
 
+  private getFeasibilityReportValue(): any {
+    const direct = this.applicationFormData?.feasibility_report_attached
+      ?? this.applicationFormData?.feasibility_attached_report;
+    if (direct) {
+      this.logFeasibilityValue('direct', direct);
+      if (this.isPreviewableAttachment(direct)) return direct;
+    }
+    const fieldValue = this.getFeasibilityFieldValue();
+    if (fieldValue) {
+      this.logFeasibilityValue('fieldValue', fieldValue);
+      if (this.isPreviewableAttachment(fieldValue)) return fieldValue;
+    }
+    const raw = this.applicationDetails?.txtApplicationData;
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        const candidate = parsed?.feasibility_report_attached ?? parsed?.feasibility_attached_report;
+        if (candidate) {
+          this.logFeasibilityValue('parsedCandidate', candidate);
+          if (this.isPreviewableAttachment(candidate)) return candidate;
+        }
+        const found = this.findFeasibilityAttachmentInData(parsed);
+        if (found) {
+          this.logFeasibilityValue('foundInData', found);
+          if (this.isPreviewableAttachment(found)) return found;
+        }
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  private getFeasibilityFieldValue(): any {
+    if (!this.formFields || this.formFields.length === 0) return null;
+    const field = this.formFields.find((f: any) =>
+      (f?.label || '').toString().toLowerCase().includes('feasibility')
+    );
+    if (!field) return null;
+    return this.getFieldValue(field);
+  }
+
+  private findFeasibilityAttachmentInData(parsed: any): any {
+    if (!parsed || typeof parsed !== 'object') return null;
+    const keys = Object.keys(parsed);
+    for (const key of keys) {
+      if (!key) continue;
+      const keyLower = key.toLowerCase();
+      if (!keyLower.includes('feasibility')) continue;
+      const val = parsed[key];
+      if (val && typeof val === 'object') {
+        if (val.dataUrl || val.base64 || val.data || val.content || val.fileBase64 || val.fileData) return val;
+      }
+      if (typeof val === 'string' && this.looksLikeBase64(val)) return val;
+    }
+    return null;
+  }
+
+  private isPreviewableAttachment(value: any): boolean {
+    if (!value) return false;
+    if (typeof value === 'object') {
+      return !!(value.dataUrl || value.base64 || value.data || value.content || value.fileBase64 || value.fileData);
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return false;
+      if (trimmed.startsWith('data:')) return true;
+      if (this.looksLikeFileName(trimmed)) return false;
+      return this.looksLikeBase64(trimmed);
+    }
+    return false;
+  }
+
+  private logFeasibilityValue(label: string, value: any) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      console.log(`[feasibility:${label}] type=string len=${trimmed.length} prefix=${trimmed.slice(0, 30)}`);
+    } else if (value && typeof value === 'object') {
+      console.log(`[feasibility:${label}] type=object keys=${Object.keys(value).join(',')}`);
+    } else {
+      console.log(`[feasibility:${label}] type=${typeof value}`);
+    }
+  }
+
+  private looksLikeBase64(value: string): boolean {
+    if (!value) return false;
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    if (trimmed.startsWith('data:')) return true;
+    if (trimmed.length < 100) return false;
+    if (/[^A-Za-z0-9+/=]/.test(trimmed)) return false;
+    return true;
+  }
+
+  private looksLikeFileName(value: string): boolean {
+    if (!value) return false;
+    const trimmed = value.trim();
+    if (trimmed.length > 200) return false;
+    if (trimmed.startsWith('data:')) return false;
+    return /\.[a-z0-9]{2,5}$/i.test(trimmed);
+  }
+
+  private inferMimeType(base64: string): string {
+    if (!base64) return 'application/octet-stream';
+    const trimmed = base64.trim();
+    if (trimmed.startsWith('JVBER')) return 'application/pdf';
+    if (trimmed.startsWith('/9j/')) return 'image/jpeg';
+    if (trimmed.startsWith('iVBOR')) return 'image/png';
+    return 'application/octet-stream';
+  }
+
   getFeasibilityReportDataUrl(): string {
-    const report = this.applicationFormData?.feasibility_report_attached;
-    console.log('report', report);
-    if (report && typeof report === 'object' && report.dataUrl) return String(report.dataUrl);
-    if (report && typeof report === 'string') {
+    const report = this.getFeasibilityReportValue();
+    if (!report) return '';
+    if (typeof report === 'object' && report.dataUrl) return String(report.dataUrl);
+    if (typeof report === 'object') {
+      const candidate = report.base64 || report.data || report.content || report.fileBase64 || report.fileData;
+      if (typeof candidate === 'string') {
+        const trimmed = candidate.trim();
+        if (!trimmed) return '';
+        if (trimmed.startsWith('data:')) return trimmed;
+        const mime = report.mimeType || report.type || this.inferMimeType(trimmed);
+        const dataUrl = `data:${mime};base64,${trimmed}`;
+        console.log(`[feasibility:dataUrl] len=${dataUrl.length} prefix=${dataUrl.slice(0, 40)}`);
+        return dataUrl;
+      }
+    }
+    if (typeof report === 'string') {
       const trimmed = report.trim();
       if (!trimmed) return '';
       if (trimmed.startsWith('data:')) return trimmed;
-      return `data:application/pdf;base64,${trimmed}`;
-    }
-    const raw = this.applicationDetails?.txtApplicationData;
-    if (typeof raw === 'string' && raw.includes('feasibility_report_attached')) {
-      try {
-        const parsed = JSON.parse(raw);
-        const fallback = parsed?.feasibility_report_attached;
-        if (fallback && typeof fallback === 'object' && fallback.dataUrl) return String(fallback.dataUrl);
-        if (typeof fallback === 'string') {
-          const trimmed = fallback.trim();
-          if (!trimmed) return '';
-          if (trimmed.startsWith('data:')) return trimmed;
-          return `data:application/pdf;base64,${trimmed}`;
-        }
-      } catch {}
+      if (this.looksLikeFileName(trimmed) && !this.looksLikeBase64(trimmed)) {
+        return '';
+      }
+      const mime = this.inferMimeType(trimmed);
+      const dataUrl = `data:${mime};base64,${trimmed}`;
+      console.log(`[feasibility:dataUrl] len=${dataUrl.length} prefix=${dataUrl.slice(0, 40)}`);
+      return dataUrl;
     }
     return '';
   }
@@ -85,14 +204,45 @@ export class ApplicationDetailsComponent implements OnInit {
       this.notificationService.showMessage('Feasibility report not available', 'danger');
       return;
     }
+    if (this.feasibilityObjectUrl) {
+      URL.revokeObjectURL(this.feasibilityObjectUrl);
+      this.feasibilityObjectUrl = null;
+    }
     const dataUrl = this.getFeasibilityReportDataUrl();
-    this.feasibilityPreviewUrl = this.sanitizer.bypassSecurityTrustResourceUrl(dataUrl);
+    console.log('dataUrl', dataUrl);
+    if (!dataUrl) {
+      this.notificationService.showMessage('Feasibility report not available', 'danger');
+      return;
+    }
+    // Convert base64 to Blob for better PDF rendering in iframe.
+    if (dataUrl.startsWith('data:')) {
+      const [meta, base64] = dataUrl.split(',', 2);
+      const mime = meta?.match(/data:([^;]+);base64/)?.[1] || 'application/octet-stream';
+      try {
+        const byteString = atob(base64 || '');
+        const bytes = new Uint8Array(byteString.length);
+        for (let i = 0; i < byteString.length; i++) {
+          bytes[i] = byteString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: mime });
+        this.feasibilityObjectUrl = URL.createObjectURL(blob);
+        this.feasibilityPreviewUrl = this.sanitizer.bypassSecurityTrustResourceUrl(this.feasibilityObjectUrl);
+      } catch {
+        this.feasibilityPreviewUrl = this.sanitizer.bypassSecurityTrustResourceUrl(dataUrl);
+      }
+    } else {
+      this.feasibilityPreviewUrl = this.sanitizer.bypassSecurityTrustResourceUrl(dataUrl);
+    }
     this.showFeasibilityModal = true;
   }
 
   closeFeasibilityModal() {
     this.showFeasibilityModal = false;
     this.feasibilityPreviewUrl = null;
+    if (this.feasibilityObjectUrl) {
+      URL.revokeObjectURL(this.feasibilityObjectUrl);
+      this.feasibilityObjectUrl = null;
+    }
   }
 
   isFeasibilityImage(): boolean {
@@ -103,7 +253,8 @@ export class ApplicationDetailsComponent implements OnInit {
   showFeasibilityReportButton(): boolean {
     if (!this.applicationDetails) return false;
     if (!this.isCapfForm()) return false;
-    return !!this.getFeasibilityReportDataUrl();
+    const report = this.getFeasibilityReportValue();
+    return this.isPreviewableAttachment(report);
   }
 
   private openInNewTab(url: string): boolean {
@@ -763,34 +914,7 @@ export class ApplicationDetailsComponent implements OnInit {
     if (this.isApproving) return;
     this.isApproving = true;
 
-    try {
-      const pdfBlob = await this.generatePdf(false);
-      if (!pdfBlob) {
-        this.isApproving = false;
-        this.notificationService.showMessage('Unable to generate PDF for approval', 'danger');
-        return;
-      }
-
-      const filename = `${this.applicationDetails?.txtFormCode || 'application'}.pdf`;
-      const uploadResponse: any = await firstValueFrom(
-        this.customFormApplicationService.updateApplicationPdf(
-          this.selectedApplicationForRemarks.serApplicationId,
-          pdfBlob,
-          filename
-        )
-      );
-
-      if (!uploadResponse || uploadResponse.status !== 'Success') {
-        this.isApproving = false;
-        this.notificationService.showMessage(uploadResponse?.message || 'Failed to upload application PDF', 'danger');
-        return;
-      }
-    } catch (e) {
-      console.error('Error preparing approval PDF:', e);
-      this.isApproving = false;
-      this.notificationService.showMessage('Error preparing approval PDF', 'danger');
-      return;
-    }
+    // Do not auto-generate/upload PDF on approve.
 
     this.customFormApplicationService.approveApplication(
       this.selectedApplicationForRemarks.serApplicationId,
@@ -1121,8 +1245,34 @@ export class ApplicationDetailsComponent implements OnInit {
   formatUserForSignature(selectedUsers: any[], index: number): string {
     if (!selectedUsers || !selectedUsers[index]) return '';
     const user = selectedUsers[index];
-    const role = user.cfgTblRole?.txtRoleName || 'Reviewer';
-    return `${user.txtUserName}<br>(${role})`;
+    const role = this.getUserRoleName(user);
+    const dept = this.getUserDepartmentName(user);
+    const roleLine = role ? `<br>(${role})` : '';
+    const deptLine = dept ? `<br>${dept}` : '';
+    return `${user.txtUserName}${roleLine}${deptLine}`;
+  }
+
+  private getUserDepartmentName(user: any): string {
+    if (!user) return '';
+    const directDept = user.hrTblDepartment?.txtDepartmentName || user.departmentName || user.txtDepartmentName || '';
+    if (directDept) return directDept;
+    const userId = this.getUserId(user);
+    if (!userId || !this.approvalHistory || this.approvalHistory.length === 0) return '';
+    const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+    return entry?.departmentName || '';
+  }
+
+  private getUserRoleName(user: any): string {
+    if (!user) return '';
+    return user.cfgTblRole?.txtRoleName || user.roleName || '';
+  }
+
+  getUserDepartmentDisplay(user: any): string {
+    return this.getUserDepartmentName(user);
+  }
+
+  getUserRoleDisplay(user: any): string {
+    return this.getUserRoleName(user);
   }
 
   getUserId(user: any): number | null {

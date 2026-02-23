@@ -201,7 +201,7 @@
                                 </div>
 
                                 <!-- Attachment / File Upload -->
-                                <div *ngIf="field.type === 'attachment' || field.type === 'file'">
+                                <div *ngIf="(field.type || '').toLowerCase() === 'attachment' || (field.type || '').toLowerCase() === 'file'">
                                     <label class="block mb-2 text-sm font-semibold dark:text-white-light">
                                         {{ field.label }}
                                         <span *ngIf="field.required" class="text-danger">*</span>

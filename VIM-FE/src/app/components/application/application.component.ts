@@ -56,6 +56,24 @@ export class ApplicationComponent implements OnInit {
   editData: any = null;
   store: any;
   attachmentFiles: Record<string, File> = {};
+  attachmentPayloads: Record<string, { fileName: string; mimeType: string; dataUrl: string; base64: string }> = {};
+  private async buildAttachmentPayload(file: File): Promise<{ fileName: string; mimeType: string; dataUrl: string; base64: string }> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result || '');
+        const base64 = dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : '';
+        resolve({
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          dataUrl,
+          base64
+        });
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
 
   constructor(
     private permissionService: PermissionService,
@@ -331,8 +349,14 @@ export class ApplicationComponent implements OnInit {
     if (file) {
       this.attachmentFiles[fieldName] = file;
       this.applicationForm.get(fieldName)?.setValue(file.name);
+      this.buildAttachmentPayload(file).then((payload) => {
+        this.attachmentPayloads[fieldName] = payload;
+      }).catch(() => {
+        // ignore read errors here; will be handled on submit
+      });
     } else {
       delete this.attachmentFiles[fieldName];
+      delete this.attachmentPayloads[fieldName];
       this.applicationForm.get(fieldName)?.setValue('');
     }
     this.applicationForm.get(fieldName)?.markAsTouched();
@@ -428,22 +452,49 @@ export class ApplicationComponent implements OnInit {
         (f.label || '').toLowerCase() === 'feasibility_attached_report' ||
         (f.label || '').toLowerCase() === 'feasibility report attached'
       );
-      if (feasibilityField && (feasibilityField.type === 'attachment' || feasibilityField.type === 'file')) {
-        const feasibilityFieldName = this.getFieldName(feasibilityField.label);
-        if (!this.attachmentFiles[feasibilityFieldName]) {
-          this.applicationForm.get(feasibilityFieldName)?.setErrors({ required: true });
-          this.notificationService.showMessage('Please upload feasibility report attachment.', 'danger');
-          return;
+      if (feasibilityField) {
+        const feasibilityType = (feasibilityField.type || '').toString().toLowerCase();
+        if (feasibilityType === 'attachment' || feasibilityType === 'file') {
+          const feasibilityFieldName = this.getFieldName(feasibilityField.label);
+          if (!this.attachmentFiles[feasibilityFieldName]) {
+            this.applicationForm.get(feasibilityFieldName)?.setErrors({ required: true });
+            this.notificationService.showMessage('Please upload feasibility report attachment.', 'danger');
+            return;
+          }
+        }
+      }
+
+      // Ensure attachments are captured as base64 payloads
+      const attachmentFieldNames = new Set<string>();
+      this.selectedForm.fields.forEach((field: FormField) => {
+        const type = (field.type || '').toString().toLowerCase();
+        if (type === 'attachment' || type === 'file') {
+          attachmentFieldNames.add(this.getFieldName(field.label));
+        }
+      });
+      for (const fieldName of Object.keys(this.attachmentFiles)) {
+        if (!attachmentFieldNames.has(fieldName)) continue;
+        if (!this.attachmentPayloads[fieldName]) {
+          try {
+            this.attachmentPayloads[fieldName] = await this.buildAttachmentPayload(this.attachmentFiles[fieldName]);
+          } catch {}
         }
       }
 
       // Convert table FormArrays to regular arrays for JSON serialization
       this.selectedForm.fields.forEach((field: FormField) => {
-        if (field.type === 'table') {
+        const type = (field.type || '').toString().toLowerCase();
+        if (type === 'table') {
           const fieldName = this.getFieldName(field.label);
           const tableArray = this.getTableFormArray(fieldName);
           if (tableArray) {
             formData[fieldName] = tableArray.value;
+          }
+        }
+        if (type === 'attachment' || type === 'file') {
+          const fieldName = this.getFieldName(field.label);
+          if (this.attachmentPayloads[fieldName]) {
+            formData[fieldName] = this.attachmentPayloads[fieldName];
           }
         }
       });

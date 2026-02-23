@@ -96,7 +96,8 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
         .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(auth ->
-          auth.antMatchers("/api/auth/**").permitAll()
+          auth.antMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+              .antMatchers("/api/auth/**").permitAll()
               .antMatchers("/api/test/**").permitAll()
                   .antMatchers("/", "/index.html", "/static/**", "/*.js", "/*.css", "/*.png", "/*.ico", "/assets/**").permitAll()
                   .antMatchers("/{path:[^\\.]*}", "/**/{path:[^\\.]*}").permitAll()
