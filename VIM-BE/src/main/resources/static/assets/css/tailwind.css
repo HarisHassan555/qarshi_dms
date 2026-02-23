@@ -72,6 +72,16 @@
         @apply bg-[#060818];
     }
 
+    .screen_loader {
+        position: fixed !important;
+        inset: 0 !important;
+        width: 100vw;
+        height: 100vh;
+        display: grid;
+        place-items: center;
+        z-index: 9999;
+    }
+
     /* Panel */
     .panel {
         @apply relative rounded-md bg-white p-5 shadow dark:bg-[#0e1726];

@@ -2442,141 +2442,103 @@ export class ApplicationsViewComponent implements OnInit {
       }
     }
 
-    const getApprovalEntryForSignature = (order: number, deptNameKeywords?: string[]): any | null => {
-      if (!approvalHistory || approvalHistory.length === 0) {
-        return null;
-      }
+    const getApprovalEntryForPipeline = (order: number, departmentId?: number, departmentName?: string): any | null => {
+      if (!approvalHistory || approvalHistory.length === 0) return null;
 
-      let entry = approvalHistory.find((e: any) => e.level === order);
-      if (entry) {
-        return entry;
-      }
-
-      if (deptNameKeywords && deptNameKeywords.length > 0) {
-        const keywordsLower = deptNameKeywords.map(k => k.toLowerCase());
-        entry = approvalHistory.find((e: any) => {
-          const deptName = (e.departmentName || '').toString().toLowerCase();
-          return keywordsLower.some(k => deptName.includes(k));
-        });
-        if (entry) {
-          return entry;
-        }
-      }
-
-      return null;
-    };
-
-    const getSignatureHtmlByIndex = (signatureIndex: number, deptNameKeywords?: string[]): string => {
-      const order = signatureIndex + 1;
-      const entry = getApprovalEntryForSignature(order, deptNameKeywords);
-      if (!entry) {
-        return '';
-      }
-      if (!entry.signaturePath) {
-        return '';
-      }
-      const userId = entry.approvedBy || entry.approverUserId || entry.userId;
-      if (!userId) {
-        return '';
-      }
-      const signatureUrl = `${urls.API_URL}getSignature?userId=${userId}`;
-      return `<img class="sig-img" src="${signatureUrl}" alt="Signature" crossorigin="anonymous" />`;
-    };
-
-    const getSignatureTimestampByIndex = (signatureIndex: number, deptNameKeywords?: string[]): string => {
-      const order = signatureIndex + 1;
-      const entry = getApprovalEntryForSignature(order, deptNameKeywords);
-      if (!entry || !entry.approvedDate) {
-        return '';
-      }
-      if (!entry.signaturePath) {
-        return '';
-      }
-      try {
-        const dt = new Date(entry.approvedDate);
-        if (isNaN(dt.getTime())) return String(entry.approvedDate);
-        return dt.toLocaleString();
-      } catch (e) {
-        return String(entry.approvedDate);
-      }
-    };
-
-    // Helper function to check if a signature field should show "Approved"
-    const isSignatureApproved = (signatureIndex: number): boolean => {
-      const currentLevel = application.intCurrentApprovalLevel || 0;
-      const status = application.txtStatus?.toUpperCase() || '';
-
-      // If status is APPROVED, all departments have approved
-      if (status === 'APPROVED') {
-        return true;
-      }
-
-      // Map signature index to approval order (1-based)
-      // Signature 0 = User Deptt. (HoD) = order 1
-      // Signature 1 = Technical Expert = order 2
-      // Signature 2 = Procurement = order 3
-      // Signature 3 = Finance = order 4
-      // Signature 4 = Core Team HTR. / CCT HO = order 5
-      const approvalOrder = signatureIndex + 1;
-
-      // Check if current level is greater than or equal to this order
-      // Level 0 means nothing approved, level 1 means order 1 approved, etc.
-      // Current level represents the last approved level (0-indexed)
-      // So level 1 means order 1 has been approved
-      return currentLevel >= approvalOrder;
-    };
-
-    // Alternative: Check by department name if pipelines are available
-    const isSignatureApprovedByDept = (deptNameKeywords: string[]): boolean => {
-      if (!pipelines || pipelines.length === 0) {
-        return false;
-      }
-
-      const currentLevel = application.intCurrentApprovalLevel || 0;
-      const status = application.txtStatus?.toUpperCase() || '';
-
-      // If status is APPROVED, all departments have approved
-      if (status === 'APPROVED') {
-        return true;
-      }
-
-      // Find if any pipeline with matching department has been approved
-      for (const pipeline of pipelines) {
-        const pipelineOrder = pipeline.intApprovalOrder || 0;
-        const deptName = pipeline.hrTblDepartment?.txtDepartmentName || '';
-        const deptNameLower = deptName.toLowerCase();
-
-        // Check if department name matches any keyword
-        const matches = deptNameKeywords.some(keyword =>
-          deptNameLower.includes(keyword.toLowerCase())
+      let entry = null;
+      if (departmentId) {
+        entry = approvalHistory.find((e: any) =>
+          (e.level === order || e.intApprovalOrder === order) &&
+          (Number(e.departmentId) === Number(departmentId) || Number(e.serDepartmentId) === Number(departmentId))
         );
-
-        // Current level represents the last approved level (0-indexed)
-        // So level 1 means order 1 has been approved
-        if (matches && currentLevel >= pipelineOrder) {
-          return true;
-        }
+      }
+      if (!entry) {
+        entry = approvalHistory.find((e: any) => e.level === order || e.intApprovalOrder === order);
+      }
+      if (!entry && departmentId) {
+        entry = approvalHistory.find((e: any) =>
+          Number(e.departmentId) === Number(departmentId) || Number(e.serDepartmentId) === Number(departmentId)
+        );
+      }
+      if (!entry && departmentName) {
+        const nameLower = departmentName.toLowerCase();
+        entry = approvalHistory.find((e: any) =>
+          (e.departmentName || '').toString().toLowerCase() === nameLower
+        );
       }
 
-      return false;
+      return entry || null;
     };
 
-    const sig0Html = getSignatureHtmlByIndex(0, ['user', 'hod', 'department', 'head']) ||
-      (isSignatureApproved(0) || isSignatureApprovedByDept(['user', 'hod', 'department', 'head']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : '');
-    const sig1Html = getSignatureHtmlByIndex(1, ['technical', 'expert']) ||
-      (isSignatureApproved(1) || isSignatureApprovedByDept(['technical', 'expert']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : '');
-    const sig2Html = getSignatureHtmlByIndex(2, ['procurement']) ||
-      (isSignatureApproved(2) || isSignatureApprovedByDept(['procurement']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : '');
-    const sig3Html = getSignatureHtmlByIndex(3, ['finance']) ||
-      (isSignatureApproved(3) || isSignatureApprovedByDept(['finance']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : '');
-    const sig4Html = getSignatureHtmlByIndex(4, ['core team', 'htr', 'cct', 'ho']) ||
-      (isSignatureApproved(4) || isSignatureApprovedByDept(['core team', 'htr', 'cct', 'ho']) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : '');
+    const isPipelineApproved = (order: number): boolean => {
+      const currentLevel = application.intCurrentApprovalLevel || 0;
+      const status = application.txtStatus?.toUpperCase() || '';
+      if (status === 'APPROVED') return true;
+      return currentLevel >= order;
+    };
 
-    const sig0Time = getSignatureTimestampByIndex(0, ['user', 'hod', 'department', 'head']);
-    const sig1Time = getSignatureTimestampByIndex(1, ['technical', 'expert']);
-    const sig2Time = getSignatureTimestampByIndex(2, ['procurement']);
-    const sig3Time = getSignatureTimestampByIndex(3, ['finance']);
-    const sig4Time = getSignatureTimestampByIndex(4, ['core team', 'htr', 'cct', 'ho']);
+    const buildSignatureSlots = (): { label: string; html: string; time: string }[] => {
+      const sortedPipelines = Array.isArray(pipelines)
+        ? [...pipelines].sort((a: any, b: any) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0))
+        : [];
+
+      if (sortedPipelines.length === 0) {
+        const fallback = [
+          { label: 'User Deptt. (HoD)', order: 1 },
+          { label: 'Technical Expert', order: 2 },
+          { label: 'Procurement', order: 3 },
+          { label: 'Finance', order: 4 },
+          { label: 'Core Team HTR. / CCT HO', order: 5 }
+        ];
+        return fallback.map((f) => {
+          const entry = getApprovalEntryForPipeline(f.order);
+          const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
+          const hasSignature = !!entry?.signaturePath;
+          const signatureUrl = userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '';
+          const html = signatureUrl
+            ? `<img class="sig-img" src="${signatureUrl}" alt="Signature" crossorigin="anonymous" />`
+            : (isPipelineApproved(f.order) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : '');
+          const time = hasSignature && entry?.approvedDate ? (() => {
+            try {
+              const dt = new Date(entry.approvedDate);
+              return isNaN(dt.getTime()) ? String(entry.approvedDate) : dt.toLocaleString();
+            } catch {
+              return String(entry.approvedDate);
+            }
+          })() : '';
+          return { label: f.label, html, time };
+        });
+      }
+
+      return sortedPipelines.map((pipeline: any, index: number) => {
+        const order = pipeline.intApprovalOrder || (index + 1);
+        const departmentId = pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId || pipeline.departmentId;
+        const entry = getApprovalEntryForPipeline(order, departmentId);
+        const label =
+          pipeline.hrTblDepartment?.txtDepartmentName ||
+          pipeline.departmentName ||
+          pipeline.txtDepartmentName ||
+          entry?.departmentName ||
+          `Department ${order}`;
+        const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
+        const hasSignature = !!entry?.signaturePath;
+        const signatureUrl = userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '';
+        const html = signatureUrl
+          ? `<img class="sig-img" src="${signatureUrl}" alt="Signature" crossorigin="anonymous" />`
+          : (isPipelineApproved(order) ? '<span style="font-weight: bold; font-size: 11px;">Approved</span>' : '');
+        const time = hasSignature && entry?.approvedDate ? (() => {
+          try {
+            const dt = new Date(entry.approvedDate);
+            return isNaN(dt.getTime()) ? String(entry.approvedDate) : dt.toLocaleString();
+          } catch {
+            return String(entry.approvedDate);
+          }
+        })() : '';
+        return { label, html, time };
+      });
+    };
+
+    const signatureSlots = buildSignatureSlots();
 
     // CSS styles for CAPF form PDF - exact copy of abc.component.css to ensure identical rendering
     const cssStyles = `
@@ -3278,31 +3240,13 @@ export class ApplicationsViewComponent implements OnInit {
         </div>
 
         <div class="sig-row">
-          <div class="sig">
-            <div class="sig-line">${sig0Html}</div>
-            <div class="sig-time">${escapeHtml(sig0Time)}</div>
-            <div class="sig-label">User Deptt. (HoD)</div>
-          </div>
-          <div class="sig">
-            <div class="sig-line">${sig1Html}</div>
-            <div class="sig-time">${escapeHtml(sig1Time)}</div>
-            <div class="sig-label">Technical Expert</div>
-          </div>
-          <div class="sig">
-            <div class="sig-line">${sig2Html}</div>
-            <div class="sig-time">${escapeHtml(sig2Time)}</div>
-            <div class="sig-label">Procurement</div>
-          </div>
-          <div class="sig">
-            <div class="sig-line">${sig3Html}</div>
-            <div class="sig-time">${escapeHtml(sig3Time)}</div>
-            <div class="sig-label">Finance</div>
-          </div>
-          <div class="sig">
-            <div class="sig-line">${sig4Html}</div>
-            <div class="sig-time">${escapeHtml(sig4Time)}</div>
-            <div class="sig-label">Core Team HTR. / CCT HO</div>
-          </div>
+          ${signatureSlots.map(slot => `
+            <div class="sig">
+              <div class="sig-line">${slot.html}</div>
+              ${slot.html && slot.time ? '<div class="sig-time">' + escapeHtml(slot.time) + '</div>' : ''}
+              <div class="sig-label">${escapeHtml(slot.label)}</div>
+            </div>
+          `).join('')}
         </div>
 
         <div class="xs mt6"><span class="b">Note:</span> Designation must be mentioned against each signature.</div>

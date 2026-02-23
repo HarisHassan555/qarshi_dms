@@ -997,12 +997,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                     if (deptIdObj != null) {
                         departmentId = deptIdObj instanceof Integer ? (Integer) deptIdObj : 
                                       Integer.parseInt(deptIdObj.toString());
-                        // Fetch department name
-                        com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment dept = 
-                            entityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, departmentId);
-                        if (dept != null) {
-                            departmentName = dept.getTxtDepartmentName();
-                        }
+                        // Resolve department name from pipeline or DB
+                        departmentName = resolveDepartmentName(entityManager, departmentId, currentDepartmentPipeline);
                     }
                     
                     if (orderObj != null) {
@@ -1189,11 +1185,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                             if (deptIdObj != null) {
                                 departmentId = deptIdObj instanceof Integer ? (Integer) deptIdObj :
                                     Integer.parseInt(deptIdObj.toString());
-                                com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment dept =
-                                    entityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, departmentId);
-                                if (dept != null) {
-                                    departmentName = dept.getTxtDepartmentName();
-                                }
+                                departmentName = resolveDepartmentName(entityManager, departmentId, currentPipeline);
                             }
                             if (orderObj != null) {
                                 pipelineOrder = orderObj instanceof Integer ? (Integer) orderObj :
@@ -1316,11 +1308,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                         if (deptIdObj != null) {
                             currentDepartmentId = deptIdObj instanceof Integer ? (Integer) deptIdObj : 
                                                  Integer.parseInt(deptIdObj.toString());
-                            com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment dept = 
-                                entityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, currentDepartmentId);
-                            if (dept != null) {
-                                currentDepartmentName = dept.getTxtDepartmentName();
-                            }
+                            currentDepartmentName = resolveDepartmentName(entityManager, currentDepartmentId, currentDepartmentPipeline);
                         }
                         
                         if (orderObj != null) {
@@ -2668,6 +2656,38 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             return sig != null ? sig : "";
         }
         return "";
+    }
+
+    private String resolveDepartmentName(EntityManager entityManager, Integer departmentId, Map<String, Object> pipelineMap) {
+        String name = null;
+        if (pipelineMap != null) {
+            Object nameObj = pipelineMap.get("departmentName");
+            if (nameObj == null) nameObj = pipelineMap.get("txtDepartmentName");
+            if (nameObj == null) {
+                Object deptObj = pipelineMap.get("hrTblDepartment");
+                if (deptObj instanceof Map) {
+                    Map<?, ?> deptMap = (Map<?, ?>) deptObj;
+                    Object nestedName = deptMap.get("txtDepartmentName");
+                    if (nestedName == null) nestedName = deptMap.get("departmentName");
+                    if (nestedName != null) {
+                        nameObj = nestedName;
+                    }
+                }
+            }
+            if (nameObj != null) {
+                name = String.valueOf(nameObj);
+            }
+        }
+
+        if ((name == null || name.trim().isEmpty()) && departmentId != null) {
+            com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment dept =
+                entityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, departmentId);
+            if (dept != null && dept.getTxtDepartmentName() != null && !dept.getTxtDepartmentName().trim().isEmpty()) {
+                name = dept.getTxtDepartmentName();
+            }
+        }
+
+        return name;
     }
 
     private Map<Integer, String> loadUserSignaturePaths(Integer[] userIds) {
