@@ -808,7 +808,24 @@ export class ApplicationDetailsComponent implements OnInit {
       return [];
     }
 
-    const sortedPipelines = [...pipelines].sort((a: any, b: any) =>
+    const normalized = [...pipelines].filter((p: any) => {
+      if (!p) return false;
+      const deptId = p.hrTblDepartment?.serDepartmentId || p.serDepartmentId || p.departmentId;
+      const deptName =
+        p.hrTblDepartment?.txtDepartmentName ||
+        p.departmentName ||
+        p.txtDepartmentName;
+      if (deptName && String(deptName).trim() !== '') return true;
+      if (deptId == null) return false;
+      // If departments list is loaded, only keep valid departments
+      if (this.departmentNameMap && this.departmentNameMap.size > 0) {
+        return this.departmentNameMap.has(Number(deptId));
+      }
+      // Otherwise keep and let enrichment resolve later
+      return true;
+    });
+
+    const sortedPipelines = normalized.sort((a: any, b: any) =>
       (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0)
     );
     console.log('Sorted pipelines:', sortedPipelines);

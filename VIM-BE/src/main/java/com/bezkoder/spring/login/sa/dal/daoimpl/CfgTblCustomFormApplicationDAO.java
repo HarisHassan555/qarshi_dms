@@ -1033,29 +1033,32 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 }
             }
             
-            // Add current approval to history (the level being approved is currentLevel + 1 in terms of pipeline order)
-            // But we store the actual pipeline order (1-indexed)
-            java.util.Map<String, Object> approvalEntry = new java.util.HashMap<>();
-            approvalEntry.put("level", pipelineOrder != null ? pipelineOrder : (currentLevel + 1)); // Pipeline order (1-indexed)
-            approvalEntry.put("departmentId", departmentId);
-            approvalEntry.put("departmentName", departmentName != null ? departmentName : (departmentId != null ? "Department " + departmentId : "Unknown"));
-            approvalEntry.put("remarks", remarks != null ? remarks : "");
-            approvalEntry.put("approvedBy", resolvedApproverId);
-            approvalEntry.put("approverName", approverUser.getTxtUserName());
-            approvalEntry.put("approvedDate", commonService.getCurrentTimeStamp_new().toString());
-            approvalEntry.put("signaturePath", approverSignaturePath);
-            approvalEntry.put("approvedVia", approvedVia != null ? approvedVia : "SYSTEM");
-            approvalEntry.put("action", "APPROVED");
-            approvalEntry.put("role", departmentName != null ? departmentName : "");
-            approvalHistory.add(approvalEntry);
-            
-            // Save updated history
-            try {
-                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                String updatedHistoryJson = mapper.writeValueAsString(approvalHistory);
-                application.setTxtApprovalHistory(updatedHistoryJson);
-            } catch (Exception e) {
-                log.error("Error serializing approval history: " + e.getMessage());
+            boolean skipCeoHistory = shouldSkipCeoForCapf(form, departmentName, approverUser);
+            if (!skipCeoHistory) {
+                // Add current approval to history (the level being approved is currentLevel + 1 in terms of pipeline order)
+                // But we store the actual pipeline order (1-indexed)
+                java.util.Map<String, Object> approvalEntry = new java.util.HashMap<>();
+                approvalEntry.put("level", pipelineOrder != null ? pipelineOrder : (currentLevel + 1)); // Pipeline order (1-indexed)
+                approvalEntry.put("departmentId", departmentId);
+                approvalEntry.put("departmentName", departmentName != null ? departmentName : (departmentId != null ? "Department " + departmentId : "Unknown"));
+                approvalEntry.put("remarks", remarks != null ? remarks : "");
+                approvalEntry.put("approvedBy", resolvedApproverId);
+                approvalEntry.put("approverName", approverUser.getTxtUserName());
+                approvalEntry.put("approvedDate", commonService.getCurrentTimeStamp_new().toString());
+                approvalEntry.put("signaturePath", approverSignaturePath);
+                approvalEntry.put("approvedVia", approvedVia != null ? approvedVia : "SYSTEM");
+                approvalEntry.put("action", "APPROVED");
+                approvalEntry.put("role", departmentName != null ? departmentName : "");
+                approvalHistory.add(approvalEntry);
+
+                // Save updated history
+                try {
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    String updatedHistoryJson = mapper.writeValueAsString(approvalHistory);
+                    application.setTxtApprovalHistory(updatedHistoryJson);
+                } catch (Exception e) {
+                    log.error("Error serializing approval history: " + e.getMessage());
+                }
             }
             
             // Increment approval level
@@ -1453,10 +1456,14 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         EntityManager emailEntityManager = getEntityManager();
         try {
             String formName = "Unknown Form";
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form = application.getCfgTblCustomForm();
+            if (form == null && application.getSerFormId() != null) {
+                form = emailEntityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class, application.getSerFormId());
+            }
             
             // Get form name
-            if (application.getCfgTblCustomForm() != null) {
-                formName = application.getCfgTblCustomForm().getTxtFormName();
+            if (form != null) {
+                formName = form.getTxtFormName();
             }
             
             // 1. Get email of the user who submitted the application
@@ -1517,6 +1524,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                 emailEntityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, nextDeptId);
                             
                             if (nextDept != null) {
+                                String nextDeptName = resolveDepartmentName(emailEntityManager, nextDeptId, nextLevelPipeline);
                                 Integer headId = nextDept.getSerDepartmentHeadId();
                                 if (headId != null) {
                                     Integer headDeptId = loadUserDepartmentId(emailEntityManager, headId);
@@ -1530,6 +1538,9 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                 CfgTblUser nextDeptHead = headId != null ? emailEntityManager.find(CfgTblUser.class, headId) : null;
                                     if (nextDeptHead != null && nextDeptHead.getTxtAddress() != null && 
                                         !nextDeptHead.getTxtAddress().trim().isEmpty()) {
+                                        if (shouldSkipCeoForCapf(form, nextDeptName, nextDeptHead)) {
+                                            log.info("Skipping CAPF CEO approval email for user: " + nextDeptHead.getSerUserId());
+                                        } else {
                                         
                                         // Get the next level's pipeline order
                                         Object nextOrderObj = nextLevelPipeline.get("intApprovalOrder");
@@ -1572,6 +1583,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                                 deptHeadSubject, deptHeadHtmlMessage);
                                         }
                                         log.info("Approval notification email sent to next level department head: " + nextDeptHead.getTxtAddress());
+                                        }
                                     }
                             }
                             emailEntityManager.getTransaction().commit();
@@ -1685,6 +1697,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                 emailEntityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, firstDeptId);
                             
                             if (firstDept != null) {
+                                String firstDeptName = resolveDepartmentName(emailEntityManager, firstDeptId, firstLevelPipeline);
                                 Integer headId = firstDept.getSerDepartmentHeadId();
                                 if (headId != null) {
                                     Integer headDeptId = loadUserDepartmentId(emailEntityManager, headId);
@@ -1698,6 +1711,10 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                 CfgTblUser firstDeptHead = headId != null ? emailEntityManager.find(CfgTblUser.class, headId) : null;
                                 if (firstDeptHead != null && firstDeptHead.getTxtAddress() != null && 
                                     !firstDeptHead.getTxtAddress().trim().isEmpty()) {
+                                    
+                                    if (shouldSkipCeoForCapf(form, firstDeptName, firstDeptHead)) {
+                                        log.info("Skipping CAPF CEO submission email for user: " + firstDeptHead.getSerUserId());
+                                    } else {
                                     
                                     // Get the first level's pipeline order
                                     Object orderObj = firstLevelPipeline.get("intApprovalOrder");
@@ -1740,6 +1757,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                             deptHeadSubject, deptHeadHtmlMessage);
                                     }
                                     log.info("Submission notification email sent to first level department head: " + firstDeptHead.getTxtAddress());
+                                    }
                                 }
                             }
                         }
@@ -1768,6 +1786,39 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         String name = form.getTxtFormName() != null ? form.getTxtFormName().toUpperCase() : "";
         String code = form.getTxtFormCode() != null ? form.getTxtFormCode().toUpperCase() : "";
         return name.contains("BUDGET APPROVAL") || code.startsWith("BDG");
+    }
+
+    private boolean shouldSkipCeoForCapf(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+                                         String departmentName,
+                                         CfgTblUser user) {
+        if (!isCapfForm(form)) return false;
+        return isCeoDepartmentName(departmentName) || isCeoUser(user);
+    }
+
+    private boolean isCeoDepartmentName(String departmentName) {
+        if (departmentName == null) return false;
+        String name = departmentName.trim().toUpperCase();
+        return "CEO".equals(name) ||
+               name.contains("CHIEF EXECUTIVE") ||
+               name.contains("CHIEF EXECUTIVE OFFICER") ||
+               name.contains("CEO OFFICE");
+    }
+
+    private boolean isCeoUser(CfgTblUser user) {
+        if (user == null) return false;
+        String roleName = null;
+        if (user.getCfgTblRole() != null && user.getCfgTblRole().getTxtRoleName() != null) {
+            roleName = user.getCfgTblRole().getTxtRoleName();
+        }
+        if (roleName != null && roleName.toUpperCase().contains("CEO")) {
+            return true;
+        }
+        String userName = user.getTxtUserName();
+        if (userName != null && userName.toUpperCase().contains("CEO")) {
+            return true;
+        }
+        String email = user.getTxtAddress();
+        return email != null && email.toUpperCase().contains("CEO");
     }
 
 
