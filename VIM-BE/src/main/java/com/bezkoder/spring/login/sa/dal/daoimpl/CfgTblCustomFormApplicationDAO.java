@@ -1,6 +1,9 @@
 package com.bezkoder.spring.login.sa.dal.daoimpl;
 
 import java.util.List;
+import java.util.Locale;
+import java.text.DateFormat;
+import java.nio.charset.StandardCharsets;
 import javax.persistence.*;
 import javax.persistence.NoResultException;
 import org.slf4j.Logger;
@@ -13,6 +16,8 @@ import com.bezkoder.spring.login.admin.bll.services.ICommonService;
 import com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService;
 import com.bezkoder.spring.login.sa.dal.dao.ICfgTblCustomFormApplicationDAO;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApplication;
+import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm;
+import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormField;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
 import java.io.InputStream;
 import java.io.File;
@@ -21,11 +26,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import java.util.Map;
 import java.io.ByteArrayOutputStream;
+import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
+import org.springframework.util.StreamUtils;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.rendering.PDFRenderer;
 
 @Repository
 public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicationDAO {
@@ -43,18 +52,22 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     
     /**
      * Get base URL from application.properties for email links
+     * Prefer backend URL for email actions/signature images.
      */
     private String getBaseUrl() {
         try {
             Properties props = new Properties();
             InputStream input = new ClassPathResource("application.properties").getInputStream();
             props.load(input);
-            String baseUrl = props.getProperty("app.base.url", "http://localhost:4200");
+            String baseUrl = props.getProperty("app.backend.url");
+            if (baseUrl == null || baseUrl.trim().isEmpty()) {
+                baseUrl = props.getProperty("app.base.url", "http://localhost:4200");
+            }
             input.close();
             return baseUrl;
         } catch (Exception e) {
             log.warn("Error reading base URL from properties, using default: " + e.getMessage());
-            return "http://localhost:4200";
+            return "http://localhost:8080";
         }
     }
 
@@ -1077,10 +1090,9 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
             application.setSerModifiedUser(resolvedApproverId);
 
-            // Regenerate CAPF PDF only when approval happens via email or when no PDF exists.
-            // UI approvals upload the latest printed PDF before approval; preserve that file.
-            boolean shouldRegeneratePdf = "EMAIL".equalsIgnoreCase(approvedVia) ||
-                application.getBlbPdfData() == null || application.getBlbPdfData().length == 0;
+            // Preserve the original CAPF PDF to keep emails consistent.
+            // Only regenerate if no PDF exists.
+            boolean shouldRegeneratePdf = application.getBlbPdfData() == null || application.getBlbPdfData().length == 0;
             if (shouldRegeneratePdf) {
                 try {
                     if (isCapfForm(form)) {
@@ -1449,14 +1461,19 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
      * @param pipelines The approval pipeline list
      */
     private void sendApprovalEmails(CfgTblCustomFormApplication application, Integer approvedPipelineOrder, 
-                                   Integer currentLevel, List<java.util.Map<String, Object>> pipelines) {
+                    Integer currentLevel, List<java.util.Map<String, Object>> pipelines) {
         EntityManager emailEntityManager = getEntityManager();
         try {
             String formName = "Unknown Form";
+            CfgTblCustomForm form = application.getCfgTblCustomForm();
+            if (form == null && application.getSerFormId() != null) {
+                form = emailEntityManager.find(CfgTblCustomForm.class, application.getSerFormId());
+            }
+            boolean isCapf = isCapfForm(form);
             
             // Get form name
-            if (application.getCfgTblCustomForm() != null) {
-                formName = application.getCfgTblCustomForm().getTxtFormName();
+            if (form != null && form.getTxtFormName() != null) {
+                formName = form.getTxtFormName();
             }
             
             // 1. Get email of the user who submitted the application
@@ -1484,7 +1501,14 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                             getBaseUrl()
                         );
                         
-                        if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                        if (isCapf) {
+                            String cid = "capf-inline";
+                            byte[] pdfBytes = getOrBuildCapfPdf(application, form);
+                            byte[] imageBytes = renderCapfPdfToPng(pdfBytes, application.getTxtApprovalHistory());
+                            submitterHtmlMessage = appendCapfInlineImage(submitterHtmlMessage, cid);
+                            emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(submittedByUser.getTxtAddress()), 
+                                submitterSubject, submitterHtmlMessage, imageBytes, "image/png", cid);
+                        } else if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
                             emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
                                 submitterSubject, submitterHtmlMessage,
                                 application.getBlbPdfData(), application.getTxtPdfName(), application.getTxtPdfMime());
@@ -1563,7 +1587,14 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                             getBaseUrl()
                                         );
                                         
-                                        if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                                        if (isCapf) {
+                                            String cid = "capf-inline";
+                                            byte[] pdfBytes = getOrBuildCapfPdf(application, form);
+                                            byte[] imageBytes = renderCapfPdfToPng(pdfBytes, application.getTxtApprovalHistory());
+                                            deptHeadHtmlMessage = appendCapfInlineImage(deptHeadHtmlMessage, cid);
+                                            emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(nextDeptHead.getTxtAddress()), 
+                                                deptHeadSubject, deptHeadHtmlMessage, imageBytes, "image/png", cid);
+                                        } else if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
                                             emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(nextDeptHead.getTxtAddress()), 
                                                 deptHeadSubject, deptHeadHtmlMessage,
                                                 application.getBlbPdfData(), application.getTxtPdfName(), application.getTxtPdfMime());
@@ -1730,8 +1761,15 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                             application.getTxtApprovalHistory(),
                                             getBaseUrl()
                                     );
-                                    
-                                    if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+
+                                    if (isCapfForm(form)) {
+                                        String cid = "capf-inline";
+                                        byte[] pdfBytes = getOrBuildCapfPdf(application, form);
+                                        byte[] imageBytes = renderCapfPdfToPng(pdfBytes, application.getTxtApprovalHistory());
+                                        deptHeadHtmlMessage = appendCapfInlineImage(deptHeadHtmlMessage, cid);
+                                        emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(firstDeptHead.getTxtAddress()), 
+                                            deptHeadSubject, deptHeadHtmlMessage, imageBytes, "image/png", cid);
+                                    } else if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
                                         emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(firstDeptHead.getTxtAddress()), 
                                             deptHeadSubject, deptHeadHtmlMessage,
                                             application.getBlbPdfData(), application.getTxtPdfName(), application.getTxtPdfMime());
@@ -1893,8 +1931,16 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             );
 
             if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
-                emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(next.email), subject, html,
-                        application.getBlbPdfData(), application.getTxtPdfName(), application.getTxtPdfMime());
+                String cid = "budget-inline";
+                byte[] imageBytes = renderCapfPdfToPng(application.getBlbPdfData(), application.getTxtApprovalHistory());
+                String htmlWithImage = appendInlinePdfImage(html, cid, "Budget Approval Form");
+                emailService.sendHtmlEmailWithInlineImage(
+                        java.util.Arrays.asList(next.email),
+                        subject,
+                        htmlWithImage,
+                        imageBytes,
+                        "image/png",
+                        cid);
             } else {
                 emailService.sendHtmlEmail(java.util.Arrays.asList(next.email), subject, html);
             }
@@ -2496,15 +2542,14 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
 
         float sigRowY = y - sigHeight;
         @SuppressWarnings("unchecked")
-        Map<String, Object>[] mapped = new Map[6];
+        Map<String, Object>[] mapped = mapCapfApprovalEntries(approved);
         Integer[] approvedUserIds = new Integer[approved.size()];
         for (int i = 0; i < approved.size(); i++) {
             approvedUserIds[i] = extractUserId(approved.get(i).get("approvedBy"));
         }
         Map<Integer, String> signatureFromDb = loadUserSignaturePaths(approvedUserIds);
         for (int i = 0; i < 6; i++) {
-            Map<String, Object> entry = i < approved.size() ? approved.get(i) : null;
-            mapped[i] = entry;
+            Map<String, Object> entry = mapped[i];
             String sigPath = null;
             if (entry != null) {
                 Integer approvedBy = extractUserId(entry.get("approvedBy"));
@@ -2602,6 +2647,34 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             }
         }
         return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object>[] mapCapfApprovalEntries(List<Map<String, Object>> approved) {
+        Map<String, Object>[] mapped = new Map[6];
+        if (approved == null || approved.isEmpty()) return mapped;
+
+        java.util.Set<Integer> usedIndexes = new java.util.HashSet<>();
+        mapped[0] = findCapfEntryForRole(approved, new String[] {"hod", "head", "dept"}, 0, usedIndexes);
+        mapped[1] = findCapfEntryForRole(approved, new String[] {"technical", "expert"}, 1, usedIndexes);
+        mapped[2] = findCapfEntryForRole(approved, new String[] {"procurement", "purchase"}, 2, usedIndexes);
+        mapped[3] = findCapfEntryForRole(approved, new String[] {"finance", "account"}, 3, usedIndexes);
+        mapped[4] = findCapfEntryForRole(approved, new String[] {"core", "cct", "hrt", "hr", "team"}, 4, usedIndexes);
+        mapped[5] = findCapfEntryForRole(approved, new String[] {"chief", "executive", "ceo"}, 5, usedIndexes);
+
+        int fillIdx = 0;
+        for (int i = 0; i < mapped.length; i++) {
+            if (mapped[i] != null) continue;
+            while (fillIdx < approved.size() && usedIndexes.contains(fillIdx)) {
+                fillIdx++;
+            }
+            if (fillIdx < approved.size()) {
+                mapped[i] = approved.get(fillIdx);
+                usedIndexes.add(fillIdx);
+                fillIdx++;
+            }
+        }
+        return mapped;
     }
 
     private String formatApprovalDate(Object raw) {
@@ -3151,6 +3224,391 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         return val;
     }
 
+    private static String capfEmailTemplateCache = null;
+
+    private String loadCapfEmailTemplate() {
+        if (capfEmailTemplateCache != null) return capfEmailTemplateCache;
+        try (InputStream input = new ClassPathResource("templates/capf-email-fragment.html").getInputStream()) {
+            capfEmailTemplateCache = StreamUtils.copyToString(input, StandardCharsets.UTF_8);
+            return capfEmailTemplateCache;
+        } catch (Exception e) {
+            log.warn("Unable to load CAPF email template: " + e.getMessage());
+            return "";
+        }
+    }
+
+    private String generateCapfEmailFragment(CfgTblCustomFormApplication application, CfgTblCustomForm form,
+                                             List<Map<String, Object>> pipelines) {
+        String template = loadCapfEmailTemplate();
+        if (template == null || template.trim().isEmpty()) return "";
+
+        Map<String, Object> appData = parseApplicationData(application);
+        List<CfgTblCustomFormField> formFields = form != null ? form.getCfgTblCustomFormFields() : null;
+
+        String capfNumber = getFieldValue("CAPF #", appData, formFields);
+        if (capfNumber.isEmpty() && application.getTxtFormCode() != null) {
+            capfNumber = application.getTxtFormCode();
+        }
+
+        String dateValue = getFieldValue("Date", appData, formFields);
+        if (dateValue.isEmpty() && application.getDteCreatedDate() != null) {
+            DateFormat df = DateFormat.getDateInstance(DateFormat.SHORT, Locale.getDefault());
+            dateValue = df.format(application.getDteCreatedDate());
+        }
+
+        String feasibilityValue = getFieldValue("FEASIBILITY REPORT ATTACHED", appData, formFields);
+        boolean feasibilityYes = isTruthyYes(feasibilityValue);
+        boolean feasibilityNo = isTruthyNo(feasibilityValue);
+
+        String thirdPartyValue = getFieldValue("Third Party assessment carried out", appData, formFields);
+        if (thirdPartyValue.isEmpty()) thirdPartyValue = getFieldValue("Third Party Assessment", appData, formFields);
+        if (thirdPartyValue.isEmpty()) thirdPartyValue = getFieldValue("Third Party assessment", appData, formFields);
+        boolean thirdPartyYes = isTruthyYes(thirdPartyValue);
+        boolean thirdPartyNo = isTruthyNo(thirdPartyValue);
+        boolean thirdPartyNA = isTruthyNa(thirdPartyValue);
+
+        String reason = getFieldValue("IF NO THEN MENTION REASON:", appData, formFields);
+        if (reason.isEmpty()) reason = getFieldValue("IF NO THEN MENTION REASON", appData, formFields);
+
+        String signatureSlots = buildCapfSignatureSlotsHtml(pipelines, application.getTxtApprovalHistory(), getBaseUrl());
+
+        String check = "<span>&#10003;</span>";
+        String logoUrl = getBaseUrl() + "/assets/images/qarshi-logo.png";
+
+        String html = template;
+        html = html.replace("{{LOGO_URL}}", escapeHtml(logoUrl));
+        html = html.replace("{{CAPF_NUMBER}}", escapeHtml(capfNumber));
+        html = html.replace("{{DIVISION_DEPARTMENT}}", escapeHtml(getFieldValue("DIVISION / DEPARTMENT", appData, formFields)));
+        html = html.replace("{{DATE}}", escapeHtml(dateValue));
+        html = html.replace("{{ASSET_NAME}}", escapeHtml(getFieldValue("NAME OF ASSET / ITEM", appData, formFields)));
+        html = html.replace("{{SPECIFICATION}}", escapeHtml(getFieldValue("DETAIL SPECIFICATION", appData, formFields)));
+        html = html.replace("{{UTILITY_PURPOSE}}", escapeHtml(getFieldValue("UTILITY & PURPOSE", appData, formFields)));
+        html = html.replace("{{FEASIBILITY_YES}}", feasibilityYes ? check : "");
+        html = html.replace("{{FEASIBILITY_NO}}", feasibilityNo ? check : "");
+        html = html.replace("{{FEASIBILITY_REASON}}", escapeHtml(reason));
+        html = html.replace("{{VENDOR_NAME}}", escapeHtml(getFieldValue("NAME", appData, formFields)));
+        html = html.replace("{{VENDOR_ADDRESS}}", escapeHtml(getFieldValue("ADDRESS", appData, formFields)));
+        html = html.replace("{{APPROVED_PRICE}}", escapeHtml(getFieldValue("APPROVED PRICE", appData, formFields)));
+        html = html.replace("{{DELIVERY_PERIOD}}", escapeHtml(getFieldValue("DELIVERY PERIOD & DATE", appData, formFields)));
+        html = html.replace("{{TERMS_CONDITIONS}}", escapeHtml(getFieldValue("TERMS & CONDITIONS", appData, formFields)));
+        html = html.replace("{{THIRD_PARTY_YES}}", thirdPartyYes ? check : "");
+        html = html.replace("{{THIRD_PARTY_NO}}", thirdPartyNo ? check : "");
+        html = html.replace("{{THIRD_PARTY_NA}}", thirdPartyNA ? check : "");
+        html = html.replace("{{SIGNATURE_SLOTS}}", signatureSlots != null ? signatureSlots : "");
+
+        return html;
+    }
+
+    private boolean isTruthyYes(String value) {
+        if (value == null) return false;
+        String v = value.trim().toLowerCase();
+        return "yes".equals(v) || "true".equals(v);
+    }
+
+    private boolean isTruthyNo(String value) {
+        if (value == null) return false;
+        String v = value.trim().toLowerCase();
+        return "no".equals(v) || "false".equals(v);
+    }
+
+    private boolean isTruthyNa(String value) {
+        if (value == null) return false;
+        String v = value.trim().toLowerCase();
+        return "na".equals(v) || "n/a".equals(v) || "not applicable".equals(v);
+    }
+
+    private String buildCapfSignatureSlotsHtml(List<Map<String, Object>> pipelines, String approvalHistoryJson, String baseUrl) {
+        List<Map<String, Object>> approvalHistory = parseApprovalHistory(approvalHistoryJson);
+        List<Map<String, Object>> sortedPipelines = new java.util.ArrayList<>();
+        if (pipelines != null) {
+            sortedPipelines.addAll(pipelines);
+            sortedPipelines.sort((a, b) -> {
+                Integer aOrder = safeInt(a.get("intApprovalOrder"), 0);
+                Integer bOrder = safeInt(b.get("intApprovalOrder"), 0);
+                return aOrder.compareTo(bOrder);
+            });
+        }
+
+        List<CapfSignatureSlot> slots = new java.util.ArrayList<>();
+        if (sortedPipelines.isEmpty()) {
+            slots.add(buildFallbackSlot(1, "User Deptt. (HoD)", approvalHistory, baseUrl));
+            slots.add(buildFallbackSlot(2, "Technical Expert", approvalHistory, baseUrl));
+            slots.add(buildFallbackSlot(3, "Procurement", approvalHistory, baseUrl));
+            slots.add(buildFallbackSlot(4, "Finance", approvalHistory, baseUrl));
+            slots.add(buildFallbackSlot(5, "Core Team HTR. / CCT HO", approvalHistory, baseUrl));
+        } else {
+            int index = 0;
+            for (Map<String, Object> pipeline : sortedPipelines) {
+                index++;
+                Integer order = safeInt(pipeline.get("intApprovalOrder"), index);
+                Integer departmentId = null;
+                Object deptMap = pipeline.get("hrTblDepartment");
+                String label = null;
+                if (deptMap instanceof Map) {
+                    Map<?, ?> map = (Map<?, ?>) deptMap;
+                    departmentId = safeInt(map.get("serDepartmentId"), null);
+                    Object name = map.get("txtDepartmentName");
+                    if (name != null) label = name.toString();
+                }
+                if (departmentId == null) {
+                    departmentId = safeInt(pipeline.get("serDepartmentId"), null);
+                }
+                if (departmentId == null) {
+                    departmentId = safeInt(pipeline.get("departmentId"), null);
+                }
+                if (label == null) {
+                    Object name = pipeline.get("departmentName");
+                    if (name == null) name = pipeline.get("txtDepartmentName");
+                    if (name != null) label = name.toString();
+                }
+
+                Map<String, Object> entry = getApprovalEntryForPipeline(order, departmentId, label, approvalHistory);
+                String slotLabel = label != null && !label.trim().isEmpty() ? label : ("Department " + order);
+                slots.add(buildSlotFromEntry(slotLabel, entry, baseUrl));
+            }
+        }
+
+        StringBuilder html = new StringBuilder();
+        for (CapfSignatureSlot slot : slots) {
+            html.append("<div class=\"sig\">");
+            html.append("<div class=\"sig-line\">").append(slot.html).append("</div>");
+            if (slot.html != null && !slot.html.isEmpty() && slot.time != null && !slot.time.isEmpty()) {
+                html.append("<div class=\"sig-time\">").append(escapeHtml(slot.time)).append("</div>");
+            }
+            html.append("<div class=\"sig-label\">").append(escapeHtml(slot.label)).append("</div>");
+            html.append("</div>");
+        }
+        return html.toString();
+    }
+
+    private CapfSignatureSlot buildFallbackSlot(int order, String label, List<Map<String, Object>> approvalHistory, String baseUrl) {
+        Map<String, Object> entry = getApprovalEntryForPipeline(order, null, null, approvalHistory);
+        return buildSlotFromEntry(label, entry, baseUrl);
+    }
+
+    private CapfSignatureSlot buildSlotFromEntry(String label, Map<String, Object> entry, String baseUrl) {
+        CapfSignatureSlot slot = new CapfSignatureSlot();
+        slot.label = label != null ? label : "";
+        slot.html = "";
+        slot.time = "";
+        if (entry == null) return slot;
+
+        String signaturePath = entry.get("signaturePath") != null ? String.valueOf(entry.get("signaturePath")) : "";
+        String approvedBy = entry.get("approvedBy") != null ? String.valueOf(entry.get("approvedBy")) :
+                             entry.get("approverUserId") != null ? String.valueOf(entry.get("approverUserId")) :
+                             entry.get("userId") != null ? String.valueOf(entry.get("userId")) : "";
+        if (!signaturePath.trim().isEmpty() && !approvedBy.trim().isEmpty() && baseUrl != null) {
+            String sigUrl = baseUrl + "/getSignature?userId=" + approvedBy;
+            slot.html = "<img class=\"sig-img\" src=\"" + sigUrl + "\" alt=\"Signature\" />";
+        }
+
+        if (entry.get("approvedDate") != null) {
+            slot.time = formatApprovalDate(entry.get("approvedDate"));
+        }
+        return slot;
+    }
+
+    private Map<String, Object> getApprovalEntryForPipeline(int order, Integer departmentId, String departmentName,
+                                                            List<Map<String, Object>> approvalHistory) {
+        if (approvalHistory == null || approvalHistory.isEmpty()) return null;
+
+        Map<String, Object> entry = null;
+        if (departmentId != null) {
+            for (Map<String, Object> e : approvalHistory) {
+                Integer level = safeInt(e.get("level"), null);
+                Integer intApprovalOrder = safeInt(e.get("intApprovalOrder"), null);
+                Integer deptId = safeInt(e.get("departmentId"), safeInt(e.get("serDepartmentId"), null));
+                if ((level != null && level == order || intApprovalOrder != null && intApprovalOrder == order)
+                    && deptId != null && deptId.equals(departmentId)) {
+                    entry = e;
+                    break;
+                }
+            }
+        }
+        if (entry == null) {
+            for (Map<String, Object> e : approvalHistory) {
+                Integer level = safeInt(e.get("level"), null);
+                Integer intApprovalOrder = safeInt(e.get("intApprovalOrder"), null);
+                if (level != null && level == order || intApprovalOrder != null && intApprovalOrder == order) {
+                    entry = e;
+                    break;
+                }
+            }
+        }
+        if (entry == null && departmentId != null) {
+            for (Map<String, Object> e : approvalHistory) {
+                Integer deptId = safeInt(e.get("departmentId"), safeInt(e.get("serDepartmentId"), null));
+                if (deptId != null && deptId.equals(departmentId)) {
+                    entry = e;
+                    break;
+                }
+            }
+        }
+        if (entry == null && departmentName != null) {
+            String nameLower = departmentName.toLowerCase();
+            for (Map<String, Object> e : approvalHistory) {
+                Object dep = e.get("departmentName");
+                if (dep != null && dep.toString().toLowerCase().equals(nameLower)) {
+                    entry = e;
+                    break;
+                }
+            }
+        }
+        return entry;
+    }
+
+    private Integer safeInt(Object val, Integer fallback) {
+        if (val == null) return fallback;
+        try {
+            if (val instanceof Integer) return (Integer) val;
+            return Integer.parseInt(val.toString());
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    private String getFieldValue(String fieldLabel, Map<String, Object> applicationFormData,
+                                 List<CfgTblCustomFormField> formFields) {
+        if (applicationFormData == null || applicationFormData.isEmpty()) return "";
+
+        Map<String, String> templateKeyToConcept = new java.util.HashMap<>();
+        templateKeyToConcept.put("DIVISION / DEPARTMENT", "division");
+        templateKeyToConcept.put("CAPF #", "capfNumber");
+        templateKeyToConcept.put("Date", "date");
+        templateKeyToConcept.put("NAME OF ASSET / ITEM", "assetName");
+        templateKeyToConcept.put("DETAIL SPECIFICATION", "specification");
+        templateKeyToConcept.put("UTILITY & PURPOSE", "utility");
+        templateKeyToConcept.put("FEASIBILITY REPORT ATTACHED", "feasibilityReport");
+        templateKeyToConcept.put("IF NO THEN MENTION REASON", "reason");
+        templateKeyToConcept.put("NAME", "vendorName");
+        templateKeyToConcept.put("ADDRESS", "vendorAddress");
+        templateKeyToConcept.put("APPROVED PRICE", "approvedPrice");
+        templateKeyToConcept.put("DELIVERY PERIOD & DATE", "deliveryPeriod");
+        templateKeyToConcept.put("TERMS & CONDITIONS", "termsConditions");
+        templateKeyToConcept.put("Third Party assessment carried out", "thirdPartyAssessment");
+        templateKeyToConcept.put("Third Party Assessment", "thirdPartyAssessment");
+        templateKeyToConcept.put("Third Party assessment", "thirdPartyAssessment");
+
+        Map<String, List<String>> fieldMappings = new java.util.HashMap<>();
+        fieldMappings.put("division", java.util.Arrays.asList("DIVISION / DEPARTMENT", "Division", "Department", "division"));
+        fieldMappings.put("capfNumber", java.util.Arrays.asList("CAPF #", "CAPF", "Capf Number", "capf_number"));
+        fieldMappings.put("date", java.util.Arrays.asList("Date", "Submission Date", "date"));
+        fieldMappings.put("assetName", java.util.Arrays.asList("NAME OF ASSET / ITEM", "Name of Asset", "Asset Name", "Item Name", "asset_name"));
+        fieldMappings.put("specification", java.util.Arrays.asList("DETAIL SPECIFICATION", "DETAIL SPECIFICATION:", "Detail Specification", "Detail Specification:", "Specification", "specification", "detail_specification", "DETAIL_SPECIFICATION"));
+        fieldMappings.put("utility", java.util.Arrays.asList("UTILITY & PURPOSE", "Utility", "Purpose", "utility_purpose"));
+        fieldMappings.put("feasibilityReport", java.util.Arrays.asList("FEASIBILITY REPORT ATTACHED", "Feasibility Report", "feasibility_report"));
+        fieldMappings.put("reason", java.util.Arrays.asList("IF NO THEN MENTION REASON", "Reason", "If No Reason", "reason"));
+        fieldMappings.put("vendorName", java.util.Arrays.asList("Vendor Name", "Vendor", "Name of Vendor", "NAME"));
+        fieldMappings.put("vendorAddress", java.util.Arrays.asList("Vendor Address", "Address", "ADDRESS"));
+        fieldMappings.put("approvedPrice", java.util.Arrays.asList("APPROVED PRICE", "Approved Price", "Price", "Cost"));
+        fieldMappings.put("deliveryPeriod", java.util.Arrays.asList("DELIVERY PERIOD & DATE", "Delivery Period", "Delivery Date"));
+        fieldMappings.put("termsConditions", java.util.Arrays.asList("TERMS & CONDITIONS", "Terms and Conditions", "Terms & Conditions"));
+        fieldMappings.put("thirdPartyAssessment", java.util.Arrays.asList("Third Party assessment carried out", "Third Party Assessment", "Third Party assessment", "Third Party Assessment Carried Out", "third_party_assessment", "thirdPartyAssessment"));
+
+        String concept = templateKeyToConcept.get(fieldLabel);
+        if (concept != null && fieldMappings.containsKey(concept)) {
+            for (String label : fieldMappings.get(concept)) {
+                String value = lookupLabel(label, applicationFormData, formFields);
+                if (!value.isEmpty()) return value;
+            }
+        }
+
+        return lookupLabel(fieldLabel, applicationFormData, formFields);
+    }
+
+    private String lookupLabel(String label, Map<String, Object> applicationFormData,
+                               List<CfgTblCustomFormField> formFields) {
+        if (label == null) return "";
+        String normalizedLbl = label.replace(":", "").replace(";", "").trim();
+        String lowerLbl = label.toLowerCase().trim();
+        String lowerNormalized = normalizedLbl.toLowerCase().trim();
+
+        String val = getNonEmptyValue(applicationFormData, label);
+        if (!val.isEmpty()) return val;
+        val = getNonEmptyValue(applicationFormData, normalizedLbl);
+        if (!val.isEmpty()) return val;
+
+        String slug = slugify(label);
+        val = getNonEmptyValue(applicationFormData, slug);
+        if (!val.isEmpty()) return val;
+
+        String normalizedSlug = slugify(normalizedLbl);
+        val = getNonEmptyValue(applicationFormData, normalizedSlug);
+        if (!val.isEmpty()) return val;
+
+        for (Map.Entry<String, Object> entry : applicationFormData.entrySet()) {
+            String key = entry.getKey();
+            if (key == null) continue;
+            if (key.toLowerCase().trim().equals(lowerLbl)) {
+                return safeToString(entry.getValue());
+            }
+        }
+
+        for (Map.Entry<String, Object> entry : applicationFormData.entrySet()) {
+            String key = entry.getKey();
+            if (key == null) continue;
+            String keyNormalized = key.replace(":", "").replace(";", "").toLowerCase().trim();
+            if (keyNormalized.equals(lowerNormalized)) {
+                return safeToString(entry.getValue());
+            }
+        }
+
+        if (formFields != null && !formFields.isEmpty()) {
+            for (CfgTblCustomFormField field : formFields) {
+                if (field == null || field.getTxtFieldLabel() == null) continue;
+                String fieldLabelNormalized = field.getTxtFieldLabel().replace(":", "").replace(";", "").toLowerCase().trim();
+                if (fieldLabelNormalized.equals(lowerNormalized) || field.getTxtFieldLabel().toLowerCase().trim().equals(lowerLbl)) {
+                    String fieldSlug = slugify(field.getTxtFieldLabel());
+                    val = getNonEmptyValue(applicationFormData, fieldSlug);
+                    if (!val.isEmpty()) return val;
+
+                    String normalizedFieldSlug = slugify(field.getTxtFieldLabel().replace(":", "").replace(";", "").trim());
+                    val = getNonEmptyValue(applicationFormData, normalizedFieldSlug);
+                    if (!val.isEmpty()) return val;
+                }
+            }
+
+            if (lowerNormalized.contains("specification") || lowerLbl.contains("specification")) {
+                for (CfgTblCustomFormField field : formFields) {
+                    if (field == null || field.getTxtFieldLabel() == null) continue;
+                    String fieldLabelLower = field.getTxtFieldLabel().toLowerCase();
+                    if (fieldLabelLower.contains("specification") || fieldLabelLower.contains("detail")) {
+                        String fieldSlug = slugify(field.getTxtFieldLabel());
+                        val = getNonEmptyValue(applicationFormData, fieldSlug);
+                        if (!val.isEmpty()) return val;
+                    }
+                }
+            }
+        }
+
+        return "";
+    }
+
+    private String getNonEmptyValue(Map<String, Object> data, String key) {
+        if (key == null || data == null) return "";
+        Object val = data.get(key);
+        if (val == null) return "";
+        String str = safeToString(val).trim();
+        return str.isEmpty() ? "" : str;
+    }
+
+    private String safeToString(Object val) {
+        if (val == null) return "";
+        return String.valueOf(val);
+    }
+
+    private String slugify(String label) {
+        if (label == null) return "";
+        String slug = label.toLowerCase().replaceAll("[^a-z0-9]+", "_").replaceAll("^_+|_+$", "");
+        return slug;
+    }
+
+    private static class CapfSignatureSlot {
+        String label;
+        String html;
+        String time;
+    }
+
     private static class BudgetApprover {
         Integer userId;
         String name;
@@ -3307,6 +3765,197 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
             log.warn("Error building approval history HTML: " + e.getMessage(), e);
             return "";
         }
+    }
+
+    private String appendCapfFragment(String baseHtml, String capfFragment) {
+        if (capfFragment == null || capfFragment.trim().isEmpty()) return baseHtml;
+        if (baseHtml == null || baseHtml.trim().isEmpty()) return capfFragment;
+
+        String fragmentHtml = capfFragment;
+        String styleBlock = "";
+        int styleStart = fragmentHtml.indexOf("<style>");
+        int styleEnd = fragmentHtml.indexOf("</style>");
+        if (styleStart >= 0 && styleEnd > styleStart) {
+            styleBlock = fragmentHtml.substring(styleStart + 7, styleEnd);
+            fragmentHtml = fragmentHtml.substring(0, styleStart) + fragmentHtml.substring(styleEnd + 8);
+        }
+
+        if (!styleBlock.trim().isEmpty()) {
+            String styleTag = "<style>" + styleBlock + "</style>";
+            String headMarker = "</head>";
+            int headIdx = baseHtml.indexOf(headMarker);
+            if (headIdx >= 0) {
+                baseHtml = baseHtml.substring(0, headIdx) + styleTag + baseHtml.substring(headIdx);
+            } else {
+                baseHtml = styleTag + baseHtml;
+            }
+        }
+
+        String marker = "</body>";
+        int idx = baseHtml.lastIndexOf(marker);
+        if (idx == -1) {
+            return baseHtml + fragmentHtml;
+        }
+        return baseHtml.substring(0, idx) + fragmentHtml + baseHtml.substring(idx);
+    }
+
+    private byte[] renderCapfPdfToPng(byte[] pdfBytes, String approvalHistoryJson) {
+        if (pdfBytes == null || pdfBytes.length == 0) return null;
+        try (PDDocument document = PDDocument.load(pdfBytes)) {
+            PDFRenderer renderer = new PDFRenderer(document);
+            BufferedImage image = renderer.renderImageWithDPI(0, 150);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ImageIO.write(image, "png", baos);
+            return baos.toByteArray();
+        } catch (Exception e) {
+            log.warn("Error rendering CAPF PDF to PNG: " + e.getMessage(), e);
+            return null;
+        }
+    }
+
+    private void overlayCapfSignaturesOnPdf(PDDocument document, String approvalHistoryJson) {
+        if (document == null || document.getNumberOfPages() == 0) return;
+        try {
+            PDPage page = document.getPage(0);
+            PDRectangle box = page.getMediaBox();
+            float pageWidth = box.getWidth();
+            float pageHeight = box.getHeight();
+            float margin = 26f;
+            float y = pageHeight - margin;
+
+            // Header row
+            y -= 36;
+
+            // Meta table
+            float metaHeight = 32f;
+            y -= (metaHeight + 14);
+
+            // Title bar + divider
+            y -= 16;
+            y -= 10;
+            y -= 12;
+
+            // Fields
+            y -= 14; // Division/Department
+            y -= 14; // CAPF #
+            y -= 14; // Date
+            y -= 4;
+            y -= 14; // Name of Asset
+            y -= 14; // Detail Specification
+            y -= 14; // Utility & Purpose
+            y -= 2;
+            y -= 14; // Feasibility
+            y -= 14; // Reason
+            y -= 2;
+            y -= 14; // Note
+            y -= 6;  // line
+            y -= 10; // title
+            y -= 12;
+
+            // Vendor section
+            y -= 14; // Name
+            y -= 14; // Address
+            y -= 14; // Approved Price
+            y -= 14; // Delivery
+            y -= 14; // Terms
+            y -= 2;
+            y -= 14; // Third party assessment
+            y -= 6;  // line
+            y -= 8;  // spacing before signature section
+
+            float lineStart = margin + 12;
+            float lineEnd = pageWidth - margin - 12;
+
+            try (PDPageContentStream content = new PDPageContentStream(
+                    document, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                drawCapfSignatureImages(content, lineStart, y, lineEnd - lineStart, approvalHistoryJson, document);
+            }
+        } catch (Exception e) {
+            log.warn("Error overlaying CAPF signatures: " + e.getMessage(), e);
+        }
+    }
+
+    private void drawCapfSignatureImages(PDPageContentStream content, float x, float y, float width,
+                                         String approvalHistoryJson, PDDocument document) throws java.io.IOException {
+        float colWidth = width / 6f;
+        float sigHeight = 18f;
+        float sigRowY = y - sigHeight;
+
+        List<Map<String, Object>> approvalHistory = parseApprovalHistory(approvalHistoryJson);
+        java.util.List<Map<String, Object>> approved = new java.util.ArrayList<>();
+        for (Map<String, Object> entry : approvalHistory) {
+            Object action = entry.get("action");
+            if (action != null && "APPROVED".equalsIgnoreCase(action.toString())) {
+                approved.add(entry);
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object>[] mapped = mapCapfApprovalEntries(approved);
+
+        Integer[] approvedUserIds = new Integer[approved.size()];
+        for (int i = 0; i < approved.size(); i++) {
+            approvedUserIds[i] = extractUserId(approved.get(i).get("approvedBy"));
+        }
+        Map<Integer, String> signatureFromDb = loadUserSignaturePaths(approvedUserIds);
+
+        for (int i = 0; i < 6; i++) {
+            Map<String, Object> entry = mapped[i];
+            String sigPath = null;
+            if (entry != null) {
+                Integer approvedBy = extractUserId(entry.get("approvedBy"));
+                if (approvedBy != null && signatureFromDb.containsKey(approvedBy)) {
+                    sigPath = signatureFromDb.get(approvedBy);
+                } else if (entry.get("signaturePath") != null) {
+                    sigPath = String.valueOf(entry.get("signaturePath"));
+                }
+            }
+            if (sigPath != null && !sigPath.trim().isEmpty()) {
+                drawSignatureImage(document, content, sigPath, x + colWidth * i + 4, sigRowY, colWidth - 8, sigHeight);
+            }
+        }
+    }
+
+    private byte[] getOrBuildCapfPdf(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
+        if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+            return application.getBlbPdfData();
+        }
+        try {
+            Map<String, Object> appData = parseApplicationData(application);
+            return generateApplicationPdf(application, form, appData);
+        } catch (Exception e) {
+            log.warn("Error generating CAPF PDF for inline image: " + e.getMessage(), e);
+            return null;
+        }
+    }
+
+    private String appendCapfInlineImage(String baseHtml, String imageCid) {
+        if (baseHtml == null || baseHtml.trim().isEmpty()) return baseHtml;
+        String cid = imageCid != null ? imageCid : "capf-inline";
+        String fragment = "<div style='margin:20px 0 0 0;text-align:center;'>" +
+                          "<img src='cid:" + cid + "' style='width:100%;max-width:820px;border:1px solid #222;display:block;margin:0 auto;' alt='CAPF Form' />" +
+                          "</div>";
+        String marker = "</body>";
+        int idx = baseHtml.lastIndexOf(marker);
+        if (idx == -1) {
+            return baseHtml + fragment;
+        }
+        return baseHtml.substring(0, idx) + fragment + baseHtml.substring(idx);
+    }
+
+    private String appendInlinePdfImage(String baseHtml, String imageCid, String altText) {
+        if (baseHtml == null || baseHtml.trim().isEmpty()) return baseHtml;
+        String cid = imageCid != null ? imageCid : "pdf-inline";
+        String alt = altText != null ? altText : "Document";
+        String fragment = "<div style='margin:20px 0 0 0;text-align:center;'>" +
+                          "<img src='cid:" + cid + "' style='width:100%;max-width:820px;border:1px solid #222;display:block;margin:0 auto;' alt='" + escapeHtml(alt) + "' />" +
+                          "</div>";
+        String marker = "</body>";
+        int idx = baseHtml.lastIndexOf(marker);
+        if (idx == -1) {
+            return baseHtml + fragment;
+        }
+        return baseHtml.substring(0, idx) + fragment + baseHtml.substring(idx);
     }
     
     /**
