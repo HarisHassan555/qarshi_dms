@@ -49,27 +49,25 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     private EmailService emailService;
 
     private static final Logger log = LoggerFactory.getLogger(CfgTblCustomFormApplicationDAO.class);
+
+    @Value("${app.backend.url:http://localhost:8080/velocity}")
+    private String backendBaseUrl;
+
+    @Value("${app.base.url:http://localhost:4200}")
+    private String frontendBaseUrl;
+
     
     /**
-     * Get base URL from application.properties for email links
-     * Prefer backend URL for email actions/signature images.
+     * Get base URL for email links.
+     * Uses the injected backend URL if available, otherwise falls back to a default.
      */
     private String getBaseUrl() {
-        try {
-            Properties props = new Properties();
-            InputStream input = new ClassPathResource("application.properties").getInputStream();
-            props.load(input);
-            String baseUrl = props.getProperty("app.backend.url");
-            if (baseUrl == null || baseUrl.trim().isEmpty()) {
-                baseUrl = props.getProperty("app.base.url", "http://localhost:4200");
-            }
-            input.close();
-            return baseUrl;
-        } catch (Exception e) {
-            log.warn("Error reading base URL from properties, using default: " + e.getMessage());
-            return "http://localhost:8080";
+        if (backendBaseUrl != null && !backendBaseUrl.trim().isEmpty()) {
+            return backendBaseUrl;
         }
+        return "http://localhost:8080/velocity";
     }
+
 
     public CfgTblCustomFormApplicationDAO() {
     }
@@ -880,12 +878,22 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 Integer currentLevel = application.getIntCurrentApprovalLevel();
                 if (currentLevel == null) currentLevel = 0;
                 if (currentLevel < 0 || currentLevel >= sequence.size()) {
+                    // Check if it's already approved
+                    if ("APPROVED".equalsIgnoreCase(application.getTxtStatus())) {
+                        entityManager.getTransaction().commit();
+                        return "Success";
+                    }
                     entityManager.getTransaction().rollback();
-                    return "Failure: Approval already completed";
+                    return "Failure: Approval already completed or in invalid state";
                 }
 
                 BudgetApprover expected = sequence.get(currentLevel);
                 if (expected.userId == null || !expected.userId.equals(resolvedApproverId)) {
+                    // Check if this user already approved this application recently (duplicate click)
+                    if (isUserAlreadyInApprovedHistory(application, resolvedApproverId)) {
+                        entityManager.getTransaction().commit();
+                        return "Success";
+                    }
                     entityManager.getTransaction().rollback();
                     return "Failure: You are not authorized to approve at this stage";
                 }
@@ -1025,6 +1033,11 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             if (departmentId != null) {
                 Integer approverDeptId = loadUserDepartmentId(entityManager, resolvedApproverId);
                 if (approverDeptId == null || !departmentId.equals(approverDeptId)) {
+                    // Check if this user already approved this application recently (duplicate click)
+                    if (isUserAlreadyInApprovedHistory(application, resolvedApproverId)) {
+                        entityManager.getTransaction().commit();
+                        return "Success";
+                    }
                     entityManager.getTransaction().rollback();
                     return "Failure: You are not authorized to approve this department step.";
                 }
@@ -1132,10 +1145,14 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         } catch (Exception e) {
             if (entityManager.getTransaction().isActive()) {
                 entityManager.getTransaction().rollback();
+                log.error("Error approving application (rolled back): " + e.getMessage(), e);
+                return "Failure: " + e.getMessage();
             }
-            log.error("Error approving application: " + e.getMessage(), e);
-            return "Failure: " + e.getMessage();
-        } finally {
+            // If the transaction committed but something else failed (like email), don't return Failure to the user
+            log.warn("Approval committed, but an error occurred in post-commit actions: " + e.getMessage(), e);
+            return "Success";
+        }
+ finally {
             if (entityManager.isOpen()) {
                 entityManager.close();
             }
@@ -3733,9 +3750,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
             html.append(historyHtml);
         }
         
-        boolean isFirstLevel = level != null && level <= 1;
-        boolean canApproveReject = showActionButtons && isFirstLevel && approveUrl != null && rejectUrl != null;
-        boolean canSendBack = showActionButtons && sendBackUrl != null && (level == null || level >= 1);
+        boolean canApproveReject = showActionButtons && approveUrl != null && rejectUrl != null;
+        boolean canSendBack = showActionButtons && sendBackUrl != null && level != null && level >= 2;
 
         if (showActionButtons && (canApproveReject || canSendBack)) {
             html.append("<div class='button-container'>");
@@ -4061,6 +4077,34 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
                    .replace(">", "&gt;")
                    .replace("\"", "&quot;")
                    .replace("'", "&#39;");
+    }
+
+    /**
+     * Helper to check if a user has already approved this application at any stage
+     */
+    private boolean isUserAlreadyInApprovedHistory(CfgTblCustomFormApplication application, Integer userId) {
+        if (application == null || userId == null) return false;
+        String history = application.getTxtApprovalHistory();
+        if (history == null || history.trim().isEmpty()) return false;
+        
+        // Simple but effective check for userId in approved state within this application's history
+        String userIdPattern = "\"approvedBy\":" + userId;
+        String approvedPattern = "\"action\":\"APPROVED\"";
+        
+        int idx = history.indexOf(userIdPattern);
+        while (idx != -1) {
+            // Find the start and end of this JSON object {}
+            int start = history.lastIndexOf("{", idx);
+            int end = history.indexOf("}", idx);
+            if (start != -1 && end != -1) {
+                String entry = history.substring(start, end);
+                if (entry.contains(approvedPattern)) {
+                    return true;
+                }
+            }
+            idx = history.indexOf(userIdPattern, idx + 1);
+        }
+        return false;
     }
 }
 
