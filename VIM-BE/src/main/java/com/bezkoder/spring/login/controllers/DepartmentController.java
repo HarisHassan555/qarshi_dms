@@ -78,7 +78,7 @@ public class DepartmentController {
 		return department;
 	}
 
-	@RequestMapping(value = "/addNewDepartment", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE)
+	@RequestMapping(value = "/addNewDepartment", method = RequestMethod.POST, consumes = MediaType.APPLICATION_JSON_VALUE)
 	public String addNewDepartmentAction(@RequestBody HrTblDepartment citTblDepartment, HttpServletRequest request,
 			HttpServletResponse response) {
 		try {
@@ -88,7 +88,7 @@ public class DepartmentController {
 		}
 	}
 
-	@RequestMapping(value = "/deleteDepartment", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE)
+	@RequestMapping(value = "/deleteDepartment", method = RequestMethod.POST, consumes = MediaType.APPLICATION_JSON_VALUE)
 	public String deleteDepartmentAction(@RequestBody String departmentesId, HttpServletRequest request,
 			HttpServletResponse response) {
 		try {
@@ -106,7 +106,7 @@ public class DepartmentController {
 		}
 	}
 
-	@RequestMapping(value = "/updateDepartment", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE)
+	@RequestMapping(value = "/updateDepartment", method = RequestMethod.POST, consumes = MediaType.APPLICATION_JSON_VALUE)
 	public String updateDepartmentAction(@RequestBody HrTblDepartment citTblDepartment, HttpServletRequest request,
 			HttpServletResponse response) {
 		try {
@@ -150,7 +150,7 @@ public class DepartmentController {
 		}
 	}
 	
-	@RequestMapping(value = "/assignUsersToDepartment", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE)
+	@RequestMapping(value = "/assignUsersToDepartment", method = RequestMethod.POST, consumes = MediaType.APPLICATION_JSON_VALUE)
 	public String assignUsersToDepartment(@RequestBody Map<String, Object> requestBody, HttpServletRequest request,
 			HttpServletResponse response) {
 		logger.debug("assignUsersToDepartment()");

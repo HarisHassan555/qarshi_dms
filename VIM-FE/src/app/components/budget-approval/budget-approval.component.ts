@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { BudgetApprovalService } from 'src/app/services/budget-approval/budget-approval.service';
 import { CustomFormApplicationService } from 'src/app/services/custom-form-application/custom-form-application.service';
+import { CustomFormService } from 'src/app/services/custom-form/custom-form.service';
 import { UserService } from 'src/app/services/user/user.service';
 import { NotificationService } from 'src/app/NotificationService';
 import { ApplicationPdfService } from 'src/app/services/application-pdf/application-pdf.service';
@@ -51,11 +52,24 @@ export class BudgetApprovalComponent implements OnInit {
 
     // Signature State
     users: any[] = [];
-    preparedBy: any = null;
+    selectedPreparedBy: any[] = [];
     selectedReviewers: any[] = [];
     selectedRecommenders: any[] = [];
-    selectedApprover: any = null;
+    selectedApprovers: any[] = [];
     currentDate: string = '';
+    fieldLabels: any = {
+        preparedBy: 'Prepared By',
+        recommendedBy: 'Recommended By (Multi)',
+        reviewedBy: 'Reviewed By (Multi)',
+        approvedBy: 'Approved By (Multi)'
+    };
+    editingFieldLabel: any = {
+        preparedBy: false,
+        recommendedBy: false,
+        reviewedBy: false,
+        approvedBy: false
+    };
+    dynamicUserFields: Array<{ label: string; selectedUsers: any[]; isEditingLabel: boolean }> = [];
 
     quillModules = {
         toolbar: [
@@ -82,6 +96,7 @@ export class BudgetApprovalComponent implements OnInit {
         private router: Router,
         private budgetApprovalService: BudgetApprovalService,
         private customFormApplicationService: CustomFormApplicationService,
+        private customFormService: CustomFormService,
         private applicationPdfService: ApplicationPdfService,
         private userService: UserService,
         private notificationService: NotificationService,
@@ -116,14 +131,119 @@ export class BudgetApprovalComponent implements OnInit {
                 this.editorContent = appData.content || '';
                 this.formHeading = appData.heading || '';
                 this.currentDate = appData.date || this.currentDate;
-                this.preparedBy = appData.preparedBy;
-                this.selectedReviewers = appData.reviewers || [];
-                this.selectedRecommenders = appData.recommenders || [];
-                this.selectedApprover = appData.approver;
+                const footerFields = Array.isArray(appData.footerFields) ? appData.footerFields : [];
+                if (footerFields.length > 0) {
+                    this.loadFromFooterFields(footerFields);
+                }
+                const preparedByUsers = Array.isArray(appData.preparedByUsers) ? appData.preparedByUsers : [];
+                if (footerFields.length === 0 && preparedByUsers.length > 0) {
+                    this.selectedPreparedBy = preparedByUsers;
+                } else if (footerFields.length === 0 && Array.isArray(appData.preparedBy)) {
+                    this.selectedPreparedBy = appData.preparedBy;
+                } else if (footerFields.length === 0 && appData.preparedBy) {
+                    this.selectedPreparedBy = [appData.preparedBy];
+                } else if (footerFields.length === 0) {
+                    this.selectedPreparedBy = [];
+                }
+                if (footerFields.length === 0) {
+                    this.selectedReviewers = appData.reviewers || [];
+                    this.selectedRecommenders = appData.recommenders || [];
+                }
+                const approvers = Array.isArray(appData.approvers) ? appData.approvers : [];
+                if (footerFields.length === 0 && approvers.length > 0) {
+                    this.selectedApprovers = approvers;
+                } else if (footerFields.length === 0 && Array.isArray(appData.approver)) {
+                    this.selectedApprovers = appData.approver;
+                } else if (footerFields.length === 0 && appData.approver) {
+                    this.selectedApprovers = [appData.approver];
+                } else if (footerFields.length === 0) {
+                    this.selectedApprovers = [];
+                }
+                this.fieldLabels = {
+                    ...this.fieldLabels,
+                    ...(appData.fieldLabels || {})
+                };
+                if (footerFields.length === 0) {
+                    this.dynamicUserFields = Array.isArray(appData.dynamicUserFields)
+                    ? appData.dynamicUserFields.map((f: any) => ({
+                        label: f?.label || 'New Field',
+                        selectedUsers: Array.isArray(f?.selectedUsers) ? f.selectedUsers : [],
+                        isEditingLabel: false
+                    }))
+                    : [];
+                }
             } catch (e) {
                 console.error('Error parsing edit data:', e);
             }
         }
+    }
+
+    private loadFromFooterFields(footerFields: any[]) {
+        this.dynamicUserFields = [];
+        footerFields.forEach((field: any) => {
+            const key = (field?.key || '').toString().toLowerCase();
+            const label = field?.label || 'New Field';
+            const users = Array.isArray(field?.users) ? field.users : [];
+            if (key === 'prepared_by') {
+                this.fieldLabels.preparedBy = label;
+                this.selectedPreparedBy = users;
+            } else if (key === 'recommended_by') {
+                this.fieldLabels.recommendedBy = label;
+                this.selectedRecommenders = users;
+            } else if (key === 'reviewed_by') {
+                this.fieldLabels.reviewedBy = label;
+                this.selectedReviewers = users;
+            } else if (key === 'approved_by') {
+                this.fieldLabels.approvedBy = label;
+                this.selectedApprovers = users;
+            } else {
+                this.dynamicUserFields.push({
+                    label,
+                    selectedUsers: users,
+                    isEditingLabel: false
+                });
+            }
+        });
+    }
+
+    private buildFooterFieldsPayload(): any[] {
+        const footerFields: any[] = [
+            {
+                key: 'prepared_by',
+                label: this.fieldLabels.preparedBy || 'Prepared By',
+                order: 1,
+                users: this.selectedPreparedBy || []
+            },
+            {
+                key: 'recommended_by',
+                label: this.fieldLabels.recommendedBy || 'Recommended By (Multi)',
+                order: 2,
+                users: this.selectedRecommenders || []
+            },
+            {
+                key: 'reviewed_by',
+                label: this.fieldLabels.reviewedBy || 'Reviewed By (Multi)',
+                order: 3,
+                users: this.selectedReviewers || []
+            },
+            {
+                key: 'approved_by',
+                label: this.fieldLabels.approvedBy || 'Approved By (Multi)',
+                order: 4,
+                users: this.selectedApprovers || []
+            }
+        ];
+
+        this.dynamicUserFields.forEach((f: any, index: number) => {
+            footerFields.push({
+                key: `wf_${index + 1}`,
+                label: f?.label || 'New Field',
+                order: 5 + index,
+                users: Array.isArray(f?.selectedUsers) ? f.selectedUsers : []
+            });
+        });
+
+        return footerFields;
     }
 
     fetchUsers() {
@@ -141,11 +261,68 @@ export class BudgetApprovalComponent implements OnInit {
         const userJson = localStorage.getItem('user');
         if (userJson) {
             try {
-                this.preparedBy = JSON.parse(userJson);
+                const user = JSON.parse(userJson);
+                this.selectedPreparedBy = user ? [user] : [];
             } catch (e) {
                 console.error('Error parsing user data:', e);
             }
         }
+    }
+
+    toggleFieldLabelEdit(fieldKey: string) {
+        this.editingFieldLabel[fieldKey] = !this.editingFieldLabel[fieldKey];
+    }
+
+    addDynamicUserField() {
+        this.dynamicUserFields.push({
+            label: 'New Field',
+            selectedUsers: [],
+            isEditingLabel: false
+        });
+    }
+
+    removeDynamicUserField(index: number) {
+        this.dynamicUserFields.splice(index, 1);
+    }
+
+    toggleDynamicFieldLabelEdit(index: number) {
+        if (!this.dynamicUserFields[index]) return;
+        this.dynamicUserFields[index].isEditingLabel = !this.dynamicUserFields[index].isEditingLabel;
+    }
+
+    getPreparedByPrimary(): any {
+        return Array.isArray(this.selectedPreparedBy) && this.selectedPreparedBy.length > 0
+            ? this.selectedPreparedBy[0]
+            : null;
+    }
+
+    // Backward compatibility for existing consumers expecting a single preparedBy object.
+    get preparedBy(): any {
+        return this.getPreparedByPrimary();
+    }
+
+    get selectedApprover(): any {
+        return Array.isArray(this.selectedApprovers) && this.selectedApprovers.length > 0
+            ? this.selectedApprovers[0]
+            : null;
+    }
+
+    set selectedApprover(value: any) {
+        if (!value) {
+            this.selectedApprovers = [];
+            return;
+        }
+        this.selectedApprovers = Array.isArray(value) ? value : [value];
+    }
+
+    getUserDisplayName(user: any): string {
+        if (!user) return '';
+        return user.txtUserName || user.userName || user.name || '';
+    }
+
+    getDynamicFieldUsersDisplay(users: any[]): string {
+        if (!Array.isArray(users) || users.length === 0) return '--';
+        return users.map((u: any) => this.getUserDisplayName(u)).filter((n: string) => !!n).join(', ');
     }
 
     addColumn() {
@@ -221,6 +398,12 @@ export class BudgetApprovalComponent implements OnInit {
     }
 
     async save() {
+        await this.ensureFormId();
+        if (!this.serFormId) {
+            this.notificationService.showMessage('Form is not mapped. Please select a valid form before saving.', 'danger');
+            return;
+        }
+
         // ALWAYS use the live HTML from the quill root to ensure table content is included
         const quillHtml = this.editor?.quillEditor?.root?.innerHTML ?? '';
         const content = quillHtml || this.editorContent;
@@ -242,10 +425,18 @@ export class BudgetApprovalComponent implements OnInit {
             content: content,
             heading: this.formHeading,
             date: this.currentDate,
-            preparedBy: this.preparedBy,
+            preparedBy: this.getPreparedByPrimary(),
+            preparedByUsers: this.selectedPreparedBy,
             reviewers: this.selectedReviewers,
             recommenders: this.selectedRecommenders,
-            approver: this.selectedApprover
+            approver: this.selectedApprover,
+            approvers: this.selectedApprovers,
+            fieldLabels: this.fieldLabels,
+            dynamicUserFields: this.dynamicUserFields.map((f: any) => ({
+                label: f.label,
+                selectedUsers: f.selectedUsers || []
+            })),
+            footerFields: this.buildFooterFieldsPayload()
         };
 
         const payload: any = {
@@ -256,10 +447,18 @@ export class BudgetApprovalComponent implements OnInit {
                 content: content,
                 heading: this.formHeading,
                 date: this.currentDate,
-                preparedBy: this.preparedBy,
+                preparedBy: this.getPreparedByPrimary(),
+                preparedByUsers: this.selectedPreparedBy,
                 reviewers: this.selectedReviewers,
                 recommenders: this.selectedRecommenders,
-                approver: this.selectedApprover
+                approver: this.selectedApprover,
+                approvers: this.selectedApprovers,
+                fieldLabels: this.fieldLabels,
+                dynamicUserFields: this.dynamicUserFields.map((f: any) => ({
+                    label: f.label,
+                    selectedUsers: f.selectedUsers || []
+                })),
+                footerFields: this.buildFooterFieldsPayload()
             }),
             txtStatus: this.editData?.txtStatus || 'PENDING',
             intCurrentApprovalLevel: this.editData?.intCurrentApprovalLevel || 0,
@@ -314,6 +513,37 @@ export class BudgetApprovalComponent implements OnInit {
         }
     }
 
+    private async ensureFormId(): Promise<void> {
+        if (this.serFormId) return;
+        try {
+            const forms: any = await firstValueFrom(this.customFormService.getAll());
+            const list = Array.isArray(forms) ? forms : [];
+            if (!list.length) return;
+
+            const norm = (v: any) => String(v || '').trim().toLowerCase();
+            const byName = (needle: string) =>
+                list.find((f: any) => norm(f?.txtFormName || f?.name).includes(needle));
+
+            const matched =
+                byName('document builder') ||
+                byName('budget approval') ||
+                list[0];
+
+            this.serFormId = matched?.serFormId || this.serFormId;
+            if (this.serFormId && !this.formCode) {
+                this.customFormApplicationService.getNextApplicationCode(this.serFormId).subscribe({
+                    next: (resp: any) => {
+                        if (resp?.status === 'Success' && resp?.code) {
+                            this.formCode = resp.code;
+                        }
+                    }
+                });
+            }
+        } catch (e) {
+            console.error('Failed to resolve serFormId', e);
+        }
+    }
+
     private async uploadBudgetPdfAndSendEmails(applicationId: number, applicationFormData: any): Promise<void> {
         const applicationResponse: any = await firstValueFrom(
             this.customFormApplicationService.getApplicationById(applicationId)
@@ -362,6 +592,20 @@ export class BudgetApprovalComponent implements OnInit {
         this.editorContent = '';
         this.formHeading = '';
         this.savedContent = '';
+        this.dynamicUserFields = [];
+        this.fieldLabels = {
+            preparedBy: 'Prepared By',
+            recommendedBy: 'Recommended By (Multi)',
+            reviewedBy: 'Reviewed By (Multi)',
+            approvedBy: 'Approved By (Multi)'
+        };
+        this.editingFieldLabel = {
+            preparedBy: false,
+            recommendedBy: false,
+            reviewedBy: false,
+            approvedBy: false
+        };
         this.onReset.emit();
     }
+
 }

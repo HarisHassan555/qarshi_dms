@@ -301,7 +301,8 @@ public class CustomFormApplicationController {
                 return result;
             }
             
-            String status = customFormApplicationService.approveApplication(applicationId, remarks, approverUserId, approvedVia);
+            String approvedIp = resolveClientIp(request);
+            String status = customFormApplicationService.approveApplication(applicationId, remarks, approverUserId, approvedVia, approvedIp);
             if ("Success".equals(status)) {
                 result.put("status", "Success");
                 result.put("message", "Application approved successfully");
@@ -370,7 +371,8 @@ public class CustomFormApplicationController {
                                               HttpServletResponse response) {
         logger.debug("approveApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
         try {
-            String status = customFormApplicationService.approveApplication(applicationId, "Approved via email", userId, "EMAIL");
+            String approvedIp = resolveClientIp(request);
+            String status = customFormApplicationService.approveApplication(applicationId, "Approved via email", userId, "EMAIL", approvedIp);
             if ("Success".equals(status)) {
                 return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Application Approved</title>" +
                        "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
@@ -562,5 +564,22 @@ public class CustomFormApplicationController {
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return result;
         }
+    }
+
+    private String resolveClientIp(HttpServletRequest request) {
+        if (request == null) return "";
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.trim().isEmpty() && !"unknown".equalsIgnoreCase(forwarded.trim())) {
+            String[] ips = forwarded.split(",");
+            if (ips.length > 0 && ips[0] != null) {
+                return ips[0].trim();
+            }
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.trim().isEmpty() && !"unknown".equalsIgnoreCase(realIp.trim())) {
+            return realIp.trim();
+        }
+        String remoteAddr = request.getRemoteAddr();
+        return remoteAddr != null ? remoteAddr : "";
     }
 }

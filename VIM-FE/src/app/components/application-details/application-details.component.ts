@@ -5,6 +5,7 @@ import { CustomFormApplicationService } from '../../services/custom-form-applica
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
 import { DepartmentService } from '../../services/department/department.service';
 import { NotificationService } from 'src/app/NotificationService';
+import { UserService } from 'src/app/services/user/user.service';
 import { AbcComponent } from '../../pages/abc/abc.component';
 import { urls } from 'src/app/utils/urls';
 import { finalize, firstValueFrom } from 'rxjs';
@@ -23,6 +24,8 @@ export class ApplicationDetailsComponent implements OnInit {
   isLoading: boolean = true;
   approvalHistory: any[] = []; // Store approval history with remarks
   departmentNameMap: Map<number, string> = new Map();
+  departmentHeadMap: Map<number, number> = new Map();
+  userNameMap: Map<number, string> = new Map();
   currentUser: any = null;
 
   // PDF Generation
@@ -284,6 +287,7 @@ export class ApplicationDetailsComponent implements OnInit {
     private customFormApplicationService: CustomFormApplicationService,
     private customFormService: CustomFormService,
     private departmentService: DepartmentService,
+    private userService: UserService,
     private notificationService: NotificationService,
     private sanitizer: DomSanitizer
   ) { }
@@ -313,6 +317,7 @@ export class ApplicationDetailsComponent implements OnInit {
     this.route.queryParamMap.subscribe(params => {
       this.fromPendingApprovals = params.get('from') === 'pending';
     });
+    this.loadUsers();
   }
 
   loadForms() {
@@ -333,20 +338,46 @@ export class ApplicationDetailsComponent implements OnInit {
       (data: any) => {
         if (Array.isArray(data)) {
           const map = new Map<number, string>();
+          const headMap = new Map<number, number>();
           data.forEach((d: any) => {
             const id = d?.serDepartmentId;
             const name = d?.txtDepartmentName;
             if (id != null && name) {
               map.set(Number(id), String(name));
             }
+            const headId = d?.serDepartmentHeadId;
+            if (id != null && headId != null) {
+              headMap.set(Number(id), Number(headId));
+            }
           });
           this.departmentNameMap = map;
+          this.departmentHeadMap = headMap;
           this.enrichPipelineWithDepartmentNames();
           this.applyDepartmentNamesToApprovalHistory();
         }
       },
       (error) => {
         console.error('Error loading departments:', error);
+      }
+    );
+  }
+
+  loadUsers() {
+    this.userService.getUsers().subscribe(
+      (data: any) => {
+        if (!Array.isArray(data)) return;
+        const map = new Map<number, string>();
+        data.forEach((u: any) => {
+          const id = u?.serUserId ?? u?.userId ?? u?.id;
+          const name = u?.txtUserName ?? u?.userName ?? u?.name;
+          if (id != null && name) {
+            map.set(Number(id), String(name));
+          }
+        });
+        this.userNameMap = map;
+      },
+      (error) => {
+        console.error('Error loading users:', error);
       }
     );
   }
@@ -398,15 +429,21 @@ export class ApplicationDetailsComponent implements OnInit {
           if (data.txtApplicationData) {
             try {
               this.applicationFormData = JSON.parse(data.txtApplicationData);
+              const budgetApprovers = this.extractBudgetApprovers();
+              this.preparedBy = budgetApprovers.preparedBy;
+              this.reviewers = budgetApprovers.reviewers;
+              this.recommenders = budgetApprovers.recommenders;
+              this.approver = budgetApprovers.approver;
 
               // Prepare budget approval specific data
               if (this.isBudgetApprovalForm()) {
-                const content = this.applicationFormData.content || this.applicationFormData.editorContent || '';
+                const content =
+                  this.applicationFormData?.content ||
+                  this.applicationFormData?.editorContent ||
+                  this.applicationFormData?.htmlContent ||
+                  this.applicationFormData?.description ||
+                  '';
                 this.safeContent = this.sanitizer.bypassSecurityTrustHtml(content);
-                this.preparedBy = this.applicationFormData.preparedBy;
-                this.reviewers = this.applicationFormData.reviewers || [];
-                this.recommenders = this.applicationFormData.recommenders || [];
-                this.approver = this.applicationFormData.approver;
                 this.formHeading = this.applicationFormData.heading || this.applicationDetails.cfgTblCustomForm?.txtFormName || 'Budget Approval Form';
               }
             } catch (e) {
@@ -828,6 +865,12 @@ export class ApplicationDetailsComponent implements OnInit {
     const sortedPipelines = normalized.sort((a: any, b: any) =>
       (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0)
     );
+
+    const budgetPipelines = this.getBudgetUserPipelines();
+    if (!this.isCapfForm() && budgetPipelines.length > 0) {
+      return budgetPipelines;
+    }
+
     console.log('Sorted pipelines:', sortedPipelines);
     return sortedPipelines;
   }
@@ -1043,6 +1086,13 @@ export class ApplicationDetailsComponent implements OnInit {
   getStageHistoryEntry(pipelineOrder: number, departmentId?: number): any {
     if (!this.approvalHistory || this.approvalHistory.length === 0) return null;
 
+    // Budget Approval form is person-driven, not department-level.
+    // Match history by assigned stage user first to avoid level-shift issues.
+    if (!this.isCapfForm() && this.hasBudgetApproverSequence()) {
+      const budgetEntry = this.getBudgetStageHistoryEntry(pipelineOrder);
+      if (budgetEntry) return budgetEntry;
+    }
+
     let entry = null;
     if (departmentId) {
       entry = this.approvalHistory.find((e: any) =>
@@ -1056,6 +1106,43 @@ export class ApplicationDetailsComponent implements OnInit {
       entry = this.approvalHistory.find((e: any) => e.departmentId === departmentId);
     }
     return entry || null;
+  }
+
+  private getBudgetStageHistoryEntry(pipelineOrder: number): any {
+    const assignedUser = this.getBudgetUserForStage(pipelineOrder);
+    if (!assignedUser || !Array.isArray(this.approvalHistory) || this.approvalHistory.length === 0) {
+      return null;
+    }
+
+    const assignedUserId = this.getUserId(assignedUser);
+    const assignedUserName = this.resolveBudgetUserName(assignedUser).toLowerCase();
+
+    const byActorId = (entry: any): boolean => {
+      if (assignedUserId == null) return false;
+      const actorId = entry?.approvedBy ?? entry?.approverUserId ?? entry?.userId ?? entry?.actorUserId;
+      return actorId != null && Number(actorId) === Number(assignedUserId);
+    };
+
+    const byActorName = (entry: any): boolean => {
+      if (!assignedUserName) return false;
+      const actorName = String(
+        entry?.approverName ??
+        entry?.userName ??
+        entry?.approvedByName ??
+        entry?.actorName ??
+        ''
+      ).trim().toLowerCase();
+      return !!actorName && actorName === assignedUserName;
+    };
+
+    const exactById = this.approvalHistory.find((e: any) => byActorId(e));
+    if (exactById) return exactById;
+
+    const exactByName = this.approvalHistory.find((e: any) => byActorName(e));
+    if (exactByName) return exactByName;
+
+    // Fallback by level when actor identity isn't available in history.
+    return this.approvalHistory.find((e: any) => Number(e?.level) === Number(pipelineOrder)) || null;
   }
 
   // Get stage status: APPROVED, REJECTED, CURRENT (pending at this level), PENDING
@@ -1077,6 +1164,10 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   getPipelineDepartmentName(pipeline: any, index: number): string {
+    if (this.hasBudgetApproverSequence()) {
+      const budgetUser = pipeline?.budgetUserName || this.getBudgetUserNameForStage(pipeline?.intApprovalOrder || (index + 1));
+      if (budgetUser) return budgetUser;
+    }
     if (!pipeline) return `Department ${index + 1}`;
     const directName =
       pipeline.hrTblDepartment?.txtDepartmentName ||
@@ -1101,7 +1192,194 @@ export class ApplicationDetailsComponent implements OnInit {
     if (entry) {
       return entry.approverName || entry.approvedBy || entry.userName || '';
     }
+    if (this.hasBudgetApproverSequence()) {
+      const budgetUser = this.getBudgetUserNameForStage(pipelineOrder);
+      if (budgetUser) return budgetUser;
+    }
+    if (departmentId != null) {
+      const headId = this.departmentHeadMap.get(Number(departmentId));
+      if (headId != null) {
+        const headName = this.userNameMap.get(Number(headId));
+        if (headName) return headName;
+      }
+    }
     return '';
+  }
+
+  private getCapfUserNameForStage(order: number): string {
+    return this.getBudgetUserNameForStage(order);
+  }
+
+  private resolveBudgetUserName(u: any): string {
+    if (!u) return '';
+    if (typeof u === 'string') return u.trim();
+    if (typeof u === 'number') return this.userNameMap.get(Number(u)) || '';
+    const nestedUser = u.user || u.value || u.selectedUser || null;
+    if (nestedUser && nestedUser !== u) {
+      const nestedName = this.resolveBudgetUserName(nestedUser);
+      if (nestedName) return nestedName;
+    }
+    const direct =
+      u.txtUserName ||
+      u.userName ||
+      u.username ||
+      u.displayName ||
+      u.fullName ||
+      u.name ||
+      u.label ||
+      u.text;
+    if (direct) return String(direct).trim();
+    const id = u.serUserId || u.userId || u.id;
+    if (id != null) return this.userNameMap.get(Number(id)) || '';
+    return '';
+  }
+
+  private getBudgetUsersInOrder(): string[] {
+    const rawUsers = this.getBudgetUserSequenceRaw();
+    const ordered: string[] = [];
+    const pushResolved = (u: any) => {
+      const name = this.resolveBudgetUserName(u);
+      if (name) ordered.push(name);
+    };
+
+    rawUsers.forEach((u: any) => pushResolved(u));
+
+    return ordered;
+  }
+
+  private getBudgetUserSequenceRaw(): any[] {
+    const footerFields = Array.isArray(this.applicationFormData?.footerFields)
+      ? this.applicationFormData.footerFields
+      : [];
+    if (footerFields.length > 0) {
+      const sequenceFromFooter: any[] = [];
+      footerFields.forEach((f: any) => {
+        const key = (f?.key || '').toString().toLowerCase();
+        if (key === 'prepared_by') return;
+        const users = Array.isArray(f?.users) ? f.users : [];
+        users.forEach((u: any) => {
+          if (u !== undefined && u !== null && u !== '') {
+            sequenceFromFooter.push(u);
+          }
+        });
+      });
+      if (sequenceFromFooter.length > 0) {
+        return sequenceFromFooter;
+      }
+    }
+
+    const sequence: any[] = [];
+    const pushUser = (u: any) => {
+      if (u === undefined || u === null || u === '') return;
+      sequence.push(u);
+    };
+
+    pushUser(this.preparedBy);
+    const reviewers = Array.isArray(this.reviewers) ? this.reviewers : this.normalizeToArray(this.reviewers);
+    reviewers.forEach((u: any) => pushUser(u));
+    const recommenders = Array.isArray(this.recommenders) ? this.recommenders : this.normalizeToArray(this.recommenders);
+    recommenders.forEach((u: any) => pushUser(u));
+    pushUser(this.approver);
+
+    return sequence;
+  }
+
+  private getBudgetUserForStage(order: number): any | null {
+    if (!order) return null;
+    const users = this.getBudgetUserSequenceRaw();
+    const idx = Number(order) - 1;
+    if (idx < 0 || idx >= users.length) return null;
+    return users[idx];
+  }
+
+  private getBudgetUserNameForStage(order: number): string {
+    if (!order) return '';
+    const rawUsers = this.getBudgetUserSequenceRaw();
+    const idx = Number(order) - 1;
+    if (idx < 0 || idx >= rawUsers.length) return '';
+    return this.resolveBudgetUserName(rawUsers[idx]) || `User ${order}`;
+  }
+
+  private getBudgetUserPipelines(): any[] {
+    const rawUsers = this.getBudgetUserSequenceRaw();
+    if (!rawUsers.length) return [];
+    return rawUsers.map((user: any, index: number) => ({
+      intApprovalOrder: index + 1,
+      budgetUser: user,
+      budgetUserName: this.resolveBudgetUserName(user) || `User ${index + 1}`
+    }));
+  }
+
+  getApprovalFlowHintText(): string {
+    if (this.hasBudgetApproverSequence()) {
+      return 'Individuals with action details and time on arrows';
+    }
+    return 'Departments with action details and time on arrows';
+  }
+
+  private getValueByKeys(source: any, keys: string[]): any {
+    if (!source) return null;
+    for (const key of keys) {
+      if (source[key] !== undefined && source[key] !== null) {
+        return source[key];
+      }
+    }
+    return null;
+  }
+
+  private normalizeToArray(value: any): any[] {
+    if (Array.isArray(value)) return value.filter((v: any) => v != null);
+    if (value === undefined || value === null || value === '') return [];
+    return [value];
+  }
+
+  private extractBudgetApprovers(): { preparedBy: any; reviewers: any[]; recommenders: any[]; approver: any } {
+    const data = this.applicationFormData || {};
+    const footerFields = Array.isArray(data?.footerFields) ? data.footerFields : [];
+    if (footerFields.length > 0) {
+      const byKey = (key: string): any => footerFields.find((f: any) => (f?.key || '').toString().toLowerCase() === key);
+      const preparedUsers = Array.isArray(byKey('prepared_by')?.users) ? byKey('prepared_by').users : [];
+      const reviewedUsers = Array.isArray(byKey('reviewed_by')?.users) ? byKey('reviewed_by').users : [];
+      const recommendedUsers = Array.isArray(byKey('recommended_by')?.users) ? byKey('recommended_by').users : [];
+      const approvedUsers = Array.isArray(byKey('approved_by')?.users) ? byKey('approved_by').users : [];
+      return {
+        preparedBy: preparedUsers.length > 0 ? preparedUsers[0] : null,
+        reviewers: reviewedUsers,
+        recommenders: recommendedUsers,
+        approver: approvedUsers.length > 0 ? approvedUsers[0] : null
+      };
+    }
+
+    const nestedSources = [
+      data,
+      data.budgetApproval,
+      data.budgetApprovalForm,
+      data.formData,
+      data.data
+    ].filter(Boolean);
+
+    const preparedByKeys = ['preparedBy', 'prepared_by', 'preparer', 'preparedby'];
+    const reviewersKeys = ['reviewers', 'reviewer', 'reviewedBy', 'reviewed_by'];
+    const recommendersKeys = ['recommenders', 'recommender', 'recommendedBy', 'recommended_by'];
+    const approverKeys = ['approver', 'approvedBy', 'approved_by', 'finalApprover', 'final_approver'];
+
+    let preparedBy: any = null;
+    let reviewers: any[] = [];
+    let recommenders: any[] = [];
+    let approver: any = null;
+
+    for (const src of nestedSources) {
+      if (!preparedBy) preparedBy = this.getValueByKeys(src, preparedByKeys);
+      if (reviewers.length === 0) reviewers = this.normalizeToArray(this.getValueByKeys(src, reviewersKeys));
+      if (recommenders.length === 0) recommenders = this.normalizeToArray(this.getValueByKeys(src, recommendersKeys));
+      if (!approver) approver = this.getValueByKeys(src, approverKeys);
+    }
+
+    return { preparedBy, reviewers, recommenders, approver };
+  }
+
+  private hasBudgetApproverSequence(): boolean {
+    return this.getBudgetUserSequenceRaw().length > 0;
   }
 
   // Get approved via channel
@@ -1119,6 +1397,41 @@ export class ApplicationDetailsComponent implements OnInit {
     if (v === 'EMAIL' || v === 'MAIL') return 'Email';
     if (v === 'SYSTEM' || v === 'TEMPLATE' || v === 'APP') return 'System';
     return via;
+  }
+
+  getStageApprovedIp(pipelineOrder: number, departmentId?: number): string {
+    const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
+    if (!entry) return '';
+    const raw = (
+      entry.approvedIp ||
+      entry.approvedIpRaw ||
+      entry.approverIp ||
+      entry.ipAddress ||
+      entry.ip ||
+      ''
+    ).toString().trim();
+    return this.normalizeIpToIpv4Display(raw);
+  }
+
+  private normalizeIpToIpv4Display(ip: string): string {
+    if (!ip) return '';
+    let value = ip.split(',')[0]?.trim() || '';
+    if (!value) return '';
+
+    if (value === '::1' || value === '0:0:0:0:0:0:0:1') {
+      return '127.0.0.1';
+    }
+
+    const mapped = value.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i);
+    if (mapped && mapped[1]) {
+      return mapped[1];
+    }
+
+    if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(value)) {
+      return value;
+    }
+
+    return value;
   }
 
   getStageApprovedAt(pipelineOrder: number, departmentId?: number): string {
@@ -1246,10 +1559,13 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   isBudgetApprovalForm(): boolean {
-    if (!this.applicationDetails) return false;
+    if (!this.applicationDetails) {
+      return this.hasBudgetApproverSequence();
+    }
     const name = (this.applicationDetails.cfgTblCustomForm?.txtFormName || this.applicationDetails.formName || '').replace(/\s+/g, ' ').toUpperCase();
     const code = (this.applicationDetails.txtFormCode || '').toUpperCase();
-    return name === 'BUDGET APPROVAL FORM' || name.includes('BUDGET APPROVAL') || code.startsWith('BDG');
+    if (name === 'BUDGET APPROVAL FORM' || name.includes('BUDGET APPROVAL') || code.startsWith('BDG')) return true;
+    return this.hasBudgetApproverSequence();
   }
 
   isCapfForm(): boolean {
@@ -1264,9 +1580,11 @@ export class ApplicationDetailsComponent implements OnInit {
     const user = selectedUsers[index];
     const role = this.getUserRoleName(user);
     const dept = this.getUserDepartmentName(user);
+    const designation = this.getUserDesignation(user);
+    const designationLine = designation ? `<br>${designation}` : '';
     const roleLine = role ? `<br>(${role})` : '';
     const deptLine = dept ? `<br>${dept}` : '';
-    return `${user.txtUserName}${roleLine}${deptLine}`;
+    return `${user.txtUserName}${designationLine}${roleLine}${deptLine}`;
   }
 
   private getUserDepartmentName(user: any): string {
@@ -1282,6 +1600,16 @@ export class ApplicationDetailsComponent implements OnInit {
   private getUserRoleName(user: any): string {
     if (!user) return '';
     return user.cfgTblRole?.txtRoleName || user.roleName || '';
+  }
+
+  private getUserDesignation(user: any): string {
+    if (!user) return '';
+    const directDesignation = user.txtDesignation || user.designation || '';
+    if (directDesignation) return directDesignation;
+    const userId = this.getUserId(user);
+    if (!userId || !this.approvalHistory || this.approvalHistory.length === 0) return '';
+    const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+    return entry?.txtDesignation || entry?.designation || '';
   }
 
   getUserDepartmentDisplay(user: any): string {

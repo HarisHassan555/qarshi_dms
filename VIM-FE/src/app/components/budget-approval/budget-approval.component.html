@@ -1,7 +1,7 @@
 <div *ngIf="!viewMode">
     <div class="panel">
         <div class="mb-5 flex items-center justify-between border-b pb-4 dark:border-gray-700">
-            <h5 class="text-lg font-semibold dark:text-white-light">Budget Approval</h5>
+            <h5 class="text-lg font-semibold dark:text-white-light">Document Builder</h5>
             <div class="text-right">
                 <span class="text-xs font-semibold uppercase text-gray-500">Document Date</span>
                 <p class="text-sm font-bold">{{ currentDate }}</p>
@@ -11,26 +11,101 @@
         <!-- Signature Selections -->
         <div class="signature-grid mb-6">
             <div>
-                <label class="block mb-2 text-sm font-semibold">Prepared By</label>
-                <input type="text" [value]="preparedBy?.txtUserName || 'Current User'"
-                    class="form-input bg-gray-50 dark:bg-gray-800" readonly>
+                <div class="flex items-center gap-2 mb-2">
+                    <label class="text-sm font-semibold">{{ fieldLabels.preparedBy }}</label>
+                    <button type="button" class="text-primary" (click)="toggleFieldLabelEdit('preparedBy')" title="Edit heading">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 20h9"></path>
+                            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+                        </svg>
+                    </button>
+                </div>
+                <input *ngIf="editingFieldLabel.preparedBy" type="text" [(ngModel)]="fieldLabels.preparedBy"
+                    class="form-input mb-2" />
+                <ng-select [items]="users" bindLabel="txtUserName" placeholder="Select Prepared By Users"
+                    [(ngModel)]="selectedPreparedBy" [multiple]="true" [clearable]="true"
+                    class="custom-multiselect"></ng-select>
             </div>
             <div>
-                <label class="block mb-2 text-sm font-semibold">Recommended By (Multi)</label>
+                <div class="flex items-center gap-2 mb-2">
+                    <label class="text-sm font-semibold">{{ fieldLabels.recommendedBy }}</label>
+                    <button type="button" class="text-primary" (click)="toggleFieldLabelEdit('recommendedBy')" title="Edit heading">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 20h9"></path>
+                            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+                        </svg>
+                    </button>
+                </div>
+                <input *ngIf="editingFieldLabel.recommendedBy" type="text" [(ngModel)]="fieldLabels.recommendedBy"
+                    class="form-input mb-2" />
                 <ng-select [items]="users" bindLabel="txtUserName" placeholder="Select Recommenders"
                     [(ngModel)]="selectedRecommenders" [multiple]="true" [clearable]="true"
                     class="custom-multiselect"></ng-select>
             </div>
             <div>
-                <label class="block mb-2 text-sm font-semibold">Reviewed By (Multi)</label>
+                <div class="flex items-center gap-2 mb-2">
+                    <label class="text-sm font-semibold">{{ fieldLabels.reviewedBy }}</label>
+                    <button type="button" class="text-primary" (click)="toggleFieldLabelEdit('reviewedBy')" title="Edit heading">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 20h9"></path>
+                            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+                        </svg>
+                    </button>
+                </div>
+                <input *ngIf="editingFieldLabel.reviewedBy" type="text" [(ngModel)]="fieldLabels.reviewedBy"
+                    class="form-input mb-2" />
                 <ng-select [items]="users" bindLabel="txtUserName" placeholder="Select Reviewers"
                     [(ngModel)]="selectedReviewers" [multiple]="true" [clearable]="true"
                     class="custom-multiselect"></ng-select>
             </div>
             <div>
-                <label class="block mb-2 text-sm font-semibold">Approved By (Single)</label>
-                <ng-select [items]="users" bindLabel="txtUserName" placeholder="Select Approver"
-                    [(ngModel)]="selectedApprover" [multiple]="false" [clearable]="true"></ng-select>
+                <div class="flex items-center gap-2 mb-2">
+                    <label class="text-sm font-semibold">{{ fieldLabels.approvedBy }}</label>
+                    <button type="button" class="text-primary" (click)="toggleFieldLabelEdit('approvedBy')" title="Edit heading">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 20h9"></path>
+                            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+                        </svg>
+                    </button>
+                </div>
+                <input *ngIf="editingFieldLabel.approvedBy" type="text" [(ngModel)]="fieldLabels.approvedBy"
+                    class="form-input mb-2" />
+                <ng-select [items]="users" bindLabel="txtUserName" placeholder="Select Approvers"
+                    [(ngModel)]="selectedApprovers" [multiple]="true" [clearable]="true"
+                    class="custom-multiselect"></ng-select>
+            </div>
+        </div>
+
+        <div class="mb-6">
+            <div class="flex items-center justify-between mb-3">
+                <h6 class="text-md font-semibold">New Workflow</h6>
+                <button type="button" class="btn btn-sm btn-outline-primary" (click)="addDynamicUserField()">+ Add New Workflow</button>
+            </div>
+            <div class="space-y-4" *ngIf="dynamicUserFields.length > 0">
+                <div *ngFor="let field of dynamicUserFields; let i = index" class="p-3 border rounded-md border-gray-200 dark:border-gray-700">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-2">
+                            <label class="text-sm font-semibold">{{ field.label || 'New Field' }}</label>
+                            <button type="button" class="text-primary" (click)="toggleDynamicFieldLabelEdit(i)" title="Edit heading">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 20h9"></path>
+                                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <button type="button" class="text-xs text-red-600 underline" (click)="removeDynamicUserField(i)">Delete</button>
+                    </div>
+                    <input *ngIf="field.isEditingLabel" type="text" [(ngModel)]="field.label" class="form-input mb-2"
+                        placeholder="Enter field heading" />
+                    <ng-select [items]="users" bindLabel="txtUserName" [placeholder]="'Select users for ' + (field.label || 'field')"
+                        [(ngModel)]="field.selectedUsers" [multiple]="true" [clearable]="true"
+                        class="custom-multiselect"></ng-select>
+                </div>
             </div>
         </div>
 
@@ -171,7 +246,7 @@
                     <th>Approved by:</th>
                 </tr>
                 <tr>
-                    <td>{{ preparedBy?.txtUserName }}<br>({{ preparedBy?.cfgTblRole?.txtRoleName || 'Executive' }})</td>
+                    <td>{{ getPreparedByPrimary()?.txtUserName }}<br>({{ getPreparedByPrimary()?.cfgTblRole?.txtRoleName || 'Executive' }})</td>
                     <td [innerHTML]="formatUserForSignature(selectedReviewers, 0)"></td>
                     <td [innerHTML]="formatUserForSignature(selectedReviewers, 1)"></td>
                     <td [innerHTML]="formatUserForSignature(selectedRecommenders, 0)"></td>
@@ -180,6 +255,12 @@
                         'Approver' }})</td>
                 </tr>
             </table>
+            <div *ngIf="dynamicUserFields.length > 0" class="mt-4">
+                <div class="text-sm" *ngFor="let field of dynamicUserFields">
+                    <span class="font-semibold">{{ field.label || 'New Field' }}:</span>
+                    <span>{{ getDynamicFieldUsersDisplay(field.selectedUsers) }}</span>
+                </div>
+            </div>
         </div>
     </div>
 </div>

@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, ElementRef, OnInit, ViewChild } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { NotificationService } from 'src/app/NotificationService';
 import { PermissionService } from '../../services/shared-data/permission-service';
@@ -10,11 +10,14 @@ import { urls } from 'src/app/utils/urls';
   styleUrls: ['./signature.component.css']
 })
 export class SignatureComponent implements OnInit {
+  @ViewChild('signatureFileInput') signatureFileInput!: ElementRef<HTMLInputElement>;
   selectedFile: File | null = null;
   previewUrl: string | null = null;
   currentSignaturePath: string | null = null;
   isLoading = false;
   hasSignature = false;
+  department = '';
+  designation = '';
 
   constructor(
     private http: HttpClient,
@@ -23,6 +26,7 @@ export class SignatureComponent implements OnInit {
   ) { }
 
   ngOnInit() {
+    this.loadUserFieldsFromLocalStorage();
     this.loadCurrentSignature();
   }
 
@@ -58,6 +62,11 @@ export class SignatureComponent implements OnInit {
       return;
     }
 
+    if (!this.department.trim() || !this.designation.trim()) {
+      this.notificationService.showMessage('Department and designation are required', 'danger');
+      return;
+    }
+
     this.isLoading = true;
 
       // Convert file to base64
@@ -68,7 +77,11 @@ export class SignatureComponent implements OnInit {
           // Prepare request body with base64 data
           const requestBody = {
               signature: base64Data,
-              fileType: this.selectedFile!.type || 'image/png'
+              fileType: this.selectedFile!.type || 'image/png',
+              department: this.department.trim(),
+              designation: this.designation.trim(),
+              txtDepartmentName: this.department.trim(),
+              txtDesignation: this.designation.trim()
           };
 
           // Add userId if available
@@ -100,6 +113,7 @@ export class SignatureComponent implements OnInit {
                           this.notificationService.showMessage('Signature uploaded successfully', 'success');
                           this.currentSignaturePath = response.signaturePath;
                           this.hasSignature = true;
+                          this.updateUserInLocalStorage();
                           this.selectedFile = null;
                           this.loadCurrentSignature();
                       } else {
@@ -123,6 +137,63 @@ export class SignatureComponent implements OnInit {
 
   }
 
+  saveDetails() {
+    if (!this.department.trim() || !this.designation.trim()) {
+      this.notificationService.showMessage('Department and designation are required', 'danger');
+      return;
+    }
+
+    this.isLoading = true;
+
+    const requestBody = {
+      signature: '',
+      fileType: 'image/png',
+      department: this.department.trim(),
+      designation: this.designation.trim(),
+      txtDepartmentName: this.department.trim(),
+      txtDesignation: this.designation.trim()
+    };
+
+    const userJson = localStorage.getItem('user');
+    let params = {};
+    if (userJson) {
+      try {
+        const user = JSON.parse(userJson);
+        if (user?.serUserId) {
+          params = { userId: String(user.serUserId) };
+        }
+      } catch (e) {
+        console.error('Error parsing user from localStorage', e);
+      }
+    }
+
+    const headers = new HttpHeaders({
+      'Content-Type': 'application/json'
+    });
+
+    this.http.post<any>(`${urls.API_URL}uploadSignature`, requestBody, { headers, params })
+      .subscribe(
+        (response) => {
+          if (response.status === 'Success') {
+            this.notificationService.showMessage('Details saved successfully', 'success');
+            this.mapUserFieldsFromResponse(response);
+            this.updateUserInLocalStorage();
+          } else {
+            this.notificationService.showMessage(response.message || 'Failed to save details', 'danger');
+          }
+          this.isLoading = false;
+        },
+        (error) => {
+          console.error('Error saving details:', error);
+          this.notificationService.showMessage(
+            error.error?.message || 'Error saving details. Please try again.',
+            'danger'
+          );
+          this.isLoading = false;
+        }
+      );
+  }
+
   loadCurrentSignature() {
     this.isLoading = true;
     this.http.get<any>(`${urls.API_URL}getUserSignaturePath`)
@@ -131,6 +202,7 @@ export class SignatureComponent implements OnInit {
           if (response.status === 'Success') {
             this.hasSignature = response.hasSignature;
             this.currentSignaturePath = response.signaturePath;
+            this.mapUserFieldsFromResponse(response);
 
             if (this.hasSignature && this.currentSignaturePath) {
               // Load signature image
@@ -173,5 +245,85 @@ export class SignatureComponent implements OnInit {
   clearSignature() {
     this.selectedFile = null;
     this.previewUrl = null;
+  }
+
+  onSave() {
+    if (this.selectedFile) {
+      this.uploadSignature();
+      return;
+    }
+    this.saveDetails();
+  }
+
+  onReset() {
+    this.selectedFile = null;
+    this.department = '';
+    this.designation = '';
+    this.loadUserFieldsFromLocalStorage();
+    if (this.hasSignature && this.currentSignaturePath) {
+      this.loadSignatureImage();
+    } else {
+      this.previewUrl = null;
+    }
+    if (this.signatureFileInput?.nativeElement) {
+      this.signatureFileInput.nativeElement.value = '';
+    }
+  }
+
+  onDepartmentInput(event: Event) {
+    const target = event.target as HTMLInputElement;
+    this.department = target?.value || '';
+  }
+
+  onDesignationInput(event: Event) {
+    const target = event.target as HTMLInputElement;
+    this.designation = target?.value || '';
+  }
+
+  private loadUserFieldsFromLocalStorage() {
+    const userJson = localStorage.getItem('user');
+    if (!userJson) return;
+
+    try {
+      const user = JSON.parse(userJson);
+      this.department =
+        user?.txtDepartmentName ||
+        user?.departmentName ||
+        user?.hrTblDepartment?.txtDepartmentName ||
+        this.department;
+      this.designation =
+        user?.txtDesignation ||
+        user?.designation ||
+        this.designation;
+    } catch (e) {
+      console.error('Error parsing user from localStorage', e);
+    }
+  }
+
+  private mapUserFieldsFromResponse(response: any) {
+    this.department =
+      response?.txtDepartmentName ||
+      response?.departmentName ||
+      response?.department ||
+      this.department;
+    this.designation =
+      response?.txtDesignation ||
+      response?.designation ||
+      this.designation;
+  }
+
+  private updateUserInLocalStorage() {
+    const userJson = localStorage.getItem('user');
+    if (!userJson) return;
+
+    try {
+      const user = JSON.parse(userJson);
+      user.txtDepartmentName = this.department.trim();
+      user.departmentName = this.department.trim();
+      user.txtDesignation = this.designation.trim();
+      localStorage.setItem('user', JSON.stringify(user));
+    } catch (e) {
+      console.error('Error updating user in localStorage', e);
+    }
   }
 }

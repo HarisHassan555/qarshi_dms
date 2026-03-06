@@ -634,7 +634,7 @@
                     <div class="bg-white dark:bg-[#1b2e4b] border border-gray-100 dark:border-gray-700 rounded-lg p-4 shadow-sm mt-4">
                         <div class="flex items-center justify-between mb-3">
                             <h4 class="text-sm font-bold text-gray-800 dark:text-white">Approval Flow</h4>
-                            <span class="text-[11px] text-gray-400">Departments with action details and time on arrows</span>
+                            <span class="text-[11px] text-gray-400">{{ getApprovalFlowHintText() }}</span>
                         </div>
                         <div class="approval-flow">
                             <ng-container *ngFor="let pipeline of pipelines; let i = index">
@@ -671,6 +671,12 @@
                                             <span class="label">Remarks</span>
                                             <span class="value">
                                                 {{ getDepartmentRemarks(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                            </span>
+                                        </div>
+                                        <div class="approval-node-row">
+                                            <span class="label">IP Address</span>
+                                            <span class="value">
+                                                {{ getStageApprovedIp(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
                                             </span>
                                         </div>
                                     </div>
@@ -764,6 +770,12 @@
                                 <span class="label">Remarks</span>
                                 <span class="value">
                                     {{ getDepartmentRemarks(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                </span>
+                            </div>
+                            <div class="approval-node-row">
+                                <span class="label">IP Address</span>
+                                <span class="value">
+                                    {{ getStageApprovedIp(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
                                 </span>
                             </div>
                         </div>

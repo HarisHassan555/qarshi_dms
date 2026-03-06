@@ -2,6 +2,9 @@ package com.bezkoder.spring.login.sa.dal.daoimpl;
 
 import java.util.List;
 import java.text.SimpleDateFormat;
+import java.text.Normalizer;
+import java.util.HashMap;
+import java.util.Map;
 
 import javax.persistence.*;;
 
@@ -25,6 +28,28 @@ public class HrTblDepartmentDAO implements IHrTblDepartmentDAO {
 	private ICommonService commonService;
 
 	private static final Logger log = LoggerFactory.getLogger(HrTblDepartmentDAO.class);
+	private static final Map<Character, Character> CYRILLIC_TO_LATIN_LOOKALIKE = new HashMap<>();
+	static {
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u0410', 'A'); // А
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u0412', 'B'); // В
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u0415', 'E'); // Е
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u041A', 'K'); // К
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u041C', 'M'); // М
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u041D', 'H'); // Н
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u041E', 'O'); // О
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u0420', 'P'); // Р
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u0421', 'C'); // С
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u0422', 'T'); // Т
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u0425', 'X'); // Х
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u0423', 'Y'); // У
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u0430', 'a'); // а
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u0435', 'e'); // е
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u043E', 'o'); // о
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u0440', 'p'); // р
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u0441', 'c'); // с
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u0445', 'x'); // х
+		CYRILLIC_TO_LATIN_LOOKALIKE.put('\u0443', 'y'); // у
+	}
 
 	public HrTblDepartmentDAO() {
 		// TODO Auto-generated constructor stub
@@ -107,6 +132,8 @@ public class HrTblDepartmentDAO implements IHrTblDepartmentDAO {
 		EntityManager entityManager = getEntityManager();
 		try {
 			entityManager.getTransaction().begin();
+			HrTblDepartment.setTxtDepartmentName(normalizeDepartmentText(HrTblDepartment.getTxtDepartmentName()));
+			HrTblDepartment.setTxtDepartmentCode(normalizeDepartmentText(HrTblDepartment.getTxtDepartmentCode()));
 			HrTblDepartment.setBlnStatus(true);
 			HrTblDepartment.setBlIsDeleted(false);
 			entityManager.persist(HrTblDepartment);
@@ -147,9 +174,22 @@ public class HrTblDepartmentDAO implements IHrTblDepartmentDAO {
 		EntityManager entityManager = getEntityManager();
 		try {
 			entityManager.getTransaction().begin();
-			HrTblDepartment.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
-			HrTblDepartment.setSerModifiedUser(commonService.getCurrentLoggedInUser());
-			entityManager.merge(HrTblDepartment);
+			HrTblDepartment managedDepartment = entityManager.find(HrTblDepartment.class, HrTblDepartment.getSerDepartmentId());
+			if (managedDepartment == null) {
+				entityManager.getTransaction().rollback();
+				return "Failure";
+			}
+
+			managedDepartment.setTxtDepartmentName(normalizeDepartmentText(HrTblDepartment.getTxtDepartmentName()));
+			managedDepartment.setTxtDepartmentCode(normalizeDepartmentText(HrTblDepartment.getTxtDepartmentCode()));
+			managedDepartment.setTxtDescription(HrTblDepartment.getTxtDescription());
+			managedDepartment.setSerParentDepartmentId(HrTblDepartment.getSerParentDepartmentId());
+			managedDepartment.setSerDepartmentHeadId(HrTblDepartment.getSerDepartmentHeadId());
+			managedDepartment.setBlnStatus(HrTblDepartment.getBlnStatus());
+			managedDepartment.setBlIsActive(HrTblDepartment.getBlIsActive());
+			managedDepartment.setBlIsDeleted(HrTblDepartment.getBlIsDeleted());
+			managedDepartment.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+			managedDepartment.setSerModifiedUser(commonService.getCurrentLoggedInUser());
 			entityManager.getTransaction().commit();
 			entityManager.close();
 			return "Success";
@@ -157,6 +197,16 @@ public class HrTblDepartmentDAO implements IHrTblDepartmentDAO {
 			log.error(e.getMessage(), e);
 			return "Failure";
 		}
+	}
+
+	private String normalizeDepartmentText(String input) {
+		if (input == null) return null;
+		String normalized = Normalizer.normalize(input, Normalizer.Form.NFKC).trim();
+		StringBuilder sb = new StringBuilder(normalized.length());
+		for (char ch : normalized.toCharArray()) {
+			sb.append(CYRILLIC_TO_LATIN_LOOKALIKE.getOrDefault(ch, ch));
+		}
+		return sb.toString().replaceAll("\\s+", " ");
 	}
 
 	@Override

@@ -140,6 +140,7 @@ import { BudgetApprovalComponent } from './components/budget-approval/budget-app
 import { BudgetApprovalViewComponent } from './components/budget-approval-view/budget-approval-view.component';
 import { XyzComponent } from './pages/xyz/xyz.component';
 import { AbcComponent } from './pages/abc/abc.component';
+import { CustomDocumentBuilderComponent } from './components/custom-document-builder/custom-document-builder.component';
 
 
 @NgModule({
@@ -254,7 +255,8 @@ import { AbcComponent } from './pages/abc/abc.component';
         SidebarComponent,
         BudgetApprovalComponent,
         BudgetApprovalViewComponent,
-        XyzComponent
+        XyzComponent,
+        CustomDocumentBuilderComponent
 
     ],
 

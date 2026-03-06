@@ -20,7 +20,9 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
     @Input() isEmbedded: boolean = false;
 
     signatureSlots: Array<{
-        label: string;
+        nameText: string;
+        designationText: string;
+        departmentText: string;
         order: number;
         departmentId?: number;
         signatureUrl: string;
@@ -203,24 +205,59 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
     }
 
     private refreshSignatureSlots() {
+        const getNameText = (entry: any): string => {
+            return (
+                entry?.approverName ||
+                entry?.approvedByName ||
+                entry?.userName ||
+                (entry?.approvedBy && isNaN(Number(entry.approvedBy)) ? String(entry.approvedBy) : '') ||
+                ''
+            );
+        };
+        const getDesignationText = (entry: any): string => {
+            const designation =
+                entry?.txtDesignation ||
+                entry?.designation ||
+                entry?.approverDesignation ||
+                entry?.role ||
+                '';
+            return designation;
+        };
+
         this.approvalHistory = this.parseApprovalHistory();
         const pipelines = this.getPipelineData();
+        console.log('[CAPF FE][abc] approvalHistoryCount=', this.approvalHistory.length, 'pipelineCount=', pipelines.length, 'appId=', this.application?.serApplicationId);
         if (pipelines.length > 0) {
             this.signatureSlots = pipelines.map((pipeline: any, index: number) => {
                 const order = pipeline.intApprovalOrder || (index + 1);
                 const departmentId = pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId || pipeline.departmentId;
                 const entry = this.getApprovalEntryForPipeline(order, departmentId);
-                const label =
+                const defaultDepartmentLabel =
                     pipeline.hrTblDepartment?.txtDepartmentName ||
                     pipeline.departmentName ||
                     pipeline.txtDepartmentName ||
                     entry?.departmentName ||
                     `Department ${order}`;
+                const nameText = getNameText(entry);
+                const designationText = getDesignationText(entry);
+                const departmentText = defaultDepartmentLabel;
                 const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
                 const approvedDate = entry?.approvedDate;
                 const hasSignature = !!entry?.signaturePath;
+                console.log('[CAPF FE][abc][slot-pipeline]', {
+                    slot: index + 1,
+                    order,
+                    departmentId,
+                    entryLevel: entry?.level,
+                    entryOrder: entry?.intApprovalOrder,
+                    approvedBy: entry?.approvedBy || entry?.approverUserId || entry?.userId,
+                    entrySignaturePath: entry?.signaturePath || '',
+                    hasSignature
+                });
                 return {
-                    label,
+                    nameText,
+                    designationText,
+                    departmentText,
                     order,
                     departmentId,
                     signatureUrl: userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '',
@@ -232,11 +269,23 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
 
         this.signatureSlots = this.fallbackSignatureSlots.map((slot, index) => {
             const entry = this.getApprovalEntryForSlot(slot);
+            const nameText = getNameText(entry);
+            const designationText = getDesignationText(entry);
+            const departmentText = slot.label;
             const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
             const approvedDate = entry?.approvedDate;
             const hasSignature = !!entry?.signaturePath;
+            console.log('[CAPF FE][abc][slot-fallback]', {
+                slot: index + 1,
+                keywords: slot.keywords,
+                approvedBy: entry?.approvedBy || entry?.approverUserId || entry?.userId,
+                entrySignaturePath: entry?.signaturePath || '',
+                hasSignature
+            });
             return {
-                label: slot.label,
+                nameText,
+                designationText,
+                departmentText,
                 order: index + 1,
                 signatureUrl: userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '',
                 approvedDateText: hasSignature ? this.formatApprovalDate(approvedDate) : ''
@@ -249,9 +298,11 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
             const historyJson = this.application?.txtApprovalHistory;
             if (historyJson) {
                 const parsed = JSON.parse(historyJson);
+                console.log('[CAPF FE][abc] parsed approval history', Array.isArray(parsed) ? parsed : []);
                 return Array.isArray(parsed) ? parsed : [];
             }
         } catch (e) {
+            console.error('[CAPF FE][abc] failed to parse approval history', e);
             return [];
         }
         return [];
@@ -303,7 +354,16 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
                 (e.departmentName || '').toString().toLowerCase() === nameLower
             );
         }
-
+        console.log('[CAPF FE][abc] getApprovalEntryForPipeline', {
+            order,
+            departmentId,
+            departmentName,
+            matched: !!entry,
+            matchedLevel: entry?.level,
+            matchedOrder: entry?.intApprovalOrder,
+            matchedApprovedBy: entry?.approvedBy || entry?.approverUserId || entry?.userId,
+            matchedSignaturePath: entry?.signaturePath || ''
+        });
         return entry || null;
     }
 
