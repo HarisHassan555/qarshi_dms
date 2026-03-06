@@ -38,11 +38,14 @@
 
                         <!-- Dynamic Form Fields -->
                         <div *ngIf="!showBudgetApproval && selectedForm && applicationForm">
-                            <h6 class="mb-4 text-lg font-semibold dark:text-white-light">
-                                {{ selectedForm.name || selectedForm.txtFormName }}
-                            </h6>
-
                             <form [formGroup]="applicationForm" (ngSubmit)="onSubmit()" class="space-y-4">
+                        <app-form-document-header *ngIf="documentHeaderField"
+                            [headingControl]="getDocumentHeaderControl()"
+                            [headingLabel]="documentHeaderField.label || 'Form Heading'"
+                            [placeholder]="documentHeaderField.placeholder || 'Enter form heading'"
+                            [required]="documentHeaderField.required">
+                        </app-form-document-header>
+
                         <!-- Application Code (Auto-generated, Read-only) -->
                         <div *ngIf="generatedApplicationCode" class="mb-4">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -57,7 +60,8 @@
                             </div>
                         </div>
 
-                        <div *ngFor="let field of selectedForm.fields" class="mb-4">
+                        <ng-container *ngFor="let field of selectedForm.fields">
+                        <div *ngIf="!isDocumentHeaderType(field.type)" class="mb-4">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <!-- Text Input -->
                                 <div *ngIf="field.type === 'text'">
@@ -127,6 +131,24 @@
                                     <textarea [formControlName]="getFieldName(field.label)"
                                         [placeholder]="field.placeholder || ''" rows="4" class="form-textarea"
                                         [class.border-danger]="isFieldInvalid(getFieldName(field.label))"></textarea>
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))"
+                                        class="mt-1 text-xs text-danger">
+                                        {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                                    </p>
+                                </div>
+
+                                <!-- Word Editor -->
+                                <div *ngIf="isWordEditorType(field.type)" class="md:col-span-2">
+                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                        {{ field.label }}
+                                        <span *ngIf="field.required" class="text-danger">*</span>
+                                    </label>
+                                    <quill-editor [formControlName]="getFieldName(field.label)"
+                                        (onEditorCreated)="onWordEditorCreated(getFieldName(field.label), $event)"
+                                        [modules]="wordEditorModules"
+                                        [styles]="{height: '280px'}"
+                                        [placeholder]="field.placeholder || 'Enter details, bullet points, headings...'">
+                                    </quill-editor>
                                     <p *ngIf="isFieldInvalid(getFieldName(field.label))"
                                         class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
@@ -262,6 +284,7 @@
                                 </p>
                             </div>
                         </div>
+                        </ng-container>
 
                         <!-- Approval Pipeline Section -->
                         <div *ngIf="selectedForm && selectedForm.approvalPipelines && selectedForm.approvalPipelines.length > 0"
@@ -312,8 +335,8 @@
 
                         <!-- Budget Approval Preview -->
                         <div *ngIf="showBudgetApproval" class="app-preview-body">
-                            <div class="app-preview-canvas">
-                                <div class="xyz-page-inline app-preview-scale">
+                            <div class="app-preview-canvas" #previewCanvas>
+                                <div class="xyz-page-inline app-preview-scale" #previewScale>
                                     <div class="xyz-paper">
                                     <div class="xyz-date-row">
                                         <div class="xyz-date">Date: {{ getBudgetPreviewDate() }}</div>
@@ -371,19 +394,64 @@
 
                         <!-- CAPF Preview -->
                         <div *ngIf="!showBudgetApproval && isCapfSelected()" class="app-preview-body">
-                            <div class="app-preview-canvas">
-                                <div class="app-preview-scale">
+                            <div class="app-preview-canvas" #previewCanvas>
+                                <div class="app-preview-scale" #previewScale>
                                     <app-abc [formData]="getPreviewFormData()" [formFields]="selectedForm?.fields || []"
                                         [application]="getPreviewApplication()" [isEmbedded]="true"></app-abc>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Generic Preview Placeholder -->
-                        <div *ngIf="!showBudgetApproval && !isCapfSelected()" class="app-preview-empty">
-                            <p class="text-sm text-gray-500">
-                                Preview is available for CAPF and Budget Approval forms.
-                            </p>
+                        <!-- Generic Preview -->
+                        <div *ngIf="!showBudgetApproval && !isCapfSelected() && selectedForm" class="app-preview-body">
+                            <div class="app-preview-canvas" #previewCanvas>
+                                <div class="xyz-page-inline app-preview-scale" #previewScale>
+                                    <div class="xyz-paper">
+                                        <div class="xyz-date-row">
+                                            <div class="xyz-date">Date: {{ previewDate }}</div>
+                                        </div>
+
+                                        <div class="xyz-header">
+                                            <div class="xyz-logo">
+                                                <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
+                                            </div>
+                                            <div class="xyz-company">
+                                                <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
+                                                <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+                                            </div>
+                                            <div class="xyz-header-spacer"></div>
+                                        </div>
+
+                                        <div class="xyz-rule thick"></div>
+
+                                        <div class="xyz-title">{{ getDocumentHeaderPreviewValue() }}</div>
+
+                                        <div class="xyz-generic-content">
+                                            <div *ngFor="let field of getGenericPreviewFields()" class="xyz-field-block">
+                                                <div *ngIf="!isFormNameLabel(field.label)" class="xyz-field-label">{{ field.label }}</div>
+
+                                                <div *ngIf="!isWordEditorType(field.type) && !isTableType(field.type)" class="xyz-field-value">
+                                                    {{ getPreviewFieldDisplayValue(field) }}
+                                                </div>
+
+                                                <div *ngIf="isWordEditorType(field.type)" class="xyz-word-preview" [innerHTML]="getPreviewWordEditorValue(field)"></div>
+
+                                                <div *ngIf="isTableType(field.type)" class="overflow-x-auto">
+                                                    <table class="xyz-generic-table">
+                                                        <tbody>
+                                                            <tr *ngFor="let row of getPreviewTableValue(field); let rowIndex = index">
+                                                                <td class="xyz-row-label">{{ getTableRowLabel(field, rowIndex) }}</td>
+                                                                <td *ngFor="let col of row">{{ col || '-' }}</td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                    <div *ngIf="getPreviewTableValue(field).length === 0" class="xyz-field-value">-</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -1,0 +1,95 @@
+.fdh-container {
+    border: 1px solid #e0e6ed;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    background: #fff;
+}
+
+.fdh-date-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
+.fdh-date {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.fdh-header {
+    display: grid;
+    grid-template-columns: 80px 1fr 80px;
+    align-items: end;
+    column-gap: 12px;
+    margin-bottom: 8px;
+}
+
+.fdh-logo img {
+    width: 60px;
+    height: auto;
+    display: block;
+}
+
+.fdh-company {
+    text-align: center;
+}
+
+.fdh-company-name {
+    font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif;
+    font-size: 26px;
+    font-weight: 700;
+}
+
+.fdh-company-address {
+    font-family: Verdana, Arial, sans-serif;
+    font-size: 12px;
+    margin-top: 2px;
+}
+
+.fdh-spacer {
+    height: 1px;
+}
+
+.fdh-rule {
+    position: relative;
+    height: 2px;
+    background: #000;
+    margin: 10px 0 12px;
+}
+
+.fdh-rule::before,
+.fdh-rule::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: #000;
+}
+
+.fdh-rule::before {
+    top: -2px;
+}
+
+.fdh-rule::after {
+    bottom: -2px;
+}
+
+.fdh-heading {
+    text-align: center;
+}
+
+@media (max-width: 768px) {
+    .fdh-header {
+        grid-template-columns: 56px 1fr 56px;
+    }
+
+    .fdh-company-name {
+        font-size: 18px;
+    }
+
+    .fdh-company-address {
+        font-size: 11px;
+    }
+}

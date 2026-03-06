@@ -350,6 +350,11 @@ export class ApplicationPdfService {
       return String(value);
     };
 
+    const isWordEditorType = (fieldType: string | undefined): boolean => {
+      const normalizedType = (fieldType || '').toLowerCase().replace(/\s+/g, '_');
+      return normalizedType === 'word_editor' || normalizedType === 'wordeditor' || normalizedType === 'rich_text' || normalizedType === 'richtext';
+    };
+
     const getFieldValue = (field: any): any => {
       const fieldName = field.label.toLowerCase()
         .replace(/[^a-z0-9]+/g, '_')
@@ -378,6 +383,14 @@ export class ApplicationPdfService {
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    };
+
+    const getFieldDisplayHtml = (field: any): string => {
+      const value = formatFieldValue(field, getFieldValue(field));
+      if (isWordEditorType(field.type) && value !== '-') {
+        return `<div class="word-editor-value">${String(value)}</div>`;
+      }
+      return escapeHtml(String(value));
     };
 
     let html = `<!DOCTYPE html>
@@ -506,6 +519,28 @@ export class ApplicationPdfService {
     }
     .data-table tbody tr:last-child td {
       border-bottom: none;
+    }
+    .word-editor-value {
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .word-editor-value p {
+      margin: 0 0 6px 0;
+    }
+    .word-editor-value ul,
+    .word-editor-value ol {
+      margin: 0 0 6px 18px;
+      padding: 0;
+    }
+    .word-editor-value table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 6px 0;
+    }
+    .word-editor-value td,
+    .word-editor-value th {
+      border: 1px solid #d9d9d9;
+      padding: 4px 6px;
     }
     .pipeline-section {
       margin-top: 20px;
@@ -654,7 +689,7 @@ export class ApplicationPdfService {
         ${formFields.map(field => `
           <tr>
             <td><strong>${escapeHtml(field.label)}${field.required ? ' <span style="color: #e74c3c;">*</span>' : ''}</strong></td>
-            <td>${escapeHtml(formatFieldValue(field, getFieldValue(field)))}</td>
+            <td>${getFieldDisplayHtml(field)}</td>
           </tr>
         `).join('')}
       </tbody>

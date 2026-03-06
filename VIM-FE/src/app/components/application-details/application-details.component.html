@@ -165,92 +165,56 @@
             </div> -->
         </div>
 
-        <!-- Form Data (Alternative for non-Budget Approval forms) -->
-        <!-- Form Data (Alternative for non-Budget Approval forms and non-CAPF forms) -->
-        <div *ngIf="formFields.length > 0 && !isBudgetApprovalForm() && !isCapfForm()" class="mb-8"
-            id="generic-pdf-content">
-            <h6 class="mb-5 text-lg font-bold text-[#3b3f5c] dark:text-white-light flex items-center gap-2">
-                <icon-list-check class="w-6 h-6 text-secondary" />
-                Form Details
-            </h6>
+        <!-- Professional Paper View for Generic Forms -->
+        <div *ngIf="!isBudgetApprovalForm() && !isCapfForm()" class="xyz-page-inline">
+            <div id="generic-pdf-content" class="xyz-paper">
+                <div class="xyz-date-row">
+                    <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd-MMM-yyyy' }}</div>
+                </div>
 
-            <div
-                class="panel bg-white dark:bg-[#1b2e4b] rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                    <div *ngFor="let field of formFields"
-                        class="group border-b border-gray-100 dark:border-gray-800 pb-4 last:border-0 md:border-0">
-                        <label
-                            class="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 group-hover:text-primary transition-colors">
+                <div class="xyz-header">
+                    <div class="xyz-logo">
+                        <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
+                    </div>
+                    <div class="xyz-company">
+                        <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
+                        <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+                    </div>
+                    <div class="xyz-header-spacer"></div>
+                </div>
+
+                <div class="xyz-rule thick"></div>
+
+                <div class="xyz-title">{{ getGenericDocumentHeading() }}</div>
+
+                <div class="xyz-content-body">
+                    <div *ngFor="let field of getGenericPreviewFields()" class="xyz-generic-field">
+                        <div class="xyz-generic-label">
                             {{ field.label }}
                             <span *ngIf="field.required" class="text-danger">*</span>
-                        </label>
-                        <div class="text-sm font-medium text-gray-800 dark:text-gray-200 min-h-[20px] break-words">
-                            <!-- Text, Number, Email -->
-                            <p *ngIf="field.type === 'text' || field.type === 'number' || field.type === 'email'"
-                                class="p-2 bg-gray-50 dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700">
-                                {{ formatFieldValue(field, getFieldValue(field)) }}
-                            </p>
+                        </div>
 
-                            <!-- Textarea -->
-                            <p *ngIf="field.type === 'textarea'"
-                                class="whitespace-pre-wrap p-3 bg-gray-50 dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700">
-                                {{ formatFieldValue(field, getFieldValue(field)) }}
-                            </p>
+                        <div *ngIf="!isWordEditorType(field.type) && !isTableType(field.type)" class="xyz-generic-value">
+                            {{ formatFieldValue(field, getFieldValue(field)) }}
+                        </div>
 
-                            <!-- Date -->
-                            <div *ngIf="field.type === 'date'"
-                                class="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700 w-fit">
-                                <icon-calendar class="w-4 h-4 text-gray-500" />
-                                <span>{{ formatFieldValue(field, getFieldValue(field)) }}</span>
-                            </div>
+                        <div *ngIf="isWordEditorType(field.type)" class="xyz-generic-word" [innerHTML]="getWordEditorValue(field)"></div>
 
-                            <!-- Checkbox -->
-                            <p *ngIf="field.type === 'checkbox'">
-                                <span class="badge"
-                                    [ngClass]="getFieldValue(field) ? 'badge-outline-success' : 'badge-outline-secondary'">
-                                    {{ formatFieldValue(field, getFieldValue(field)) }}
-                                </span>
-                            </p>
-
-                            <!-- Radio or Select -->
-                            <p *ngIf="field.type === 'radio' || field.type === 'select'"
-                                class="p-2 bg-gray-50 dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700">
-                                {{ formatFieldValue(field, getFieldValue(field)) }}
-                            </p>
-
-                            <!-- Table -->
-                            <div *ngIf="field.type === 'table'" class="mt-2">
-                                <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
-                                    <div class="overflow-x-auto">
-                                        <table class="min-w-full">
-                                            <thead>
-                                                <tr class="bg-gray-100 dark:bg-gray-800">
-                                                    <th
-                                                        class="px-4 py-2 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                                    </th>
-                                                    <th *ngFor="let colIndex of getTableColumns(field)"
-                                                        class="px-4 py-2 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                                        Column {{ colIndex + 1 }}
-                                                    </th>
-                                                </tr>
-                                            </thead>
-                                            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                                                <tr *ngFor="let row of getTableData(field); let rowIndex = index"
-                                                    class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                                                    <td
-                                                        class="px-4 py-2 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-500 dark:text-gray-400 border-r border-gray-200 dark:border-gray-700">
-                                                        {{ getTableRowLabel(field, rowIndex) }}
-                                                    </td>
-                                                    <td *ngFor="let cell of row; let colIndex = index"
-                                                        class="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
-                                                        {{ cell || '-' }}
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
+                        <div *ngIf="isTableType(field.type)" class="overflow-x-auto">
+                            <table class="xyz-table">
+                                <thead>
+                                    <tr>
+                                        <th></th>
+                                        <th *ngFor="let colIndex of getTableColumns(field)">Column {{ colIndex + 1 }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr *ngFor="let row of getTableData(field); let rowIndex = index">
+                                        <td class="xyz-table-row-label">{{ getTableRowLabel(field, rowIndex) }}</td>
+                                        <td *ngFor="let cell of row">{{ cell || '-' }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>

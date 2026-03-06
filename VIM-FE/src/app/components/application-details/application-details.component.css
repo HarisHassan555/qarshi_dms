@@ -226,6 +226,37 @@
     font-size: 11px;
 }
 
+.xyz-generic-field {
+    border: 1px solid #d9d9d9;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+}
+
+.xyz-generic-label {
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+}
+
+.xyz-generic-value {
+    font-size: 13px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.xyz-generic-word {
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.xyz-table-row-label {
+    font-weight: 700;
+    background: #f5f5f5;
+    white-space: nowrap;
+}
+
 .xyz-dynamic,
 .xyz-content-body {
     margin-top: 4px;
@@ -557,5 +588,7 @@
         width: 40px;
     }
 }
+
+
 
 

@@ -621,7 +621,93 @@ export class ApplicationDetailsComponent implements OnInit {
       return value;
     }
 
+    const normalizedType = (field?.type || '').toString().toLowerCase().replace(/\s+/g, '_');
+    if (normalizedType === 'attachment' || normalizedType === 'file') {
+      if (typeof value === 'object') {
+        return value.fileName || value.name || '-';
+      }
+      return String(value);
+    }
+
     return value;
+  }
+
+  isWordEditorType(fieldType: string | undefined): boolean {
+    const normalizedType = (fieldType || '').toLowerCase().replace(/\s+/g, '_');
+    return normalizedType === 'word_editor' || normalizedType === 'wordeditor' || normalizedType === 'rich_text' || normalizedType === 'richtext';
+  }
+
+  isDocumentHeaderType(fieldType: string | undefined): boolean {
+    return (fieldType || '').toLowerCase().replace(/\s+/g, '_') === 'document_header';
+  }
+
+  isTableType(fieldType: string | undefined): boolean {
+    return (fieldType || '').toLowerCase().replace(/\s+/g, '_') === 'table';
+  }
+
+  getGenericPreviewFields(): any[] {
+    const fields = (this.formFields || []).filter((field: any) => !this.isDocumentHeaderType(field?.type));
+    if (fields.length > 0) {
+      return fields;
+    }
+
+    if (!this.applicationFormData || typeof this.applicationFormData !== 'object') {
+      return [];
+    }
+
+    const excludedKeys = new Set([
+      'preparedBy', 'reviewers', 'recommenders', 'approver', 'heading', 'content', 'editorContent', 'date'
+    ]);
+
+    return Object.keys(this.applicationFormData)
+      .filter((key: string) => !excludedKeys.has(key))
+      .map((key: string) => {
+        const value = this.applicationFormData[key];
+        let type = 'text';
+        if (Array.isArray(value) && value.length > 0 && Array.isArray(value[0])) {
+          type = 'table';
+        } else if (typeof value === 'boolean') {
+          type = 'checkbox';
+        } else if (typeof value === 'string' && value.includes('<') && value.includes('>')) {
+          type = 'word_editor';
+        } else if (typeof value === 'object' && value && (value.fileName || value.mimeType || value.dataUrl || value.base64)) {
+          type = 'attachment';
+        }
+
+        const label = key
+          .replace(/_/g, ' ')
+          .replace(/\b\w/g, (m: string) => m.toUpperCase());
+
+        return {
+          serFieldId: undefined,
+          label,
+          type,
+          required: false,
+          placeholder: '',
+          intFieldOrder: 0,
+          txtFieldOptions: null
+        };
+      });
+  }
+
+  getGenericDocumentHeading(): string {
+    const headerField = (this.formFields || []).find((field: any) => this.isDocumentHeaderType(field?.type));
+    if (headerField) {
+      const value = this.getFieldValue(headerField);
+      if (value !== null && value !== undefined && String(value).trim() !== '') {
+        return String(value).trim();
+      }
+      return headerField.label || this.applicationDetails?.cfgTblCustomForm?.txtFormName || 'Application Form';
+    }
+    return this.applicationDetails?.cfgTblCustomForm?.txtFormName || this.applicationDetails?.formName || 'Application Form';
+  }
+
+  getWordEditorValue(field: any): SafeHtml {
+    const value = this.getFieldValue(field);
+    if (value === null || value === undefined || value === '') {
+      return this.sanitizer.bypassSecurityTrustHtml('<span>-</span>');
+    }
+    return this.sanitizer.bypassSecurityTrustHtml(String(value));
   }
 
   getTableConfig(field: any): { rows: number; columns: number; rowLabels: string[] } {
@@ -662,6 +748,10 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   getTableColumns(field: any): number[] {
+    const tableData = this.getTableData(field);
+    if (tableData.length > 0 && Array.isArray(tableData[0])) {
+      return Array.from({ length: tableData[0].length }, (_, i) => i);
+    }
     const config = this.getTableConfig(field);
     return Array.from({ length: config.columns }, (_, i) => i);
   }

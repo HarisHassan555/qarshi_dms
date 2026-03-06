@@ -1,5 +1,5 @@
 import { Component, OnInit, ViewChild } from '@angular/core';
-import { FormBuilder, FormGroup, FormArray, Validators } from '@angular/forms';
+import { AbstractControl, FormBuilder, FormGroup, FormArray, Validators, ValidationErrors } from '@angular/forms';
 import { Router } from '@angular/router';
 import { PermissionService } from '../../services/shared-data/permission-service';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
@@ -65,6 +65,23 @@ export class ApplicationsViewComponent implements OnInit {
   isSubmitting: boolean = false;
   isGeneratingPDF: boolean = false; // Flag to prevent multiple simultaneous PDF generations
   isPreparingApprovalPdf: boolean = false;
+  wordEditorModules = {
+    toolbar: [
+      ['bold', 'italic', 'underline', 'strike'],
+      ['blockquote', 'code-block'],
+      [{ 'header': 1 }, { 'header': 2 }],
+      [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+      [{ 'script': 'sub' }, { 'script': 'super' }],
+      [{ 'indent': '-1' }, { 'indent': '+1' }],
+      [{ 'direction': 'rtl' }],
+      [{ 'size': ['small', false, 'large', 'huge'] }],
+      [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+      [{ 'color': [] }, { 'background': [] }],
+      [{ 'font': [] }],
+      [{ 'align': [] }],
+      ['clean'],
+    ],
+  };
 
   constructor(
     private permissionService: PermissionService,
@@ -293,6 +310,23 @@ export class ApplicationsViewComponent implements OnInit {
       .replace(/^_+|_+$/g, '');
   }
 
+  isWordEditorType(fieldType: string | undefined): boolean {
+    const normalizedType = (fieldType || '').toLowerCase().replace(/\s+/g, '_');
+    return normalizedType === 'word_editor' || normalizedType === 'wordeditor' || normalizedType === 'rich_text' || normalizedType === 'richtext';
+  }
+
+  private richTextRequiredValidator(control: AbstractControl): ValidationErrors | null {
+    const value = control.value;
+    if (value === null || value === undefined) {
+      return { required: true };
+    }
+    const plainText = String(value)
+      .replace(/<(.|\n)*?>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .trim();
+    return plainText.length > 0 ? null : { required: true };
+  }
+
   getTableConfig(field: any): { rows: number; columns: number; rowLabels: string[] } {
     if (field.txtFieldOptions) {
       try {
@@ -499,7 +533,15 @@ export class ApplicationsViewComponent implements OnInit {
             const formControls: any = {};
             this.editFormFields.forEach((field: any) => {
               const fieldName = this.getFieldName(field.label);
-              const validators = field.required ? [Validators.required] : [];
+              const validators: any[] = [];
+
+              if (field.required) {
+                if (this.isWordEditorType(field.type)) {
+                  validators.push(this.richTextRequiredValidator);
+                } else {
+                  validators.push(Validators.required);
+                }
+              }
 
               if (field.type === 'email') {
                 validators.push(Validators.email);
@@ -1532,6 +1574,11 @@ export class ApplicationsViewComponent implements OnInit {
       return String(value);
     };
 
+    const isWordEditorType = (fieldType: string | undefined): boolean => {
+      const normalizedType = (fieldType || '').toLowerCase().replace(/\s+/g, '_');
+      return normalizedType === 'word_editor' || normalizedType === 'wordeditor' || normalizedType === 'rich_text' || normalizedType === 'richtext';
+    };
+
     const getFieldValue = (field: any): any => {
       const fieldName = field.label.toLowerCase()
         .replace(/[^a-z0-9]+/g, '_')
@@ -1560,6 +1607,14 @@ export class ApplicationsViewComponent implements OnInit {
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    };
+
+    const getFieldDisplayHtml = (field: any): string => {
+      const value = formatFieldValue(field, getFieldValue(field));
+      if (isWordEditorType(field.type) && value !== '-') {
+        return `<div class="word-editor-value">${String(value)}</div>`;
+      }
+      return escapeHtml(String(value));
     };
 
     let html = `<!DOCTYPE html>
@@ -1688,6 +1743,28 @@ export class ApplicationsViewComponent implements OnInit {
     }
     .data-table tbody tr:last-child td {
       border-bottom: none;
+    }
+    .word-editor-value {
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .word-editor-value p {
+      margin: 0 0 6px 0;
+    }
+    .word-editor-value ul,
+    .word-editor-value ol {
+      margin: 0 0 6px 18px;
+      padding: 0;
+    }
+    .word-editor-value table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 6px 0;
+    }
+    .word-editor-value td,
+    .word-editor-value th {
+      border: 1px solid #d9d9d9;
+      padding: 4px 6px;
     }
     .pipeline-section {
       margin-top: 20px;
@@ -1836,7 +1913,7 @@ export class ApplicationsViewComponent implements OnInit {
         ${formFields.map(field => `
           <tr>
             <td><strong>${escapeHtml(field.label)}${field.required ? ' <span style="color: #e74c3c;">*</span>' : ''}</strong></td>
-            <td>${escapeHtml(formatFieldValue(field, getFieldValue(field)))}</td>
+            <td>${getFieldDisplayHtml(field)}</td>
           </tr>
         `).join('')}
       </tbody>

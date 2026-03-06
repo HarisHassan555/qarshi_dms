@@ -1,6 +1,6 @@
-import { Component, OnInit, ViewChild } from '@angular/core';
+import { AfterViewChecked, Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
-import { FormBuilder, FormGroup, FormArray, Validators, FormControl } from '@angular/forms';
+import { AbstractControl, FormBuilder, FormGroup, FormArray, Validators, FormControl, ValidationErrors } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 import { PermissionService } from '../../services/shared-data/permission-service';
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
@@ -10,6 +10,32 @@ import { ApplicationPdfService } from 'src/app/services/application-pdf/applicat
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { BudgetApprovalComponent } from '../budget-approval/budget-approval.component';
 import { Store } from '@ngrx/store';
+import * as QuillNamespace from 'quill';
+
+const Quill: any = QuillNamespace;
+const ExistingTableBlot = Quill.imports?.['formats/table-blot'];
+if (!ExistingTableBlot) {
+  const BlockEmbed = Quill.import('blots/block/embed');
+  class TableBlot extends BlockEmbed {
+    static create(value: string) {
+      const node = super.create();
+      node.innerHTML = value;
+      node.setAttribute('contenteditable', 'false');
+      return node;
+    }
+    static value(node: HTMLElement) {
+      return node.innerHTML;
+    }
+  }
+  TableBlot['blotName'] = 'table-blot';
+  TableBlot['tagName'] = 'div';
+  TableBlot['className'] = 'q-table-wrapper';
+  Quill.register(TableBlot);
+}
+const QuillIcons = Quill.import('ui/icons');
+QuillIcons['tableInsert'] = '<svg viewBox="0 0 18 18"><rect class="ql-stroke" height="12" width="12" x="3" y="3"></rect><line class="ql-stroke" x1="3" x2="15" y1="7" y2="7"></line><line class="ql-stroke" x1="3" x2="15" y1="11" y2="11"></line><line class="ql-stroke" x1="7" x2="7" y1="3" y2="15"></line><line class="ql-stroke" x1="11" x2="11" y1="3" y2="15"></line></svg>';
+QuillIcons['mergeRight'] = '<svg viewBox="0 0 18 18"><rect class="ql-stroke" x="3" y="4" width="5" height="10"></rect><rect class="ql-stroke" x="10" y="4" width="5" height="10"></rect><line class="ql-stroke" x1="8.5" y1="9" x2="10" y2="9"></line><polyline class="ql-stroke" points="11,7 13,9 11,11"></polyline></svg>';
+QuillIcons['mergeDown'] = '<svg viewBox="0 0 18 18"><rect class="ql-stroke" x="4" y="3" width="10" height="5"></rect><rect class="ql-stroke" x="4" y="10" width="10" height="5"></rect><line class="ql-stroke" x1="9" y1="8.5" x2="9" y2="10"></line><polyline class="ql-stroke" points="7,11 9,13 11,11"></polyline></svg>';
 
 interface FormField {
   serFieldId?: number;
@@ -44,8 +70,10 @@ interface CustomForm {
   templateUrl: './application.component.html',
   styleUrls: ['./application.component.css']
 })
-export class ApplicationComponent implements OnInit {
+export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy {
   @ViewChild(BudgetApprovalComponent) budgetApprovalCmp?: BudgetApprovalComponent;
+  @ViewChild('previewCanvas') previewCanvas?: ElementRef<HTMLElement>;
+  @ViewChild('previewScale') previewScale?: ElementRef<HTMLElement>;
   search = '';
   customForms: CustomForm[] = [];
   selectedForm: CustomForm | null = null;
@@ -54,9 +82,35 @@ export class ApplicationComponent implements OnInit {
   showBudgetApproval: boolean = false;
   selectedFormId: string = '';
   editData: any = null;
+  documentHeaderField: FormField | null = null;
   store: any;
   attachmentFiles: Record<string, File> = {};
   attachmentPayloads: Record<string, { fileName: string; mimeType: string; dataUrl: string; base64: string }> = {};
+  previewDate = new Date().toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  }).replace(/ /g, '-');
+  wordEditorModules = {
+    toolbar: [
+      ['bold', 'italic', 'underline', 'strike'],
+      ['blockquote', 'code-block'],
+      [{ 'header': 1 }, { 'header': 2 }],
+      [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+      [{ 'script': 'sub' }, { 'script': 'super' }],
+      [{ 'indent': '-1' }, { 'indent': '+1' }],
+      [{ 'direction': 'rtl' }],
+      [{ 'size': ['small', false, 'large', 'huge'] }],
+      [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+      [{ 'color': [] }, { 'background': [] }],
+      [{ 'font': [] }],
+      [{ 'align': [] }],
+      ['clean', 'tableInsert', 'mergeRight', 'mergeDown'],
+    ],
+  };
+  private previewFitPending = false;
+  private previewFitFrame: number | null = null;
+  private lastFocusedTableCellByEditor = new WeakMap<any, HTMLTableCellElement>();
   private async buildAttachmentPayload(file: File): Promise<{ fileName: string; mimeType: string; dataUrl: string; base64: string }> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -110,6 +164,22 @@ export class ApplicationComponent implements OnInit {
     this.loadForms();
     this.initializeForm();
     this.checkEditMode();
+  }
+
+  ngAfterViewChecked(): void {
+    this.requestPreviewFit();
+  }
+
+  ngOnDestroy(): void {
+    if (this.previewFitFrame !== null && typeof window !== 'undefined') {
+      window.cancelAnimationFrame(this.previewFitFrame);
+      this.previewFitFrame = null;
+    }
+  }
+
+  @HostListener('window:resize')
+  onWindowResize(): void {
+    this.requestPreviewFit();
   }
 
 
@@ -194,9 +264,11 @@ export class ApplicationComponent implements OnInit {
       this.selectedForm = null;
       this.generatedApplicationCode = null;
       this.showBudgetApproval = false;
+      this.documentHeaderField = null;
       this.ensureSidebarHidden(false);
       this.initializeForm();
     }
+    this.requestPreviewFit();
   }
 
   resetBudgetForm() {
@@ -204,9 +276,66 @@ export class ApplicationComponent implements OnInit {
     this.selectedForm = null;
     this.generatedApplicationCode = null;
     this.showBudgetApproval = false;
+    this.documentHeaderField = null;
     this.ensureSidebarHidden(false);
     this.initializeForm();
     this.attachmentFiles = {};
+    this.requestPreviewFit();
+  }
+
+  private requestPreviewFit(): void {
+    if (typeof window === 'undefined' || this.previewFitPending || !this.previewCanvas || !this.previewScale) {
+      return;
+    }
+
+    this.previewFitPending = true;
+    this.previewFitFrame = window.requestAnimationFrame(() => {
+      this.previewFitPending = false;
+      this.previewFitFrame = null;
+      this.fitPreviewToAvailableSpace();
+    });
+  }
+
+  private fitPreviewToAvailableSpace(): void {
+    const canvasEl = this.previewCanvas?.nativeElement;
+    const scaleHostEl = this.previewScale?.nativeElement;
+    if (!canvasEl || !scaleHostEl) {
+      return;
+    }
+
+    const previewContentEl = this.getPreviewContentElement(scaleHostEl);
+    if (!previewContentEl) {
+      return;
+    }
+
+    previewContentEl.style.transform = 'none';
+    previewContentEl.style.transformOrigin = 'top left';
+
+    const availableWidth = Math.max(canvasEl.clientWidth, 0);
+    const naturalWidth = Math.max(previewContentEl.scrollWidth || previewContentEl.offsetWidth, 0);
+    const naturalHeight = Math.max(previewContentEl.scrollHeight || previewContentEl.offsetHeight, 0);
+
+    if (!availableWidth || !naturalWidth || !naturalHeight) {
+      return;
+    }
+
+    const scale = availableWidth / naturalWidth;
+    const safeScale = Number.isFinite(scale) ? Math.max(scale, 0.1) : 1;
+
+    scaleHostEl.style.width = `${availableWidth}px`;
+    scaleHostEl.style.height = `${naturalHeight * safeScale}px`;
+    previewContentEl.style.transform = `scale(${safeScale})`;
+  }
+
+  private getPreviewContentElement(scaleHostEl: HTMLElement): HTMLElement | null {
+    const selectors = ['.xyz-paper', '.abc-wrapper.embedded .page', '.abc-wrapper .page'];
+    for (const selector of selectors) {
+      const match = scaleHostEl.querySelector(selector);
+      if (match instanceof HTMLElement) {
+        return match;
+      }
+    }
+    return null;
   }
 
   private ensureSidebarHidden(shouldHide: boolean) {
@@ -305,22 +434,28 @@ export class ApplicationComponent implements OnInit {
 
   buildDynamicForm(form: CustomForm) {
     const formControls: any = {};
+    this.documentHeaderField = null;
 
     form.fields.forEach((field: FormField) => {
       const fieldName = this.getFieldName(field.label);
       const validators: any[] = [];
+      const normalizedFieldType = (field.type || '').toString().trim().toLowerCase();
 
       if (field.required) {
-        validators.push(Validators.required);
+        if (this.isWordEditorType(field.type)) {
+          validators.push(this.richTextRequiredValidator);
+        } else {
+          validators.push(Validators.required);
+        }
       }
 
       // Add type-specific validators
-      if (field.type === 'email') {
+      if (normalizedFieldType === 'email') {
         validators.push(Validators.email);
       }
 
       // Handle table fields
-      if (field.type === 'table') {
+      if (normalizedFieldType === 'table') {
         const tableConfig = this.getTableConfig(field);
         const tableFormArray: FormArray = this.fb.array([]);
 
@@ -335,11 +470,28 @@ export class ApplicationComponent implements OnInit {
 
         formControls[fieldName] = tableFormArray;
       } else {
-        formControls[fieldName] = [field.type === 'checkbox' ? false : '', validators];
+        formControls[fieldName] = [normalizedFieldType === 'checkbox' ? false : '', validators];
+      }
+
+      if (normalizedFieldType === 'document_header' && !this.documentHeaderField) {
+        this.documentHeaderField = field;
       }
     });
 
     this.applicationForm = this.fb.group(formControls);
+  }
+
+  isDocumentHeaderType(fieldType: string | undefined): boolean {
+    return (fieldType || '').toString().trim().toLowerCase() === 'document_header';
+  }
+
+  getDocumentHeaderControl(): FormControl | null {
+    if (!this.documentHeaderField || !this.applicationForm) {
+      return null;
+    }
+    const controlName = this.getFieldName(this.documentHeaderField.label);
+    const control = this.applicationForm.get(controlName);
+    return control instanceof FormControl ? control : null;
   }
 
   onAttachmentChange(field: FormField, event: Event) {
@@ -367,6 +519,315 @@ export class ApplicationComponent implements OnInit {
     return label.toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '');
+  }
+
+  isWordEditorType(fieldType: string | undefined): boolean {
+    const normalizedType = (fieldType || '').toLowerCase().replace(/\s+/g, '_');
+    return normalizedType === 'word_editor' || normalizedType === 'wordeditor' || normalizedType === 'rich_text' || normalizedType === 'richtext';
+  }
+
+  onWordEditorCreated(fieldName: string, editor: any): void {
+    editor?.root?.addEventListener('focusin', (event: FocusEvent) => {
+      const target = event.target as HTMLElement | null;
+      const cell = target?.closest('td') as HTMLTableCellElement | null;
+      if (cell && editor?.root?.contains(cell)) {
+        this.lastFocusedTableCellByEditor.set(editor, cell);
+      }
+    });
+
+    const toolbarModule = editor?.getModule?.('toolbar');
+    if (toolbarModule) {
+      const toolbarEl = toolbarModule.container as HTMLElement | undefined;
+      if (toolbarEl) {
+        this.ensureToolbarActionButton(toolbarEl, 'tableInsert', () => this.promptAndInsertTable(editor));
+        this.ensureToolbarActionButton(toolbarEl, 'mergeRight', () => this.mergeTableCellRight(editor));
+        this.ensureToolbarActionButton(toolbarEl, 'mergeDown', () => this.mergeTableCellDown(editor));
+      }
+    }
+  }
+
+  private ensureToolbarActionButton(toolbarEl: HTMLElement, classSuffix: string, onClick: () => void): void {
+    const selector = `.ql-${classSuffix}`;
+    let btn = toolbarEl.querySelector(selector) as HTMLButtonElement | null;
+    if (!btn) {
+      const groups = toolbarEl.querySelectorAll('.ql-formats');
+      const targetGroup = (groups[groups.length - 1] as HTMLElement) || toolbarEl;
+      const createdBtn = document.createElement('button');
+      createdBtn.type = 'button';
+      createdBtn.className = `ql-${classSuffix}`;
+      createdBtn.innerHTML = QuillIcons[classSuffix] || '';
+      targetGroup.appendChild(createdBtn);
+      btn = createdBtn;
+    }
+    const boundKey = `${classSuffix}Bound`;
+    if (btn.dataset[boundKey] !== '1') {
+      btn.dataset[boundKey] = '1';
+      btn.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClick();
+      });
+    }
+  }
+
+  promptAndInsertTable(editor: any): void {
+    const sizeInput = window.prompt('Enter table size as rows x columns (e.g., 3x4):', '2x2');
+    if (!sizeInput) {
+      return;
+    }
+    const match = sizeInput.trim().toLowerCase().match(/^(\d+)\s*[x,]\s*(\d+)$/);
+    if (!match) {
+      this.notificationService.showMessage('Invalid table size. Use format like 3x4.', 'warning');
+      return;
+    }
+    const rows = Math.max(1, Math.min(20, Number(match[1])));
+    const columns = Math.max(1, Math.min(10, Number(match[2])));
+
+    let tableHtml = '<table style="width:100%; border-collapse:collapse; border:1px solid #000; margin:10px 0; table-layout:fixed;">';
+    for (let r = 0; r < rows; r++) {
+      tableHtml += '<tr>';
+      for (let c = 0; c < columns; c++) {
+        const defaultValue = r === 0 ? `Header ${c + 1}` : '';
+        tableHtml += `<td style="border:1px solid #000; padding:1px; vertical-align:top;">
+          <textarea
+            rows="1"
+            oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';this.textContent=this.value"
+            style="width:100%; border:none; outline:none; background:transparent; font:inherit; padding:1px; line-height:1.2; resize:none; overflow:hidden; white-space:pre-wrap; word-break:break-word; box-sizing:border-box;">${defaultValue}</textarea>
+        </td>`;
+      }
+      tableHtml += '</tr>';
+    }
+    tableHtml += '</table>';
+
+    const range = editor.getSelection(true);
+    const index = range ? range.index : editor.getLength();
+    editor.insertEmbed(index, 'table-blot', tableHtml, 'user');
+    editor.setSelection(index + 1, 0, 'api');
+  }
+
+  private getFocusedTableCell(editor: any): HTMLTableCellElement | null {
+    const activeElement = document.activeElement as HTMLElement | null;
+    const activeCell = activeElement?.closest('td') as HTMLTableCellElement | null;
+    if (activeCell && editor?.root?.contains(activeCell)) {
+      this.lastFocusedTableCellByEditor.set(editor, activeCell);
+      return activeCell;
+    }
+
+    const rememberedCell = this.lastFocusedTableCellByEditor.get(editor) || null;
+    if (rememberedCell && editor?.root?.contains(rememberedCell)) {
+      return rememberedCell;
+    }
+
+    if (!activeElement || !activeCell || !editor?.root?.contains(activeCell)) {
+      this.notificationService.showMessage('Place cursor inside a table cell first.', 'warning');
+      return null;
+    }
+    return activeCell;
+  }
+
+  private normalizeInputCell(cell: HTMLTableCellElement, fallback: string): HTMLTextAreaElement {
+    let input = cell.querySelector('textarea') as HTMLTextAreaElement | null;
+    if (!input) {
+      const legacyInput = cell.querySelector('input') as HTMLInputElement | null;
+      const initialValue = legacyInput ? legacyInput.value : fallback;
+      input = document.createElement('textarea');
+      input.rows = 1;
+      input.style.width = '100%';
+      input.style.border = 'none';
+      input.style.outline = 'none';
+      input.style.background = 'transparent';
+      input.style.font = 'inherit';
+      input.style.padding = '1px';
+      input.style.lineHeight = '1.2';
+      input.style.resize = 'none';
+      input.style.overflow = 'hidden';
+      input.style.whiteSpace = 'pre-wrap';
+      input.style.wordBreak = 'break-word';
+      input.style.boxSizing = 'border-box';
+      input.value = initialValue;
+      input.textContent = initialValue;
+      input.setAttribute('oninput', "this.style.height='auto';this.style.height=this.scrollHeight+'px';this.textContent=this.value");
+      cell.innerHTML = '';
+      cell.appendChild(input);
+    }
+    return input;
+  }
+
+  private mergeCellValues(primary: HTMLTextAreaElement, secondary: HTMLTextAreaElement | null): void {
+    const primaryVal = (primary.value || '').trim();
+    const secondaryVal = (secondary?.value || '').trim();
+    if (!primaryVal && secondaryVal) {
+      primary.value = secondaryVal;
+      primary.textContent = secondaryVal;
+      primary.style.height = 'auto';
+      primary.style.height = `${primary.scrollHeight}px`;
+    }
+  }
+
+  mergeTableCellRight(editor: any): void {
+    const cell = this.getFocusedTableCell(editor);
+    if (!cell) return;
+
+    const nextCell = cell.nextElementSibling as HTMLTableCellElement | null;
+    if (!nextCell) {
+      this.notificationService.showMessage('No cell available on the right to merge.', 'warning');
+      return;
+    }
+
+    const currentColspan = Number(cell.getAttribute('colspan') || '1');
+    const nextColspan = Number(nextCell.getAttribute('colspan') || '1');
+    cell.setAttribute('colspan', String(currentColspan + nextColspan));
+
+    const primaryInput = this.normalizeInputCell(cell, '');
+    const secondaryInput = (nextCell.querySelector('textarea') || nextCell.querySelector('input')) as HTMLTextAreaElement | null;
+    this.mergeCellValues(primaryInput, secondaryInput);
+
+    nextCell.remove();
+    primaryInput.focus();
+  }
+
+  private getColumnStartIndex(cell: HTMLTableCellElement): number {
+    let index = 0;
+    let pointer: Element | null = cell.parentElement?.firstElementChild || null;
+    while (pointer && pointer !== cell) {
+      if (pointer instanceof HTMLTableCellElement) {
+        index += Number(pointer.getAttribute('colspan') || '1');
+      }
+      pointer = pointer.nextElementSibling;
+    }
+    return index;
+  }
+
+  private getCoveringCell(row: HTMLTableRowElement, columnStart: number): HTMLTableCellElement | null {
+    let cursor = 0;
+    for (const candidate of Array.from(row.cells)) {
+      const span = Number(candidate.getAttribute('colspan') || '1');
+      const start = cursor;
+      const end = cursor + span - 1;
+      if (columnStart >= start && columnStart <= end) {
+        return candidate;
+      }
+      cursor += span;
+    }
+    return null;
+  }
+
+  mergeTableCellDown(editor: any): void {
+    const cell = this.getFocusedTableCell(editor);
+    if (!cell) return;
+
+    const row = cell.parentElement as HTMLTableRowElement | null;
+    const nextRow = row?.nextElementSibling as HTMLTableRowElement | null;
+    if (!row || !nextRow) {
+      this.notificationService.showMessage('No row available below to merge.', 'warning');
+      return;
+    }
+
+    const colStart = this.getColumnStartIndex(cell);
+    const belowCell = this.getCoveringCell(nextRow, colStart);
+    if (!belowCell) {
+      this.notificationService.showMessage('No matching cell below to merge.', 'warning');
+      return;
+    }
+
+    const currentRowspan = Number(cell.getAttribute('rowspan') || '1');
+    const belowRowspan = Number(belowCell.getAttribute('rowspan') || '1');
+    cell.setAttribute('rowspan', String(currentRowspan + belowRowspan));
+
+    const primaryInput = this.normalizeInputCell(cell, '');
+    const secondaryInput = (belowCell.querySelector('textarea') || belowCell.querySelector('input')) as HTMLTextAreaElement | null;
+    this.mergeCellValues(primaryInput, secondaryInput);
+
+    belowCell.remove();
+    primaryInput.focus();
+  }
+
+  isAttachmentType(fieldType: string | undefined): boolean {
+    const normalizedType = (fieldType || '').toLowerCase().replace(/\s+/g, '_');
+    return normalizedType === 'attachment' || normalizedType === 'file';
+  }
+
+  isTableType(fieldType: string | undefined): boolean {
+    return (fieldType || '').toLowerCase().replace(/\s+/g, '_') === 'table';
+  }
+
+  getGenericPreviewFields(): FormField[] {
+    if (!this.selectedForm?.fields) {
+      return [];
+    }
+    return this.selectedForm.fields.filter((field: FormField) => !this.isDocumentHeaderType(field.type));
+  }
+
+  getDocumentHeaderPreviewValue(): string {
+    const control = this.getDocumentHeaderControl();
+    const value = control?.value;
+    if (value === null || value === undefined || value === '') {
+      return this.selectedForm?.name || this.selectedForm?.txtFormName || 'Form Preview';
+    }
+    return String(value);
+  }
+
+  isFormNameLabel(label: string | undefined): boolean {
+    const normalizedLabel = (label || '').trim().toLowerCase();
+    const normalizedFormName = (this.selectedForm?.name || this.selectedForm?.txtFormName || '').trim().toLowerCase();
+    return !!normalizedLabel && !!normalizedFormName && normalizedLabel === normalizedFormName;
+  }
+
+  getPreviewFieldValue(field: FormField): any {
+    const key = this.getFieldName(field.label);
+    return this.applicationForm?.get(key)?.value;
+  }
+
+  getPreviewFieldDisplayValue(field: FormField): string {
+    const value = this.getPreviewFieldValue(field);
+    if (value === null || value === undefined || value === '') {
+      return '-';
+    }
+
+    if (field.type === 'checkbox') {
+      return value ? 'Yes' : 'No';
+    }
+
+    if (field.type === 'date') {
+      const date = new Date(value);
+      if (!Number.isNaN(date.getTime())) {
+        return date.toLocaleDateString();
+      }
+    }
+
+    if (this.isAttachmentType(field.type) && typeof value === 'object') {
+      return value.fileName || '-';
+    }
+
+    return String(value);
+  }
+
+  getPreviewWordEditorValue(field: FormField): SafeHtml {
+    const value = this.getPreviewFieldValue(field);
+    if (value === null || value === undefined || value === '') {
+      return this.sanitizer.bypassSecurityTrustHtml('<p>-</p>');
+    }
+    return this.sanitizer.bypassSecurityTrustHtml(String(value));
+  }
+
+  getPreviewTableValue(field: FormField): any[][] {
+    const value = this.getPreviewFieldValue(field);
+    if (Array.isArray(value)) {
+      return value;
+    }
+    return [];
+  }
+
+  private richTextRequiredValidator(control: AbstractControl): ValidationErrors | null {
+    const value = control.value;
+    if (value === null || value === undefined) {
+      return { required: true };
+    }
+    const plainText = String(value)
+      .replace(/<(.|\n)*?>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .trim();
+    return plainText.length > 0 ? null : { required: true };
   }
 
   getFieldOptions(field: FormField): string[] {

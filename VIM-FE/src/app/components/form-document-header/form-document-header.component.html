@@ -1,0 +1,40 @@
+<div class="fdh-container">
+    <div class="fdh-date-row">
+        <div class="fdh-date">Date: {{ displayDate }}</div>
+    </div>
+
+    <div class="fdh-header">
+        <div class="fdh-logo">
+            <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
+        </div>
+        <div class="fdh-company">
+            <div class="fdh-company-name">Qarshi Industries (Pvt) Ltd.</div>
+            <div class="fdh-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+        </div>
+        <div class="fdh-spacer"></div>
+    </div>
+
+    <div class="fdh-rule"></div>
+
+    <div class="fdh-heading">
+        <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+            {{ headingLabel }}
+            <span *ngIf="required" class="text-danger">*</span>
+        </label>
+
+        <input *ngIf="headingControl"
+            type="text"
+            class="form-input text-center font-semibold"
+            [formControl]="headingControl"
+            [placeholder]="placeholder"
+            [readonly]="readonly"
+            [class.bg-gray-100]="readonly" />
+
+        <input *ngIf="!headingControl"
+            type="text"
+            class="form-input text-center font-semibold bg-gray-100"
+            [value]="headingValue || ''"
+            readonly />
+    </div>
+</div>
+

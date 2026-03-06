@@ -52,11 +52,13 @@ export class FormBuilderComponent implements OnInit {
   isSubmit = false;
   editingFormId: number | null = null;
   fieldTypes = [
+    { value: 'document_header', label: 'Document Header' },
     { value: 'text', label: 'Text' },
     { value: 'number', label: 'Number' },
     { value: 'email', label: 'Email' },
     { value: 'date', label: 'Date' },
     { value: 'textarea', label: 'Textarea' },
+    { value: 'word_editor', label: 'Word Editor' },
     { value: 'attachment', label: 'Attachment' },
     { value: 'select', label: 'Select' },
     { value: 'checkbox', label: 'Checkbox' },

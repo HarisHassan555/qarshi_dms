@@ -305,6 +305,24 @@
                         </div>
                     </div>
 
+                    <!-- Word Editor (full width) -->
+                    <div *ngFor="let field of editFormFields" class="md:col-span-2">
+                        <div *ngIf="isWordEditorType(field.type)">
+                            <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                {{ field.label }}
+                                <span *ngIf="field.required" class="text-danger">*</span>
+                            </label>
+                            <quill-editor [formControlName]="getFieldName(field.label)"
+                                [modules]="wordEditorModules"
+                                [styles]="{height: '260px'}"
+                                [placeholder]="field.placeholder || 'Enter details, bullet points, headings...'">
+                            </quill-editor>
+                            <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                            </p>
+                        </div>
+                    </div>
+
                     <!-- Select Dropdown -->
                     <div *ngFor="let field of editFormFields">
                         <div *ngIf="field.type === 'select'">
