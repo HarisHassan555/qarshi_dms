@@ -10,6 +10,8 @@ import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomer;
 import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 import javax.persistence.*;
+import org.hibernate.annotations.NotFound;
+import org.hibernate.annotations.NotFoundAction;
 
 import java.sql.Timestamp;
 import java.util.Date;
@@ -248,6 +250,7 @@ public class CfgTblUser implements Serializable {
 
 	@ManyToOne
 	@JoinColumn(name = "ser_role_id")
+	@NotFound(action = NotFoundAction.IGNORE)
 	private CfgTblRole cfgTblRole;
 	
 	
@@ -356,11 +359,33 @@ public class CfgTblUser implements Serializable {
 	@Column(name="txt_signature_path")
 	private String txtSignaturePath;
 
+	@Column(name="txt_department_name")
+	private String txtDepartmentName;
+
+	@Column(name="txt_designation")
+	private String txtDesignation;
+
 	public String getTxtSignaturePath() {
 		return txtSignaturePath;
 	}
 
 	public void setTxtSignaturePath(String txtSignaturePath) {
 		this.txtSignaturePath = txtSignaturePath;
+	}
+
+	public String getTxtDepartmentName() {
+		return txtDepartmentName;
+	}
+
+	public void setTxtDepartmentName(String txtDepartmentName) {
+		this.txtDepartmentName = txtDepartmentName;
+	}
+
+	public String getTxtDesignation() {
+		return txtDesignation;
+	}
+
+	public void setTxtDesignation(String txtDesignation) {
+		this.txtDesignation = txtDesignation;
 	}
 }

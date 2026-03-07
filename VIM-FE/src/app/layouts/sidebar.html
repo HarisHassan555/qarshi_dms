@@ -64,7 +64,7 @@
                                             <li *ngIf="canViewMenu(sm.roles)">
                                                 <a [routerLink]="sm.subMenuAction" routerLinkActive="active"
                                                     (click)="toggleMobileMenu()">
-                                                    {{ sm.subMenuName }}
+                                                    {{ getDisplaySubMenuName(sm.subMenuName) }}
                                                 </a>
                                             </li>
                                         </ng-container>

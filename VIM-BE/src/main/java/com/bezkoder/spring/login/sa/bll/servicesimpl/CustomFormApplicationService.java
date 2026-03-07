@@ -95,13 +95,13 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     @Override
     public String approveApplication(Integer applicationId, String remarks) {
         logger.debug("approveApplication() - applicationId: " + applicationId);
-        return approveApplication(applicationId, remarks, null, "SYSTEM");
+        return approveApplication(applicationId, remarks, null, "SYSTEM", null);
     }
 
     @Override
-    public String approveApplication(Integer applicationId, String remarks, Integer approverUserId, String approvedVia) {
+    public String approveApplication(Integer applicationId, String remarks, Integer approverUserId, String approvedVia, String approvedIp) {
         logger.debug("approveApplication() - applicationId: " + applicationId + ", approverUserId: " + approverUserId);
-        return customFormApplicationDAO.approveApplication(applicationId, remarks, approverUserId, approvedVia);
+        return customFormApplicationDAO.approveApplication(applicationId, remarks, approverUserId, approvedVia, approvedIp);
     }
 
     @Override

@@ -1,8 +1,14 @@
 package com.bezkoder.spring.login.controllers;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+
 public class SignatureUploadRequest {
     private String signature;
     private String fileType;
+    @JsonAlias({"txtDepartmentName", "departmentName"})
+    private String department;
+    @JsonAlias({"txtDesignation", "approverDesignation"})
+    private String designation;
 
     public SignatureUploadRequest() {
     }
@@ -26,5 +32,21 @@ public class SignatureUploadRequest {
 
     public void setFileType(String fileType) {
         this.fileType = fileType;
+    }
+
+    public String getDepartment() {
+        return department;
+    }
+
+    public void setDepartment(String department) {
+        this.department = department;
+    }
+
+    public String getDesignation() {
+        return designation;
+    }
+
+    public void setDesignation(String designation) {
+        this.designation = designation;
     }
 }

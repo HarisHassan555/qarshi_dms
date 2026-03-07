@@ -231,10 +231,25 @@
                                         class="mt-1 text-xs text-gray-500">
                                         Selected: {{ applicationForm.get(getFieldName(field.label))?.value }}
                                     </p>
-                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))"
-                                        class="mt-1 text-xs text-danger">
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                     </p>
+                                </div>
+
+                                <!-- Footer (Approval Pipeline) -->
+                                <div *ngIf="field.type === 'footer'" class="md:col-span-2 mt-8">
+                                    <div class="flex flex-wrap justify-center gap-8 py-6 border-t border-gray-200 dark:border-gray-700">
+                                        <div *ngFor="let pipeline of selectedForm.approvalPipelines; let i = index" 
+                                             class="flex flex-col items-center min-w-[150px]">
+                                            <div class="w-full h-12 flex items-end justify-center mb-1">
+                                                <!-- Signature will appear here after approval -->
+                                            </div>
+                                            <div class="w-full border-t border-gray-400 dark:border-gray-500 mb-1"></div>
+                                            <div class="text-xs font-bold text-center uppercase tracking-wider dark:text-white-light">
+                                                {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' + pipeline.serDepartmentId }}
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -431,6 +446,21 @@
                                                 </div>
 
                                                 <div *ngIf="isWordEditorType(field.type)" class="xyz-word-preview" [innerHTML]="getPreviewWordEditorValue(field)"></div>
+
+                                                <div *ngIf="field.type === 'footer'" class="mt-8 pt-4 border-t border-gray-100">
+                                                    <div class="flex flex-wrap justify-center gap-6 py-2">
+                                                        <div *ngFor="let pipeline of selectedForm.approvalPipelines; let i = index" 
+                                                             class="flex flex-col items-center min-w-[120px]">
+                                                            <div class="w-full h-10 flex items-end justify-center mb-1">
+                                                                <!-- Preview: Signature will appear here after approval -->
+                                                            </div>
+                                                            <div class="w-full border-t border-gray-300 mb-1"></div>
+                                                            <div class="text-[10px] font-bold text-center uppercase tracking-wider text-gray-700">
+                                                                {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' + pipeline.serDepartmentId }}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
 
                                                 <div *ngIf="isTableType(field.type)" class="overflow-x-auto">
                                                     <table class="xyz-generic-table">

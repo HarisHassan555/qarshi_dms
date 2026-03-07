@@ -1,0 +1,40 @@
+<div class="xyz-page">
+    <div class="xyz-paper">
+        <div class="xyz-date-row">
+            <div class="xyz-date">Date: {{ dateText || '25-Aug-2025' }}</div>
+        </div>
+        <div class="xyz-header">
+            <div class="xyz-logo">
+                <img src="assets/images/qarshi-logo.png" alt="Qarshi" />
+            </div>
+            <div class="xyz-company">
+                <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
+                <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+            </div>
+            <div class="xyz-header-spacer"></div>
+        </div>
+
+        <div class="xyz-rule thick"></div>
+
+        <div class="xyz-title" *ngIf="heading">{{ heading }}</div>
+
+        <div class="xyz-dynamic" [innerHTML]="content"></div>
+
+        <div class="xyz-footer">
+            <table class="xyz-signatures custom-builder-footer">
+                <tr class="xyz-signatures-blank">
+                    <td *ngFor="let field of footerFields"></td>
+                </tr>
+                <tr>
+                    <th *ngFor="let field of footerFields">{{ field.label }}</th>
+                </tr>
+                <tr>
+                    <td *ngFor="let field of footerFields">
+                        {{ formatUsers(field.users) }}
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
+

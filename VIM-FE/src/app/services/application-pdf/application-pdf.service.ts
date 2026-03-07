@@ -738,10 +738,10 @@ export class ApplicationPdfService {
   }
 
   private generateBudgetApprovalPdfHtml(application: any, formFields: any[], applicationFormData: any, formName: string): string {
-    const { heading, contentHtml, preparedBy, reviewers, recommenders, approver } = this.buildBudgetApprovalContent(applicationFormData);
+    const { heading, contentHtml, preparedBy, reviewers, recommenders, approver, footerFields } = this.buildBudgetApprovalContent(applicationFormData);
     const headingText = heading || formName || 'Budget Approval';
     const dateStr = application?.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleDateString() : new Date().toLocaleDateString();
-    return this.generateBudgetApprovalXyzHtml(headingText, dateStr, contentHtml, application?.txtApprovalHistory, preparedBy, reviewers, recommenders, approver);
+    return this.generateBudgetApprovalXyzHtml(headingText, dateStr, contentHtml, application?.txtApprovalHistory, preparedBy, reviewers, recommenders, approver, footerFields || []);
   }
 
   private generateBudgetApprovalXyzHtml(
@@ -752,7 +752,8 @@ export class ApplicationPdfService {
     preparedBy?: any,
     reviewers: any[] = [],
     recommenders: any[] = [],
-    approver?: any
+    approver?: any,
+    footerFields: any[] = []
   ): string {
     let approvalHistory: any[] = [];
     if (approvalHistoryJson) {
@@ -825,6 +826,24 @@ export class ApplicationPdfService {
       }
       return `<div>${name}${role ? `<br>(${role})` : ''}${dept ? `<br>${dept}` : ''}</div>`;
     };
+    const renderUsersInline = (users: any[]): string => {
+      if (!Array.isArray(users) || users.length === 0) return '--';
+      return users
+        .map((u: any) => {
+          const name = u?.txtUserName || u?.userName || u?.name || '';
+          const role = u?.cfgTblRole?.txtRoleName || u?.roleName || u?.designation || '';
+          return role ? `${name} (${role})` : name;
+        })
+        .filter((v: string) => !!v)
+        .join(', ');
+    };
+    const renderFooterSignatureCell = (users: any[]): string => {
+      if (!Array.isArray(users) || users.length === 0) return '';
+      const approvedUsers = users.filter((u: any) => isUserApproved(u));
+      if (approvedUsers.length === 0) return '';
+      return approvedUsers.slice(0, 2).map((u: any) => renderUserCell(u)).join('');
+    };
+    const hasDynamicFooter = Array.isArray(footerFields) && footerFields.length > 0;
     const css = `
     :root { --ink:#111827; --muted:#6b7280; --line:#c7cdd4; --accent:#0f766e; --soft:#eef4f3; }
     * { box-sizing: border-box; }
@@ -894,6 +913,16 @@ export class ApplicationPdfService {
 
       <div class="xyz-footer">
       <table class="xyz-signatures">
+        ${hasDynamicFooter ? `
+        <tr class="xyz-signatures-blank">
+          ${(footerFields || []).map((f: any) => `<td>${renderFooterSignatureCell(Array.isArray(f?.users) ? f.users : [])}</td>`).join('')}
+        </tr>
+        <tr>
+          ${(footerFields || []).map((f: any) => `<th>${f?.label || 'New Field'}</th>`).join('')}
+        </tr>
+        <tr>
+          ${(footerFields || []).map((f: any) => `<td>${renderUsersInline(Array.isArray(f?.users) ? f.users : [])}</td>`).join('')}
+        </tr>` : `
         <tr class="xyz-signatures-blank">
           <td>${isUserApproved(preparedBy) ? renderUserCell(preparedBy) : ''}</td>
           <td>${isUserApproved(reviewers?.[0]) ? renderUserCell(reviewers?.[0]) : ''}</td>
@@ -913,7 +942,7 @@ export class ApplicationPdfService {
           <td>${renderUserNameCell(reviewers?.[1], reviewers?.[1]?.txtUserName, reviewers?.[1]?.cfgTblRole?.txtRoleName)}</td>
           <td>${renderUserNameCell(recommenders?.[0], recommenders?.[0]?.txtUserName, recommenders?.[0]?.cfgTblRole?.txtRoleName)}</td>
           <td>${renderUserNameCell(approver, approver?.txtUserName, approver?.cfgTblRole?.txtRoleName)}</td>
-        </tr>
+        </tr>`}
       </table>
       </div>
     </div>
@@ -1175,7 +1204,33 @@ export class ApplicationPdfService {
       return entry || null;
     };
 
-    const buildSignatureSlots = (): { label: string; html: string; time: string }[] => {
+    const buildSignatureSlots = (): { nameText: string; designationText: string; departmentText: string; html: string; time: string }[] => {
+      const staticLabels = [
+        'User Deptt. (HoD)',
+        'Technical Expert',
+        'Procurement',
+        'Finance',
+        'Core Team HTR. / CCT HO'
+      ];
+      const getNameText = (entry: any): string => {
+        return (
+          entry?.approverName ||
+          entry?.approvedByName ||
+          entry?.userName ||
+          (entry?.approvedBy && isNaN(Number(entry.approvedBy)) ? String(entry.approvedBy) : '') ||
+          ''
+        );
+      };
+      const getDesignationText = (entry: any): string => {
+        return (
+          entry?.txtDesignation ||
+          entry?.designation ||
+          entry?.approverDesignation ||
+          entry?.role ||
+          ''
+        );
+      };
+
       const sortedPipelines = Array.isArray(pipelines)
         ? [...pipelines].sort((a: any, b: any) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0))
         : [];
@@ -1190,6 +1245,9 @@ export class ApplicationPdfService {
         ];
         return fallback.map((f) => {
           const entry = getApprovalEntryForPipeline(f.order);
+          const nameText = getNameText(entry);
+          const designationText = getDesignationText(entry);
+          const departmentText = f.label;
           const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
           const hasSignature = !!entry?.signaturePath;
           const signatureUrl = userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '';
@@ -1202,20 +1260,17 @@ export class ApplicationPdfService {
               return String(entry.approvedDate);
             }
           })() : '';
-          return { label: f.label, html, time };
+          return { nameText, designationText, departmentText, html, time };
         });
       }
 
-      return sortedPipelines.map((pipeline: any, index: number) => {
+      return sortedPipelines.slice(0, staticLabels.length).map((pipeline: any, index: number) => {
         const order = pipeline.intApprovalOrder || (index + 1);
         const departmentId = pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId || pipeline.departmentId;
         const entry = getApprovalEntryForPipeline(order, departmentId);
-        const label =
-          pipeline.hrTblDepartment?.txtDepartmentName ||
-          pipeline.departmentName ||
-          pipeline.txtDepartmentName ||
-          entry?.departmentName ||
-          `Department ${order}`;
+        const nameText = getNameText(entry);
+        const designationText = getDesignationText(entry);
+        const departmentText = staticLabels[index] || `Department ${order}`;
         const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
         const hasSignature = !!entry?.signaturePath;
         const signatureUrl = userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '';
@@ -1228,7 +1283,7 @@ export class ApplicationPdfService {
             return String(entry.approvedDate);
           }
         })() : '';
-        return { label, html, time };
+        return { nameText, designationText, departmentText, html, time };
       });
     };
 
@@ -1749,6 +1804,16 @@ export class ApplicationPdfService {
       margin-bottom: 2px;
       line-height: 1.1;
       white-space: nowrap;
+    }
+
+    .sig-meta {
+      font-size: 10px;
+      text-align: center;
+      margin-bottom: 2px;
+      line-height: 1.1;
+      white-space: normal;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
     }
 
     .sig-name {
@@ -2300,7 +2365,9 @@ export class ApplicationPdfService {
             <div class="sig">
               <div class="sig-line">${slot.html}</div>
               ${slot.html && slot.time ? '<div class="sig-time">' + escapeHtml(slot.time) + '</div>' : ''}
-              <div class="sig-label">${escapeHtml(slot.label)}</div>
+              ${slot.nameText ? '<div class="sig-meta">' + escapeHtml(slot.nameText) + '</div>' : ''}
+              ${slot.designationText ? '<div class="sig-meta">' + escapeHtml(slot.designationText) + '</div>' : ''}
+              <div class="sig-label">${escapeHtml(slot.departmentText)}</div>
             </div>
           `).join('')}
         </div>
@@ -2396,7 +2463,8 @@ export class ApplicationPdfService {
     preparedBy?: any,
     reviewers?: any[],
     recommenders?: any[],
-    approver?: any
+    approver?: any,
+    footerFields?: any[]
   } {
     const escapeHtml = (text: string): string => {
       if (text === null || text === undefined) return '';
@@ -2458,7 +2526,8 @@ export class ApplicationPdfService {
       preparedBy: applicationFormData?.preparedBy,
       reviewers: applicationFormData?.reviewers || [],
       recommenders: applicationFormData?.recommenders || [],
-      approver: applicationFormData?.approver
+      approver: applicationFormData?.approver,
+      footerFields: applicationFormData?.footerFields || []
     };
 
     if (rawHtml) {

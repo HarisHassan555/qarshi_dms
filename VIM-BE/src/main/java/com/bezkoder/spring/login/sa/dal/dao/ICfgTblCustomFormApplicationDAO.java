@@ -31,7 +31,7 @@ public interface ICfgTblCustomFormApplicationDAO {
 
     String approveApplication(Integer applicationId, String remarks);
 
-    String approveApplication(Integer applicationId, String remarks, Integer approverUserId, String approvedVia);
+    String approveApplication(Integer applicationId, String remarks, Integer approverUserId, String approvedVia, String approvedIp);
 
     String rejectApplication(Integer applicationId, String remarks);
 

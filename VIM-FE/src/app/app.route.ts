@@ -74,6 +74,7 @@ import { OrderDetailComponent } from "./order-detail/edit";
 import { BudgetApprovalComponent } from './components/budget-approval/budget-approval.component';
 import { BudgetApprovalViewComponent } from './components/budget-approval-view/budget-approval-view.component';
 import { XyzComponent } from './pages/xyz/xyz.component';
+import { CustomDocumentBuilderComponent } from './components/custom-document-builder/custom-document-builder.component';
 
 
 export const routes: Routes = [
@@ -159,6 +160,7 @@ export const routes: Routes = [
             { path: 'budget-approval', component: BudgetApprovalComponent, title: 'Budget Approval' },
             { path: 'budgetapprovalview', component: BudgetApprovalViewComponent, title: 'Budget Approval View' },
             { path: 'xyz', component: XyzComponent, title: 'XYZ' },
+            { path: 'custom-document-builder', component: CustomDocumentBuilderComponent, title: 'Custom Document Builder' },
 
 
 

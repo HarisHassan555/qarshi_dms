@@ -141,6 +141,7 @@ import { BudgetApprovalViewComponent } from './components/budget-approval-view/b
 import { XyzComponent } from './pages/xyz/xyz.component';
 import { AbcComponent } from './pages/abc/abc.component';
 import { FormDocumentHeaderComponent } from './components/form-document-header/form-document-header.component';
+import { CustomDocumentBuilderComponent } from './components/custom-document-builder/custom-document-builder.component';
 
 
 @NgModule({
@@ -256,8 +257,8 @@ import { FormDocumentHeaderComponent } from './components/form-document-header/f
         BudgetApprovalComponent,
         BudgetApprovalViewComponent,
         XyzComponent,
-        FormDocumentHeaderComponent
-
+        FormDocumentHeaderComponent,
+        CustomDocumentBuilderComponent
     ],
 
     providers: [
@@ -287,5 +288,5 @@ export class AppModule { }
 
 // AOT compilation support
 export function httpTranslateLoader(http: HttpClient) {
-    return new TranslateHttpLoader(http);
+    return new TranslateHttpLoader(http, './assets/i18n/', '.json');
 }

@@ -53,8 +53,21 @@ export class SidebarComponent {
                     console.log('User', data);
                     this.user = data;
                     this.getMenus();
+                } else {
+                    this.user = this.getUserFromLocalStorage();
+                    this.getMenus();
                 }
         });
+    }
+
+    private getUserFromLocalStorage(): any {
+        const userJson = localStorage.getItem('user');
+        if (!userJson) return null;
+        try {
+            return JSON.parse(userJson);
+        } catch {
+            return null;
+        }
     }
 
     loadPermissionRoles(roleId: number | undefined, userId: number): Observable<any> {
@@ -130,18 +143,17 @@ export class SidebarComponent {
 
         if (this.menus && this.menus.length) return;
 
-        const userJson = localStorage.getItem('user');
-        let user: {
-            cfgTblRole: number | undefined;
-            serUserId: number;
-        };
-
-        if (userJson) {
-            // @ts-ignore
-            user = JSON.parse(userJson) as CfgTblUser;
+        const user = this.getUserFromLocalStorage();
+        if (!this.user && user) {
+            this.user = user;
+        }
+        if (!user?.cfgTblRole?.serRoleId || !user?.serUserId) {
+            console.warn('Sidebar menus not loaded: missing user role/userId');
+            this.menus = [];
+            this.isDashboardPresent = false;
+            return;
         }
 
-        // @ts-ignore
         this.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).pipe(
             switchMap(() => {
                 return this.menuService.getUserMenus();
@@ -153,7 +165,8 @@ export class SidebarComponent {
                     if (this.isSubMenuExist(menu.subMenus)) {
                         menu.subMenus = menu.subMenus.filter((sm: any) =>
                             this.subMenuRoles.some((role: any) =>
-                                role.cfgTblSubMenu.serSubMenuId === sm.subMenuId && role.blIsEnabled === true
+                                Number(role?.cfgTblSubMenu?.serSubMenuId) === Number(sm?.subMenuId ?? sm?.serSubMenuId) &&
+                                this.isSubMenuEnabled(role)
                             )
                         );
                         menu.subMenus.sort((a: any, b: any) => a.submenuOrder - b.submenuOrder);
@@ -230,7 +243,7 @@ export class SidebarComponent {
     }*/
 
     isSubMenuExist(subMenus: any) {
-        return Object.keys(subMenus).length ? true : false;
+        return !!subMenus && Object.keys(subMenus).length > 0;
     }
 
     /*canViewMenu(roles: any) {
@@ -240,12 +253,36 @@ export class SidebarComponent {
     }*/
 
     canViewMenu(roles: string): boolean {
-        const userRole = 'ROLE_' + this.user.txtrole;
+        const roleName =
+            this.user?.txtrole ||
+            this.user?.cfgTblRole?.txtRoleName ||
+            this.user?.cfgTblRole?.txtrole ||
+            '';
+        const userRole = roleName ? ('ROLE_' + String(roleName).trim().toUpperCase()) : '';
         if (!roles) {
+            return true;
+        }
+        if (!userRole) {
             return true;
         }
         const requiredRoles = roles.split(',').map(role => role.trim());
         return requiredRoles.some(role => role === userRole);
+    }
+
+    private isSubMenuEnabled(role: any): boolean {
+        if (!role) return false;
+        const enabled = role?.blIsEnabled;
+        if (enabled === true || enabled === 1 || enabled === 'true') return true;
+        // Fallback for payloads that don't send blIsEnabled reliably.
+        return role?.blnStatus === true || role?.blIsActive === true;
+    }
+
+    getDisplaySubMenuName(name: string): string {
+        const label = (name || '').trim().toLowerCase();
+        if (label === 'budget approval') {
+            return 'Document Builder';
+        }
+        return name || '';
     }
 
 }

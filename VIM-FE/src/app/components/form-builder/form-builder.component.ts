@@ -63,7 +63,8 @@ export class FormBuilderComponent implements OnInit {
     { value: 'select', label: 'Select' },
     { value: 'checkbox', label: 'Checkbox' },
     { value: 'radio', label: 'Radio' },
-    { value: 'table', label: 'Table' }
+    { value: 'table', label: 'Table' },
+    { value: 'footer', label: 'Footer (Approval Pipeline)' }
   ];
 
   cols = [
@@ -193,8 +194,9 @@ export class FormBuilderComponent implements OnInit {
 
   onTypeChange(index: number) {
     const field = this.fields.at(index);
-    if (field.get('type')?.value === 'word_editor') {
-      field.get('label')?.setValue('Word Editor');
+    const type = field.get('type')?.value;
+    if (type === 'word_editor' || type === 'footer') {
+      field.get('label')?.setValue(type === 'word_editor' ? 'Word Editor' : 'Form Footer');
       field.get('label')?.clearValidators();
       field.get('label')?.updateValueAndValidity();
     } else {
@@ -406,7 +408,7 @@ export class FormBuilderComponent implements OnInit {
       }
       
       const fieldForm = this.fb.group({
-        label: [field.label, field.type === 'word_editor' ? [] : [Validators.required]],
+        label: [field.label, (field.type === 'word_editor' || field.type === 'footer') ? [] : [Validators.required]],
         type: [field.type, Validators.required],
         required: [field.required || false],
         placeholder: [field.placeholder || ''],

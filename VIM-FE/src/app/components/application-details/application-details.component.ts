@@ -5,6 +5,7 @@ import { CustomFormApplicationService } from '../../services/custom-form-applica
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
 import { DepartmentService } from '../../services/department/department.service';
 import { NotificationService } from 'src/app/NotificationService';
+import { UserService } from 'src/app/services/user/user.service';
 import { AbcComponent } from '../../pages/abc/abc.component';
 import { urls } from 'src/app/utils/urls';
 import { finalize, firstValueFrom } from 'rxjs';
@@ -23,14 +24,15 @@ export class ApplicationDetailsComponent implements OnInit {
   isLoading: boolean = true;
   approvalHistory: any[] = []; // Store approval history with remarks
   departmentNameMap: Map<number, string> = new Map();
+  departmentHeadMap: Map<number, number> = new Map();
+  userNameMap: Map<number, string> = new Map();
   currentUser: any = null;
 
   // PDF Generation
   isGeneratingPdf: boolean = false;
   pdfBlobUrl: string | null = null;
 
-  // Approval Summary Modal
-  showSummaryModal: boolean = false;
+
   fromPendingApprovals: boolean = false;
   selectedApplicationForRemarks: any = null;
   remarksText: string = '';
@@ -284,6 +286,7 @@ export class ApplicationDetailsComponent implements OnInit {
     private customFormApplicationService: CustomFormApplicationService,
     private customFormService: CustomFormService,
     private departmentService: DepartmentService,
+    private userService: UserService,
     private notificationService: NotificationService,
     private sanitizer: DomSanitizer
   ) { }
@@ -313,6 +316,7 @@ export class ApplicationDetailsComponent implements OnInit {
     this.route.queryParamMap.subscribe(params => {
       this.fromPendingApprovals = params.get('from') === 'pending';
     });
+    this.loadUsers();
   }
 
   loadForms() {
@@ -333,20 +337,46 @@ export class ApplicationDetailsComponent implements OnInit {
       (data: any) => {
         if (Array.isArray(data)) {
           const map = new Map<number, string>();
+          const headMap = new Map<number, number>();
           data.forEach((d: any) => {
             const id = d?.serDepartmentId;
             const name = d?.txtDepartmentName;
             if (id != null && name) {
               map.set(Number(id), String(name));
             }
+            const headId = d?.serDepartmentHeadId;
+            if (id != null && headId != null) {
+              headMap.set(Number(id), Number(headId));
+            }
           });
           this.departmentNameMap = map;
+          this.departmentHeadMap = headMap;
           this.enrichPipelineWithDepartmentNames();
           this.applyDepartmentNamesToApprovalHistory();
         }
       },
       (error) => {
         console.error('Error loading departments:', error);
+      }
+    );
+  }
+
+  loadUsers() {
+    this.userService.getUsers().subscribe(
+      (data: any) => {
+        if (!Array.isArray(data)) return;
+        const map = new Map<number, string>();
+        data.forEach((u: any) => {
+          const id = u?.serUserId ?? u?.userId ?? u?.id;
+          const name = u?.txtUserName ?? u?.userName ?? u?.name;
+          if (id != null && name) {
+            map.set(Number(id), String(name));
+          }
+        });
+        this.userNameMap = map;
+      },
+      (error) => {
+        console.error('Error loading users:', error);
       }
     );
   }
@@ -869,6 +899,41 @@ export class ApplicationDetailsComponent implements OnInit {
     return '';
   }
 
+  // Get signature for a department
+  getDepartmentSignature(pipelineOrder: number, departmentId?: number): string {
+    if (!this.isDepartmentApproved(pipelineOrder)) {
+      return '';
+    }
+
+    if (this.approvalHistory && this.approvalHistory.length > 0) {
+      let historyEntry = null;
+
+      if (departmentId) {
+        historyEntry = this.approvalHistory.find((entry: any) =>
+          entry.level === pipelineOrder && entry.departmentId === departmentId
+        );
+      }
+
+      if (!historyEntry) {
+        historyEntry = this.approvalHistory.find((entry: any) =>
+          entry.level === pipelineOrder
+        );
+      }
+
+      if (!historyEntry && departmentId) {
+        historyEntry = this.approvalHistory.find((entry: any) =>
+          entry.departmentId === departmentId
+        );
+      }
+
+      if (historyEntry && historyEntry.signature) {
+        return historyEntry.signature;
+      }
+    }
+
+    return '';
+  }
+
   // Get pipeline data from application details
   getPipelineData(): any[] {
     if (!this.applicationDetails || !this.applicationDetails.cfgTblCustomForm) {
@@ -938,13 +1003,7 @@ export class ApplicationDetailsComponent implements OnInit {
     ).length;
   }
 
-  openSummaryModal() {
-    this.showSummaryModal = true;
-  }
 
-  closeSummaryModal() {
-    this.showSummaryModal = false;
-  }
 
   showApprovalActions(): boolean {
     if (!this.fromPendingApprovals || !this.applicationDetails) return false;
@@ -1167,6 +1226,11 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   getPipelineDepartmentName(pipeline: any, index: number): string {
+    if (this.isCapfForm()) {
+      const order = pipeline?.intApprovalOrder || (index + 1);
+      const capfUser = this.getCapfUserNameForStage(order);
+      if (capfUser) return capfUser;
+    }
     if (!pipeline) return `Department ${index + 1}`;
     const directName =
       pipeline.hrTblDepartment?.txtDepartmentName ||
@@ -1187,27 +1251,80 @@ export class ApplicationDetailsComponent implements OnInit {
 
   // Get approver name for a stage
   getStageApproverName(pipelineOrder: number, departmentId?: number): string {
+    if (this.isCapfForm()) {
+      const capfUser = this.getCapfUserNameForStage(pipelineOrder);
+      if (capfUser) return capfUser;
+    }
     const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
     if (entry) {
       return entry.approverName || entry.approvedBy || entry.userName || '';
     }
+    if (departmentId != null) {
+      const headId = this.departmentHeadMap.get(Number(departmentId));
+      if (headId != null) {
+        const headName = this.userNameMap.get(Number(headId));
+        if (headName) return headName;
+      }
+    }
     return '';
+  }
+
+  // Get approver designation for a stage
+  getStageApproverDesignation(pipelineOrder: number, departmentId?: number): string {
+    const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
+    if (entry) {
+      return entry.txtDesignation || entry.designation || '';
+    }
+    return '';
+  }
+
+  // Get approver department for a stage
+  getStageApproverDepartment(pipelineOrder: number, departmentId?: number): string {
+    const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
+    if (entry) {
+      return entry.departmentName || entry.txtDepartmentName || '';
+    }
+    return '';
+  }
+
+  private getCapfUserNameForStage(order: number): string {
+    if (!order || !this.applicationFormData) return '';
+    const names: string[] = [];
+    const preparedBy = this.applicationFormData?.preparedBy;
+    if (preparedBy) {
+      const name = preparedBy.txtUserName || preparedBy.userName || preparedBy.name;
+      if (name) names.push(String(name));
+    }
+    const reviewers = Array.isArray(this.applicationFormData?.reviewers) ? this.applicationFormData.reviewers : [];
+    reviewers.forEach((u: any) => {
+      const name = u?.txtUserName || u?.userName || u?.name;
+      if (name) names.push(String(name));
+    });
+    const recommenders = Array.isArray(this.applicationFormData?.recommenders) ? this.applicationFormData.recommenders : [];
+    recommenders.forEach((u: any) => {
+      const name = u?.txtUserName || u?.userName || u?.name;
+      if (name) names.push(String(name));
+    });
+    const approver = this.applicationFormData?.approver;
+    if (approver) {
+      const name = approver.txtUserName || approver.userName || approver.name;
+      if (name) names.push(String(name));
+    }
+    const idx = Number(order) - 1;
+    return idx >= 0 && idx < names.length ? names[idx] : '';
   }
 
   // Get approved via channel
   getStageApprovedVia(pipelineOrder: number, departmentId?: number): string {
     const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
     if (entry) {
-      return entry.approvedVia || entry.channel || entry.via || 'System';
+      return entry.approvedIp || entry.ipAddress || entry.ip || '--';
     }
     return '';
   }
 
   formatApprovedVia(via: string): string {
     if (!via) return '';
-    const v = via.toString().trim().toUpperCase();
-    if (v === 'EMAIL' || v === 'MAIL') return 'Email';
-    if (v === 'SYSTEM' || v === 'TEMPLATE' || v === 'APP') return 'System';
     return via;
   }
 
@@ -1298,42 +1415,7 @@ export class ApplicationDetailsComponent implements OnInit {
     return `${mins}m`;
   }
 
-  getWorkflowSummaryHtml(pipelines: any[]): string {
-    if (!pipelines || pipelines.length === 0) {
-      return 'No approval pipeline configured for this form.';
-    }
 
-    const approved = this.countStages(pipelines, 'APPROVED');
-    const rejected = this.countStages(pipelines, 'REJECTED');
-    const current = this.countStages(pipelines, 'CURRENT');
-    const pending = this.countStages(pipelines, 'PENDING');
-
-    let maxDurationMs = -1;
-    let maxDeptName = '';
-    let maxDeptStatus = '';
-
-    pipelines.forEach((p: any, i: number) => {
-      const dur = this.getStageDurationMs(i, pipelines);
-      if (dur !== null && dur > maxDurationMs) {
-        maxDurationMs = dur;
-        maxDeptName = this.getPipelineDepartmentName(p, i);
-        maxDeptStatus = this.getStageStatus(p.intApprovalOrder || (i + 1), p.hrTblDepartment?.serDepartmentId);
-      }
-    });
-
-    const slowestText = maxDurationMs > -1
-      ? `<strong>Slowest:</strong> ${maxDeptName} • ${this.formatDuration(maxDurationMs)}`
-      : `<strong>Slowest:</strong> n/a`;
-
-    const currentDept = pipelines.find((p: any, i: number) =>
-      this.getStageStatus(p.intApprovalOrder || (i + 1), p.hrTblDepartment?.serDepartmentId) === 'CURRENT'
-    );
-    const currentDeptName = currentDept ? this.getPipelineDepartmentName(currentDept, pipelines.indexOf(currentDept)) : '';
-    const currentText = currentDeptName ? `<strong>Current:</strong> ${currentDeptName}` : `<strong>Current:</strong> n/a`;
-
-    const stats = `<strong>Approved:</strong> ${approved} <strong>Rejected:</strong> ${rejected} <strong>Pending:</strong> ${pending}`;
-    return `${currentText} — ${slowestText}. ${stats}`;
-  }
 
   isBudgetApprovalForm(): boolean {
     if (!this.applicationDetails) return false;

@@ -11,9 +11,38 @@
             
             <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Department
+                </label>
+                <input
+                    type="text"
+                    class="form-input"
+                    placeholder="Enter department"
+                    [value]="department"
+                    (input)="onDepartmentInput($event)"
+                    [disabled]="isLoading"
+                />
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Designation
+                </label>
+                <input
+                    type="text"
+                    class="form-input"
+                    placeholder="Enter designation"
+                    [value]="designation"
+                    (input)="onDesignationInput($event)"
+                    [disabled]="isLoading"
+                />
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Select Image File
                 </label>
                 <input 
+                    #signatureFileInput
                     type="file" 
                     accept="image/*" 
                     (change)="onFileSelected($event)"
@@ -25,23 +54,23 @@
                 </p>
             </div>
 
-            <div *ngIf="selectedFile" class="mb-4">
-                <button 
-                    type="button" 
+            <div class="mb-4 action-buttons">
+                <button
+                    type="button"
                     class="btn btn-primary"
-                    (click)="uploadSignature()"
+                    (click)="onSave()"
                     [disabled]="isLoading"
                 >
-                    <span *ngIf="!isLoading">Upload Signature</span>
-                    <span *ngIf="isLoading">Uploading...</span>
+                    <span *ngIf="!isLoading">Save</span>
+                    <span *ngIf="isLoading">Saving...</span>
                 </button>
                 <button 
                     type="button" 
-                    class="btn btn-secondary ml-2"
-                    (click)="removeFile()"
+                    class="btn btn-secondary"
+                    (click)="onReset()"
                     [disabled]="isLoading"
                 >
-                    Cancel
+                    Reset
                 </button>
             </div>
         </div>
@@ -95,12 +124,3 @@
         </ul>
     </div>
 </div>
-
-
-
-
-
-
-
-
-

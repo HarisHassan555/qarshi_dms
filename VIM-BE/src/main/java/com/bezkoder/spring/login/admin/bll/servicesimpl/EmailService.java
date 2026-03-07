@@ -225,10 +225,19 @@ public class EmailService {
             if (imageBytes != null && imageBytes.length > 0) {
                 String mime = imageMime != null ? imageMime : "image/png";
                 String cid = imageContentId != null ? imageContentId : "inline-image";
+                
+                String fileName = "capf.png";
+                if (subject != null) {
+                    java.util.regex.Matcher m = java.util.regex.Pattern.compile("(CAPF-\\d+)").matcher(subject);
+                    if (m.find()) {
+                        fileName = m.group(1) + ".png";
+                    }
+                }
+                
                 DataSource dataSource = new ByteArrayDataSource(imageBytes, mime);
                 MimeBodyPart imagePart = new MimeBodyPart();
                 imagePart.setDataHandler(new DataHandler(dataSource));
-                imagePart.setFileName("capf.png");
+                imagePart.setFileName(fileName);
                 imagePart.setDisposition(MimeBodyPart.INLINE);
                 imagePart.setHeader("Content-ID", "<" + cid + ">");
                 multipart.addBodyPart(imagePart);
@@ -281,10 +290,19 @@ public class EmailService {
             if (imageBytes != null && imageBytes.length > 0) {
                 String mime = imageMime != null ? imageMime : "image/png";
                 String cid = imageContentId != null ? imageContentId : "inline-image";
+                
+                String fileName = "inline.png";
+                if (subject != null) {
+                    java.util.regex.Matcher m = java.util.regex.Pattern.compile("(CAPF-\\d+)").matcher(subject);
+                    if (m.find()) {
+                        fileName = m.group(1) + ".png";
+                    }
+                }
+                
                 DataSource dataSource = new ByteArrayDataSource(imageBytes, mime);
                 MimeBodyPart imagePart = new MimeBodyPart();
                 imagePart.setDataHandler(new DataHandler(dataSource));
-                imagePart.setFileName("inline.png");
+                imagePart.setFileName(fileName);
                 imagePart.setDisposition(MimeBodyPart.INLINE);
                 imagePart.setHeader("Content-ID", "<" + cid + ">");
                 related.addBodyPart(imagePart);
