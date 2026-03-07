@@ -1521,6 +1521,10 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 form = emailEntityManager.find(CfgTblCustomForm.class, application.getSerFormId());
             }
             boolean isCapf = isCapfForm(form);
+            log.info("Email debug [sendApprovalEmails]: appId={}, isCapf={}, formName={}, formCode={}", 
+                     application.getSerApplicationId(), isCapf, 
+                     form != null ? form.getTxtFormName() : "null", 
+                     form != null ? form.getTxtFormCode() : "null");
             
             // Get form name
             if (form != null && form.getTxtFormName() != null) {
@@ -1554,10 +1558,18 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                         
                         if (isCapf) {
                             String cid = "capf-inline";
+                            log.info("Email debug [sendApprovalEmails]: Building CAPF preview for Submitter");
                             byte[] imageBytes = buildCapfPreviewPng(application, form);
-                            submitterHtmlMessage = appendCapfInlineImage(submitterHtmlMessage, cid);
-                            emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
-                                submitterSubject, submitterHtmlMessage, imageBytes, "image/png", cid);
+                            if (imageBytes != null && imageBytes.length > 0) {
+                                submitterHtmlMessage = appendCapfInlineImage(submitterHtmlMessage, cid);
+                                emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
+                                    submitterSubject, submitterHtmlMessage, imageBytes, "image/png", cid);
+                                log.info("Approval email with image preview sent to submitter: " + submittedByUser.getTxtAddress());
+                            } else {
+                                log.warn("CAPF image preview failed generation for submitter approval email: " + submittedByUser.getTxtAddress());
+                                emailService.sendHtmlEmail(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
+                                    submitterSubject, submitterHtmlMessage);
+                            }
                         } else if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
                             emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
                                 submitterSubject, submitterHtmlMessage,
@@ -1643,10 +1655,18 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                         
                                         if (isCapf) {
                                             String cid = "capf-inline";
+                                            log.info("Email debug [sendApprovalEmails]: Building CAPF preview for Next Dept Head");
                                             byte[] imageBytes = buildCapfPreviewPng(application, form);
-                                            deptHeadHtmlMessage = appendCapfInlineImage(deptHeadHtmlMessage, cid);
-                                            emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
-                                                deptHeadSubject, deptHeadHtmlMessage, imageBytes, "image/png", cid);
+                                            if (imageBytes != null && imageBytes.length > 0) {
+                                                deptHeadHtmlMessage = appendCapfInlineImage(deptHeadHtmlMessage, cid);
+                                                emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
+                                                    deptHeadSubject, deptHeadHtmlMessage, imageBytes, "image/png", cid);
+                                                log.info("Approval notification email with image preview sent to next level department head: " + nextDeptHead.getTxtAddress());
+                                            } else {
+                                                log.warn("CAPF image preview failed generation for next level dept head email: " + nextDeptHead.getTxtAddress());
+                                                emailService.sendHtmlEmail(java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
+                                                    deptHeadSubject, deptHeadHtmlMessage);
+                                            }
                                         } else if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
                                             emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(nextDeptHead.getTxtAddress()), 
                                                 deptHeadSubject, deptHeadHtmlMessage,
@@ -1702,6 +1722,11 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 formName = form.getTxtFormName();
             }
 
+            boolean isCapf = isCapfForm(form);
+            log.info("Email debug [sendSubmissionEmails]: appId={}, isCapf={}, formName={}, formCode={}", 
+                     application.getSerApplicationId(), isCapf, formName, 
+                     application.getTxtFormCode() != null ? application.getTxtFormCode() : "null");
+            
             boolean isBudgetApproval = isBudgetApprovalForm(form);
             
             // Get approval pipeline from form
@@ -1740,9 +1765,24 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                             application.getDteCreatedDate() != null ? application.getDteCreatedDate().toString() : "N/A"
                         );
                         
-                        emailService.sendHtmlEmail(java.util.Arrays.asList(submittedByUser.getTxtAddress()), 
-                                                  submitterSubject, submitterHtmlMessage);
-                        log.info("Submission confirmation email sent to submitter: " + submittedByUser.getTxtAddress());
+                        if (isCapf) {
+                            String cid = "capf-inline";
+                            byte[] imageBytes = buildCapfPreviewPng(application, form);
+                            if (imageBytes != null && imageBytes.length > 0) {
+                                submitterHtmlMessage = appendCapfInlineImage(submitterHtmlMessage, cid);
+                                emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
+                                    submitterSubject, submitterHtmlMessage, imageBytes, "image/png", cid);
+                                log.info("Submission confirmation email with image preview sent to submitter: " + submittedByUser.getTxtAddress());
+                            } else {
+                                log.warn("CAPF image preview failed generation for submitter email: " + submittedByUser.getTxtAddress());
+                                emailService.sendHtmlEmail(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
+                                    submitterSubject, submitterHtmlMessage);
+                            }
+                        } else {
+                            emailService.sendHtmlEmail(java.util.Arrays.asList(submittedByUser.getTxtAddress()), 
+                                                      submitterSubject, submitterHtmlMessage);
+                            log.info("Submission confirmation email sent to submitter: " + submittedByUser.getTxtAddress());
+                        }
                     }
                     emailEntityManager.getTransaction().commit();
                 } catch (Exception e) {
@@ -1835,10 +1875,18 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                     
                                     if (isCapfForm(form)) {
                                         String cid = "capf-inline";
+                                        log.info("Email debug [sendSubmissionEmails]: Building CAPF preview for Dept Head");
                                         byte[] imageBytes = buildCapfPreviewPng(application, form);
-                                        deptHeadHtmlMessage = appendCapfInlineImage(deptHeadHtmlMessage, cid);
-                                        emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(firstDeptHead.getTxtAddress()),
-                                            deptHeadSubject, deptHeadHtmlMessage, imageBytes, "image/png", cid);
+                                        if (imageBytes != null && imageBytes.length > 0) {
+                                            deptHeadHtmlMessage = appendCapfInlineImage(deptHeadHtmlMessage, cid);
+                                            emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(firstDeptHead.getTxtAddress()),
+                                                deptHeadSubject, deptHeadHtmlMessage, imageBytes, "image/png", cid);
+                                            log.info("Submission notification email with image preview sent to first level department head: " + firstDeptHead.getTxtAddress());
+                                        } else {
+                                            log.warn("CAPF image preview failed generation for dept head email: " + firstDeptHead.getTxtAddress());
+                                            emailService.sendHtmlEmail(java.util.Arrays.asList(firstDeptHead.getTxtAddress()),
+                                                deptHeadSubject, deptHeadHtmlMessage);
+                                        }
                                     } else if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
                                         emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(firstDeptHead.getTxtAddress()), 
                                             deptHeadSubject, deptHeadHtmlMessage,
@@ -3493,8 +3541,14 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         if (form == null) return false;
         String name = form.getTxtFormName();
         String code = form.getTxtFormCode();
-        if (name != null && name.toLowerCase().contains("capf")) return true;
-        if (code != null && code.toLowerCase().startsWith("capf")) return true;
+        if (name != null) {
+            String lower = name.toLowerCase();
+            if (lower.contains("capf") || lower.contains("capital assets purchase")) return true;
+        }
+        if (code != null) {
+            String lower = code.toLowerCase();
+            if (lower.startsWith("capf") || lower.contains("capf")) return true;
+        }
         return false;
     }
 
@@ -4391,9 +4445,9 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
             Float approvedByY = anchors.get("approvedBy");
 
             java.util.List<Float> candidates = new java.util.ArrayList<>();
-            if (userDeptY != null) candidates.add(userDeptY + 26f);
+            if (userDeptY != null) candidates.add(userDeptY + 32f);
             if (thirdPartyY != null) candidates.add(thirdPartyY - 48f);
-            if (approvedByY != null) candidates.add(approvedByY + 72f);
+            if (approvedByY != null) candidates.add(approvedByY + 76f);
 
             Float anchoredSigRowY = null;
             if (!candidates.isEmpty()) {
@@ -4424,8 +4478,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     private void drawCapfSignatureImages(PDPageContentStream content, float x, float y, float width,
                                          String approvalHistoryJson, PDDocument document, Float anchoredSigRowY,
                                          List<Map<String, Object>> pipelines) throws java.io.IOException {
-        float colWidth = width / 6f;
-        float sigHeight = 18f;
+        float colWidth = width / 5f;
+        float sigHeight = 22f;
         float sigRowY = anchoredSigRowY != null ? anchoredSigRowY : (y - sigHeight);
 
         List<Map<String, Object>> approvalHistory = parseApprovalHistory(approvalHistoryJson);
@@ -4448,16 +4502,16 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         Map<Integer, String> signatureFromDb = loadUserSignaturePaths(approvedUserIds);
         Map<Integer, UserSignatureMeta> userMeta = loadUserSignatureMeta(approvedUserIds);
 
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 5; i++) {
             Map<String, Object> entry = mapped[i];
             String sigPath = null;
             Integer approvedBy = null;
             if (entry != null) {
                 approvedBy = extractApprovalUserId(entry);
-                if (approvedBy != null && signatureFromDb.containsKey(approvedBy)) {
-                    sigPath = signatureFromDb.get(approvedBy);
-                } else if (entry.get("signaturePath") != null) {
+                if (entry.get("signaturePath") != null && !String.valueOf(entry.get("signaturePath")).trim().isEmpty()) {
                     sigPath = String.valueOf(entry.get("signaturePath"));
+                } else if (approvedBy != null && signatureFromDb.containsKey(approvedBy)) {
+                    sigPath = signatureFromDb.get(approvedBy);
                 }
             }
             log.info("CAPF signature log [overlay-slot]: slot={}, approvedBy={}, level={}, order={}, entrySignaturePath={}, resolvedSignaturePath={}",
@@ -4491,12 +4545,12 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
                         (entry != null && entry.get("txtDepartmentName") != null ? String.valueOf(entry.get("txtDepartmentName")) : ""));
 
         // Keep metadata centered and high enough so it stays above printed slot labels.
-        float metaFont = 7.0f;
-        float  dateY = sigRowY - 2.5f;
-        float nameY = dateY - 6.8f;
-        float desigY = nameY - 6.8f;
-        float deptY = desigY - 6.8f;
-        float maxW = colWidth - 10f;
+        float metaFont = 6.5f;
+        float dateY = sigRowY - 3.5f;
+        float nameY = dateY - 6.0f;
+        float desigY = nameY - 6.0f;
+        float deptY = desigY - 6.0f;
+        float maxW = colWidth - 8f;
 
         content.setFont(PDType1Font.HELVETICA, metaFont);
         if (dateText != null && !dateText.trim().isEmpty()) {
