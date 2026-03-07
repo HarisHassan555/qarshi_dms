@@ -10,6 +10,8 @@ import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomer;
 import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 import javax.persistence.*;
+import org.hibernate.annotations.NotFound;
+import org.hibernate.annotations.NotFoundAction;
 
 import java.sql.Timestamp;
 import java.util.Date;
@@ -248,6 +250,7 @@ public class CfgTblUser implements Serializable {
 
 	@ManyToOne
 	@JoinColumn(name = "ser_role_id")
+	@NotFound(action = NotFoundAction.IGNORE)
 	private CfgTblRole cfgTblRole;
 	
 	

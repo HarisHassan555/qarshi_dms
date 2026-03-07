@@ -3,6 +3,9 @@ package com.bezkoder.spring.login.admin.dal.entities;
 import java.io.Serializable;
 import javax.persistence.*;
 import java.sql.Timestamp;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import org.hibernate.annotations.NotFound;
+import org.hibernate.annotations.NotFoundAction;
 
 
 /**
@@ -41,9 +44,11 @@ public class CfgTblUserRole implements Serializable {
 	//bi-directional many-to-one association to CfgTblRole
 	@ManyToOne
 	@JoinColumn(name="ser_role_id")
+	@NotFound(action = NotFoundAction.IGNORE)
 	private CfgTblRole cfgTblRole;
 
 	//bi-directional many-to-one association to CfgTblUser
+	@JsonIgnore
 	@ManyToOne
 	@JoinColumn(name="ser_user_id")
 	private CfgTblUser cfgTblUser;

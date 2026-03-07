@@ -30,15 +30,7 @@
                 </button>
             </div>
             <div class="flex flex-wrap gap-2 justify-end">
-                <!-- <button (click)="openSummaryModal()" class="btn btn-outline-info gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="12" y1="8" x2="12" y2="12" />
-                        <line x1="12" y1="16" x2="12.01" y2="16" />
-                    </svg>
-                    View Summary
-                </button> -->
+
                 <button *ngIf="showFeasibilityReportButton()" (click)="openFeasibilityReport()"
                     class="btn btn-outline-secondary gap-2">
                     <icon-file class="w-4 h-4" />
@@ -525,195 +517,14 @@
     </ng-template>
 </modal>
 
-<!-- ═══════════ APPROVAL SUMMARY MODAL ═══════════ -->
-<div *ngIf="showSummaryModal" class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-    (click)="closeSummaryModal()">
 
-    <!-- Backdrop -->
-    <div class="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"></div>
-
-    <!-- Modal Panel -->
-    <div class="relative w-full max-w-3xl max-h-[85vh] flex flex-col rounded-xl shadow-2xl
-                bg-white dark:bg-[#0e1726] border border-gray-100 dark:border-[#1b2e4b] overflow-hidden"
-        (click)="$event.stopPropagation()">
-
-        <!-- Modal Header -->
-        <!-- Modal Header -->
-        <div
-            class="flex items-center justify-between px-6 py-5 bg-white dark:bg-[#0e1726] border-b border-gray-100 dark:border-[#1b2e4b]">
-            <div class="flex items-center gap-4">
-                <div
-                    class="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center text-primary shadow-sm border border-primary/10">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                </div>
-                <div>
-                    <h2 class="text-lg font-bold text-gray-900 dark:text-white">Approval Workflow</h2>
-                    <div class="flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">
-                        <span
-                            class="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-600 dark:text-gray-300">{{
-                            applicationDetails?.txtFormCode }}</span>
-                        <span>•</span>
-                        <span>{{ applicationDetails?.cfgTblCustomForm?.txtFormName }}</span>
-                    </div>
-                </div>
-            </div>
-            <button (click)="closeSummaryModal()"
-                class="group p-2 rounded-full hover:bg-gray-50 dark:hover:bg-[#1b2e4b] text-gray-400 hover:text-gray-600 transition-all duration-200">
-                <div class="group-hover:rotate-90 transition-transform duration-300">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                </div>
-            </button>
-        </div>
-
-        <!-- Scrollable Content -->
-        <div class="flex-1 overflow-y-auto custom-scrollbar bg-gray-50/50 dark:bg-[#0e1726]">
-            <div class="px-6 py-6 space-y-6">
-
-                <ng-container *ngIf="getPipelineData() as pipelines">
-
-                    <!-- ── Top Metrics Bar ── -->
-                    <!-- ── Top Status Bar ── -->
-                    <div
-                        class="sticky top-0 z-20 bg-white/80 dark:bg-[#0e1726]/80 backdrop-blur-md border-b border-gray-100 dark:border-[#1b2e4b] px-6 py-3">
-                        <div class="flex items-center justify-between gap-4">
-
-                            <!-- Progress Bar -->
-                            <div class="flex-1">
-                                <div class="flex justify-between text-xs mb-1.5">
-                                    <span class="font-medium text-gray-600 dark:text-gray-400">Total Progress</span>
-                                    <span class="font-bold text-primary">{{ getPipelineProgress() }}%</span>
-                                </div>
-                                <div class="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                                    <div class="h-full bg-primary transition-all duration-1000 ease-out relative"
-                                        [style.width.%]="getPipelineProgress()">
-                                        <div class="absolute inset-0 bg-white/20 animate-pulse"></div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Mini Stats -->
-                            <div class="flex items-center gap-6 pl-6 border-l border-gray-100 dark:border-[#1b2e4b]">
-                                <div class="flex flex-col items-center">
-                                    <span
-                                        class="text-xs text-gray-400 font-medium uppercase tracking-wider">Approved</span>
-                                    <span class="text-lg font-bold text-green-600 dark:text-green-400">{{
-                                        countStages(pipelines, 'APPROVED') }}</span>
-                                </div>
-                                <!-- <div class="flex flex-col items-center">
-                                    <span class="text-xs text-gray-400 font-medium uppercase tracking-wider">Wait</span>
-                                    <span class="text-lg font-bold text-yellow-600 dark:text-yellow-400">{{
-                                        countStages(pipelines, 'CURRENT') }}</span>
-                                </div> -->
-                                <div class="flex flex-col items-center">
-                                    <span
-                                        class="text-xs text-gray-400 font-medium uppercase tracking-wider">Pending</span>
-                                    <span class="text-lg font-bold text-gray-500 dark:text-gray-400">{{
-                                        countStages(pipelines, 'PENDING') }}</span>
-                                </div>
-                            </div>
-
-                        </div>
-                    </div>
-
-                    <!-- Logical Summary -->
-                    <div class="bg-white dark:bg-[#1b2e4b] border border-gray-100 dark:border-gray-700 rounded-lg p-4 shadow-sm mt-4">
-                        <div class="text-xs text-gray-500 dark:text-gray-300 leading-6">
-                            <span class="font-semibold text-gray-700 dark:text-white">Summary:</span>
-                            <span [innerHTML]="getWorkflowSummaryHtml(pipelines)"></span>
-                        </div>
-                    </div>
-
-                    <!-- Workflow Flow View -->
-                    <div class="bg-white dark:bg-[#1b2e4b] border border-gray-100 dark:border-gray-700 rounded-lg p-4 shadow-sm mt-4">
-                        <div class="flex items-center justify-between mb-3">
-                            <h4 class="text-sm font-bold text-gray-800 dark:text-white">Approval Flow</h4>
-                            <span class="text-[11px] text-gray-400">{{ getApprovalFlowHintText() }}</span>
-                        </div>
-                        <div class="approval-flow">
-                            <ng-container *ngFor="let pipeline of pipelines; let i = index">
-                                <div class="approval-node"
-                                    [ngClass]="{
-                                        'is-approved': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'APPROVED',
-                                        'is-pending': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'PENDING' || getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'CURRENT',
-                                        'is-rejected': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'REJECTED'
-                                    }">
-                                    <div class="approval-node-header">
-                                        <div class="approval-node-title">
-                                            {{ getPipelineDepartmentName(pipeline, i) }}
-                                        </div>
-                                        <div class="approval-node-status">
-                                            {{ getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'CURRENT'
-                                                ? 'PENDING'
-                                                : getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) }}
-                                        </div>
-                                    </div>
-                                    <div class="approval-node-body">
-                                        <div class="approval-node-row">
-                                            <span class="label">Approved By</span>
-                                            <span class="value">
-                                                {{ getStageApproverName(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
-                                            </span>
-                                        </div>
-                                        <div class="approval-node-row">
-                                            <span class="label">Action Time</span>
-                                            <span class="value">
-                                                {{ getStageApprovedAt(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
-                                            </span>
-                                        </div>
-                                        <div class="approval-node-row">
-                                            <span class="label">Remarks</span>
-                                            <span class="value">
-                                                {{ getDepartmentRemarks(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
-                                            </span>
-                                        </div>
-                                        <div class="approval-node-row">
-                                            <span class="label">IP Address</span>
-                                            <span class="value">
-                                                {{ getStageApprovedIp(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div *ngIf="i < pipelines.length - 1" class="approval-arrow">
-                                    <div class="approval-arrow-label">
-                                        {{ getStageTimeTaken(i + 1, pipelines) || '--' }}
-                                    </div>
-                                    <div class="approval-arrow-track">
-                                        <div class="approval-arrow-line"></div>
-                                        <div class="approval-arrow-head"></div>
-                                    </div>
-                                </div>
-                            </ng-container>
-                        </div>
-                    </div>
-
-                    <!-- ── Timeline Section ── -->
-                    <!-- ── Linear Timeline ── -->
-                    
-                </ng-container>
-            </div>
-        </div>
-
-        <!-- Sticky Footer -->
-        <div class="p-4 bg-gray-50 dark:bg-[#0e1726] border-t border-gray-100 dark:border-[#1b2e4b] flex justify-end">
-            <button (click)="closeSummaryModal()" class="btn btn-outline-primary px-6">Close</button>
-        </div>
-    </div>
-</div>
 
 <!-- Approval Workflow (Bottom Section) -->
 <div *ngIf="!isLoading && applicationDetails" class="mt-8">
     <div class="panel bg-white dark:bg-[#1b2e4b] border border-gray-100 dark:border-gray-700 rounded-lg p-4 shadow-sm">
         <div class="flex items-center justify-between mb-3">
             <h4 class="text-sm font-bold text-gray-800 dark:text-white">Approval Workflow</h4>
-            <button (click)="openSummaryModal()" class="btn btn-outline-info btn-sm">View Summary</button>
+
         </div>
 
         <ng-container *ngIf="getPipelineData() as pipelines">
@@ -728,12 +539,7 @@
                 </div>
             </div>
 
-            <div class="bg-gray-50 dark:bg-[#0e1726] border border-gray-100 dark:border-gray-700 rounded-lg p-3 mb-4">
-                <div class="text-xs text-gray-500 dark:text-gray-300 leading-6">
-                    <span class="font-semibold text-gray-700 dark:text-white">Summary:</span>
-                    <span [innerHTML]="getWorkflowSummaryHtml(pipelines)"></span>
-                </div>
-            </div>
+
 
             <div class="approval-flow">
                 <ng-container *ngFor="let pipeline of pipelines; let i = index">
@@ -775,7 +581,7 @@
                             <div class="approval-node-row">
                                 <span class="label">IP Address</span>
                                 <span class="value">
-                                    {{ getStageApprovedIp(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                    {{ getStageApprovedVia(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
                                 </span>
                             </div>
                         </div>

@@ -4486,12 +4486,16 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         String designation = meta != null && meta.designation != null ? meta.designation :
                 (entry != null && entry.get("txtDesignation") != null ? String.valueOf(entry.get("txtDesignation")) :
                         (entry != null && entry.get("designation") != null ? String.valueOf(entry.get("designation")) : ""));
+        String department = meta != null && meta.departmentName != null ? meta.departmentName :
+                (entry != null && entry.get("departmentName") != null ? String.valueOf(entry.get("departmentName")) :
+                        (entry != null && entry.get("txtDepartmentName") != null ? String.valueOf(entry.get("txtDepartmentName")) : ""));
 
         // Keep metadata centered and high enough so it stays above printed slot labels.
         float metaFont = 7.0f;
         float  dateY = sigRowY - 2.5f;
         float nameY = dateY - 6.8f;
         float desigY = nameY - 6.8f;
+        float deptY = desigY - 6.8f;
         float maxW = colWidth - 10f;
 
         content.setFont(PDType1Font.HELVETICA, metaFont);
@@ -4506,6 +4510,10 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         if (designation != null && !designation.trim().isEmpty()) {
             String line = firstWrappedLine(designation, PDType1Font.HELVETICA, metaFont, maxW);
             drawCenteredMetaLine(content, line, PDType1Font.HELVETICA, metaFont, colX, colWidth, desigY);
+        }
+        if (department != null && !department.trim().isEmpty()) {
+            String line = firstWrappedLine(department, PDType1Font.HELVETICA, metaFont, maxW);
+            drawCenteredMetaLine(content, line, PDType1Font.HELVETICA, metaFont, colX, colWidth, deptY);
         }
     }
 
@@ -4568,6 +4576,11 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
                     UserSignatureMeta m = new UserSignatureMeta();
                     m.userName = u.getTxtUserName();
                     m.designation = u.getTxtDesignation();
+                    if (u.getHrTblDepartment() != null && u.getHrTblDepartment().getTxtDepartmentName() != null) {
+                        m.departmentName = u.getHrTblDepartment().getTxtDepartmentName();
+                    } else if (u.getTxtDepartmentName() != null) {
+                        m.departmentName = u.getTxtDepartmentName();
+                    }
                     map.put(id, m);
                 }
             }
@@ -4584,6 +4597,7 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     private static class UserSignatureMeta {
         String userName;
         String designation;
+        String departmentName;
     }
 
     private Map<String, Float> findCapfAnchorsY(PDDocument document) {

@@ -2521,6 +2521,13 @@ export class ApplicationsViewComponent implements OnInit {
     };
 
     const buildSignatureSlots = (): { nameText: string; designationText: string; departmentText: string; html: string; time: string }[] => {
+      const staticLabels = [
+        'User Deptt. (HoD)',
+        'Technical Expert',
+        'Procurement',
+        'Finance',
+        'Core Team HTR. / CCT HO'
+      ];
       const getNameText = (entry: any): string => {
         return (
           entry?.approverName ||
@@ -2583,19 +2590,13 @@ export class ApplicationsViewComponent implements OnInit {
         });
       }
 
-      return sortedPipelines.map((pipeline: any, index: number) => {
+      return sortedPipelines.slice(0, staticLabels.length).map((pipeline: any, index: number) => {
         const order = pipeline.intApprovalOrder || (index + 1);
         const departmentId = pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId || pipeline.departmentId;
         const entry = getApprovalEntryForPipeline(order, departmentId);
-        const defaultDepartmentLabel =
-          pipeline.hrTblDepartment?.txtDepartmentName ||
-          pipeline.departmentName ||
-          pipeline.txtDepartmentName ||
-          entry?.departmentName ||
-          `Department ${order}`;
         const nameText = getNameText(entry);
         const designationText = getDesignationText(entry);
-        const departmentText = defaultDepartmentLabel;
+        const departmentText = staticLabels[index] || `Department ${order}`;
         const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
         const hasSignature = !!entry?.signaturePath;
         const signatureUrl = userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '';

@@ -90,8 +90,8 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 				.getResultList();*/
 		List<CfgTblUser> users = entityManager
 				.createQuery("SELECT user FROM CfgTblUser user " +
-						"JOIN FETCH user.cfgTblRole role " +
-						"WHERE user.blIsDeleted = FALSE", CfgTblUser.class)
+						"LEFT JOIN FETCH user.cfgTblRole role " +
+						"WHERE user.blIsDeleted = FALSE OR user.blIsDeleted IS NULL", CfgTblUser.class)
 				.getResultList();
 
 		for (CfgTblUser user : users) {

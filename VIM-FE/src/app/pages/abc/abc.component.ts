@@ -22,6 +22,7 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
     signatureSlots: Array<{
         nameText: string;
         designationText: string;
+        departmentUserText?: string;
         departmentText: string;
         order: number;
         departmentId?: number;
@@ -223,24 +224,23 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
                 '';
             return designation;
         };
+        const getDepartmentUserText = (entry: any): string => {
+            return entry?.departmentName || entry?.txtDepartmentName || '';
+        };
 
         this.approvalHistory = this.parseApprovalHistory();
         const pipelines = this.getPipelineData();
+        const staticLabels = this.fallbackSignatureSlots.map(s => s.label);
         console.log('[CAPF FE][abc] approvalHistoryCount=', this.approvalHistory.length, 'pipelineCount=', pipelines.length, 'appId=', this.application?.serApplicationId);
         if (pipelines.length > 0) {
-            this.signatureSlots = pipelines.map((pipeline: any, index: number) => {
+            this.signatureSlots = pipelines.slice(0, staticLabels.length).map((pipeline: any, index: number) => {
                 const order = pipeline.intApprovalOrder || (index + 1);
                 const departmentId = pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId || pipeline.departmentId;
                 const entry = this.getApprovalEntryForPipeline(order, departmentId);
-                const defaultDepartmentLabel =
-                    pipeline.hrTblDepartment?.txtDepartmentName ||
-                    pipeline.departmentName ||
-                    pipeline.txtDepartmentName ||
-                    entry?.departmentName ||
-                    `Department ${order}`;
                 const nameText = getNameText(entry);
                 const designationText = getDesignationText(entry);
-                const departmentText = defaultDepartmentLabel;
+                const departmentUserText = getDepartmentUserText(entry);
+                const departmentText = staticLabels[index] || `Department ${order}`;
                 const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
                 const approvedDate = entry?.approvedDate;
                 const hasSignature = !!entry?.signaturePath;
@@ -271,6 +271,7 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
             const entry = this.getApprovalEntryForSlot(slot);
             const nameText = getNameText(entry);
             const designationText = getDesignationText(entry);
+            const departmentUserText = getDepartmentUserText(entry);
             const departmentText = slot.label;
             const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
             const approvedDate = entry?.approvedDate;
@@ -285,6 +286,7 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
             return {
                 nameText,
                 designationText,
+                departmentUserText,
                 departmentText,
                 order: index + 1,
                 signatureUrl: userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '',
