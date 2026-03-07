@@ -52,13 +52,13 @@ export class FormBuilderComponent implements OnInit {
   isSubmit = false;
   editingFormId: number | null = null;
   fieldTypes = [
-    { value: 'document_header', label: 'Document Header' },
+    {value : 'document_header', label: 'Document Header'},
     { value: 'text', label: 'Text' },
     { value: 'number', label: 'Number' },
     { value: 'email', label: 'Email' },
     { value: 'date', label: 'Date' },
     { value: 'textarea', label: 'Textarea' },
-    { value: 'word_editor', label: 'Word Editor' },
+    {value: 'word_editor', label: 'Word Editor'},
     { value: 'attachment', label: 'Attachment' },
     { value: 'select', label: 'Select' },
     { value: 'checkbox', label: 'Checkbox' },
@@ -189,6 +189,18 @@ export class FormBuilderComponent implements OnInit {
 
   removeField(index: number) {
     this.fields.removeAt(index);
+  }
+
+  onTypeChange(index: number) {
+    const field = this.fields.at(index);
+    if (field.get('type')?.value === 'word_editor') {
+      field.get('label')?.setValue('Word Editor');
+      field.get('label')?.clearValidators();
+      field.get('label')?.updateValueAndValidity();
+    } else {
+      field.get('label')?.setValidators([Validators.required]);
+      field.get('label')?.updateValueAndValidity();
+    }
   }
 
   add() {
@@ -394,7 +406,7 @@ export class FormBuilderComponent implements OnInit {
       }
       
       const fieldForm = this.fb.group({
-        label: [field.label, Validators.required],
+        label: [field.label, field.type === 'word_editor' ? [] : [Validators.required]],
         type: [field.type, Validators.required],
         required: [field.required || false],
         placeholder: [field.placeholder || ''],

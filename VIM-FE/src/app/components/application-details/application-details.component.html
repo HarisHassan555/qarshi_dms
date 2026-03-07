@@ -189,7 +189,7 @@
 
                 <div class="xyz-content-body">
                     <div *ngFor="let field of getGenericPreviewFields()" class="xyz-generic-field">
-                        <div class="xyz-generic-label">
+                        <div class="xyz-generic-label" *ngIf="!isWordEditorType(field.type)">
                             {{ field.label }}
                             <span *ngIf="field.required" class="text-danger">*</span>
                         </div>

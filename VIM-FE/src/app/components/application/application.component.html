@@ -139,10 +139,6 @@
 
                                 <!-- Word Editor -->
                                 <div *ngIf="isWordEditorType(field.type)" class="md:col-span-2">
-                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
-                                        {{ field.label }}
-                                        <span *ngIf="field.required" class="text-danger">*</span>
-                                    </label>
                                     <quill-editor [formControlName]="getFieldName(field.label)"
                                         (onEditorCreated)="onWordEditorCreated(getFieldName(field.label), $event)"
                                         [modules]="wordEditorModules"
@@ -428,7 +424,7 @@
 
                                         <div class="xyz-generic-content">
                                             <div *ngFor="let field of getGenericPreviewFields()" class="xyz-field-block">
-                                                <div *ngIf="!isFormNameLabel(field.label)" class="xyz-field-label">{{ field.label }}</div>
+                                                <div *ngIf="!isFormNameLabel(field.label) && !isWordEditorType(field.type)" class="xyz-field-label">{{ field.label }}</div>
 
                                                 <div *ngIf="!isWordEditorType(field.type) && !isTableType(field.type)" class="xyz-field-value">
                                                     {{ getPreviewFieldDisplayValue(field) }}

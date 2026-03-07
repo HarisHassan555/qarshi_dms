@@ -115,7 +115,7 @@
                             </div>
                             
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
+                                <div *ngIf="field.get('type')?.value !== 'word_editor'">
                                     <label>Field Label <span class="text-danger">*</span></label>
                                     <input type="text" placeholder="e.g., First Name" class="form-input" 
                                         formControlName="label" />
@@ -124,9 +124,9 @@
                                     </ng-container>
                                 </div>
                                 
-                                <div>
+                                <div [ngClass]="{'md:col-span-2': field.get('type')?.value === 'word_editor'}">
                                     <label>Field Type <span class="text-danger">*</span></label>
-                                    <select class="form-select" formControlName="type">
+                                    <select class="form-select" formControlName="type" (change)="onTypeChange(i)">
                                         <option *ngFor="let type of fieldTypes" [value]="type.value">
                                             {{ type.label }}
                                         </option>
