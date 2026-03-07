@@ -1101,11 +1101,15 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   getPipelineDepartmentName(pipeline: any, index: number): string {
-    if (this.isCapfForm()) {
-      const order = pipeline?.intApprovalOrder || (index + 1);
-      const capfUser = this.getCapfUserNameForStage(order);
-      if (capfUser) return capfUser;
+    const order = pipeline?.intApprovalOrder || (index + 1);
+
+    // For Budget Approval, show the individual's name as the box title
+    if (this.isBudgetApprovalForm()) {
+      const personName = this.getCapfUserNameForStage(order);
+      if (personName) return personName;
     }
+
+    // For other forms (including CAPF), show the Department Name as requested
     if (!pipeline) return `Department ${index + 1}`;
     const directName =
       pipeline.hrTblDepartment?.txtDepartmentName ||
@@ -1113,7 +1117,6 @@ export class ApplicationDetailsComponent implements OnInit {
       pipeline.txtDepartmentName;
     if (directName) return directName;
 
-    const order = pipeline.intApprovalOrder || (index + 1);
     const deptId = pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId;
     if (deptId && this.departmentNameMap.has(Number(deptId))) {
       return this.departmentNameMap.get(Number(deptId)) as string;
@@ -1126,14 +1129,19 @@ export class ApplicationDetailsComponent implements OnInit {
 
   // Get approver name for a stage
   getStageApproverName(pipelineOrder: number, departmentId?: number): string {
-    if (this.isCapfForm()) {
-      const capfUser = this.getCapfUserNameForStage(pipelineOrder);
-      if (capfUser) return capfUser;
-    }
+    // 1. History always takes precedence (who actually approved it)
     const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
     if (entry) {
       return entry.approverName || entry.approvedBy || entry.userName || '';
     }
+
+    // 2. For Budget Approval, show the assigned individual's name
+    if (this.isBudgetApprovalForm()) {
+      const personName = this.getCapfUserNameForStage(pipelineOrder);
+      if (personName) return personName;
+    }
+
+    // 3. Fallback to Department Head for other forms if pending
     if (departmentId != null) {
       const headId = this.departmentHeadMap.get(Number(departmentId));
       if (headId != null) {
