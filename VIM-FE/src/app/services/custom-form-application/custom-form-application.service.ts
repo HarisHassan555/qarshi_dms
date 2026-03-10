@@ -86,5 +86,15 @@ export class CustomFormApplicationService {
   sendSubmissionEmails(applicationId: number) {
     return this.http.post(urls.API_URL + 'sendSubmissionEmails?applicationId=' + applicationId, {});
   }
+
+  assignAssetCode(applicationId: number, assetCode: string, userId?: number) {
+    return this.http.post(urls.API_URL + 'assignAssetCode', null, {
+      params: {
+        applicationId: applicationId as any,
+        assetCode: assetCode,
+        userId: userId ?? ''
+      }
+    });
+  }
 }
 

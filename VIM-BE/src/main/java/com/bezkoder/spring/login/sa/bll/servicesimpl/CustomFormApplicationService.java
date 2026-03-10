@@ -121,4 +121,10 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
         logger.debug("sendSubmissionEmailsForApplication() - applicationId: " + applicationId);
         return customFormApplicationDAO.sendSubmissionEmailsForApplication(applicationId);
     }
+
+    @Override
+    public String assignAssetCode(Integer applicationId, String assetCode, Integer userId, String approvedIp) {
+        logger.debug("assignAssetCode() - applicationId: " + applicationId + ", userId: " + userId);
+        return customFormApplicationDAO.assignAssetCode(applicationId, assetCode, userId, approvedIp);
+    }
 }
