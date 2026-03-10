@@ -445,35 +445,26 @@ export class ApplicationDetailsComponent implements OnInit {
     const userId = this.currentUser.serUserId || this.currentUser.userId || this.currentUser.id;
     if (!userId) return false;
 
-    // 1. Check if user is in a Procurement related department/role
-    if (!this.isProcurementUser()) return false;
+    // NOTE: We cannot rely on currentUser.hrTblDepartment because it is not
+    // stored in localStorage. Instead, we scan the departmentHeadMap (loaded
+    // from the API) to find any Procurement department that lists this user as head.
 
-    // 2. Check if user is a head of their own department
-    const userDeptId = this.currentUser.hrTblDepartment?.serDepartmentId ||
-      this.currentUser.departmentId ||
-      this.currentUser.serDepartmentId;
+    const PROCUREMENT_KEYWORDS = ['PROCUREMENT', 'PROCURE', 'PRC', 'PROC'];
 
-    if (userDeptId) {
-      const headIdsRaw = this.departmentHeadMap.get(Number(userDeptId));
-      if (headIdsRaw) {
-        const headIds = String(headIdsRaw).split(',').map(h => h.trim());
-        if (headIds.includes(String(userId))) {
-          return true;
-        }
-      }
-    }
-
-    // 3. Fallback: Check if they are head of ANY department that is named Procurement
     for (const [deptId, headIdsRaw] of this.departmentHeadMap.entries()) {
-      const deptName = this.departmentNameMap.get(deptId) || '';
-      if (deptName.toUpperCase().includes('PROCUREMENT') || deptName.toUpperCase() === 'PRC') {
-        const headIds = String(headIdsRaw || '').split(',').map(h => h.trim());
+      const deptName = (this.departmentNameMap.get(deptId) || '').toUpperCase().trim();
+      const isProc = PROCUREMENT_KEYWORDS.some(kw => deptName.includes(kw));
+
+      if (isProc) {
+        const headIds = String(headIdsRaw || '').split(',').map(h => h.trim()).filter(h => h !== '');
         if (headIds.includes(String(userId))) {
+          console.log('[isProcurementHod] MATCH — user', userId, 'is HOD of', deptName, '(deptId:', deptId, ')');
           return true;
         }
       }
     }
 
+    console.log('[isProcurementHod] No match. userId=' + userId + ', mapSize=' + this.departmentHeadMap.size);
     return false;
   }
 
@@ -481,23 +472,17 @@ export class ApplicationDetailsComponent implements OnInit {
     if (!this.applicationDetails) return false;
     if (!this.isCapfForm()) return false;
 
-    // Check if user is Procurement HOD
+    // ONLY the Procurement Department Head can see this button
     const isProcHod = this.isProcurementHod();
-    const isAdm = this.isAdmin();
 
-    // Status can be null/empty for newly submitted ones, so we handle it gracefully
+    // Status check: only allow editing on PENDING applications
     const rawStatus = (this.applicationDetails?.txtStatus || '').toUpperCase();
     const isPending = rawStatus === 'PENDING' || rawStatus === '' || rawStatus === 'NEW';
 
-    // For debugging — logs every time the button visibility is evaluated
-    console.log('[canEditVendorDetails]', { isProcHod, isAdm, rawStatus, isPending });
+    // Debug log — visible in browser console
+    console.log('[canEditVendorDetails]', { isProcHod, rawStatus, isPending });
 
-    // Only Procurement HOD (or Admins for emergency) can edit if pending
-    if (isProcHod || isAdm) {
-      return isPending;
-    }
-
-    return false;
+    return isProcHod && isPending;
   }
 
   startEditingVendor() {
@@ -704,16 +689,11 @@ export class ApplicationDetailsComponent implements OnInit {
 
           // Debug: log HOD check result after departments load
           const userId = this.currentUser?.serUserId || this.currentUser?.userId;
-          const userDeptId = this.currentUser?.hrTblDepartment?.serDepartmentId
-            || this.currentUser?.departmentId
-            || this.currentUser?.serDepartmentId;
-          console.log('[loadDepartments] currentUser:', {
-            userId,
-            userDeptId,
-            hrTblDepartment: this.currentUser?.hrTblDepartment,
-            headIdsInDept: userDeptId ? headMap.get(Number(userDeptId)) : 'N/A',
-            isProcurementHod: this.isProcurementHod()
+          const procEntries = Array.from(headMap.entries()).filter(([deptId]) => {
+            const name = (map.get(deptId) || '').toUpperCase();
+            return ['PROCUREMENT', 'PROCURE', 'PRC', 'PROC'].some(kw => name.includes(kw));
           });
+          console.log('[loadDepartments] userId=' + userId + ', procurementDepts:', procEntries, ', isProcurementHod:', this.isProcurementHod());
         }
       },
       (error) => {
