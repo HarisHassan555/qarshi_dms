@@ -130,7 +130,15 @@ public class MenuService implements IMenuService {
 		cfgTblRole.setSerRoleId(Math.toIntExact(roleId));
 		CfgTblUser cfgTblUser = new CfgTblUser();
 		cfgTblUser.setSerUserId(Math.toIntExact(userId));
-		return cfgTblSubMenuRoleRepository.findCfgTblSubMenuRoleByCfgTblRoleAndCfgTblUser(cfgTblRole,cfgTblUser);
+
+		// Prefer user-specific rows; fall back to role-only (ser_user_id IS NULL)
+		List<CfgTblSubMenuRole> result = cfgTblSubMenuRoleRepository
+				.findCfgTblSubMenuRoleByCfgTblRoleAndCfgTblUser(cfgTblRole, cfgTblUser);
+		if (result == null || result.isEmpty()) {
+			result = cfgTblSubMenuRoleRepository
+					.findByRoleWithUserOrNull(cfgTblRole, cfgTblUser);
+		}
+		return result;
 	}
 
 
