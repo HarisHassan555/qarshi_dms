@@ -23,7 +23,7 @@ export class DepartmentComponent implements OnInit {
   allUsers: any;
   selectedDepartment: any = null;
   selectedUserIds: number[] = [];
-  selectedDepartmentHeadId: number | null = null;
+  selectedDepartmentHeadIds: number[] = [];
   blnStatus = false;
   editCase = false;
 
@@ -103,10 +103,17 @@ export class DepartmentComponent implements OnInit {
             if (dept.departmentHead && dept.departmentHead.txtUserName) {
               departmentHeadName = dept.departmentHead.txtUserName;
             } else if (dept.serDepartmentHeadId && this.allUsers) {
-              // Fallback: find user from allUsers if departmentHead relationship is not loaded
-              const headUser = this.allUsers.find((user: any) => user.serUserId === dept.serDepartmentHeadId);
-              if (headUser && headUser.txtUserName) {
-                departmentHeadName = headUser.txtUserName;
+              // Fallback: find users from allUsers if departmentHead relationship is not loaded
+              const headIds = String(dept.serDepartmentHeadId).split(',').map(id => id.trim());
+              const headNames: string[] = [];
+              headIds.forEach(id => {
+                  const headUser = this.allUsers.find((user: any) => String(user.serUserId) === id);
+                  if (headUser && headUser.txtUserName) {
+                      headNames.push(headUser.txtUserName);
+                  }
+              });
+              if (headNames.length > 0) {
+                  departmentHeadName = headNames.join(', ');
               }
             }
             
@@ -224,13 +231,31 @@ export class DepartmentComponent implements OnInit {
   openAssignUsersModal(department: any) {
     this.selectedDepartment = department;
     this.selectedUserIds = [];
-    this.selectedDepartmentHeadId = department.serDepartmentHeadId || null;
+    this.selectedDepartmentHeadIds = [];
+    
+    if (department.serDepartmentHeadId) {
+        this.selectedDepartmentHeadIds = String(department.serDepartmentHeadId)
+            .split(',')
+            .map(id => Number(id.trim()))
+            .filter(id => !isNaN(id));
+            
+        // Pre-fill selectedUserIds with HODs to ensure they are consistent
+        this.selectedDepartmentHeadIds.forEach(id => {
+            if (!this.selectedUserIds.includes(id)) {
+                this.selectedUserIds.push(id);
+            }
+        });
+    }
     
     // Load users already assigned to this department from backend
     this.departmentService.getUsersByDepartment(department.serDepartmentId)
       .subscribe((users: any) => {
         if (users && users.length > 0) {
-          this.selectedUserIds = users.map((user: any) => user.serUserId);
+          users.forEach((user: any) => {
+            if (!this.selectedUserIds.includes(user.serUserId)) {
+              this.selectedUserIds.push(user.serUserId);
+            }
+          });
         }
       });
     
@@ -252,9 +277,10 @@ export class DepartmentComponent implements OnInit {
     const index = this.selectedUserIds.indexOf(userId);
     if (index > -1) {
       this.selectedUserIds.splice(index, 1);
-      // If the deselected user was the department head, clear the department head
-      if (this.selectedDepartmentHeadId === userId) {
-        this.selectedDepartmentHeadId = null;
+      // If the deselected user was a department head, remove from heads list
+      const headIndex = this.selectedDepartmentHeadIds.indexOf(userId);
+      if (headIndex > -1) {
+        this.selectedDepartmentHeadIds.splice(headIndex, 1);
       }
     } else {
       this.selectedUserIds.push(userId);
@@ -262,16 +288,15 @@ export class DepartmentComponent implements OnInit {
   }
 
   toggleDepartmentHead(userId: number) {
-    // Only allow setting department head for selected users
-    if (!this.isUserSelected(userId)) {
-      return;
-    }
-    
-    // If clicking on the current head, unset it. Otherwise, set new head.
-    if (this.selectedDepartmentHeadId === userId) {
-      this.selectedDepartmentHeadId = null;
+    const index = this.selectedDepartmentHeadIds.indexOf(userId);
+    if (index > -1) {
+      this.selectedDepartmentHeadIds.splice(index, 1);
     } else {
-      this.selectedDepartmentHeadId = userId;
+      this.selectedDepartmentHeadIds.push(userId);
+      // Automatically select the user as a member if they are made HOD
+      if (!this.isUserSelected(userId)) {
+        this.selectedUserIds.push(userId);
+      }
     }
   }
 
@@ -285,17 +310,22 @@ export class DepartmentComponent implements OnInit {
       return;
     }
 
-    // Validate that department head is selected from assigned users
-    if (this.selectedDepartmentHeadId && !this.selectedUserIds.includes(this.selectedDepartmentHeadId)) {
-      this.notificationService.showMessage('Department head must be selected from the assigned users', 'danger');
-      return;
+    // Validate that department heads are selected from assigned users
+    if (this.selectedDepartmentHeadIds.length > 0) {
+      const invalidHeads = this.selectedDepartmentHeadIds.filter(id => !this.selectedUserIds.includes(id));
+      if (invalidHeads.length > 0) {
+        this.notificationService.showMessage('All department heads must be selected from the assigned users', 'danger');
+        return;
+      }
     }
 
     // Use the backend endpoint for assigning users to department
+    const headsString = this.selectedDepartmentHeadIds.length > 0 ? this.selectedDepartmentHeadIds.join(',') : null;
+    
     this.departmentService.assignUsersToDepartment(
       this.selectedDepartment.serDepartmentId,
       this.selectedUserIds,
-      this.selectedDepartmentHeadId
+      headsString
     ).subscribe(
       (response: any) => {
         if (response && (response.includes('Success') || response.includes('"status":"Success"'))) {

@@ -1,6 +1,6 @@
 <div class="panel border-[#e0e6ed] px-5 py-5 dark:border-[#1b2e4b]">
     <!-- Header with Back Button -->
-     <!-- <div class="mb-6 flex items-center justify-between">
+    <!-- <div class="mb-6 flex items-center justify-between">
         
      </div> -->
     <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
@@ -36,6 +36,16 @@
                     <icon-file class="w-4 h-4" />
                     View Feasibility Report
                 </button>
+                <button *ngIf="showQuotationAttachmentsButton()" (click)="openQuotationAttachmentsModal()"
+                    class="btn btn-outline-info gap-2">
+                    <icon-clipboard-text class="w-4 h-4" />
+                    View Quotation Attachments
+                </button>
+                <button *ngIf="canEditVendorDetails()" (click)="startEditingVendor()"
+                    class="btn btn-outline-primary gap-2">
+                    <icon-pencil class="w-4 h-4" />
+                    Edit Vendor Details
+                </button>
                 <button *ngIf="!pdfBlobUrl" (click)="generatePdf()" [disabled]="isGeneratingPdf"
                     class="btn btn-primary gap-2">
                     <span *ngIf="isGeneratingPdf"
@@ -44,7 +54,8 @@
                     {{ isGeneratingPdf ? 'Generating...' : 'Generate PDF' }}
                 </button>
                 <a *ngIf="pdfBlobUrl" [href]="pdfBlobUrl"
-                    [download]="(applicationDetails?.txtFormCode || 'application') + '.pdf'" class="btn btn-success gap-2">
+                    [download]="(applicationDetails?.txtFormCode || 'application') + '.pdf'"
+                    class="btn btn-success gap-2">
                     <icon-download class="w-4 h-4" />
                     Download PDF
                 </a>
@@ -186,32 +197,36 @@
                             <span *ngIf="field.required" class="text-danger">*</span>
                         </div>
 
-                        <div *ngIf="!isWordEditorType(field.type) && !isTableType(field.type)" class="xyz-generic-value">
+                        <div *ngIf="!isWordEditorType(field.type) && !isTableType(field.type)"
+                            class="xyz-generic-value">
                             {{ formatFieldValue(field, getFieldValue(field)) }}
                         </div>
 
-                        <div *ngIf="isWordEditorType(field.type)" class="xyz-generic-word" [innerHTML]="getWordEditorValue(field)"></div>
+                        <div *ngIf="isWordEditorType(field.type)" class="xyz-generic-word"
+                            [innerHTML]="getWordEditorValue(field)"></div>
 
                         <div *ngIf="field.type === 'footer'" class="mt-12 pt-6 border-t border-gray-100">
                             <div class="flex flex-wrap justify-center gap-10 py-4">
-                                <div *ngFor="let pipeline of getPipelineData(); let i = index" 
-                                     class="flex flex-col items-center min-w-[150px]">
+                                <div *ngFor="let pipeline of getPipelineData(); let i = index"
+                                    class="flex flex-col items-center min-w-[150px]">
                                     <div class="w-full h-16 flex flex-col items-center justify-end mb-1 relative">
                                         <!-- Signature Image -->
-                                        <img *ngIf="getDepartmentSignature(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId)" 
-                                             [src]="getDepartmentSignature(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId)"
-                                             class="max-h-12 max-w-[140px] object-contain mb-1"
-                                             alt="Signature">
-                                        
+                                        <img *ngIf="getDepartmentSignature(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId)"
+                                            [src]="getDepartmentSignature(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId)"
+                                            class="max-h-12 max-w-[140px] object-contain mb-1" alt="Signature">
+
                                         <!-- Approval Date (Optional, small text) -->
                                         <div *ngIf="getDepartmentApprovalDate(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId)"
-                                             class="text-[8px] text-gray-400 absolute bottom-0">
-                                            {{ getDepartmentApprovalDate(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) | date:'dd-MMM-yyyy' }}
+                                            class="text-[8px] text-gray-400 absolute bottom-0">
+                                            {{ getDepartmentApprovalDate(pipeline.intApprovalOrder || (i+1),
+                                            pipeline.hrTblDepartment?.serDepartmentId) | date:'dd-MMM-yyyy' }}
                                         </div>
                                     </div>
                                     <div class="w-full border-t border-gray-400 mb-1"></div>
-                                    <div class="text-[10px] font-bold text-center uppercase tracking-wider text-gray-800">
-                                        {{ pipeline.hrTblDepartment?.txtDepartmentName || pipeline.departmentName || 'Department ' + pipeline.serDepartmentId }}
+                                    <div
+                                        class="text-[10px] font-bold text-center uppercase tracking-wider text-gray-800">
+                                        {{ pipeline.hrTblDepartment?.txtDepartmentName || pipeline.departmentName ||
+                                        'Department ' + pipeline.serDepartmentId }}
                                     </div>
                                 </div>
                             </div>
@@ -222,7 +237,8 @@
                                 <thead>
                                     <tr>
                                         <th></th>
-                                        <th *ngFor="let colIndex of getTableColumns(field)">Column {{ colIndex + 1 }}</th>
+                                        <th *ngFor="let colIndex of getTableColumns(field)">Column {{ colIndex + 1 }}
+                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -271,42 +287,52 @@
                                 <div *ngIf="preparedBy && isUserApproved(preparedBy)">
                                     <img *ngIf="getUserSignatureUrl(preparedBy)" [src]="getUserSignatureUrl(preparedBy)"
                                         class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
-                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(preparedBy)">{{ getUserApprovalDate(preparedBy) }}</div>
+                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(preparedBy)">{{
+                                        getUserApprovalDate(preparedBy) }}</div>
                                 </div>
                             </td>
                             <td>
                                 <div *ngIf="reviewers?.[0] && isUserApproved(reviewers[0])">
-                                    <img *ngIf="getUserSignatureUrl(reviewers[0])" [src]="getUserSignatureUrl(reviewers[0])"
-                                        class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
-                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(reviewers[0])">{{ getUserApprovalDate(reviewers[0]) }}</div>
+                                    <img *ngIf="getUserSignatureUrl(reviewers[0])"
+                                        [src]="getUserSignatureUrl(reviewers[0])" class="xyz-sig-img" alt="Signature"
+                                        crossorigin="anonymous">
+                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(reviewers[0])">{{
+                                        getUserApprovalDate(reviewers[0]) }}</div>
                                 </div>
                             </td>
                             <td>
                                 <div *ngIf="reviewers?.[1] && isUserApproved(reviewers[1])">
-                                    <img *ngIf="getUserSignatureUrl(reviewers[1])" [src]="getUserSignatureUrl(reviewers[1])"
-                                        class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
-                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(reviewers[1])">{{ getUserApprovalDate(reviewers[1]) }}</div>
+                                    <img *ngIf="getUserSignatureUrl(reviewers[1])"
+                                        [src]="getUserSignatureUrl(reviewers[1])" class="xyz-sig-img" alt="Signature"
+                                        crossorigin="anonymous">
+                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(reviewers[1])">{{
+                                        getUserApprovalDate(reviewers[1]) }}</div>
                                 </div>
                             </td>
                             <td>
                                 <div *ngIf="recommenders?.[0] && isUserApproved(recommenders[0])">
-                                    <img *ngIf="getUserSignatureUrl(recommenders[0])" [src]="getUserSignatureUrl(recommenders[0])"
-                                        class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
-                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(recommenders[0])">{{ getUserApprovalDate(recommenders[0]) }}</div>
+                                    <img *ngIf="getUserSignatureUrl(recommenders[0])"
+                                        [src]="getUserSignatureUrl(recommenders[0])" class="xyz-sig-img" alt="Signature"
+                                        crossorigin="anonymous">
+                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(recommenders[0])">{{
+                                        getUserApprovalDate(recommenders[0]) }}</div>
                                 </div>
                             </td>
                             <td>
                                 <div *ngIf="recommenders?.[1] && isUserApproved(recommenders[1])">
-                                    <img *ngIf="getUserSignatureUrl(recommenders[1])" [src]="getUserSignatureUrl(recommenders[1])"
-                                        class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
-                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(recommenders[1])">{{ getUserApprovalDate(recommenders[1]) }}</div>
+                                    <img *ngIf="getUserSignatureUrl(recommenders[1])"
+                                        [src]="getUserSignatureUrl(recommenders[1])" class="xyz-sig-img" alt="Signature"
+                                        crossorigin="anonymous">
+                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(recommenders[1])">{{
+                                        getUserApprovalDate(recommenders[1]) }}</div>
                                 </div>
                             </td>
                             <td>
                                 <div *ngIf="approver && isUserApproved(approver)">
                                     <img *ngIf="getUserSignatureUrl(approver)" [src]="getUserSignatureUrl(approver)"
                                         class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
-                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(approver)">{{ getUserApprovalDate(approver) }}</div>
+                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(approver)">{{
+                                        getUserApprovalDate(approver) }}</div>
                                 </div>
                             </td>
                         </tr>
@@ -362,9 +388,13 @@
         </div>
 
         <!-- CAPF Form View (AbcComponent) -->
-        <div *ngIf="isCapfForm()" class="flex justify-center">
-            <app-abc id="capf-pdf-content" [formData]="applicationFormData" [formFields]="formFields"
-                [application]="applicationDetails" [isEmbedded]="true"></app-abc>
+        <div *ngIf="isCapfForm()" class="space-y-6">
+            <!-- Procurement Edit Section -->
+
+            <div class="flex justify-center">
+                <app-abc id="capf-pdf-content" [formData]="applicationFormData" [formFields]="formFields"
+                    [application]="applicationDetails" [isEmbedded]="true"></app-abc>
+            </div>
         </div>
 
 
@@ -388,7 +418,8 @@
             </p>
             <div *ngIf="applicationDetails">
                 <p class="text-sm font-medium dark:text-white-light mb-2">
-                    Application Code: <span class="badge badge-outline-primary">{{ applicationDetails.txtFormCode }}</span>
+                    Application Code: <span class="badge badge-outline-primary">{{ applicationDetails.txtFormCode
+                        }}</span>
                 </p>
                 <p class="text-sm font-medium dark:text-white-light mb-2">
                     Form Name: {{ applicationDetails.cfgTblCustomForm?.txtFormName || 'Custom Form' }}
@@ -396,10 +427,7 @@
             </div>
             <div>
                 <label class="block text-sm font-medium mb-2 dark:text-white-light">Remarks (Optional)</label>
-                <textarea 
-                    [(ngModel)]="remarksText" 
-                    class="form-textarea" 
-                    rows="3" 
+                <textarea [(ngModel)]="remarksText" class="form-textarea" rows="3"
                     placeholder="Enter any remarks or comments...">
                 </textarea>
             </div>
@@ -429,20 +457,18 @@
             </p>
             <div *ngIf="applicationDetails">
                 <p class="text-sm font-medium dark:text-white-light mb-2">
-                    Application Code: <span class="badge badge-outline-primary">{{ applicationDetails.txtFormCode }}</span>
+                    Application Code: <span class="badge badge-outline-primary">{{ applicationDetails.txtFormCode
+                        }}</span>
                 </p>
                 <p class="text-sm font-medium dark:text-white-light mb-2">
                     Form Name: {{ applicationDetails.cfgTblCustomForm?.txtFormName || 'Custom Form' }}
                 </p>
             </div>
             <div>
-                <label class="block text-sm font-medium mb-2 dark:text-white-light">Rejection Reason <span class="text-danger">*</span></label>
-                <textarea 
-                    [(ngModel)]="remarksText" 
-                    class="form-textarea" 
-                    rows="3" 
-                    placeholder="Please provide a reason for rejection..."
-                    required>
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Rejection Reason <span
+                        class="text-danger">*</span></label>
+                <textarea [(ngModel)]="remarksText" class="form-textarea" rows="3"
+                    placeholder="Please provide a reason for rejection..." required>
                 </textarea>
             </div>
         </div>
@@ -472,23 +498,22 @@
             </p>
             <div *ngIf="applicationDetails">
                 <p class="text-sm font-medium dark:text-white-light mb-2">
-                    Application Code: <span class="badge badge-outline-primary">{{ applicationDetails.txtFormCode }}</span>
+                    Application Code: <span class="badge badge-outline-primary">{{ applicationDetails.txtFormCode
+                        }}</span>
                 </p>
                 <p class="text-sm font-medium dark:text-white-light mb-2">
                     Form Name: {{ applicationDetails.cfgTblCustomForm?.txtFormName || 'Custom Form' }}
                 </p>
                 <p class="text-sm font-medium dark:text-white-light mb-2">
-                    Current Approval Level: <span class="badge badge-outline-info">Level {{ applicationDetails.intCurrentApprovalLevel || 0 }}</span>
+                    Current Approval Level: <span class="badge badge-outline-info">Level {{
+                        applicationDetails.intCurrentApprovalLevel || 0 }}</span>
                 </p>
             </div>
             <div>
-                <label class="block text-sm font-medium mb-2 dark:text-white-light">Remarks <span class="text-danger">*</span></label>
-                <textarea 
-                    [(ngModel)]="remarksText" 
-                    class="form-textarea" 
-                    rows="3" 
-                    placeholder="Please provide remarks for sending back this application..."
-                    required>
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Remarks <span
+                        class="text-danger">*</span></label>
+                <textarea [(ngModel)]="remarksText" class="form-textarea" rows="3"
+                    placeholder="Please provide remarks for sending back this application..." required>
                 </textarea>
             </div>
         </div>
@@ -506,9 +531,56 @@
     </ng-template>
 </modal>
 
-
-
-<!-- Approval Workflow (Bottom Section) -->
+<!-- Vendor Edit Modal -->
+<modal #vendorEditModal [closeOnOutsideClick]="false">
+    <ng-template #modalHeader>
+        <div class="flex items-center gap-3">
+            <div class="p-2 bg-primary/20 rounded-lg text-primary">
+                <icon-pencil class="w-5 h-5" />
+            </div>
+            <h6 class="text-xl font-bold dark:text-white uppercase tracking-tight">Update Vendor Particulars</h6>
+        </div>
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 p-1">
+            <div class="space-y-2">
+                <label class="text-xs font-bold uppercase tracking-wider text-gray-500">Vendor Name</label>
+                <input type="text" [(ngModel)]="vendorEditForm.vendorName" class="form-input"
+                    placeholder="Enter vendor name">
+            </div>
+            <div class="space-y-2">
+                <label class="text-xs font-bold uppercase tracking-wider text-gray-500">Approved Price</label>
+                <input type="text" [(ngModel)]="vendorEditForm.approvedPrice" class="form-input"
+                    placeholder="Enter approved price">
+            </div>
+            <div class="md:col-span-2 space-y-2">
+                <label class="text-xs font-bold uppercase tracking-wider text-gray-500">Vendor Address</label>
+                <textarea [(ngModel)]="vendorEditForm.vendorAddress" class="form-textarea" rows="2"
+                    placeholder="Enter vendor address"></textarea>
+            </div>
+            <div class="space-y-2">
+                <label class="text-xs font-bold uppercase tracking-wider text-gray-500">Delivery Period & Date</label>
+                <input type="date" [(ngModel)]="vendorEditForm.deliveryPeriod" class="form-input"
+                    placeholder="Enter delivery details">
+            </div>
+            <div class="space-y-2">
+                <label class="text-xs font-bold uppercase tracking-wider text-gray-500">Terms & Conditions</label>
+                <input type="text" [(ngModel)]="vendorEditForm.termsConditions" class="form-input"
+                    placeholder="Enter terms">
+            </div>
+        </div>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="cancelEditingVendor()" class="btn btn-outline-danger"
+            [disabled]="isSavingVendor">Cancel</button>
+        <button type="button" (click)="saveVendorDetails()" [disabled]="isSavingVendor"
+            class="btn btn-primary min-w-[140px] ltr:ml-4 rtl:mr-4">
+            <span *ngIf="isSavingVendor"
+                class="animate-spin border-2 border-white border-l-transparent rounded-full w-4 h-4 inline-block align-middle ltr:mr-2 rtl:ml-2"></span>
+            {{ isSavingVendor ? 'Saving...' : 'Save Changes' }}
+        </button>
+    </ng-template>
+</modal>
 <div *ngIf="!isLoading && applicationDetails" class="mt-8">
     <div class="panel bg-white dark:bg-[#1b2e4b] border border-gray-100 dark:border-gray-700 rounded-lg p-4 shadow-sm">
         <div class="flex items-center justify-between mb-3">
@@ -532,8 +604,7 @@
 
             <div class="approval-flow">
                 <ng-container *ngFor="let pipeline of pipelines; let i = index">
-                    <div class="approval-node"
-                        [ngClass]="{
+                    <div class="approval-node" [ngClass]="{
                             'is-approved': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'APPROVED',
                             'is-pending': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'PENDING' || getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'CURRENT',
                             'is-rejected': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'REJECTED'
@@ -543,34 +614,40 @@
                                 {{ getPipelineDepartmentName(pipeline, i) }}
                             </div>
                             <div class="approval-node-status">
-                                {{ getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'CURRENT'
-                                    ? 'PENDING'
-                                    : getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) }}
+                                {{ getStageStatus(pipeline.intApprovalOrder || (i+1),
+                                pipeline.hrTblDepartment?.serDepartmentId) === 'CURRENT'
+                                ? 'PENDING'
+                                : getStageStatus(pipeline.intApprovalOrder || (i+1),
+                                pipeline.hrTblDepartment?.serDepartmentId) }}
                             </div>
                         </div>
                         <div class="approval-node-body">
                             <div class="approval-node-row">
                                 <span class="label">Approved By</span>
                                 <span class="value">
-                                    {{ getStageApproverName(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                    {{ getStageApproverName(pipeline.intApprovalOrder || (i+1),
+                                    pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
                                 </span>
                             </div>
                             <div class="approval-node-row">
                                 <span class="label">Action Time</span>
                                 <span class="value">
-                                    {{ getStageApprovedAt(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                    {{ getStageApprovedAt(pipeline.intApprovalOrder || (i+1),
+                                    pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
                                 </span>
                             </div>
                             <div class="approval-node-row">
                                 <span class="label">Remarks</span>
                                 <span class="value">
-                                    {{ getDepartmentRemarks(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                    {{ getDepartmentRemarks(pipeline.intApprovalOrder || (i+1),
+                                    pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
                                 </span>
                             </div>
                             <div class="approval-node-row">
                                 <span class="label">IP Address</span>
                                 <span class="value">
-                                    {{ getStageApprovedVia(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                    {{ getStageApprovedVia(pipeline.intApprovalOrder || (i+1),
+                                    pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
                                 </span>
                             </div>
                         </div>
@@ -615,6 +692,98 @@
                 class="max-w-full mx-auto rounded border border-gray-200 dark:border-gray-700" />
             <iframe *ngIf="!isFeasibilityImage()" [src]="feasibilityPreviewUrl"
                 class="w-full h-[70vh] rounded border border-gray-200 dark:border-gray-700"></iframe>
+        </div>
+    </div>
+</div>
+
+<!-- Quotation Attachments Preview Modal -->
+<div *ngIf="showQuotationModal" class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+    (click)="closeQuotationModal()">
+    <div class="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"></div>
+    <div class="relative w-full max-w-6xl max-h-[90vh] flex flex-col rounded-xl shadow-2xl
+                bg-white dark:bg-[#0e1726] border border-gray-100 dark:border-[#1b2e4b] overflow-hidden"
+        (click)="$event.stopPropagation()">
+
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between px-6 py-5 border-b border-gray-100 dark:border-[#1b2e4b]">
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-info/10 rounded text-info">
+                    <icon-clipboard-text class="w-5 h-5" />
+                </div>
+                <div>
+                    <div class="text-lg font-bold text-gray-900 dark:text-white">Quotation Attachments</div>
+                    <div class="text-xs text-gray-500">{{ quotationAttachments.length }} file(s) attached</div>
+                </div>
+            </div>
+            <button (click)="closeQuotationModal()"
+                class="group p-2 rounded-full hover:bg-gray-50 dark:hover:bg-[#1b2e4b] text-gray-400 hover:text-gray-600 transition-all duration-200">
+                <div class="group-hover:rotate-90 transition-transform duration-300">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </div>
+            </button>
+        </div>
+
+        <!-- Modal Body -->
+        <div class="flex flex-1 overflow-hidden">
+            <!-- Left Sidebar: File List -->
+            <div
+                class="w-64 border-r border-gray-100 dark:border-[#1b2e4b] overflow-y-auto bg-gray-50/50 dark:bg-gray-800/20 p-4 space-y-2">
+                <div *ngFor="let att of quotationAttachments; let i = index" (click)="previewQuotation(att)"
+                    class="group flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all duration-200 border"
+                    [ngClass]="selectedQuotation === att ? 'bg-info/10 border-info/30 text-info font-bold' : 'bg-white dark:bg-[#1b2e4b] border-gray-100 dark:border-[#1b2e4b] hover:border-info/30 text-gray-600 dark:text-gray-400'">
+                    <div class="flex-shrink-0">
+                        <icon-file *ngIf="!isQuotationImage(att)" class="w-5 h-5" />
+                        <icon-gallery *ngIf="isQuotationImage(att)" class="w-5 h-5" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-xs font-bold truncate">{{ att.fileName || att.name || 'Quotation ' + (i+1) }}</p>
+                        <p class="text-[10px] opacity-70 uppercase">{{ att.mimeType || att.type || 'File' }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Content: Preview Area -->
+            <div class="flex-1 bg-gray-50 dark:bg-[#0e1726] flex flex-col p-4 overflow-hidden">
+                <div *ngIf="!currentQuotationPreviewUrl"
+                    class="flex-1 flex flex-col items-center justify-center text-gray-400 space-y-4">
+                    <div class="p-6 bg-white dark:bg-[#1b2e4b] rounded-full shadow-sm">
+                        <icon-file class="w-12 h-12 opacity-20" />
+                    </div>
+                    <p class="text-sm">Select an attachment from the left to preview</p>
+                </div>
+
+                <ng-container *ngIf="currentQuotationPreviewUrl">
+                    <!-- Preview Toolbar -->
+                    <div
+                        class="mb-4 flex items-center justify-between bg-white dark:bg-[#1b2e4b] p-3 rounded-lg border border-gray-100 dark:border-[#1b2e4b] shadow-sm">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-info/10 rounded text-info">
+                                <icon-file *ngIf="!isQuotationImage(selectedQuotation)" class="w-4 h-4" />
+                                <icon-gallery *ngIf="isQuotationImage(selectedQuotation)" class="w-4 h-4" />
+                            </div>
+                            <span class="text-sm font-bold text-gray-700 dark:text-gray-300 truncate max-w-[300px]">
+                                {{ selectedQuotation.fileName || selectedQuotation.name || 'Attachment' }}
+                            </span>
+                        </div>
+                        <button (click)="downloadCurrentQuotation()" class="btn btn-primary btn-sm gap-2">
+                            <icon-download class="w-4 h-4" />
+                            Download File
+                        </button>
+                    </div>
+
+                    <div
+                        class="flex-1 flex items-center justify-center bg-white dark:bg-[#1b2e4b] rounded-lg shadow-sm border border-gray-100 dark:border-[#1b2e4b] overflow-hidden">
+                        <img *ngIf="isQuotationImage(selectedQuotation)" [src]="currentQuotationPreviewUrl"
+                            class="max-w-full max-h-full object-contain" />
+                        <iframe *ngIf="!isQuotationImage(selectedQuotation)" [src]="currentQuotationPreviewUrl"
+                            class="w-full h-full border-none"></iframe>
+                    </div>
+                </ng-container>
+            </div>
         </div>
     </div>
 </div>

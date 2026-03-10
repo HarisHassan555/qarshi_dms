@@ -31,7 +31,7 @@ export class DepartmentService {
     return this.http.get(urls.API_URL + 'getUsersByDepartment?departmentId=' + departmentId);
   }
 
-  assignUsersToDepartment(departmentId: number, userIds: number[], departmentHeadId?: number | null) {
+  assignUsersToDepartment(departmentId: number, userIds: number[], departmentHeadId?: string | null) {
     const payload: any = {
       departmentId: departmentId,
       userIds: userIds

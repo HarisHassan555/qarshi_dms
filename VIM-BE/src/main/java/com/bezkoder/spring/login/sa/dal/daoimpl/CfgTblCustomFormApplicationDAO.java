@@ -60,10 +60,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     @Value("${app.base.url:http://localhost:4200}")
     private String frontendBaseUrl;
 
-    
     /**
      * Get base URL for email links.
-     * Uses the injected backend URL if available, otherwise falls back to a default.
+     * Uses the injected backend URL if available, otherwise falls back to a
+     * default.
      */
     private String getBaseUrl() {
         if (backendBaseUrl != null && !backendBaseUrl.trim().isEmpty()) {
@@ -71,7 +71,6 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
         return "http://localhost:8080/velocity";
     }
-
 
     public CfgTblCustomFormApplicationDAO() {
     }
@@ -109,9 +108,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     private String generateNextApplicationCode(Integer formId, EntityManager entityManager) {
         try {
             // Get the form to find its convention prefix
-            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form = 
-                entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class, formId);
-            
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form = entityManager
+                    .find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class, formId);
+
             if (form == null) {
                 log.warn("Form with ID " + formId + " not found, cannot generate application code");
                 return null;
@@ -124,36 +123,38 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 if (formCode != null && formCode.contains("-")) {
                     conventionPrefix = formCode.substring(0, formCode.indexOf("-"));
                 } else {
-                    log.warn("Form " + formId + " has no convention prefix or form code, cannot generate application code");
+                    log.warn("Form " + formId
+                            + " has no convention prefix or form code, cannot generate application code");
                     return null;
                 }
             }
-            
+
             conventionPrefix = conventionPrefix.trim().toUpperCase();
 
             // Find the highest application code for this form (or same convention)
             String maxCodeQuery = "SELECT MAX(a.txtFormCode) FROM CfgTblCustomFormApplication a " +
-                                 "WHERE a.serFormId = :formId " +
-                                 "AND a.txtFormCode IS NOT NULL " +
-                                 "AND a.txtFormCode LIKE :prefixPattern " +
-                                 "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL)";
-            
+                    "WHERE a.serFormId = :formId " +
+                    "AND a.txtFormCode IS NOT NULL " +
+                    "AND a.txtFormCode LIKE :prefixPattern " +
+                    "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL)";
+
             String maxCode = null;
             try {
                 maxCode = (String) entityManager.createQuery(maxCodeQuery)
-                    .setParameter("formId", formId)
-                    .setParameter("prefixPattern", conventionPrefix + "-%")
-                    .getSingleResult();
+                        .setParameter("formId", formId)
+                        .setParameter("prefixPattern", conventionPrefix + "-%")
+                        .getSingleResult();
             } catch (NoResultException e) {
                 // No existing applications with this convention
                 maxCode = null;
             }
-            
+
             // If no applications exist, check the form code itself
-            if (maxCode == null && form.getTxtFormCode() != null && form.getTxtFormCode().startsWith(conventionPrefix + "-")) {
+            if (maxCode == null && form.getTxtFormCode() != null
+                    && form.getTxtFormCode().startsWith(conventionPrefix + "-")) {
                 maxCode = form.getTxtFormCode();
             }
-            
+
             int nextNumber = 0;
             if (maxCode != null && maxCode.startsWith(conventionPrefix + "-")) {
                 try {
@@ -165,11 +166,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     nextNumber = 0;
                 }
             }
-            
+
             // Generate next code with zero-padding (4 digits)
             nextNumber++;
             String nextCode = String.format("%s-%04d", conventionPrefix, nextNumber);
-            
+
             return nextCode;
         } catch (Exception e) {
             log.error("Error generating application code: " + e.getMessage(), e);
@@ -185,11 +186,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         try {
             entityManager.getTransaction().begin();
             List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                "SELECT a FROM CfgTblCustomFormApplication a " +
-                "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                "WHERE (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                "ORDER BY a.dteCreatedDate DESC")
-                .getResultList();
+                    "SELECT a FROM CfgTblCustomFormApplication a " +
+                            "LEFT JOIN FETCH a.cfgTblCustomForm f " +
+                            "WHERE (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
+                            "ORDER BY a.dteCreatedDate DESC")
+                    .getResultList();
             entityManager.getTransaction().commit();
             return applications;
         } catch (Exception e) {
@@ -212,13 +213,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         try {
             entityManager.getTransaction().begin();
             List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                "SELECT a FROM CfgTblCustomFormApplication a " +
-                "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                "WHERE a.serFormId = :formId " +
-                "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                "ORDER BY a.dteCreatedDate DESC")
-                .setParameter("formId", formId)
-                .getResultList();
+                    "SELECT a FROM CfgTblCustomFormApplication a " +
+                            "LEFT JOIN FETCH a.cfgTblCustomForm f " +
+                            "WHERE a.serFormId = :formId " +
+                            "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
+                            "ORDER BY a.dteCreatedDate DESC")
+                    .setParameter("formId", formId)
+                    .getResultList();
             entityManager.getTransaction().commit();
             return applications;
         } catch (Exception e) {
@@ -235,47 +236,46 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     }
 
     @Override
-@SuppressWarnings("unchecked")
-public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId) {
+    @SuppressWarnings("unchecked")
+    public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId) {
 
-    EntityManager entityManager = getEntityManager();
+        EntityManager entityManager = getEntityManager();
 
-    try {
+        try {
 
-        entityManager.getTransaction().begin();
+            entityManager.getTransaction().begin();
 
-        List<CfgTblCustomFormApplication> applications =
-                entityManager.createQuery(
-                        "SELECT a FROM CfgTblCustomFormApplication a " +
-                        "JOIN FETCH a.cfgTblCustomForm f " +
-                        "WHERE a.serSubmittedBy = :userId " +
-                        "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                        "ORDER BY a.dteCreatedDate DESC",
-                        CfgTblCustomFormApplication.class)
-                        .setParameter("userId", userId)
-                        .setFirstResult(0)      // 🔥 Prevent large sort
-                        .setMaxResults(200)     // 🔥 Limit results
-                        .getResultList();
+            List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
+                    "SELECT a FROM CfgTblCustomFormApplication a " +
+                            "JOIN FETCH a.cfgTblCustomForm f " +
+                            "WHERE a.serSubmittedBy = :userId " +
+                            "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
+                            "ORDER BY a.dteCreatedDate DESC",
+                    CfgTblCustomFormApplication.class)
+                    .setParameter("userId", userId)
+                    .setFirstResult(0) // 🔥 Prevent large sort
+                    .setMaxResults(200) // 🔥 Limit results
+                    .getResultList();
 
-        entityManager.getTransaction().commit();
-        return applications;
+            entityManager.getTransaction().commit();
+            return applications;
 
-    } catch (Exception e) {
+        } catch (Exception e) {
 
-        if (entityManager.getTransaction().isActive()) {
-            entityManager.getTransaction().rollback();
-        }
+            if (entityManager.getTransaction().isActive()) {
+                entityManager.getTransaction().rollback();
+            }
 
-        log.error("Error getting applications by user ID", e);
-        throw e;
+            log.error("Error getting applications by user ID", e);
+            throw e;
 
-    } finally {
+        } finally {
 
-        if (entityManager.isOpen()) {
-            entityManager.close();
+            if (entityManager.isOpen()) {
+                entityManager.close();
+            }
         }
     }
-}
 
     @Override
     public CfgTblCustomFormApplication getApplicationById(Integer applicationId) {
@@ -283,12 +283,12 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         try {
             entityManager.getTransaction().begin();
             List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                "SELECT a FROM CfgTblCustomFormApplication a " +
-                "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                "WHERE a.serApplicationId = :applicationId")
-                .setParameter("applicationId", applicationId)
-                .getResultList();
-            
+                    "SELECT a FROM CfgTblCustomFormApplication a " +
+                            "LEFT JOIN FETCH a.cfgTblCustomForm f " +
+                            "WHERE a.serApplicationId = :applicationId")
+                    .setParameter("applicationId", applicationId)
+                    .getResultList();
+
             if (!applications.isEmpty()) {
                 CfgTblCustomFormApplication application = applications.get(0);
                 // Deserialize approval pipelines if form exists
@@ -296,7 +296,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                     deserializeApprovalPipeline(application.getCfgTblCustomForm(), entityManager);
                 }
             }
-            
+
             entityManager.getTransaction().commit();
             return applications.isEmpty() ? null : applications.get(0);
         } catch (Exception e) {
@@ -311,52 +311,52 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             }
         }
     }
-    
+
     /**
      * Deserialize approval pipeline from JSON string to list of pipeline objects
      */
-    private void deserializeApprovalPipeline(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form, EntityManager entityManager) {
+    private void deserializeApprovalPipeline(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+            EntityManager entityManager) {
         try {
             List<com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline> pipelines = new java.util.ArrayList<>();
-            
+
             if (form.getTxtApprovalPipeline() != null && !form.getTxtApprovalPipeline().trim().isEmpty()) {
                 com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
                 List<java.util.Map<String, Object>> pipelineMaps = mapper.readValue(
-                    form.getTxtApprovalPipeline(), 
-                    new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {}
-                );
-                
+                        form.getTxtApprovalPipeline(),
+                        new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
+                        });
+
                 // Convert each map to CfgTblCustomFormApprovalPipeline object
                 for (java.util.Map<String, Object> pipelineMap : pipelineMaps) {
-                    com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline pipeline = 
-                        new com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline();
-                    
+                    com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline pipeline = new com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline();
+
                     // Set approval order
                     Object orderObj = pipelineMap.get("intApprovalOrder");
                     if (orderObj != null) {
-                        pipeline.setIntApprovalOrder(orderObj instanceof Integer ? (Integer) orderObj : 
-                                                     Integer.parseInt(orderObj.toString()));
+                        pipeline.setIntApprovalOrder(orderObj instanceof Integer ? (Integer) orderObj
+                                : Integer.parseInt(orderObj.toString()));
                     }
-                    
+
                     // Set department ID
                     Object deptIdObj = pipelineMap.get("serDepartmentId");
                     if (deptIdObj != null) {
-                        Integer deptId = deptIdObj instanceof Integer ? (Integer) deptIdObj : 
-                                        Integer.parseInt(deptIdObj.toString());
+                        Integer deptId = deptIdObj instanceof Integer ? (Integer) deptIdObj
+                                : Integer.parseInt(deptIdObj.toString());
                         pipeline.setSerDepartmentId(deptId);
-                        
+
                         // Fetch department entity
-                        com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment department = 
-                            entityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, deptId);
+                        com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment department = entityManager
+                                .find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, deptId);
                         if (department != null) {
                             pipeline.setHrTblDepartment(department);
                         }
                     }
-                    
+
                     pipelines.add(pipeline);
                 }
             }
-            
+
             form.setCfgTblCustomFormApprovalPipelines(pipelines);
         } catch (Exception e) {
             log.error("Error deserializing approval pipeline JSON: " + e.getMessage(), e);
@@ -368,7 +368,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         EntityManager entityManager = getEntityManager();
         try {
             entityManager.getTransaction().begin();
-            
+
             // Set default values
             if (application.getBlIsActive() == null) {
                 application.setBlIsActive(true);
@@ -396,11 +396,19 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             }
 
             // Detect Budget Approval form
-            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm formForBudget =
-                application.getSerFormId() != null
-                    ? entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class, application.getSerFormId())
-                    : null;
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm formForBudget = application
+                    .getSerFormId() != null
+                            ? entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class,
+                                    application.getSerFormId())
+                            : null;
             boolean isBudgetApproval = isBudgetApprovalForm(formForBudget);
+            boolean isCapf = isCapfForm(formForBudget);
+
+            // If CAPF form and has initial signer in JSON data, set level to -1
+            if (isCapf && hasInitialSigner(application)) {
+                application.setIntCurrentApprovalLevel(-1);
+                log.info("Setting initial approval level to -1 for CAPF with Initial Signer");
+            }
 
             // Generate application code based on form's convention if not provided
             if (application.getTxtFormCode() == null || application.getTxtFormCode().trim().isEmpty()) {
@@ -423,7 +431,9 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                             fallbackUserId = application.getSerCreatedUser();
                         }
                         if (fallbackUserId != null) {
-                            preparedBy = buildBudgetApprover(java.util.Collections.singletonMap("serUserId", fallbackUserId), "PREPARED", entityManager);
+                            preparedBy = buildBudgetApprover(
+                                    java.util.Collections.singletonMap("serUserId", fallbackUserId), "PREPARED",
+                                    entityManager);
                         }
                     }
                     List<java.util.Map<String, Object>> approvalHistory = new java.util.ArrayList<>();
@@ -437,15 +447,20 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                         approvalEntry.put("approvedBy", preparedBy.userId);
                         approvalEntry.put("approverName", preparedBy.name != null ? preparedBy.name : "Prepared By");
                         approvalEntry.put("approvedDate", commonService.getCurrentTimeStamp_new().toString());
-                        approvalEntry.put("signaturePath", preparedBy.signaturePath != null ? preparedBy.signaturePath : "");
-                        approvalEntry.put("txtDepartmentName", preparedBy.department != null ? preparedBy.department : "");
-                        approvalEntry.put("userDepartmentName", preparedBy.department != null ? preparedBy.department : "");
+                        approvalEntry.put("signaturePath",
+                                preparedBy.signaturePath != null ? preparedBy.signaturePath : "");
+                        approvalEntry.put("txtDepartmentName",
+                                preparedBy.department != null ? preparedBy.department : "");
+                        approvalEntry.put("userDepartmentName",
+                                preparedBy.department != null ? preparedBy.department : "");
                         approvalEntry.put("designation", preparedBy.designation != null ? preparedBy.designation : "");
-                        approvalEntry.put("txtDesignation", preparedBy.designation != null ? preparedBy.designation : "");
+                        approvalEntry.put("txtDesignation",
+                                preparedBy.designation != null ? preparedBy.designation : "");
                         approvalEntry.put("approvedVia", "SYSTEM");
                         approvalEntry.put("action", "APPROVED");
                         approvalEntry.put("role", "PREPARED");
-                        log.info("CAPF signature log [submission-prepared-entry]: appId={}, userId={}, level={}, role={}, signaturePath={}",
+                        log.info(
+                                "CAPF signature log [submission-prepared-entry]: appId={}, userId={}, level={}, role={}, signaturePath={}",
                                 application.getSerApplicationId(), preparedBy.userId, 0, "PREPARED",
                                 preparedBy.signaturePath != null ? preparedBy.signaturePath : "");
                         approvalHistory.add(approvalEntry);
@@ -467,7 +482,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                     Map<String, Object> appData = parseApplicationData(application);
                     byte[] pdfBytes = generateApplicationPdf(application, formForBudget, appData);
                     if (pdfBytes != null && pdfBytes.length > 0) {
-                        String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
+                        String code = application.getTxtFormCode() != null ? application.getTxtFormCode()
+                                : "application";
                         application.setBlbPdfData(pdfBytes);
                         application.setTxtPdfName(code + ".pdf");
                         application.setTxtPdfMime("application/pdf");
@@ -479,7 +495,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
 
             entityManager.persist(application);
             entityManager.getTransaction().commit();
-            
+
             // Send email notifications after successful submission (unless deferred)
             boolean deferEmail = Boolean.TRUE.equals(application.getDeferEmail());
             if (!deferEmail) {
@@ -495,7 +511,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                     // Don't fail the submission if email fails
                 }
             }
-            
+
             return "Success";
         } catch (Exception e) {
             if (entityManager.getTransaction().isActive()) {
@@ -521,9 +537,9 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         EntityManager entityManager = getEntityManager();
         try {
             entityManager.getTransaction().begin();
-            
+
             CfgTblCustomFormApplication existingApplication = entityManager.find(
-                CfgTblCustomFormApplication.class, application.getSerApplicationId());
+                    CfgTblCustomFormApplication.class, application.getSerApplicationId());
             if (existingApplication == null) {
                 entityManager.getTransaction().rollback();
                 entityManager.close();
@@ -545,15 +561,20 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             ObjectMapper objectMapper = new ObjectMapper();
             try {
                 String applicationDataJson = existingApplication.getTxtApplicationData();
-                Map<String, Object> applicationData = objectMapper.readValue(applicationDataJson, new TypeReference<Map<String, Object>>() {});
+                Map<String, Object> applicationData = objectMapper.readValue(applicationDataJson,
+                        new TypeReference<Map<String, Object>>() {
+                        });
 
                 applicationData.put("approvedBySignature", commonService.getCurrentUserName());
                 applicationData.put("approvedTimestamp", commonService.getCurrentTimeStamp_new().toString());
 
                 existingApplication.setTxtApplicationData(objectMapper.writeValueAsString(applicationData));
             } catch (Exception jsonException) {
-                log.error("Error processing application data JSON for signature/timestamp: " + jsonException.getMessage(), jsonException);
-                // Optionally, handle this error more gracefully, e.g., by not updating txtApplicationData
+                log.error(
+                        "Error processing application data JSON for signature/timestamp: " + jsonException.getMessage(),
+                        jsonException);
+                // Optionally, handle this error more gracefully, e.g., by not updating
+                // txtApplicationData
             }
 
             entityManager.merge(existingApplication);
@@ -590,7 +611,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             }
 
             entityManager.getTransaction().begin();
-            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class,
+                    applicationId);
             if (application == null) {
                 entityManager.getTransaction().rollback();
                 return "Failure: Application not found";
@@ -620,9 +642,9 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         EntityManager entityManager = getEntityManager();
         try {
             entityManager.getTransaction().begin();
-            
+
             CfgTblCustomFormApplication application = entityManager.find(
-                CfgTblCustomFormApplication.class, applicationId);
+                    CfgTblCustomFormApplication.class, applicationId);
             if (application == null) {
                 entityManager.getTransaction().rollback();
                 entityManager.close();
@@ -658,13 +680,13 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         try {
             entityManager.getTransaction().begin();
             List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                "SELECT a FROM CfgTblCustomFormApplication a " +
-                "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                "WHERE a.txtStatus = :status " +
-                "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                "ORDER BY a.dteCreatedDate DESC")
-                .setParameter("status", status)
-                .getResultList();
+                    "SELECT a FROM CfgTblCustomFormApplication a " +
+                            "LEFT JOIN FETCH a.cfgTblCustomForm f " +
+                            "WHERE a.txtStatus = :status " +
+                            "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
+                            "ORDER BY a.dteCreatedDate DESC")
+                    .setParameter("status", status)
+                    .getResultList();
             entityManager.getTransaction().commit();
             return applications;
         } catch (Exception e) {
@@ -682,29 +704,31 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
 
     @Override
     @SuppressWarnings("unchecked")
-    public List<CfgTblCustomFormApplication> getApplicationsPendingApprovalForDepartmentHead(Integer departmentHeadUserId) {
+    public List<CfgTblCustomFormApplication> getApplicationsPendingApprovalForDepartmentHead(
+            Integer departmentHeadUserId) {
         EntityManager entityManager = getEntityManager();
         try {
             entityManager.getTransaction().begin();
-            
+
             // First, find all departments where this user is the head
             java.util.List<com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment> departments = new java.util.ArrayList<>();
             try {
-                departments = entityManager.createQuery(
-                    "SELECT d FROM HrTblDepartment d " +
-                    "WHERE d.serDepartmentHeadId = :headUserId " +
-                    "AND (d.blIsDeleted = false OR d.blIsDeleted IS NULL)")
-                    .setParameter("headUserId", departmentHeadUserId)
-                    .getResultList();
+                departments = entityManager.createNativeQuery(
+                        "SELECT * FROM hr_tbl_department d " +
+                                "WHERE FIND_IN_SET(:headUserId, d.ser_department_head_id) " +
+                                "AND (d.bl_is_deleted = false OR d.bl_is_deleted IS NULL)",
+                        com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class)
+                        .setParameter("headUserId", String.valueOf(departmentHeadUserId))
+                        .getResultList();
             } catch (Exception e) {
                 log.warn("Error finding department for head user " + departmentHeadUserId + ": " + e.getMessage());
             }
-            
+
             if (departments == null || departments.isEmpty()) {
                 entityManager.getTransaction().commit();
                 return new java.util.ArrayList<>();
             }
-            
+
             java.util.Set<Integer> departmentIds = new java.util.HashSet<>();
             for (com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment dept : departments) {
                 if (dept != null && dept.getSerDepartmentId() != null) {
@@ -715,70 +739,75 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 entityManager.getTransaction().commit();
                 return new java.util.ArrayList<>();
             }
-            
-            // Get applications with PENDING or IN_PROGRESS status (capped to avoid MySQL sort buffer overflow)
+
+            // Get applications with PENDING or IN_PROGRESS status (capped to avoid MySQL
+            // sort buffer overflow)
             List<CfgTblCustomFormApplication> allPendingApplications = entityManager.createQuery(
-                "SELECT a FROM CfgTblCustomFormApplication a " +
-                "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                "WHERE (a.txtStatus = 'PENDING' OR a.txtStatus = 'IN_PROGRESS') " +
-                "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                "ORDER BY a.dteCreatedDate DESC",
-                CfgTblCustomFormApplication.class)
-                .setFirstResult(0)
-                .setMaxResults(2000)
-                .getResultList();
-            
-            // Filter applications where the current approval level matches this department's order in the pipeline
+                    "SELECT a FROM CfgTblCustomFormApplication a " +
+                            "LEFT JOIN FETCH a.cfgTblCustomForm f " +
+                            "WHERE (a.txtStatus = 'PENDING' OR a.txtStatus = 'IN_PROGRESS') " +
+                            "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
+                            "ORDER BY a.dteCreatedDate DESC",
+                    CfgTblCustomFormApplication.class)
+                    .setFirstResult(0)
+                    .setMaxResults(2000)
+                    .getResultList();
+
+            // Filter applications where the current approval level matches this
+            // department's order in the pipeline
             List<CfgTblCustomFormApplication> filteredApplications = new java.util.ArrayList<>();
-            
+
             for (CfgTblCustomFormApplication app : allPendingApplications) {
                 if (app.getCfgTblCustomForm() == null) {
                     continue;
                 }
-                
+
                 // Deserialize approval pipeline from JSON
                 String pipelineJson = app.getCfgTblCustomForm().getTxtApprovalPipeline();
                 if (pipelineJson == null || pipelineJson.trim().isEmpty()) {
                     continue; // No approval pipeline configured
                 }
-                
+
                 try {
                     com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
                     List<java.util.Map<String, Object>> pipelines = mapper.readValue(
-                        pipelineJson,
-                        new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {}
-                    );
-                    
+                            pipelineJson,
+                            new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
+                            });
+
                     Integer currentLevel = app.getIntCurrentApprovalLevel();
                     if (currentLevel == null) {
                         currentLevel = 0;
                     }
 
-                    // Check if any department headed by this user matches the current approval level
+                    // Check if any department headed by this user matches the current approval
+                    // level
                     for (java.util.Map<String, Object> pipeline : pipelines) {
                         Object deptIdObj = pipeline.get("serDepartmentId");
                         Object orderObj = pipeline.get("intApprovalOrder");
                         if (deptIdObj == null || orderObj == null) {
                             continue;
                         }
-                        Integer deptId = deptIdObj instanceof Integer ? (Integer) deptIdObj :
-                                        Integer.parseInt(deptIdObj.toString());
+                        Integer deptId = deptIdObj instanceof Integer ? (Integer) deptIdObj
+                                : Integer.parseInt(deptIdObj.toString());
                         if (!departmentIds.contains(deptId)) {
                             continue;
                         }
-                        Integer departmentOrder = orderObj instanceof Integer ? (Integer) orderObj :
-                                                Integer.parseInt(orderObj.toString());
-                        // Approval level 0 means first department (order 1), level 1 means second department (order 2), etc.
+                        Integer departmentOrder = orderObj instanceof Integer ? (Integer) orderObj
+                                : Integer.parseInt(orderObj.toString());
+                        // Approval level 0 means first department (order 1), level 1 means second
+                        // department (order 2), etc.
                         if (currentLevel.equals(departmentOrder - 1)) {
                             filteredApplications.add(app);
                             break;
                         }
                     }
                 } catch (Exception e) {
-                    log.warn("Error parsing approval pipeline for application " + app.getSerApplicationId() + ": " + e.getMessage());
+                    log.warn("Error parsing approval pipeline for application " + app.getSerApplicationId() + ": "
+                            + e.getMessage());
                 }
             }
-            
+
             entityManager.getTransaction().commit();
             return filteredApplications;
         } catch (Exception e) {
@@ -802,15 +831,15 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             entityManager.getTransaction().begin();
 
             List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                "SELECT a FROM CfgTblCustomFormApplication a " +
-                "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                "WHERE (a.txtStatus = 'PENDING' OR a.txtStatus = 'IN_PROGRESS') " +
-                "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                "ORDER BY a.dteCreatedDate DESC",
-                CfgTblCustomFormApplication.class)
-                .setFirstResult(0)
-                .setMaxResults(2000)
-                .getResultList();
+                    "SELECT a FROM CfgTblCustomFormApplication a " +
+                            "LEFT JOIN FETCH a.cfgTblCustomForm f " +
+                            "WHERE (a.txtStatus = 'PENDING' OR a.txtStatus = 'IN_PROGRESS') " +
+                            "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
+                            "ORDER BY a.dteCreatedDate DESC",
+                    CfgTblCustomFormApplication.class)
+                    .setFirstResult(0)
+                    .setMaxResults(2000)
+                    .getResultList();
 
             entityManager.getTransaction().commit();
             return applications;
@@ -1029,8 +1058,19 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             Integer departmentId = null;
             String departmentName = null;
             Integer pipelineOrder = null;
+
+            boolean isCapf = isCapfForm(form);
             
-            if (!pipelines.isEmpty() && currentLevel < pipelines.size()) {
+            if (currentLevel == -1 && isCapf) {
+                // Initial Signer stage for CAPF
+                Integer initialSignerId = extractInitialSignerId(application);
+                if (initialSignerId == null || !initialSignerId.equals(resolvedApproverId)) {
+                    entityManager.getTransaction().rollback();
+                    return "Failure: You are not authorized to sign this application at this stage (Initial Signer required).";
+                }
+                departmentName = "Initial Signer";
+                log.info("Initial Signer approved application " + application.getSerApplicationId());
+            } else if (!pipelines.isEmpty() && currentLevel < pipelines.size()) {
                 currentDepartmentPipeline = pipelines.get(currentLevel);
                 if (currentDepartmentPipeline != null) {
                     Object deptIdObj = currentDepartmentPipeline.get("serDepartmentId");
@@ -1093,7 +1133,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                     approvalHistory = new java.util.ArrayList<>();
                 }
             }
-            
+
             boolean skipCeoHistory = shouldSkipCeoForCapf(form, departmentName, approverUser);
             if (!skipCeoHistory) {
                 // Add current approval to history (the level being approved is currentLevel + 1 in terms of pipeline order)
@@ -1116,9 +1156,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 approvalEntry.put("action", "APPROVED");
                 approvalEntry.put("role", departmentName != null ? departmentName : "");
                 log.info("CAPF signature log [pipeline-approval-entry]: appId={}, userId={}, level={}, deptId={}, deptName={}, signaturePath={}",
-                        application.getSerApplicationId(), resolvedApproverId,
-                        (pipelineOrder != null ? pipelineOrder : (currentLevel + 1)),
-                        departmentId, departmentName, approverSignaturePath != null ? approverSignaturePath : "");
+                         application.getSerApplicationId(), resolvedApproverId, (pipelineOrder != null ? pipelineOrder : (currentLevel + 1)),
+                         departmentId, departmentName, approverSignaturePath != null ? approverSignaturePath : "");
                 approvalHistory.add(approvalEntry);
 
                 // Save updated history
@@ -1130,10 +1169,10 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                     log.error("Error serializing approval history: " + e.getMessage());
                 }
             }
-            
+
             // Increment approval level
             currentLevel++;
-            
+
             // Check if this is the last level
             if (pipelines.isEmpty() || currentLevel >= pipelines.size()) {
                 // All approvals complete
@@ -1144,7 +1183,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 application.setTxtStatus("IN_PROGRESS");
                 application.setIntCurrentApprovalLevel(currentLevel);
             }
-            
+
             application.setSerCurrentApprover(resolvedApproverId);
             application.setTxtRemarks(remarks);
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
@@ -1193,14 +1232,10 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         } catch (Exception e) {
             if (entityManager.getTransaction().isActive()) {
                 entityManager.getTransaction().rollback();
-                log.error("Error approving application (rolled back): " + e.getMessage(), e);
-                return "Failure: " + e.getMessage();
             }
-            // If the transaction committed but something else failed (like email), don't return Failure to the user
-            log.warn("Approval committed, but an error occurred in post-commit actions: " + e.getMessage(), e);
-            return "Success";
-        }
- finally {
+            log.error("Error approving application (rolled back): " + e.getMessage(), e);
+            return "Failure: " + e.getMessage();
+        } finally {
             if (entityManager.isOpen()) {
                 entityManager.close();
             }
@@ -1311,17 +1346,21 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             entityManager.merge(application);
             entityManager.getTransaction().commit();
             return "Success";
-        } catch (Exception e) {
-            if (entityManager.getTransaction().isActive()) {
-                entityManager.getTransaction().rollback();
-            }
-            log.error("Error rejecting application: " + e.getMessage(), e);
-            return "Failure: " + e.getMessage();
-        } finally {
-            if (entityManager.isOpen()) {
-                entityManager.close();
-            }
+        }catch(
+
+    Exception e)
+    {
+        if (entityManager.getTransaction().isActive()) {
+            entityManager.getTransaction().rollback();
         }
+        log.error("Error rejecting application: " + e.getMessage(), e);
+        return "Failure: " + e.getMessage();
+    }finally
+    {
+        if (entityManager.isOpen()) {
+            entityManager.close();
+        }
+    }
     }
 
     @Override
@@ -1459,17 +1498,21 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             entityManager.merge(application);
             entityManager.getTransaction().commit();
             return "Success";
-        } catch (Exception e) {
-            if (entityManager.getTransaction().isActive()) {
-                entityManager.getTransaction().rollback();
-            }
-            log.error("Error sending back application: " + e.getMessage(), e);
-            return "Failure: " + e.getMessage();
-        } finally {
-            if (entityManager.isOpen()) {
-                entityManager.close();
-            }
+        }catch(
+
+    Exception e)
+    {
+        if (entityManager.getTransaction().isActive()) {
+            entityManager.getTransaction().rollback();
         }
+        log.error("Error sending back application: " + e.getMessage(), e);
+        return "Failure: " + e.getMessage();
+    }finally
+    {
+        if (entityManager.isOpen()) {
+            entityManager.close();
+        }
+    }
     }
 
     @Override
@@ -1481,15 +1524,16 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             }
 
             entityManager.getTransaction().begin();
-            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class,
+                    applicationId);
             if (application == null) {
                 entityManager.getTransaction().rollback();
                 return "Failure: Application not found";
             }
 
-            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form =
-                application.getSerFormId() != null
-                    ? entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class, application.getSerFormId())
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form = application.getSerFormId() != null
+                    ? entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class,
+                            application.getSerFormId())
                     : null;
             boolean isBudgetApproval = isBudgetApprovalForm(form);
 
@@ -1520,16 +1564,18 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     /**
      * Send email notifications when an application is approved
      * Sends email to:
-     * 1. The user who submitted the application (notifying them of approval at current level)
+     * 1. The user who submitted the application (notifying them of approval at
+     * current level)
      * 2. The next level department head (if there is a next level)
      * 
-     * @param application The approved application
-     * @param approvedPipelineOrder The pipeline order (1-indexed) that was just approved
-     * @param currentLevel The new current level (0-indexed) after approval
-     * @param pipelines The approval pipeline list
+     * @param application           The approved application
+     * @param approvedPipelineOrder The pipeline order (1-indexed) that was just
+     *                              approved
+     * @param currentLevel          The new current level (0-indexed) after approval
+     * @param pipelines             The approval pipeline list
      */
-    private void sendApprovalEmails(CfgTblCustomFormApplication application, Integer approvedPipelineOrder, 
-                    Integer currentLevel, List<java.util.Map<String, Object>> pipelines) {
+    private void sendApprovalEmails(CfgTblCustomFormApplication application, Integer approvedPipelineOrder,
+            Integer currentLevel, List<java.util.Map<String, Object>> pipelines) {
         EntityManager emailEntityManager = getEntityManager();
         try {
             String formName = "Unknown Form";
@@ -1538,62 +1584,67 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 form = emailEntityManager.find(CfgTblCustomForm.class, application.getSerFormId());
             }
             boolean isCapf = isCapfForm(form);
-            log.info("Email debug [sendApprovalEmails]: appId={}, isCapf={}, formName={}, formCode={}", 
-                     application.getSerApplicationId(), isCapf, 
-                     form != null ? form.getTxtFormName() : "null", 
-                     form != null ? form.getTxtFormCode() : "null");
-            
+            log.info("Email debug [sendApprovalEmails]: appId={}, isCapf={}, formName={}, formCode={}",
+                    application.getSerApplicationId(), isCapf,
+                    form != null ? form.getTxtFormName() : "null",
+                    form != null ? form.getTxtFormCode() : "null");
+
             // Get form name
             if (form != null && form.getTxtFormName() != null) {
                 formName = form.getTxtFormName();
             }
-            
+
             // 1. Get email of the user who submitted the application
             if (application.getSerSubmittedBy() != null) {
                 try {
-                    CfgTblUser submittedByUser = emailEntityManager.find(CfgTblUser.class, application.getSerSubmittedBy());
-                    if (submittedByUser != null && submittedByUser.getTxtAddress() != null && 
-                        !submittedByUser.getTxtAddress().trim().isEmpty()) {
-                        
+                    CfgTblUser submittedByUser = emailEntityManager.find(CfgTblUser.class,
+                            application.getSerSubmittedBy());
+                    if (submittedByUser != null && submittedByUser.getTxtAddress() != null &&
+                            !submittedByUser.getTxtAddress().trim().isEmpty()) {
+
                         // Send HTML email to submitter
-                        String submitterSubject = "Application Approved at Level " + approvedPipelineOrder + " - " + 
-                                               (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+                        String submitterSubject = "Application Approved at Level " + approvedPipelineOrder + " - " +
+                                (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
                         String submitterHtmlMessage = generateApprovalEmailHtml(
-                            submittedByUser.getTxtUserName() != null ? submittedByUser.getTxtUserName() : "User",
-                            approvedPipelineOrder,
-                            application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
-                            formName,
-                            application.getTxtStatus(),
-                            application.getTxtRemarks(),
-                            false, // Not for department head
-                            null, // No action buttons for submitter
-                            null,
-                            null,
-                            application.getTxtApprovalHistory(),
-                            getBaseUrl()
-                        );
-                        
+                                submittedByUser.getTxtUserName() != null ? submittedByUser.getTxtUserName() : "User",
+                                approvedPipelineOrder,
+                                application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
+                                formName,
+                                application.getTxtStatus(),
+                                application.getTxtRemarks(),
+                                false, // Not for department head
+                                null, // No action buttons for submitter
+                                null,
+                                null,
+                                application.getTxtApprovalHistory(),
+                                getBaseUrl());
+
                         if (isCapf) {
                             String cid = "capf-inline";
                             log.info("Email debug [sendApprovalEmails]: Building CAPF preview for Submitter");
                             byte[] imageBytes = buildCapfPreviewPng(application, form);
                             if (imageBytes != null && imageBytes.length > 0) {
                                 submitterHtmlMessage = appendCapfInlineImage(submitterHtmlMessage, cid);
-                                emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
-                                    submitterSubject, submitterHtmlMessage, imageBytes, "image/png", cid);
-                                log.info("Approval email with image preview sent to submitter: " + submittedByUser.getTxtAddress());
+                                emailService.sendHtmlEmailWithInlineImage(
+                                        java.util.Arrays.asList(submittedByUser.getTxtAddress()),
+                                        submitterSubject, submitterHtmlMessage, imageBytes, "image/png", cid);
+                                log.info("Approval email with image preview sent to submitter: "
+                                        + submittedByUser.getTxtAddress());
                             } else {
-                                log.warn("CAPF image preview failed generation for submitter approval email: " + submittedByUser.getTxtAddress());
+                                log.warn("CAPF image preview failed generation for submitter approval email: "
+                                        + submittedByUser.getTxtAddress());
                                 emailService.sendHtmlEmail(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
-                                    submitterSubject, submitterHtmlMessage);
+                                        submitterSubject, submitterHtmlMessage);
                             }
                         } else if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
-                            emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
-                                submitterSubject, submitterHtmlMessage,
-                                application.getBlbPdfData(), application.getTxtPdfName(), application.getTxtPdfMime());
+                            emailService.sendHtmlEmailWithAttachment(
+                                    java.util.Arrays.asList(submittedByUser.getTxtAddress()),
+                                    submitterSubject, submitterHtmlMessage,
+                                    application.getBlbPdfData(), application.getTxtPdfName(),
+                                    application.getTxtPdfMime());
                         } else {
-                            emailService.sendHtmlEmail(java.util.Arrays.asList(submittedByUser.getTxtAddress()), 
-                                submitterSubject, submitterHtmlMessage);
+                            emailService.sendHtmlEmail(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
+                                    submitterSubject, submitterHtmlMessage);
                         }
                         log.info("Approval email sent to submitter: " + submittedByUser.getTxtAddress());
                     }
@@ -1601,102 +1652,149 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                     log.error("Error getting submitter email: " + e.getMessage(), e);
                 }
             }
-            
+
             // 2. Get email of the next level department head (if there is a next level)
             // currentLevel is 0-indexed and represents the next level to be approved
             if (pipelines != null && !pipelines.isEmpty() && currentLevel < pipelines.size()) {
                 try {
-                    // Get the next level pipeline (currentLevel is 0-indexed, so this is the next level)
+                    // Get the next level pipeline (currentLevel is 0-indexed, so this is the next
+                    // level)
                     java.util.Map<String, Object> nextLevelPipeline = pipelines.get(currentLevel);
                     if (nextLevelPipeline != null) {
                         Object deptIdObj = nextLevelPipeline.get("serDepartmentId");
                         if (deptIdObj != null) {
-                            Integer nextDeptId = deptIdObj instanceof Integer ? (Integer) deptIdObj : 
-                                                Integer.parseInt(deptIdObj.toString());
-                            
+                            Integer nextDeptId = deptIdObj instanceof Integer ? (Integer) deptIdObj
+                                    : Integer.parseInt(deptIdObj.toString());
+
                             // Get the department with department head
                             emailEntityManager.getTransaction().begin();
-                            com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment nextDept = 
-                                emailEntityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, nextDeptId);
-                            
+                            com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment nextDept = emailEntityManager
+                                    .find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, nextDeptId);
+
                             if (nextDept != null) {
-                                String nextDeptName = resolveDepartmentName(emailEntityManager, nextDeptId, nextLevelPipeline);
-                                Integer headId = nextDept.getSerDepartmentHeadId();
-                                if (headId != null) {
-                                    Integer headDeptId = loadUserDepartmentId(emailEntityManager, headId);
-                                    if (headDeptId == null || !headDeptId.equals(nextDeptId)) {
-                                        headId = null;
+                                String nextDeptName = resolveDepartmentName(emailEntityManager, nextDeptId,
+                                        nextLevelPipeline);
+
+                                // Collect all Head IDs
+                                java.util.List<Integer> headIds = new java.util.ArrayList<>();
+                                String headIdsStr = nextDept.getSerDepartmentHeadId();
+                                if (headIdsStr != null && !headIdsStr.trim().isEmpty()) {
+                                    for (String id : headIdsStr.split(",")) {
+                                        try {
+                                            headIds.add(Integer.parseInt(id.trim()));
+                                        } catch (Exception e) {
+                                        }
                                     }
                                 }
-                                if (headId == null) {
-                                    headId = findDepartmentHeadUserId(emailEntityManager, nextDeptId);
+
+                                // Fallback if no head IDs found
+                                if (headIds.isEmpty()) {
+                                    Integer fallbackHeadId = findDepartmentHeadUserId(emailEntityManager, nextDeptId);
+                                    if (fallbackHeadId != null)
+                                        headIds.add(fallbackHeadId);
                                 }
-                                CfgTblUser nextDeptHead = headId != null ? emailEntityManager.find(CfgTblUser.class, headId) : null;
-                                    if (nextDeptHead != null && nextDeptHead.getTxtAddress() != null && 
-                                        !nextDeptHead.getTxtAddress().trim().isEmpty()) {
+
+                                for (Integer currentHeadId : headIds) {
+                                    Integer headId = currentHeadId;
+                                    CfgTblUser nextDeptHead = headId != null
+                                            ? emailEntityManager.find(CfgTblUser.class, headId)
+                                            : null;
+
+                                    if (nextDeptHead != null && nextDeptHead.getTxtAddress() != null &&
+                                            !nextDeptHead.getTxtAddress().trim().isEmpty()) {
+
                                         if (shouldSkipCeoForCapf(form, nextDeptName, nextDeptHead)) {
-                                            log.info("Skipping CAPF CEO approval email for user: " + nextDeptHead.getSerUserId());
+                                            log.info("Skipping CAPF CEO approval email for user: "
+                                                    + nextDeptHead.getSerUserId());
                                         } else {
-                                        
-                                        // Get the next level's pipeline order
-                                        Object nextOrderObj = nextLevelPipeline.get("intApprovalOrder");
-                                        Integer nextLevelOrder = nextOrderObj != null ? 
-                                            (nextOrderObj instanceof Integer ? (Integer) nextOrderObj : 
-                                             Integer.parseInt(nextOrderObj.toString())) : (currentLevel + 1);
-                                        
-                                        // Send HTML email to next level department head with approve/reject buttons
-                                        String deptHeadSubject = "New Application Pending Approval - Level " + nextLevelOrder + 
-                                                               " - " + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
-                                        String baseUrl = getBaseUrl();
-                                        String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId=" + application.getSerApplicationId() + 
-                                                          "&userId=" + nextDeptHead.getSerUserId();
-                                        String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId=" + application.getSerApplicationId() + 
-                                                         "&userId=" + nextDeptHead.getSerUserId();
-                                        
-                                        String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId=" + application.getSerApplicationId() +
-                                                "&userId=" + nextDeptHead.getSerUserId();
-                                        String deptHeadHtmlMessage = generateApprovalEmailHtml(
-                                            nextDeptHead.getTxtUserName() != null ? nextDeptHead.getTxtUserName() : "Department Head",
-                                            nextLevelOrder,
-                                            application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
-                                            formName,
-                                            application.getTxtStatus(),
-                                            null,
-                                            true, // For department head
-                                            approveUrl,
-                                            rejectUrl,
-                                            sendBackUrl,
-                                            application.getTxtApprovalHistory(),
-                                            getBaseUrl()
-                                        );
-                                        
-                                        if (isCapf) {
-                                            String cid = "capf-inline";
-                                            log.info("Email debug [sendApprovalEmails]: Building CAPF preview for Next Dept Head");
-                                            byte[] imageBytes = buildCapfPreviewPng(application, form);
-                                            if (imageBytes != null && imageBytes.length > 0) {
-                                                deptHeadHtmlMessage = appendCapfInlineImage(deptHeadHtmlMessage, cid);
-                                                emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
-                                                    deptHeadSubject, deptHeadHtmlMessage, imageBytes, "image/png", cid);
-                                                log.info("Approval notification email with image preview sent to next level department head: " + nextDeptHead.getTxtAddress());
+                                            // Get the next level's pipeline order
+                                            Object nextOrderObj = nextLevelPipeline.get("intApprovalOrder");
+                                            Integer nextLevelOrder = nextOrderObj != null
+                                                    ? (nextOrderObj instanceof Integer ? (Integer) nextOrderObj
+                                                            : Integer.parseInt(nextOrderObj.toString()))
+                                                    : (currentLevel + 1);
+
+                                            // Send HTML email to next level department head with approve/reject buttons
+                                            String deptHeadSubject = "New Application Pending Approval - Level "
+                                                    + nextLevelOrder +
+                                                    " - "
+                                                    + (application.getTxtFormCode() != null
+                                                            ? application.getTxtFormCode()
+                                                            : "N/A");
+                                            String baseUrl = getBaseUrl();
+                                            String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                                                    + application.getSerApplicationId() +
+                                                    "&userId=" + nextDeptHead.getSerUserId();
+                                            String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                                                    + application.getSerApplicationId() +
+                                                    "&userId=" + nextDeptHead.getSerUserId();
+
+                                            String sendBackUrl = baseUrl
+                                                    + "/sendBackApplicationFromEmail?applicationId="
+                                                    + application.getSerApplicationId() +
+                                                    "&userId=" + nextDeptHead.getSerUserId();
+
+                                            String deptHeadHtmlMessage = generateApprovalEmailHtml(
+                                                    nextDeptHead.getTxtUserName() != null
+                                                            ? nextDeptHead.getTxtUserName()
+                                                            : "Department Head",
+                                                    nextLevelOrder,
+                                                    application.getTxtFormCode() != null ? application.getTxtFormCode()
+                                                            : "N/A",
+                                                    formName,
+                                                    application.getTxtStatus(),
+                                                    null,
+                                                    true, // For department head
+                                                    approveUrl,
+                                                    rejectUrl,
+                                                    sendBackUrl,
+                                                    application.getTxtApprovalHistory(),
+                                                    getBaseUrl());
+
+                                            if (isCapf) {
+                                                String cid = "capf-inline";
+                                                log.info(
+                                                        "Email debug [sendApprovalEmails]: Building CAPF preview for Next Dept Head");
+                                                byte[] imageBytes = buildCapfPreviewPng(application, form);
+                                                if (imageBytes != null && imageBytes.length > 0) {
+                                                    deptHeadHtmlMessage = appendCapfInlineImage(deptHeadHtmlMessage,
+                                                            cid);
+                                                    emailService.sendHtmlEmailWithInlineImage(
+                                                            java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
+                                                            deptHeadSubject, deptHeadHtmlMessage, imageBytes,
+                                                            "image/png", cid);
+                                                    log.info(
+                                                            "Approval notification email with image preview sent to next level department head: "
+                                                                    + nextDeptHead.getTxtAddress());
+                                                } else {
+                                                    log.warn(
+                                                            "CAPF image preview failed generation for next level dept head email: "
+                                                                    + nextDeptHead.getTxtAddress());
+                                                    emailService.sendHtmlEmail(
+                                                            java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
+                                                            deptHeadSubject, deptHeadHtmlMessage);
+                                                }
+                                            } else if (application.getBlbPdfData() != null
+                                                    && application.getBlbPdfData().length > 0) {
+                                                emailService.sendHtmlEmailWithAttachment(
+                                                        java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
+                                                        deptHeadSubject, deptHeadHtmlMessage,
+                                                        application.getBlbPdfData(), application.getTxtPdfName(),
+                                                        application.getTxtPdfMime());
                                             } else {
-                                                log.warn("CAPF image preview failed generation for next level dept head email: " + nextDeptHead.getTxtAddress());
-                                                emailService.sendHtmlEmail(java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
-                                                    deptHeadSubject, deptHeadHtmlMessage);
+                                                emailService.sendHtmlEmail(
+                                                        java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
+                                                        deptHeadSubject, deptHeadHtmlMessage);
                                             }
-                                        } else if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
-                                            emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(nextDeptHead.getTxtAddress()), 
-                                                deptHeadSubject, deptHeadHtmlMessage,
-                                                application.getBlbPdfData(), application.getTxtPdfName(), application.getTxtPdfMime());
-                                        } else {
-                                            emailService.sendHtmlEmail(java.util.Arrays.asList(nextDeptHead.getTxtAddress()), 
-                                                deptHeadSubject, deptHeadHtmlMessage);
-                                        }
-                                        log.info("Approval notification email sent to next level department head: " + nextDeptHead.getTxtAddress());
+                                            log.info("Approval notification email sent to next level department head: "
+                                                    + nextDeptHead.getTxtAddress());
                                         }
                                     }
+                                } // End currentHeadId loop
+                                emailEntityManager.getTransaction().commit();
+                            } else {
+                                emailEntityManager.getTransaction().rollback();
                             }
-                            emailEntityManager.getTransaction().commit();
                         }
                     }
                 } catch (Exception e) {
@@ -1706,10 +1804,9 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                     log.error("Error getting next level department head email: " + e.getMessage(), e);
                 }
             }
-            
+
         } catch (Exception e) {
             log.error("Error in sendApprovalEmails: " + e.getMessage(), e);
-            // Don't throw - email failure shouldn't break approval
         } finally {
             if (emailEntityManager.isOpen()) {
                 emailEntityManager.close();
@@ -1810,8 +1907,57 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 }
             }
             
-            // 2. Send email to the first level department head (if approval pipeline exists)
-            if (!isBudgetApproval && pipelines != null && !pipelines.isEmpty()) {
+            // 2. Send email to the first level (Initial Signer OR Department Head)
+            if (!isBudgetApproval) {
+                Integer currentLevel = application.getIntCurrentApprovalLevel();
+                if (currentLevel != null && currentLevel == -1 && isCapf) {
+                    Integer initialSignerId = extractInitialSignerId(application);
+                    if (initialSignerId != null) {
+                        try {
+                            emailEntityManager.getTransaction().begin();
+                            CfgTblUser initialSigner = emailEntityManager.find(CfgTblUser.class, initialSignerId);
+                            if (initialSigner != null && initialSigner.getTxtAddress() != null && !initialSigner.getTxtAddress().trim().isEmpty()) {
+                                String signerSubject = "Initial Signature Required - " + 
+                                                      (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+                                String baseUrl = getBaseUrl();
+                                String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId=" + application.getSerApplicationId() + 
+                                                  "&userId=" + initialSigner.getSerUserId();
+                                String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId=" + application.getSerApplicationId() + 
+                                                 "&userId=" + initialSigner.getSerUserId();
+                                String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId=" + application.getSerApplicationId() +
+                                                   "&userId=" + initialSigner.getSerUserId();
+                                
+                                String signerHtml = generateApprovalEmailHtml(
+                                    initialSigner.getTxtUserName() != null ? initialSigner.getTxtUserName() : "User",
+                                    0, // Level display
+                                    application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
+                                    formName,
+                                    "INITIAL SIGNATURE REQUIRED",
+                                    "", // Remarks
+                                    true, // Show buttons
+                                    approveUrl, rejectUrl, sendBackUrl,
+                                    application.getTxtApprovalHistory(),
+                                    getBaseUrl()
+                                );
+                                
+                                String cid = "capf-inline";
+                                byte[] imageBytes = buildCapfPreviewPng(application, form);
+                                if (imageBytes != null && imageBytes.length > 0) {
+                                    signerHtml = appendCapfInlineImage(signerHtml, cid);
+                                    emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(initialSigner.getTxtAddress()),
+                                        signerSubject, signerHtml, imageBytes, "image/png", cid);
+                                } else {
+                                    emailService.sendHtmlEmail(java.util.Arrays.asList(initialSigner.getTxtAddress()), signerSubject, signerHtml);
+                                }
+                                log.info("Initial Signer email sent to: " + initialSigner.getTxtAddress());
+                            }
+                            emailEntityManager.getTransaction().commit();
+                        } catch (Exception e) {
+                            if (emailEntityManager.getTransaction().isActive()) emailEntityManager.getTransaction().rollback();
+                            log.error("Error sending Initial Signer email: " + e.getMessage(), e);
+                        }
+                    }
+                } else if (pipelines != null && !pipelines.isEmpty()) {
                 try {
                     emailEntityManager.getTransaction().begin();
                     // Get the first level pipeline (index 0)
@@ -1840,81 +1986,91 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                                 emailEntityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, firstDeptId);
 
                             if (firstDept != null) {
-                                Integer headId = firstDept.getSerDepartmentHeadId();
-                                if (headId != null) {
-                                    Integer headDeptId = loadUserDepartmentId(emailEntityManager, headId);
-                                    if (headDeptId == null || !headDeptId.equals(firstDeptId)) {
-                                        headId = null;
+                                // Collect all Head IDs
+                                java.util.List<Integer> headIds = new java.util.ArrayList<>();
+                                String headIdsStr = firstDept.getSerDepartmentHeadId();
+                                if (headIdsStr != null && !headIdsStr.trim().isEmpty()) {
+                                    for (String id : headIdsStr.split(",")) {
+                                        try {
+                                            headIds.add(Integer.parseInt(id.trim()));
+                                        } catch (Exception e) {}
                                     }
                                 }
-                                if (headId == null) {
-                                    headId = findDepartmentHeadUserId(emailEntityManager, firstDeptId);
+                                
+                                // Fallback if no head IDs found
+                                if (headIds.isEmpty()) {
+                                    Integer fallbackHeadId = findDepartmentHeadUserId(emailEntityManager, firstDeptId);
+                                    if (fallbackHeadId != null) headIds.add(fallbackHeadId);
                                 }
-                                CfgTblUser firstDeptHead = headId != null ? emailEntityManager.find(CfgTblUser.class, headId) : null;
-                                if (firstDeptHead != null && firstDeptHead.getTxtAddress() != null && 
-                                    !firstDeptHead.getTxtAddress().trim().isEmpty()) {
+                                
+                                for (Integer currentHeadId : headIds) {
+                                    Integer headId = currentHeadId;
+                                    CfgTblUser firstDeptHead = headId != null ? emailEntityManager.find(CfgTblUser.class, headId) : null;
                                     
-                                    if (shouldSkipCeoForCapf(form, firstDeptName, firstDeptHead)) {
-                                        log.info("Skipping CAPF CEO submission email for user: " + firstDeptHead.getSerUserId());
-                                    } else {
-                                    
-                                    // Get the first level's pipeline order
-                                    Object orderObj = firstLevelPipeline.get("intApprovalOrder");
-                                    Integer firstLevelOrder = orderObj != null ? 
-                                        (orderObj instanceof Integer ? (Integer) orderObj : 
-                                         Integer.parseInt(orderObj.toString())) : 1;
-                                    
-                                    // Send HTML email to first level department head with approve/reject buttons
-                                    String deptHeadSubject = "New Application Pending Approval - Level " + firstLevelOrder + 
-                                                           " - " + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
-                                    String baseUrl = getBaseUrl();
-                                    String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId=" + application.getSerApplicationId() + 
-                                                      "&userId=" + firstDeptHead.getSerUserId();
-                                    String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId=" + application.getSerApplicationId() + 
-                                                     "&userId=" + firstDeptHead.getSerUserId();
-                                    
-                                    String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId=" + application.getSerApplicationId() +
-                                            "&userId=" + firstDeptHead.getSerUserId();
-                                    String deptHeadHtmlMessage = generateApprovalEmailHtml(
-                                        firstDeptHead.getTxtUserName() != null ? firstDeptHead.getTxtUserName() : "Department Head",
-                                        firstLevelOrder,
-                                        application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
-                                        formName,
-                                        application.getTxtStatus(),
-                                        null,
-                                        true, // For department head
-                                        approveUrl,
-                                        rejectUrl,
-                                            sendBackUrl,
-                                        application.getTxtApprovalHistory(),
-                                        getBaseUrl()
-                                    );
-                                    
-                                    if (isCapfForm(form)) {
-                                        String cid = "capf-inline";
-                                        log.info("Email debug [sendSubmissionEmails]: Building CAPF preview for Dept Head");
-                                        byte[] imageBytes = buildCapfPreviewPng(application, form);
-                                        if (imageBytes != null && imageBytes.length > 0) {
-                                            deptHeadHtmlMessage = appendCapfInlineImage(deptHeadHtmlMessage, cid);
-                                            emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(firstDeptHead.getTxtAddress()),
-                                                deptHeadSubject, deptHeadHtmlMessage, imageBytes, "image/png", cid);
-                                            log.info("Submission notification email with image preview sent to first level department head: " + firstDeptHead.getTxtAddress());
+                                    if (firstDeptHead != null && firstDeptHead.getTxtAddress() != null && 
+                                        !firstDeptHead.getTxtAddress().trim().isEmpty()) {
+                                        
+                                        if (shouldSkipCeoForCapf(form, firstDeptName, firstDeptHead)) {
+                                            log.info("Skipping CAPF CEO submission email for user: " + firstDeptHead.getSerUserId());
                                         } else {
-                                            log.warn("CAPF image preview failed generation for dept head email: " + firstDeptHead.getTxtAddress());
-                                            emailService.sendHtmlEmail(java.util.Arrays.asList(firstDeptHead.getTxtAddress()),
-                                                deptHeadSubject, deptHeadHtmlMessage);
+                                            // Get the first level's pipeline order
+                                            Object orderObj = firstLevelPipeline.get("intApprovalOrder");
+                                            Integer firstLevelOrder = orderObj != null ? 
+                                                (orderObj instanceof Integer ? (Integer) orderObj : 
+                                                 Integer.parseInt(orderObj.toString())) : 1;
+                                            
+                                            // Send HTML email to first level department head with approve/reject buttons
+                                            String deptHeadSubject = "New Application Pending Approval - Level " + firstLevelOrder + 
+                                                                   " - " + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+                                            String baseUrl = getBaseUrl();
+                                            String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId=" + application.getSerApplicationId() + 
+                                                              "&userId=" + firstDeptHead.getSerUserId();
+                                            String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId=" + application.getSerApplicationId() + 
+                                                             "&userId=" + firstDeptHead.getSerUserId();
+                                            
+                                            String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId=" + application.getSerApplicationId() +
+                                                    "&userId=" + firstDeptHead.getSerUserId();
+                                            String deptHeadHtmlMessage = generateApprovalEmailHtml(
+                                                firstDeptHead.getTxtUserName() != null ? firstDeptHead.getTxtUserName() : "Department Head",
+                                                firstLevelOrder,
+                                                application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
+                                                formName,
+                                                application.getTxtStatus(),
+                                                null,
+                                                true, // For department head
+                                                approveUrl,
+                                                rejectUrl,
+                                                sendBackUrl,
+                                                application.getTxtApprovalHistory(),
+                                                getBaseUrl()
+                                            );
+                                            
+                                            if (isCapfForm(form)) {
+                                                String cid = "capf-inline";
+                                                log.info("Email debug [sendSubmissionEmails]: Building CAPF preview for Dept Head");
+                                                byte[] imageBytes = buildCapfPreviewPng(application, form);
+                                                if (imageBytes != null && imageBytes.length > 0) {
+                                                    deptHeadHtmlMessage = appendCapfInlineImage(deptHeadHtmlMessage, cid);
+                                                    emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(firstDeptHead.getTxtAddress()),
+                                                        deptHeadSubject, deptHeadHtmlMessage, imageBytes, "image/png", cid);
+                                                    log.info("Submission notification email with image preview sent to first level department head: " + firstDeptHead.getTxtAddress());
+                                                } else {
+                                                    log.warn("CAPF image preview failed generation for dept head email: " + firstDeptHead.getTxtAddress());
+                                                    emailService.sendHtmlEmail(java.util.Arrays.asList(firstDeptHead.getTxtAddress()),
+                                                        deptHeadSubject, deptHeadHtmlMessage);
+                                                }
+                                            } else if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                                                emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(firstDeptHead.getTxtAddress()), 
+                                                    deptHeadSubject, deptHeadHtmlMessage,
+                                                    application.getBlbPdfData(), application.getTxtPdfName(), application.getTxtPdfMime());
+                                            } else {
+                                                emailService.sendHtmlEmail(java.util.Arrays.asList(firstDeptHead.getTxtAddress()), 
+                                                    deptHeadSubject, deptHeadHtmlMessage);
+                                            }
+                                            log.info("Submission notification email sent to first level department head: " + firstDeptHead.getTxtAddress());
                                         }
-                                    } else if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
-                                        emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(firstDeptHead.getTxtAddress()), 
-                                            deptHeadSubject, deptHeadHtmlMessage,
-                                            application.getBlbPdfData(), application.getTxtPdfName(), application.getTxtPdfMime());
-                                    } else {
-                                        emailService.sendHtmlEmail(java.util.Arrays.asList(firstDeptHead.getTxtAddress()), 
-                                            deptHeadSubject, deptHeadHtmlMessage);
                                     }
-                                    log.info("Submission notification email sent to first level department head: " + firstDeptHead.getTxtAddress());
-                                    }
-                                }
+                                } // End loop
                             }
                         }
                     }
@@ -1926,6 +2082,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                     log.error("Error getting first level department head email: " + e.getMessage(), e);
                 }
             }
+        }
             
         } catch (Exception e) {
             log.error("Error in sendSubmissionEmails: " + e.getMessage(), e);
@@ -1938,26 +2095,29 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private boolean isBudgetApprovalForm(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form) {
-        if (form == null) return false;
+        if (form == null)
+            return false;
         String name = form.getTxtFormName() != null ? form.getTxtFormName().toUpperCase() : "";
         String code = form.getTxtFormCode() != null ? form.getTxtFormCode().toUpperCase() : "";
         return name.contains("BUDGET APPROVAL") || code.startsWith("BDG");
     }
 
     private boolean shouldSkipCeoForCapf(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
-                                         String departmentName,
-                                         CfgTblUser user) {
-        if (!isCapfForm(form)) return false;
+            String departmentName,
+            CfgTblUser user) {
+        if (!isCapfForm(form))
+            return false;
         return isCeoDepartmentName(departmentName) || isCeoUser(user);
     }
 
     private boolean isCeoDepartmentName(String departmentName) {
-        if (departmentName == null) return false;
+        if (departmentName == null)
+            return false;
         String name = departmentName.trim().toUpperCase();
         return "CEO".equals(name) ||
-               name.contains("CHIEF EXECUTIVE") ||
-               name.contains("CHIEF EXECUTIVE OFFICER") ||
-               name.contains("CEO OFFICE");
+                name.contains("CHIEF EXECUTIVE") ||
+                name.contains("CHIEF EXECUTIVE OFFICER") ||
+                name.contains("CEO OFFICE");
     }
 
     private boolean isUserDepartmentHodStage(Map<String, Object> pipelineMap, String resolvedDepartmentName) {
@@ -1967,25 +2127,33 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         }
         if (pipelineMap != null) {
             Object departmentName = pipelineMap.get("departmentName");
-            if (departmentName == null) departmentName = pipelineMap.get("txtDepartmentName");
-            if (departmentName == null) departmentName = pipelineMap.get("role");
-            if (departmentName == null) departmentName = pipelineMap.get("stageName");
-            if (departmentName != null) sb.append(String.valueOf(departmentName)).append(" ");
+            if (departmentName == null)
+                departmentName = pipelineMap.get("txtDepartmentName");
+            if (departmentName == null)
+                departmentName = pipelineMap.get("role");
+            if (departmentName == null)
+                departmentName = pipelineMap.get("stageName");
+            if (departmentName != null)
+                sb.append(String.valueOf(departmentName)).append(" ");
             Object hrTblDepartment = pipelineMap.get("hrTblDepartment");
             if (hrTblDepartment instanceof Map) {
                 Object nestedName = ((Map<?, ?>) hrTblDepartment).get("txtDepartmentName");
-                if (nestedName == null) nestedName = ((Map<?, ?>) hrTblDepartment).get("departmentName");
-                if (nestedName != null) sb.append(String.valueOf(nestedName)).append(" ");
+                if (nestedName == null)
+                    nestedName = ((Map<?, ?>) hrTblDepartment).get("departmentName");
+                if (nestedName != null)
+                    sb.append(String.valueOf(nestedName)).append(" ");
             }
         }
 
         String text = sb.toString().trim().toUpperCase();
-        if (text.isEmpty()) return false;
+        if (text.isEmpty())
+            return false;
         return text.contains("USER DEPT") || text.contains("USER DEPTT") || text.contains("HOD");
     }
 
     private boolean isCeoUser(CfgTblUser user) {
-        if (user == null) return false;
+        if (user == null)
+            return false;
         String roleName = null;
         if (user.getCfgTblRole() != null && user.getCfgTblRole().getTxtRoleName() != null) {
             roleName = user.getCfgTblRole().getTxtRoleName();
@@ -2001,13 +2169,14 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         return email != null && email.toUpperCase().contains("CEO");
     }
 
-
     private Map<String, Object> parseApplicationData(CfgTblCustomFormApplication application) {
         try {
             String raw = application.getTxtApplicationData();
-            if (raw == null || raw.trim().isEmpty()) return new java.util.HashMap<>();
+            if (raw == null || raw.trim().isEmpty())
+                return new java.util.HashMap<>();
             ObjectMapper mapper = new ObjectMapper();
-            return mapper.readValue(raw, new TypeReference<Map<String, Object>>() {});
+            return mapper.readValue(raw, new TypeReference<Map<String, Object>>() {
+            });
         } catch (Exception e) {
             log.warn("Error parsing application data: " + e.getMessage());
             return new java.util.HashMap<>();
@@ -2018,8 +2187,10 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         List<Map<String, Object>> footerFields = extractFooterFields(appData);
         if (footerFields != null && !footerFields.isEmpty()) {
             for (Map<String, Object> field : footerFields) {
-                String key = field != null && field.get("key") != null ? String.valueOf(field.get("key")).toLowerCase() : "";
-                if (!"prepared_by".equals(key)) continue;
+                String key = field != null && field.get("key") != null ? String.valueOf(field.get("key")).toLowerCase()
+                        : "";
+                if (!"prepared_by".equals(key))
+                    continue;
                 List<Object> users = extractFooterUsers(field);
                 if (users != null && !users.isEmpty()) {
                     BudgetApprover prepared = buildBudgetApprover(users.get(0), "PREPARED", em);
@@ -2038,13 +2209,16 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         List<Map<String, Object>> footerFields = extractFooterFields(appData);
         if (footerFields != null && !footerFields.isEmpty()) {
             for (Map<String, Object> field : footerFields) {
-                String key = field != null && field.get("key") != null ? String.valueOf(field.get("key")).toLowerCase() : "";
-                String label = field != null && field.get("label") != null ? String.valueOf(field.get("label")) : "APPROVER";
+                String key = field != null && field.get("key") != null ? String.valueOf(field.get("key")).toLowerCase()
+                        : "";
+                String label = field != null && field.get("label") != null ? String.valueOf(field.get("label"))
+                        : "APPROVER";
                 if ("prepared_by".equals(key)) {
                     continue;
                 }
                 List<Object> users = extractFooterUsers(field);
-                if (users == null || users.isEmpty()) continue;
+                if (users == null || users.isEmpty())
+                    continue;
                 for (Object userObj : users) {
                     BudgetApprover b = buildBudgetApprover(userObj, label, em);
                     if (b != null && b.userId != null) {
@@ -2061,27 +2235,32 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         if (reviewersObj instanceof List) {
             for (Object r : (List<?>) reviewersObj) {
                 BudgetApprover b = buildBudgetApprover(r, "REVIEWER", em);
-                if (b != null && b.userId != null) seq.add(b);
+                if (b != null && b.userId != null)
+                    seq.add(b);
             }
         }
         Object recommendersObj = appData.get("recommenders");
         if (recommendersObj instanceof List) {
             for (Object r : (List<?>) recommendersObj) {
                 BudgetApprover b = buildBudgetApprover(r, "RECOMMENDER", em);
-                if (b != null && b.userId != null) seq.add(b);
+                if (b != null && b.userId != null)
+                    seq.add(b);
             }
         }
         Object approverObj = appData.get("approver");
         BudgetApprover approver = buildBudgetApprover(approverObj, "APPROVER", em);
-        if (approver != null && approver.userId != null) seq.add(approver);
+        if (approver != null && approver.userId != null)
+            seq.add(approver);
         return seq;
     }
 
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> extractFooterFields(Map<String, Object> appData) {
-        if (appData == null) return java.util.Collections.emptyList();
+        if (appData == null)
+            return java.util.Collections.emptyList();
         Object obj = appData.get("footerFields");
-        if (!(obj instanceof List)) return java.util.Collections.emptyList();
+        if (!(obj instanceof List))
+            return java.util.Collections.emptyList();
 
         List<Map<String, Object>> result = new java.util.ArrayList<>();
         for (Object item : (List<?>) obj) {
@@ -2092,18 +2271,23 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         result.sort((a, b) -> {
             Integer oa = parseInteger(a != null ? a.get("order") : null);
             Integer ob = parseInteger(b != null ? b.get("order") : null);
-            if (oa == null && ob == null) return 0;
-            if (oa == null) return 1;
-            if (ob == null) return -1;
+            if (oa == null && ob == null)
+                return 0;
+            if (oa == null)
+                return 1;
+            if (ob == null)
+                return -1;
             return Integer.compare(oa, ob);
         });
         return result;
     }
 
     private List<Object> extractFooterUsers(Map<String, Object> field) {
-        if (field == null) return java.util.Collections.emptyList();
+        if (field == null)
+            return java.util.Collections.emptyList();
         Object usersObj = field.get("users");
-        if (!(usersObj instanceof List)) return java.util.Collections.emptyList();
+        if (!(usersObj instanceof List))
+            return java.util.Collections.emptyList();
         List<Object> users = new java.util.ArrayList<>();
         for (Object o : (List<?>) usersObj) {
             users.add(o);
@@ -2112,7 +2296,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private Integer parseInteger(Object value) {
-        if (value == null) return null;
+        if (value == null)
+            return null;
         try {
             return Integer.parseInt(String.valueOf(value));
         } catch (Exception ex) {
@@ -2121,7 +2306,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private BudgetApprover buildBudgetApprover(Object userObj, String role, EntityManager em) {
-        if (userObj == null) return null;
+        if (userObj == null)
+            return null;
         Integer userId = null;
         String name = null;
         String email = null;
@@ -2132,30 +2318,44 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         if (userObj instanceof Map) {
             Map<?, ?> map = (Map<?, ?>) userObj;
             Object idObj = map.get("serUserId");
-            if (idObj == null) idObj = map.get("userId");
-            if (idObj != null) userId = Integer.parseInt(idObj.toString());
+            if (idObj == null)
+                idObj = map.get("userId");
+            if (idObj != null)
+                userId = Integer.parseInt(idObj.toString());
             Object nameObj = map.get("txtUserName");
-            if (nameObj == null) nameObj = map.get("userName");
-            if (nameObj != null) name = nameObj.toString();
+            if (nameObj == null)
+                nameObj = map.get("userName");
+            if (nameObj != null)
+                name = nameObj.toString();
             Object emailObj = map.get("txtAddress");
-            if (emailObj == null) emailObj = map.get("email");
-            if (emailObj != null) email = emailObj.toString();
+            if (emailObj == null)
+                emailObj = map.get("email");
+            if (emailObj != null)
+                email = emailObj.toString();
             Object departmentObj = map.get("txtDepartmentName");
-            if (departmentObj == null) departmentObj = map.get("departmentName");
-            if (departmentObj != null) department = departmentObj.toString();
+            if (departmentObj == null)
+                departmentObj = map.get("departmentName");
+            if (departmentObj != null)
+                department = departmentObj.toString();
             Object designationObj = map.get("txtDesignation");
-            if (designationObj == null) designationObj = map.get("designation");
-            if (designationObj != null) designation = designationObj.toString();
+            if (designationObj == null)
+                designationObj = map.get("designation");
+            if (designationObj != null)
+                designation = designationObj.toString();
         }
 
         if (userId != null) {
             CfgTblUser user = em.find(CfgTblUser.class, userId);
             if (user != null) {
-                if (name == null) name = user.getTxtUserName();
-                if (email == null) email = user.getTxtAddress();
+                if (name == null)
+                    name = user.getTxtUserName();
+                if (email == null)
+                    email = user.getTxtAddress();
                 signaturePath = user.getTxtSignaturePath();
-                if (department == null) department = user.getTxtDepartmentName();
-                if (designation == null) designation = user.getTxtDesignation();
+                if (department == null)
+                    department = user.getTxtDepartmentName();
+                if (designation == null)
+                    designation = user.getTxtDesignation();
             }
         }
 
@@ -2189,30 +2389,32 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
 
             String formName = "Budget Approval";
             String subject = "Budget Approval Pending - " +
-                (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+                    (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
 
             String baseUrl = getBaseUrl();
-            String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId=" + application.getSerApplicationId() +
-                "&userId=" + next.userId;
-            String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId=" + application.getSerApplicationId() +
-                "&userId=" + next.userId;
+            String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                    + application.getSerApplicationId() +
+                    "&userId=" + next.userId;
+            String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                    + application.getSerApplicationId() +
+                    "&userId=" + next.userId;
 
-            String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId=" + application.getSerApplicationId() +
-                "&userId=" + next.userId;
+            String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                    + application.getSerApplicationId() +
+                    "&userId=" + next.userId;
             String html = generateApprovalEmailHtml(
-                next.name != null ? next.name : "User",
-                sequenceIndex + 1,
-                application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
-                formName,
-                application.getTxtStatus(),
-                null,
-                true,
-                approveUrl,
-                rejectUrl,
-                                            sendBackUrl,
-                                            application.getTxtApprovalHistory(),
-                                            getBaseUrl()
-            );
+                    next.name != null ? next.name : "User",
+                    sequenceIndex + 1,
+                    application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
+                    formName,
+                    application.getTxtStatus(),
+                    null,
+                    true,
+                    approveUrl,
+                    rejectUrl,
+                    sendBackUrl,
+                    application.getTxtApprovalHistory(),
+                    getBaseUrl());
 
             if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
                 String cid = "budget-inline";
@@ -2242,8 +2444,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private byte[] generateApplicationPdf(CfgTblCustomFormApplication application,
-                                          com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
-                                          Map<String, Object> appData) {
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+            Map<String, Object> appData) {
         try {
             if (isBudgetApprovalForm(form)) {
                 return generateBudgetApprovalPdf(application, form, appData);
@@ -2258,8 +2460,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private byte[] generateSummaryPdf(CfgTblCustomFormApplication application,
-                                      com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
-                                      Map<String, Object> appData) {
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+            Map<String, Object> appData) {
         try (PDDocument document = new PDDocument()) {
             PDPage page = new PDPage(PDRectangle.A4);
             document.addPage(page);
@@ -2273,10 +2475,14 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
 
             content.setFont(PDType1Font.HELVETICA, 10);
             float y = 780;
-            y = writeLine(content, y, "Form: " + (form != null && form.getTxtFormName() != null ? form.getTxtFormName() : "N/A"));
-            y = writeLine(content, y, "Code: " + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A"));
-            y = writeLine(content, y, "Status: " + (application.getTxtStatus() != null ? application.getTxtStatus() : "N/A"));
-            y = writeLine(content, y, "Created: " + (application.getDteCreatedDate() != null ? application.getDteCreatedDate().toString() : "N/A"));
+            y = writeLine(content, y,
+                    "Form: " + (form != null && form.getTxtFormName() != null ? form.getTxtFormName() : "N/A"));
+            y = writeLine(content, y,
+                    "Code: " + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A"));
+            y = writeLine(content, y,
+                    "Status: " + (application.getTxtStatus() != null ? application.getTxtStatus() : "N/A"));
+            y = writeLine(content, y, "Created: "
+                    + (application.getDteCreatedDate() != null ? application.getDteCreatedDate().toString() : "N/A"));
 
             y -= 10;
             y = writeLine(content, y, "Fields:");
@@ -2312,8 +2518,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private byte[] generateBudgetApprovalPdf(CfgTblCustomFormApplication application,
-                                             com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
-                                             Map<String, Object> appData) {
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+            Map<String, Object> appData) {
         try (PDDocument document = new PDDocument()) {
             PDPage page = new PDPage(PDRectangle.A4);
             document.addPage(page);
@@ -2325,16 +2531,15 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             float y = pageHeight - margin;
 
             String heading = pickFirstNonEmpty(
-                getValueByKeyContains(appData, "heading"),
-                getValueByKeyContains(appData, "title"),
-                getValueByKeyContains(appData, "subject"),
-                form != null ? form.getTxtFormName() : null,
-                "Budget Approval Form"
-            );
+                    getValueByKeyContains(appData, "heading"),
+                    getValueByKeyContains(appData, "title"),
+                    getValueByKeyContains(appData, "subject"),
+                    form != null ? form.getTxtFormName() : null,
+                    "Budget Approval Form");
 
             String dateStr = application != null && application.getDteCreatedDate() != null
-                ? new java.text.SimpleDateFormat("dd/MM/yyyy").format(application.getDteCreatedDate())
-                : new java.text.SimpleDateFormat("dd/MM/yyyy").format(new java.util.Date());
+                    ? new java.text.SimpleDateFormat("dd/MM/yyyy").format(application.getDteCreatedDate())
+                    : new java.text.SimpleDateFormat("dd/MM/yyyy").format(new java.util.Date());
 
             // Header: logo + company + date
             content.setFont(PDType1Font.TIMES_BOLD, 12);
@@ -2397,7 +2602,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 y = pageHeight - margin;
             }
 
-            drawSignatureTable(content, margin, tableBottomY, pageWidth - margin * 2, tableHeight, appData, application.getTxtApprovalHistory(), document);
+            drawSignatureTable(content, margin, tableBottomY, pageWidth - margin * 2, tableHeight, appData,
+                    application.getTxtApprovalHistory(), document);
 
             content.close();
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -2410,8 +2616,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private byte[] generateCapfPdf(CfgTblCustomFormApplication application,
-                                   com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
-                                   Map<String, Object> appData) {
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+            Map<String, Object> appData) {
         try (PDDocument document = new PDDocument()) {
             PDPage page = new PDPage(PDRectangle.A4);
             document.addPage(page);
@@ -2426,13 +2632,14 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             float contentWidth = lineEnd - lineStart;
 
             String dateStr = application != null && application.getDteCreatedDate() != null
-                ? new java.text.SimpleDateFormat("dd/MM/yyyy").format(application.getDteCreatedDate())
-                : new java.text.SimpleDateFormat("dd/MM/yyyy").format(new java.util.Date());
+                    ? new java.text.SimpleDateFormat("dd/MM/yyyy").format(application.getDteCreatedDate())
+                    : new java.text.SimpleDateFormat("dd/MM/yyyy").format(new java.util.Date());
 
             String division = pickFirstNonEmpty(getCapfValue(appData, "division"), getCapfValue(appData, "department"));
             String department = pickFirstNonEmpty(getCapfValue(appData, "department"), division);
             String section = pickFirstNonEmpty(getCapfValue(appData, "section"), "GEN");
-            String documentNo = pickFirstNonEmpty(getCapfValue(appData, "capfNumber"), getCapfValue(appData, "capf #"), getCapfValue(appData, "document no"), "CAPF");
+            String documentNo = pickFirstNonEmpty(getCapfValue(appData, "capfNumber"), getCapfValue(appData, "capf #"),
+                    getCapfValue(appData, "document no"), "CAPF");
             String originalIssue = pickFirstNonEmpty(getCapfValue(appData, "original issue"), "01-01-2020");
             String rev = pickFirstNonEmpty(getCapfValue(appData, "rev"), "05");
             String revDate = pickFirstNonEmpty(getCapfValue(appData, "rev date"), dateStr);
@@ -2466,7 +2673,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
 
             y -= 36;
 
-            // Meta table (Division/Department/Section/Document No/Original Issue/Rev/Rev Date)
+            // Meta table (Division/Department/Section/Document No/Original Issue/Rev/Rev
+            // Date)
             float metaHeight = 32f;
             drawRect(content, lineStart, y - metaHeight, contentWidth, metaHeight);
             float metaY = y - metaHeight + 20;
@@ -2496,17 +2704,21 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             float labelWidth = 140;
             content.setFont(PDType1Font.HELVETICA, 9);
 
-            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DIVISION / DEPARTMENT:", nullSafe(division));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DIVISION / DEPARTMENT:",
+                    nullSafe(division));
             y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "CAPF #:", nullSafe(documentNo), 180);
             y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DATE:", nullSafe(dateStr), 180);
             y -= 4;
-            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "NAME OF ASSET / ITEM:", nullSafe(assetName));
-            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DETAIL SPECIFICATION:", nullSafe(specification));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "NAME OF ASSET / ITEM:",
+                    nullSafe(assetName));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DETAIL SPECIFICATION:",
+                    nullSafe(specification));
             y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "UTILITY & PURPOSE:", nullSafe(utility));
 
             y -= 2;
             y = drawYesNoRow(content, lineStart, y, lineEnd, "FEASIBILITY REPORT ATTACHED:", feasibility);
-            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "IF NO THEN MENTION REASON:", nullSafe(reason));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "IF NO THEN MENTION REASON:",
+                    nullSafe(reason));
 
             y -= 2;
             y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "NOTE:", nullSafe(note));
@@ -2522,7 +2734,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "NAME:", nullSafe(vendorName));
             y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "ADDRESS:", nullSafe(vendorAddress));
             y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "APPROVED PRICE:", nullSafe(approvedPrice));
-            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DELIVERY PERIOD & DATE:", nullSafe(delivery));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DELIVERY PERIOD & DATE:",
+                    nullSafe(delivery));
             y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "TERMS & CONDITIONS:", nullSafe(terms));
             y -= 2;
             y = drawYesNoNaRow(content, lineStart, y, lineEnd, "Third Party assessment carried out:", thirdParty);
@@ -2530,7 +2743,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             y -= 6;
             drawLine(content, margin + 6, y, pageWidth - margin - 6, y);
             y -= 8;
-            y = drawCapfSignatureSection(content, lineStart, y, lineEnd - lineStart, application.getTxtApprovalHistory(), document);
+            y = drawCapfSignatureSection(content, lineStart, y, lineEnd - lineStart,
+                    application.getTxtApprovalHistory(), document);
             y -= 8;
             drawLine(content, margin + 6, y, pageWidth - margin - 6, y);
             y -= 8;
@@ -2550,7 +2764,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             drawCentered(content, pageWidth, y, "JOB COMPLETION CERTIFICATE");
             y -= 10;
             content.setFont(PDType1Font.HELVETICA, 8.5f);
-            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "This is to certify that job against CAPF:", "");
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "This is to certify that job against CAPF:",
+                    "");
             y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "GRN #:", "");
             y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "Date:", "");
             y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "Report Attached:", "");
@@ -2568,11 +2783,13 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
 
     private void drawLogo(PDDocument document, PDPageContentStream content, float x, float y, float size) {
         try (InputStream is = getClass().getClassLoader().getResourceAsStream("static/assets/images/qarshi-logo.png")) {
-            if (is == null) return;
+            if (is == null)
+                return;
             byte[] data = readAllBytes(is);
-            if (data == null || data.length == 0) return;
-            org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject image =
-                org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject.createFromByteArray(document, data, "qarshi-logo");
+            if (data == null || data.length == 0)
+                return;
+            org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject image = org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject
+                    .createFromByteArray(document, data, "qarshi-logo");
             float width = size;
             float height = size * (image.getHeight() / (float) image.getWidth());
             content.drawImage(image, x, y, width, height);
@@ -2593,10 +2810,9 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
 
     private String buildBudgetBody(Map<String, Object> appData) {
         String rawHtml = pickFirstNonEmpty(
-            getValueByKey(appData, "content"),
-            getValueByKey(appData, "editorContent"),
-            getValueByKey(appData, "html")
-        );
+                getValueByKey(appData, "content"),
+                getValueByKey(appData, "editorContent"),
+                getValueByKey(appData, "html"));
         if (rawHtml != null && !rawHtml.trim().isEmpty()) {
             return htmlToPlainText(rawHtml);
         }
@@ -2621,8 +2837,10 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private void appendSection(StringBuilder sb, String title, String value) {
-        if (value == null || value.trim().isEmpty()) return;
-        if (sb.length() > 0) sb.append("\n\n");
+        if (value == null || value.trim().isEmpty())
+            return;
+        if (sb.length() > 0)
+            sb.append("\n\n");
         sb.append(title).append(":\n").append(value.trim());
     }
 
@@ -2634,35 +2852,41 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private String getValueByKeyContains(Map<String, Object> appData, String needle) {
-        if (appData == null || needle == null) return null;
+        if (appData == null || needle == null)
+            return null;
         String n = needle.toLowerCase();
         for (Map.Entry<String, Object> entry : appData.entrySet()) {
             String key = entry.getKey();
             if (key != null && key.toLowerCase().contains(n)) {
                 Object val = entry.getValue();
-                if (val != null) return String.valueOf(val);
+                if (val != null)
+                    return String.valueOf(val);
             }
         }
         return null;
     }
 
     private String getValueByKey(Map<String, Object> appData, String key) {
-        if (appData == null || key == null) return null;
+        if (appData == null || key == null)
+            return null;
         Object val = appData.get(key);
         return val != null ? String.valueOf(val) : null;
     }
 
     private String pickFirstNonEmpty(String... values) {
-        if (values == null) return null;
+        if (values == null)
+            return null;
         for (String v : values) {
-            if (v != null && !v.trim().isEmpty()) return v.trim();
+            if (v != null && !v.trim().isEmpty())
+                return v.trim();
         }
         return null;
     }
 
     private float drawWrappedText(PDPageContentStream content, String text,
-                                  float x, float y, float maxWidth, float leading, float minY) throws java.io.IOException {
-        if (text == null) return y;
+            float x, float y, float maxWidth, float leading, float minY) throws java.io.IOException {
+        if (text == null)
+            return y;
         String[] paragraphs = text.split("\\r?\\n");
         for (String para : paragraphs) {
             if (para.trim().isEmpty()) {
@@ -2684,7 +2908,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         return y;
     }
 
-    private java.util.List<String> wrapText(String text, PDType1Font font, float fontSize, float maxWidth) throws java.io.IOException {
+    private java.util.List<String> wrapText(String text, PDType1Font font, float fontSize, float maxWidth)
+            throws java.io.IOException {
         java.util.List<String> lines = new java.util.ArrayList<>();
         String[] words = text.split("\\s+");
         StringBuilder line = new StringBuilder();
@@ -2698,11 +2923,13 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 line = new StringBuilder(test);
             }
         }
-        if (line.length() > 0) lines.add(line.toString());
+        if (line.length() > 0)
+            lines.add(line.toString());
         return lines;
     }
 
-    private void drawSignatureTable(PDPageContentStream content, float x, float y, float width, float height, Map<String, Object> appData, String approvalHistoryJson, PDDocument document) throws java.io.IOException {
+    private void drawSignatureTable(PDPageContentStream content, float x, float y, float width, float height,
+            Map<String, Object> appData, String approvalHistoryJson, PDDocument document) throws java.io.IOException {
         List<Map<String, Object>> footerFields = extractFooterFields(appData);
         if (footerFields != null && !footerFields.isEmpty()) {
             drawDynamicBudgetSignatureTable(content, x, y, width, height, footerFields, approvalHistoryJson, document);
@@ -2747,7 +2974,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         List<Map<String, Object>> approvalHistory = parseApprovalHistory(approvalHistoryJson);
         Object preparedObj = appData.get("preparedBy");
         java.util.List<java.util.Map<String, String>> reviewers = extractUserListDisplay(appData.get("reviewers"));
-        java.util.List<java.util.Map<String, String>> recommenders = extractUserListDisplay(appData.get("recommenders"));
+        java.util.List<java.util.Map<String, String>> recommenders = extractUserListDisplay(
+                appData.get("recommenders"));
         Object approverObj = appData.get("approver");
 
         Integer preparedId = extractUserId(preparedObj);
@@ -2768,7 +2996,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         Object recommender1Obj = extractUserByIndex(appData.get("recommenders"), 0);
         Object recommender2Obj = extractUserByIndex(appData.get("recommenders"), 1);
 
-        Integer[] userIds = new Integer[] { preparedId, reviewer1Id, reviewer2Id, recommender1Id, recommender2Id, approverId };
+        Integer[] userIds = new Integer[] { preparedId, reviewer1Id, reviewer2Id, recommender1Id, recommender2Id,
+                approverId };
         String[] roles = new String[] { "PREPARED", "REVIEWER", "REVIEWER", "RECOMMENDER", "RECOMMENDER", "APPROVER" };
         Map<Integer, String> signatureFromDb = loadUserSignaturePaths(userIds);
         float sigRowY = y + rowSig + rowHeader + 4;
@@ -2777,7 +3006,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             Integer uid = userIds[i];
             boolean allowFallback = "PREPARED".equalsIgnoreCase(roles[i]);
             String sigPath = findSignatureForUser(approvalHistory, uid, roles[i], allowFallback, signatureFromDb);
-            if (sigPath == null || sigPath.trim().isEmpty()) continue;
+            if (sigPath == null || sigPath.trim().isEmpty())
+                continue;
             drawSignatureImage(document, content, sigPath, x + colWidth * i + 4, sigRowY, colWidth - 8, sigRowHeight);
         }
 
@@ -2786,12 +3016,12 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         java.util.Map<String, String> approver = extractUserDisplay(approverObj);
 
         String[] names = new String[] {
-            formatUserDisplay(prepared),
-            formatUserDisplay(reviewers.size() > 0 ? reviewers.get(0) : null),
-            formatUserDisplay(reviewers.size() > 1 ? reviewers.get(1) : null),
-            formatUserDisplay(recommenders.size() > 0 ? recommenders.get(0) : null),
-            formatUserDisplay(recommenders.size() > 1 ? recommenders.get(1) : null),
-            formatUserDisplay(approver)
+                formatUserDisplay(prepared),
+                formatUserDisplay(reviewers.size() > 0 ? reviewers.get(0) : null),
+                formatUserDisplay(reviewers.size() > 1 ? reviewers.get(1) : null),
+                formatUserDisplay(recommenders.size() > 0 ? recommenders.get(0) : null),
+                formatUserDisplay(recommenders.size() > 1 ? recommenders.get(1) : null),
+                formatUserDisplay(approver)
         };
 
         content.setFont(PDType1Font.HELVETICA, 9);
@@ -2809,7 +3039,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private float drawCapfSignatureSection(PDPageContentStream content, float x, float y, float width,
-                                           String approvalHistoryJson, PDDocument document) throws java.io.IOException {
+            String approvalHistoryJson, PDDocument document) throws java.io.IOException {
         float colWidth = width / 6f;
         float sigHeight = 18f;
         float dateHeight = 10f;
@@ -2827,12 +3057,12 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 approvalHistory != null ? approvalHistory.size() : 0, approved.size());
 
         String[] roleLabels = new String[] {
-            "User Dept. (HOD)",
-            "Technical Expert",
-            "Procurement",
-            "Finance",
-            "Core Team HRT / CCT HO",
-            "Chief Executive"
+                "User Dept. (HOD)",
+                "Technical Expert",
+                "Procurement",
+                "Finance",
+                "Core Team HRT / CCT HO",
+                "Chief Executive"
         };
 
         float sigRowY = y - sigHeight;
@@ -2855,7 +3085,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                     sigPath = String.valueOf(entry.get("signaturePath"));
                 }
             }
-            log.info("CAPF signature log [draw-section-slot]: slot={}, approvedBy={}, level={}, order={}, entrySignaturePath={}, resolvedSignaturePath={}",
+            log.info(
+                    "CAPF signature log [draw-section-slot]: slot={}, approvedBy={}, level={}, order={}, entrySignaturePath={}, resolvedSignaturePath={}",
                     i + 1,
                     approvedBy,
                     entry != null ? entry.get("level") : null,
@@ -2881,7 +3112,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 content.showText(date);
                 content.endText();
             }
-            String name = entry != null && entry.get("approverName") != null ? entry.get("approverName").toString() : "";
+            String name = entry != null && entry.get("approverName") != null ? entry.get("approverName").toString()
+                    : "";
             if (name != null && !name.trim().isEmpty()) {
                 for (String line : wrapText(name, PDType1Font.HELVETICA, 6.5f, colWidth - 6)) {
                     content.beginText();
@@ -2918,26 +3150,33 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         return y - blockHeight;
     }
 
-    private Map<String, Object> findCapfEntryForRole(List<Map<String, Object>> approved, String[] keywords, int fallbackIndex, java.util.Set<Integer> usedIndexes) {
-        if (approved == null || approved.isEmpty()) return null;
+    private Map<String, Object> findCapfEntryForRole(List<Map<String, Object>> approved, String[] keywords,
+            int fallbackIndex, java.util.Set<Integer> usedIndexes) {
+        if (approved == null || approved.isEmpty())
+            return null;
         if (keywords != null && keywords.length > 0) {
             for (int i = 0; i < approved.size(); i++) {
-                if (usedIndexes != null && usedIndexes.contains(i)) continue;
+                if (usedIndexes != null && usedIndexes.contains(i))
+                    continue;
                 Map<String, Object> entry = approved.get(i);
-                String dept = entry.get("departmentName") != null ? entry.get("departmentName").toString().toLowerCase() : "";
+                String dept = entry.get("departmentName") != null ? entry.get("departmentName").toString().toLowerCase()
+                        : "";
                 String role = entry.get("role") != null ? entry.get("role").toString().toLowerCase() : "";
                 String combined = (dept + " " + role).trim();
-                if (combined.isEmpty()) continue;
+                if (combined.isEmpty())
+                    continue;
                 boolean allMatch = true;
                 for (String kw : keywords) {
-                    if (kw == null || kw.isEmpty()) continue;
+                    if (kw == null || kw.isEmpty())
+                        continue;
                     if (!combined.contains(kw.toLowerCase())) {
                         allMatch = false;
                         break;
                     }
                 }
                 if (allMatch) {
-                    if (usedIndexes != null) usedIndexes.add(i);
+                    if (usedIndexes != null)
+                        usedIndexes.add(i);
                     return entry;
                 }
             }
@@ -2947,7 +3186,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         // Fallback by level/order if role match isn't found
         if (fallbackIndex >= 0 && fallbackIndex < approved.size()) {
             if (usedIndexes == null || !usedIndexes.contains(fallbackIndex)) {
-                if (usedIndexes != null) usedIndexes.add(fallbackIndex);
+                if (usedIndexes != null)
+                    usedIndexes.add(fallbackIndex);
                 return approved.get(fallbackIndex);
             }
         }
@@ -2960,16 +3200,20 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object>[] mapCapfApprovalEntries(List<Map<String, Object>> approved, List<Map<String, Object>> pipelines) {
+    private Map<String, Object>[] mapCapfApprovalEntries(List<Map<String, Object>> approved,
+            List<Map<String, Object>> pipelines) {
         Map<String, Object>[] mapped = new Map[6];
-        if (approved == null || approved.isEmpty()) return mapped;
+        if (approved == null || approved.isEmpty())
+            return mapped;
 
         java.util.List<String> pipelineSlots = new java.util.ArrayList<>();
         if (pipelines != null && !pipelines.isEmpty()) {
             java.util.List<Map<String, Object>> sorted = new java.util.ArrayList<>(pipelines);
-            sorted.sort((a, b) -> safeInt(a.get("intApprovalOrder"), 0).compareTo(safeInt(b.get("intApprovalOrder"), 0)));
+            sorted.sort(
+                    (a, b) -> safeInt(a.get("intApprovalOrder"), 0).compareTo(safeInt(b.get("intApprovalOrder"), 0)));
             for (Map<String, Object> p : sorted) {
-                if (pipelineSlots.size() >= 6) break;
+                if (pipelineSlots.size() >= 6)
+                    break;
                 pipelineSlots.add(extractPipelineDepartmentName(p));
             }
         }
@@ -2989,17 +3233,20 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         // Secondary mapping by pipeline department names (requested behavior).
         if (!pipelineSlots.isEmpty()) {
             for (int i = 0; i < approved.size(); i++) {
-                if (usedIndexes.contains(i)) continue;
+                if (usedIndexes.contains(i))
+                    continue;
                 Map<String, Object> entry = approved.get(i);
                 String entryDept = normalizeDeptText(
-                        entry.get("departmentName") != null ? String.valueOf(entry.get("departmentName")) :
-                        (entry.get("role") != null ? String.valueOf(entry.get("role")) : "")
-                );
-                if (entryDept.isEmpty()) continue;
+                        entry.get("departmentName") != null ? String.valueOf(entry.get("departmentName"))
+                                : (entry.get("role") != null ? String.valueOf(entry.get("role")) : ""));
+                if (entryDept.isEmpty())
+                    continue;
                 for (int s = 0; s < pipelineSlots.size(); s++) {
-                    if (mapped[s] != null) continue;
+                    if (mapped[s] != null)
+                        continue;
                     String slotDept = normalizeDeptText(pipelineSlots.get(s));
-                    if (slotDept.isEmpty()) continue;
+                    if (slotDept.isEmpty())
+                        continue;
                     if (entryDept.contains(slotDept) || slotDept.contains(entryDept)) {
                         mapped[s] = entry;
                         usedIndexes.add(i);
@@ -3010,16 +3257,24 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         }
 
         // Tertiary mapping: role keyword fallback for unresolved slots.
-        if (mapped[0] == null) mapped[0] = findCapfEntryForRole(approved, new String[] {"hod", "head", "dept"}, 0, usedIndexes);
-        if (mapped[1] == null) mapped[1] = findCapfEntryForRole(approved, new String[] {"technical", "expert"}, 1, usedIndexes);
-        if (mapped[2] == null) mapped[2] = findCapfEntryForRole(approved, new String[] {"procurement", "purchase"}, 2, usedIndexes);
-        if (mapped[3] == null) mapped[3] = findCapfEntryForRole(approved, new String[] {"finance", "account"}, 3, usedIndexes);
-        if (mapped[4] == null) mapped[4] = findCapfEntryForRole(approved, new String[] {"core", "cct", "hrt", "hr", "team"}, 4, usedIndexes);
-        if (mapped[5] == null) mapped[5] = findCapfEntryForRole(approved, new String[] {"chief", "executive", "ceo"}, 5, usedIndexes);
+        if (mapped[0] == null)
+            mapped[0] = findCapfEntryForRole(approved, new String[] { "hod", "head", "dept" }, 0, usedIndexes);
+        if (mapped[1] == null)
+            mapped[1] = findCapfEntryForRole(approved, new String[] { "technical", "expert" }, 1, usedIndexes);
+        if (mapped[2] == null)
+            mapped[2] = findCapfEntryForRole(approved, new String[] { "procurement", "purchase" }, 2, usedIndexes);
+        if (mapped[3] == null)
+            mapped[3] = findCapfEntryForRole(approved, new String[] { "finance", "account" }, 3, usedIndexes);
+        if (mapped[4] == null)
+            mapped[4] = findCapfEntryForRole(approved, new String[] { "core", "cct", "hrt", "hr", "team" }, 4,
+                    usedIndexes);
+        if (mapped[5] == null)
+            mapped[5] = findCapfEntryForRole(approved, new String[] { "chief", "executive", "ceo" }, 5, usedIndexes);
 
         int fillIdx = 0;
         for (int i = 0; i < mapped.length; i++) {
-            if (mapped[i] != null) continue;
+            if (mapped[i] != null)
+                continue;
             while (fillIdx < approved.size() && usedIndexes.contains(fillIdx)) {
                 fillIdx++;
             }
@@ -3032,7 +3287,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         for (int i = 0; i < mapped.length; i++) {
             Map<String, Object> entry = mapped[i];
             String pipelineDept = i < pipelineSlots.size() ? pipelineSlots.get(i) : null;
-            log.info("CAPF signature log [mapping]: slot={}, pipelineDept={}, mappedUser={}, level={}, order={}, deptName={}, role={}",
+            log.info(
+                    "CAPF signature log [mapping]: slot={}, pipelineDept={}, mappedUser={}, level={}, order={}, deptName={}, role={}",
                     i + 1,
                     pipelineDept,
                     entry != null ? extractApprovalUserId(entry) : null,
@@ -3045,10 +3301,12 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private String formatApprovalDate(Object raw) {
-        if (raw == null) return "";
+        if (raw == null)
+            return "";
         try {
             String s = raw.toString();
-            if (s.trim().isEmpty()) return "";
+            if (s.trim().isEmpty())
+                return "";
             java.text.SimpleDateFormat out = new java.text.SimpleDateFormat("dd/MM/yyyy");
             if (s.matches("^\\d{4}-\\d{2}-\\d{2}.*")) {
                 java.text.SimpleDateFormat in = new java.text.SimpleDateFormat("yyyy-MM-dd");
@@ -3063,14 +3321,17 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private String extractPipelineDepartmentName(Map<String, Object> pipeline) {
-        if (pipeline == null) return "";
+        if (pipeline == null)
+            return "";
         Object name = pipeline.get("departmentName");
-        if (name == null) name = pipeline.get("txtDepartmentName");
+        if (name == null)
+            name = pipeline.get("txtDepartmentName");
         if (name == null) {
             Object hrDept = pipeline.get("hrTblDepartment");
             if (hrDept instanceof Map) {
                 Object nested = ((Map<?, ?>) hrDept).get("txtDepartmentName");
-                if (nested == null) nested = ((Map<?, ?>) hrDept).get("departmentName");
+                if (nested == null)
+                    nested = ((Map<?, ?>) hrDept).get("departmentName");
                 name = nested;
             }
         }
@@ -3078,7 +3339,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private String normalizeDeptText(String text) {
-        if (text == null) return "";
+        if (text == null)
+            return "";
         return text.toLowerCase()
                 .replace(".", " ")
                 .replace("/", " ")
@@ -3090,32 +3352,42 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private List<Map<String, Object>> parseApprovalHistory(String approvalHistoryJson) {
-        if (approvalHistoryJson == null || approvalHistoryJson.trim().isEmpty()) return new java.util.ArrayList<>();
+        if (approvalHistoryJson == null || approvalHistoryJson.trim().isEmpty())
+            return new java.util.ArrayList<>();
         try {
             ObjectMapper mapper = new ObjectMapper();
-            return mapper.readValue(approvalHistoryJson, new TypeReference<List<Map<String, Object>>>() {});
+            return mapper.readValue(approvalHistoryJson, new TypeReference<List<Map<String, Object>>>() {
+            });
         } catch (Exception e) {
             log.warn("Error parsing approval history: " + e.getMessage(), e);
             return new java.util.ArrayList<>();
         }
     }
 
-    private String findSignatureForUser(List<Map<String, Object>> history, Integer userId, String roleExpected, boolean allowFallback, Map<Integer, String> signatureFromDb) {
-        if (userId == null) return "";
+    private String findSignatureForUser(List<Map<String, Object>> history, Integer userId, String roleExpected,
+            boolean allowFallback, Map<Integer, String> signatureFromDb) {
+        if (userId == null)
+            return "";
         if (history != null && !history.isEmpty()) {
             for (Map<String, Object> entry : history) {
                 Object idObj = entry.get("approvedBy");
-                if (idObj == null) continue;
+                if (idObj == null)
+                    continue;
                 Integer id = idObj instanceof Integer ? (Integer) idObj : Integer.parseInt(idObj.toString());
-                if (!id.equals(userId)) continue;
+                if (!id.equals(userId))
+                    continue;
                 String role = entry.get("role") != null ? entry.get("role").toString() : "";
-                if (roleExpected != null && !roleExpected.equalsIgnoreCase(role)) continue;
+                if (roleExpected != null && !roleExpected.equalsIgnoreCase(role))
+                    continue;
                 String action = entry.get("action") != null ? entry.get("action").toString() : "";
-                if ("REJECTED".equalsIgnoreCase(action)) continue;
+                if ("REJECTED".equalsIgnoreCase(action))
+                    continue;
                 Object sigObj = entry.get("signaturePath");
-                if (sigObj == null) return "";
+                if (sigObj == null)
+                    return "";
                 String sig = sigObj.toString();
-                if (!sig.trim().isEmpty()) return sig;
+                if (!sig.trim().isEmpty())
+                    return sig;
             }
         }
         if (allowFallback && signatureFromDb != null) {
@@ -3125,17 +3397,20 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         return "";
     }
 
-    private String resolveDepartmentName(EntityManager entityManager, Integer departmentId, Map<String, Object> pipelineMap) {
+    private String resolveDepartmentName(EntityManager entityManager, Integer departmentId,
+            Map<String, Object> pipelineMap) {
         String name = null;
         if (pipelineMap != null) {
             Object nameObj = pipelineMap.get("departmentName");
-            if (nameObj == null) nameObj = pipelineMap.get("txtDepartmentName");
+            if (nameObj == null)
+                nameObj = pipelineMap.get("txtDepartmentName");
             if (nameObj == null) {
                 Object deptObj = pipelineMap.get("hrTblDepartment");
                 if (deptObj instanceof Map) {
                     Map<?, ?> deptMap = (Map<?, ?>) deptObj;
                     Object nestedName = deptMap.get("txtDepartmentName");
-                    if (nestedName == null) nestedName = deptMap.get("departmentName");
+                    if (nestedName == null)
+                        nestedName = deptMap.get("departmentName");
                     if (nestedName != null) {
                         nameObj = nestedName;
                     }
@@ -3147,8 +3422,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         }
 
         if ((name == null || name.trim().isEmpty()) && departmentId != null) {
-            com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment dept =
-                entityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, departmentId);
+            com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment dept = entityManager
+                    .find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, departmentId);
             if (dept != null && dept.getTxtDepartmentName() != null && !dept.getTxtDepartmentName().trim().isEmpty()) {
                 name = dept.getTxtDepartmentName();
             }
@@ -3159,18 +3434,23 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
 
     private Map<Integer, String> loadUserSignaturePaths(Integer[] userIds) {
         Map<Integer, String> map = new java.util.HashMap<>();
-        if (userIds == null || userIds.length == 0) return map;
+        if (userIds == null || userIds.length == 0)
+            return map;
         EntityManager em = getEntityManager();
         try {
             em.getTransaction().begin();
             for (Integer id : userIds) {
-                if (id == null || map.containsKey(id)) continue;
+                if (id == null || map.containsKey(id))
+                    continue;
                 CfgTblUser u = em.find(CfgTblUser.class, id);
                 if (u != null && u.getTxtSignaturePath() != null && !u.getTxtSignaturePath().trim().isEmpty()) {
                     map.put(id, u.getTxtSignaturePath());
-                    log.info("CAPF signature log [db-signature]: userId={}, signaturePath={}", id, u.getTxtSignaturePath());
+                    log.info("CAPF signature log [db-signature]: userId={}, signaturePath={}", id,
+                            u.getTxtSignaturePath());
                 } else {
-                    log.warn("CAPF signature log [db-signature-missing]: userId={} has no signaturePath in cfg_tbl_user", id);
+                    log.warn(
+                            "CAPF signature log [db-signature-missing]: userId={} has no signaturePath in cfg_tbl_user",
+                            id);
                 }
             }
             em.getTransaction().commit();
@@ -3180,22 +3460,27 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             }
             log.warn("Error loading user signatures: " + e.getMessage(), e);
         } finally {
-            if (em.isOpen()) em.close();
+            if (em.isOpen())
+                em.close();
         }
         return map;
     }
 
     private Integer extractUserId(Object obj) {
-        if (obj == null) return null;
+        if (obj == null)
+            return null;
         if (obj instanceof Number) {
             return ((Number) obj).intValue();
         }
         if (obj instanceof Map) {
             Map<?, ?> map = (Map<?, ?>) obj;
             Object idObj = map.get("serUserId");
-            if (idObj == null) idObj = map.get("userId");
-            if (idObj == null) idObj = map.get("id");
-            if (idObj == null) return null;
+            if (idObj == null)
+                idObj = map.get("userId");
+            if (idObj == null)
+                idObj = map.get("id");
+            if (idObj == null)
+                return null;
             try {
                 return idObj instanceof Integer ? (Integer) idObj : Integer.parseInt(idObj.toString());
             } catch (Exception e) {
@@ -3214,7 +3499,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private String extractUserName(Object obj) {
-        if (obj == null) return null;
+        if (obj == null)
+            return null;
         if (obj instanceof String) {
             String s = ((String) obj).trim();
             return s.isEmpty() ? null : s;
@@ -3222,15 +3508,18 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         if (obj instanceof Map) {
             Map<?, ?> map = (Map<?, ?>) obj;
             Object nameObj = map.get("txtUserName");
-            if (nameObj == null) nameObj = map.get("userName");
-            if (nameObj == null) nameObj = map.get("name");
+            if (nameObj == null)
+                nameObj = map.get("userName");
+            if (nameObj == null)
+                nameObj = map.get("name");
             return nameObj != null ? nameObj.toString() : null;
         }
         return null;
     }
 
     private Integer resolveUserIdByName(String userName) {
-        if (userName == null || userName.trim().isEmpty()) return null;
+        if (userName == null || userName.trim().isEmpty())
+            return null;
         EntityManager em = getEntityManager();
         try {
             String cleaned = userName.trim();
@@ -3239,7 +3528,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 cleaned = cleaned.substring(0, parenIdx).trim();
             }
             TypedQuery<Integer> q = em.createQuery(
-                "select u.serUserId from CfgTblUser u where lower(u.txtUserName) = :name", Integer.class);
+                    "select u.serUserId from CfgTblUser u where lower(u.txtUserName) = :name", Integer.class);
             q.setParameter("name", cleaned.toLowerCase());
             List<Integer> ids = q.setMaxResults(1).getResultList();
             return ids.isEmpty() ? null : ids.get(0);
@@ -3247,35 +3536,42 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
             log.warn("Error resolving userId by name: " + e.getMessage(), e);
             return null;
         } finally {
-            if (em.isOpen()) em.close();
+            if (em.isOpen())
+                em.close();
         }
     }
 
     private Integer extractUserIdByIndex(Object listObj, int index) {
-        if (!(listObj instanceof java.util.List)) return null;
+        if (!(listObj instanceof java.util.List))
+            return null;
         java.util.List<?> list = (java.util.List<?>) listObj;
-        if (index < 0 || index >= list.size()) return null;
+        if (index < 0 || index >= list.size())
+            return null;
         return extractUserId(list.get(index));
     }
 
     private Object extractUserByIndex(Object listObj, int index) {
-        if (!(listObj instanceof java.util.List)) return null;
+        if (!(listObj instanceof java.util.List))
+            return null;
         java.util.List<?> list = (java.util.List<?>) listObj;
-        if (index < 0 || index >= list.size()) return null;
+        if (index < 0 || index >= list.size())
+            return null;
         return list.get(index);
     }
 
     private void drawSignatureImage(PDDocument document, PDPageContentStream content, String signaturePath,
-                                    float x, float y, float maxWidth, float maxHeight) {
+            float x, float y, float maxWidth, float maxHeight) {
         try {
             String rootPath = System.getProperty("user.home") + File.separator + ".vim_dms_uploads";
             File sigFile = resolveSignatureFile(rootPath, signaturePath);
-            if (sigFile == null || !sigFile.exists()) return;
-            org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject img =
-                org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject.createFromFile(sigFile.getAbsolutePath(), document);
+            if (sigFile == null || !sigFile.exists())
+                return;
+            org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject img = org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject
+                    .createFromFile(sigFile.getAbsolutePath(), document);
             float imgW = img.getWidth();
             float imgH = img.getHeight();
-            if (imgW <= 0 || imgH <= 0) return;
+            if (imgW <= 0 || imgH <= 0)
+                return;
             float scale = Math.min(maxWidth / imgW, maxHeight / imgH);
             float drawW = imgW * scale;
             float drawH = imgH * scale;
@@ -3288,7 +3584,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private File resolveSignatureFile(String rootPath, String signaturePath) {
-        if (signaturePath == null || signaturePath.trim().isEmpty()) return null;
+        if (signaturePath == null || signaturePath.trim().isEmpty())
+            return null;
         File direct = new File(signaturePath);
         if (!direct.isAbsolute()) {
             direct = new File(rootPath + File.separator + signaturePath);
@@ -3312,7 +3609,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 File[] matches = dir.listFiles((d, name) -> {
                     String lower = name.toLowerCase();
                     return lower.startsWith("signature_" + userId + "_") &&
-                        (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg"));
+                            (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg"));
                 });
                 if (matches != null && matches.length > 0) {
                     return matches[0];
@@ -3326,13 +3623,16 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private Integer extractUserIdFromSignatureName(String fileName) {
-        if (fileName == null) return null;
+        if (fileName == null)
+            return null;
         try {
             // Expected: signature_{userId}_xxxx.ext
-            if (!fileName.startsWith("signature_")) return null;
+            if (!fileName.startsWith("signature_"))
+                return null;
             String rest = fileName.substring("signature_".length());
             int idx = rest.indexOf('_');
-            if (idx <= 0) return null;
+            if (idx <= 0)
+                return null;
             String idStr = rest.substring(0, idx);
             return Integer.parseInt(idStr);
         } catch (Exception e) {
@@ -3341,14 +3641,17 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private Integer loadUserDepartmentId(EntityManager em, Integer userId) {
-        if (em == null || userId == null) return null;
+        if (em == null || userId == null)
+            return null;
         try {
             Object result = em.createNativeQuery(
-                "select ser_department_id from cfg_tbl_user where ser_user_id = :id")
-                .setParameter("id", userId)
-                .getSingleResult();
-            if (result == null) return null;
-            if (result instanceof Number) return ((Number) result).intValue();
+                    "select ser_department_id from cfg_tbl_user where ser_user_id = :id")
+                    .setParameter("id", userId)
+                    .getSingleResult();
+            if (result == null)
+                return null;
+            if (result instanceof Number)
+                return ((Number) result).intValue();
             return Integer.parseInt(result.toString());
         } catch (Exception e) {
             log.warn("Error loading user department: " + e.getMessage(), e);
@@ -3357,22 +3660,25 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private Integer findDepartmentHeadUserId(EntityManager em, Integer departmentId) {
-        if (em == null || departmentId == null) return null;
+        if (em == null || departmentId == null)
+            return null;
         try {
             List<?> rows = em.createNativeQuery(
-                "select u.ser_user_id " +
-                "from cfg_tbl_user u " +
-                "left join cfg_tbl_role r on r.ser_role_id = u.ser_role_id " +
-                "where u.ser_department_id = :dept " +
-                "and (upper(r.txt_role_name) like '%HEAD%' or upper(r.txt_role_name) like '%HOD%') " +
-                "and (u.bl_is_active = 1 or u.bl_is_active is null) " +
-                "and (u.bl_is_deleted = 0 or u.bl_is_deleted is null) " +
-                "limit 1")
-                .setParameter("dept", departmentId)
-                .getResultList();
-            if (rows == null || rows.isEmpty()) return null;
+                    "select u.ser_user_id " +
+                            "from cfg_tbl_user u " +
+                            "left join cfg_tbl_role r on r.ser_role_id = u.ser_role_id " +
+                            "where u.ser_department_id = :dept " +
+                            "and (upper(r.txt_role_name) like '%HEAD%' or upper(r.txt_role_name) like '%HOD%') " +
+                            "and (u.bl_is_active = 1 or u.bl_is_active is null) " +
+                            "and (u.bl_is_deleted = 0 or u.bl_is_deleted is null) " +
+                            "limit 1")
+                    .setParameter("dept", departmentId)
+                    .getResultList();
+            if (rows == null || rows.isEmpty())
+                return null;
             Object val = rows.get(0);
-            if (val instanceof Number) return ((Number) val).intValue();
+            if (val instanceof Number)
+                return ((Number) val).intValue();
             return Integer.parseInt(val.toString());
         } catch (Exception e) {
             log.warn("Error finding department head user: " + e.getMessage(), e);
@@ -3380,7 +3686,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         }
     }
 
-    private void drawCenteredHeader(PDPageContentStream content, String text, float x, float width, float y) throws java.io.IOException {
+    private void drawCenteredHeader(PDPageContentStream content, String text, float x, float width, float y)
+            throws java.io.IOException {
         float textWidth = PDType1Font.HELVETICA_BOLD.getStringWidth(text) / 1000 * 9;
         float tx = x + (width - textWidth) / 2;
         content.beginText();
@@ -3389,12 +3696,14 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         content.endText();
     }
 
-    private void drawRect(PDPageContentStream content, float x, float y, float width, float height) throws java.io.IOException {
+    private void drawRect(PDPageContentStream content, float x, float y, float width, float height)
+            throws java.io.IOException {
         content.addRect(x, y, width, height);
         content.stroke();
     }
 
-    private void drawLine(PDPageContentStream content, float x1, float y1, float x2, float y2) throws java.io.IOException {
+    private void drawLine(PDPageContentStream content, float x1, float y1, float x2, float y2)
+            throws java.io.IOException {
         content.moveTo(x1, y1);
         content.lineTo(x2, y2);
         content.stroke();
@@ -3407,7 +3716,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         content.endText();
     }
 
-    private void drawCentered(PDPageContentStream content, float pageWidth, float y, String text) throws java.io.IOException {
+    private void drawCentered(PDPageContentStream content, float pageWidth, float y, String text)
+            throws java.io.IOException {
         float size = 10f;
         float textWidth = PDType1Font.HELVETICA_BOLD.getStringWidth(text) / 1000 * size;
         content.beginText();
@@ -3417,12 +3727,12 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private float drawLabeledLine(PDPageContentStream content, float x, float y, float labelWidth, float x2,
-                                  String label, String value) throws java.io.IOException {
+            String label, String value) throws java.io.IOException {
         return drawLabeledLine(content, x, y, labelWidth, x2, label, value, 0);
     }
 
     private float drawLabeledLine(PDPageContentStream content, float x, float y, float labelWidth, float x2,
-                                  String label, String value, float valueOffset) throws java.io.IOException {
+            String label, String value, float valueOffset) throws java.io.IOException {
         content.beginText();
         content.newLineAtOffset(x, y);
         content.showText(label);
@@ -3439,7 +3749,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         return y - 14;
     }
 
-    private float drawYesNoRow(PDPageContentStream content, float x, float y, float x2, String label, String value) throws java.io.IOException {
+    private float drawYesNoRow(PDPageContentStream content, float x, float y, float x2, String label, String value)
+            throws java.io.IOException {
         content.beginText();
         content.newLineAtOffset(x, y);
         content.showText(label);
@@ -3466,7 +3777,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         return y - 14;
     }
 
-    private float drawYesNoNaRow(PDPageContentStream content, float x, float y, float x2, String label, String value) throws java.io.IOException {
+    private float drawYesNoNaRow(PDPageContentStream content, float x, float y, float x2, String label, String value)
+            throws java.io.IOException {
         content.beginText();
         content.newLineAtOffset(x, y);
         content.showText(label);
@@ -3500,7 +3812,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         return y - 14;
     }
 
-    private void drawSignatureLineRow(PDPageContentStream content, float x, float y, float x2, String leftLabel, String rightLabel) throws java.io.IOException {
+    private void drawSignatureLineRow(PDPageContentStream content, float x, float y, float x2, String leftLabel,
+            String rightLabel) throws java.io.IOException {
         float mid = x + (x2 - x) / 2;
         content.beginText();
         content.newLineAtOffset(x, y);
@@ -3526,8 +3839,10 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         content.stroke();
     }
 
-    private String trimToWidth(String text, PDType1Font font, float fontSize, float maxWidth) throws java.io.IOException {
-        if (text == null) return "";
+    private String trimToWidth(String text, PDType1Font font, float fontSize, float maxWidth)
+            throws java.io.IOException {
+        if (text == null)
+            return "";
         String t = text.replaceAll("\\s+", " ").trim();
         while (font.getStringWidth(t) / 1000 * fontSize > maxWidth && t.length() > 0) {
             t = t.substring(0, t.length() - 1);
@@ -3536,15 +3851,18 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private String getCapfValue(Map<String, Object> appData, String key) {
-        if (appData == null || key == null) return null;
+        if (appData == null || key == null)
+            return null;
         String k = key.toLowerCase();
         for (Map.Entry<String, Object> entry : appData.entrySet()) {
             String label = entry.getKey();
-            if (label == null) continue;
+            if (label == null)
+                continue;
             String normalized = label.replace(":", "").toLowerCase();
             if (normalized.contains(k)) {
                 Object val = entry.getValue();
-                if (val != null) return String.valueOf(val);
+                if (val != null)
+                    return String.valueOf(val);
             }
         }
         return null;
@@ -3554,41 +3872,76 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         return v != null ? v : "";
     }
 
+    private Integer extractInitialSignerId(CfgTblCustomFormApplication application) {
+        try {
+            String appDataJson = application.getTxtApplicationData();
+            if (appDataJson == null || appDataJson.trim().isEmpty())
+                return null;
+
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            java.util.Map<String, Object> appData = mapper.readValue(
+                    appDataJson,
+                    new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, Object>>() {
+                    });
+
+            Object signer = appData.get("initial_signer");
+            if (signer != null && !signer.toString().trim().isEmpty()) {
+                return resolveUserIdByName(signer.toString());
+            }
+        } catch (Exception e) {
+            log.warn("Error extracting initial signer ID: " + e.getMessage());
+        }
+        return null;
+    }
+
+    private boolean hasInitialSigner(CfgTblCustomFormApplication application) {
+        return extractInitialSignerId(application) != null;
+    }
+
     private boolean isCapfForm(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form) {
-        if (form == null) return false;
+        if (form == null)
+            return false;
         String name = form.getTxtFormName();
         String code = form.getTxtFormCode();
         if (name != null) {
             String lower = name.toLowerCase();
-            if (lower.contains("capf") || lower.contains("capital assets purchase")) return true;
+            if (lower.contains("capf") || lower.contains("capital assets purchase"))
+                return true;
         }
         if (code != null) {
             String lower = code.toLowerCase();
-            if (lower.startsWith("capf") || lower.contains("capf")) return true;
+            if (lower.startsWith("capf") || lower.contains("capf"))
+                return true;
         }
         return false;
     }
 
     private java.util.Map<String, String> extractUserDisplay(Object obj) {
         java.util.Map<String, String> result = new java.util.HashMap<>();
-        if (!(obj instanceof Map)) return result;
+        if (!(obj instanceof Map))
+            return result;
         Map<?, ?> map = (Map<?, ?>) obj;
         Object nameObj = map.get("txtUserName");
-        if (nameObj == null) nameObj = map.get("userName");
+        if (nameObj == null)
+            nameObj = map.get("userName");
         Object roleObj = null;
         Object roleMap = map.get("cfgTblRole");
         if (roleMap instanceof Map) {
             roleObj = ((Map<?, ?>) roleMap).get("txtRoleName");
         }
-        if (roleObj == null) roleObj = map.get("roleName");
-        if (nameObj != null) result.put("name", nameObj.toString());
-        if (roleObj != null) result.put("role", roleObj.toString());
+        if (roleObj == null)
+            roleObj = map.get("roleName");
+        if (nameObj != null)
+            result.put("name", nameObj.toString());
+        if (roleObj != null)
+            result.put("role", roleObj.toString());
         return result;
     }
 
     private java.util.List<java.util.Map<String, String>> extractUserListDisplay(Object obj) {
         java.util.List<java.util.Map<String, String>> list = new java.util.ArrayList<>();
-        if (!(obj instanceof java.util.List)) return list;
+        if (!(obj instanceof java.util.List))
+            return list;
         for (Object item : (java.util.List<?>) obj) {
             list.add(extractUserDisplay(item));
         }
@@ -3596,10 +3949,12 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private String formatUserDisplay(java.util.Map<String, String> data) {
-        if (data == null || data.isEmpty()) return "";
+        if (data == null || data.isEmpty())
+            return "";
         String name = data.getOrDefault("name", "");
         String role = data.getOrDefault("role", "");
-        if (!role.isEmpty()) return name + " (" + role + ")";
+        if (!role.isEmpty())
+            return name + " (" + role + ")";
         return name;
     }
 
@@ -3612,7 +3967,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private String formatPdfValue(Object valObj) {
-        if (valObj == null) return "";
+        if (valObj == null)
+            return "";
         if (valObj instanceof Map) {
             Map<?, ?> map = (Map<?, ?>) valObj;
             if (map.containsKey("dataUrl") || map.containsKey("base64")) {
@@ -3630,7 +3986,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     private static String capfEmailTemplateCache = null;
 
     private String loadCapfEmailTemplate() {
-        if (capfEmailTemplateCache != null) return capfEmailTemplateCache;
+        if (capfEmailTemplateCache != null)
+            return capfEmailTemplateCache;
         try (InputStream input = new ClassPathResource("templates/capf-email-fragment.html").getInputStream()) {
             capfEmailTemplateCache = StreamUtils.copyToString(input, StandardCharsets.UTF_8);
             return capfEmailTemplateCache;
@@ -3641,9 +3998,10 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private String generateCapfEmailFragment(CfgTblCustomFormApplication application, CfgTblCustomForm form,
-                                             List<Map<String, Object>> pipelines) {
+            List<Map<String, Object>> pipelines) {
         String template = loadCapfEmailTemplate();
-        if (template == null || template.trim().isEmpty()) return "";
+        if (template == null || template.trim().isEmpty())
+            return "";
 
         Map<String, Object> appData = parseApplicationData(application);
         List<CfgTblCustomFormField> formFields = form != null ? form.getCfgTblCustomFormFields() : null;
@@ -3664,16 +4022,20 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         boolean feasibilityNo = isTruthyNo(feasibilityValue);
 
         String thirdPartyValue = getFieldValue("Third Party assessment carried out", appData, formFields);
-        if (thirdPartyValue.isEmpty()) thirdPartyValue = getFieldValue("Third Party Assessment", appData, formFields);
-        if (thirdPartyValue.isEmpty()) thirdPartyValue = getFieldValue("Third Party assessment", appData, formFields);
+        if (thirdPartyValue.isEmpty())
+            thirdPartyValue = getFieldValue("Third Party Assessment", appData, formFields);
+        if (thirdPartyValue.isEmpty())
+            thirdPartyValue = getFieldValue("Third Party assessment", appData, formFields);
         boolean thirdPartyYes = isTruthyYes(thirdPartyValue);
         boolean thirdPartyNo = isTruthyNo(thirdPartyValue);
         boolean thirdPartyNA = isTruthyNa(thirdPartyValue);
 
         String reason = getFieldValue("IF NO THEN MENTION REASON:", appData, formFields);
-        if (reason.isEmpty()) reason = getFieldValue("IF NO THEN MENTION REASON", appData, formFields);
+        if (reason.isEmpty())
+            reason = getFieldValue("IF NO THEN MENTION REASON", appData, formFields);
 
-        String signatureSlots = buildCapfSignatureSlotsHtml(pipelines, application.getTxtApprovalHistory(), getBaseUrl());
+        String signatureSlots = buildCapfSignatureSlotsHtml(pipelines, application.getTxtApprovalHistory(),
+                getBaseUrl());
 
         String check = "<span>&#10003;</span>";
         String logoUrl = getBaseUrl() + "/assets/images/qarshi-logo.png";
@@ -3681,10 +4043,12 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         String html = template;
         html = html.replace("{{LOGO_URL}}", escapeHtml(logoUrl));
         html = html.replace("{{CAPF_NUMBER}}", escapeHtml(capfNumber));
-        html = html.replace("{{DIVISION_DEPARTMENT}}", escapeHtml(getFieldValue("DIVISION / DEPARTMENT", appData, formFields)));
+        html = html.replace("{{DIVISION_DEPARTMENT}}",
+                escapeHtml(getFieldValue("DIVISION / DEPARTMENT", appData, formFields)));
         html = html.replace("{{DATE}}", escapeHtml(dateValue));
         html = html.replace("{{ASSET_NAME}}", escapeHtml(getFieldValue("NAME OF ASSET / ITEM", appData, formFields)));
-        html = html.replace("{{SPECIFICATION}}", escapeHtml(getFieldValue("DETAIL SPECIFICATION", appData, formFields)));
+        html = html.replace("{{SPECIFICATION}}",
+                escapeHtml(getFieldValue("DETAIL SPECIFICATION", appData, formFields)));
         html = html.replace("{{UTILITY_PURPOSE}}", escapeHtml(getFieldValue("UTILITY & PURPOSE", appData, formFields)));
         html = html.replace("{{FEASIBILITY_YES}}", feasibilityYes ? check : "");
         html = html.replace("{{FEASIBILITY_NO}}", feasibilityNo ? check : "");
@@ -3692,8 +4056,10 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         html = html.replace("{{VENDOR_NAME}}", escapeHtml(getFieldValue("NAME", appData, formFields)));
         html = html.replace("{{VENDOR_ADDRESS}}", escapeHtml(getFieldValue("ADDRESS", appData, formFields)));
         html = html.replace("{{APPROVED_PRICE}}", escapeHtml(getFieldValue("APPROVED PRICE", appData, formFields)));
-        html = html.replace("{{DELIVERY_PERIOD}}", escapeHtml(getFieldValue("DELIVERY PERIOD & DATE", appData, formFields)));
-        html = html.replace("{{TERMS_CONDITIONS}}", escapeHtml(getFieldValue("TERMS & CONDITIONS", appData, formFields)));
+        html = html.replace("{{DELIVERY_PERIOD}}",
+                escapeHtml(getFieldValue("DELIVERY PERIOD & DATE", appData, formFields)));
+        html = html.replace("{{TERMS_CONDITIONS}}",
+                escapeHtml(getFieldValue("TERMS & CONDITIONS", appData, formFields)));
         html = html.replace("{{THIRD_PARTY_YES}}", thirdPartyYes ? check : "");
         html = html.replace("{{THIRD_PARTY_NO}}", thirdPartyNo ? check : "");
         html = html.replace("{{THIRD_PARTY_NA}}", thirdPartyNA ? check : "");
@@ -3703,24 +4069,28 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private boolean isTruthyYes(String value) {
-        if (value == null) return false;
+        if (value == null)
+            return false;
         String v = value.trim().toLowerCase();
         return "yes".equals(v) || "true".equals(v);
     }
 
     private boolean isTruthyNo(String value) {
-        if (value == null) return false;
+        if (value == null)
+            return false;
         String v = value.trim().toLowerCase();
         return "no".equals(v) || "false".equals(v);
     }
 
     private boolean isTruthyNa(String value) {
-        if (value == null) return false;
+        if (value == null)
+            return false;
         String v = value.trim().toLowerCase();
         return "na".equals(v) || "n/a".equals(v) || "not applicable".equals(v);
     }
 
-    private String buildCapfSignatureSlotsHtml(List<Map<String, Object>> pipelines, String approvalHistoryJson, String baseUrl) {
+    private String buildCapfSignatureSlotsHtml(List<Map<String, Object>> pipelines, String approvalHistoryJson,
+            String baseUrl) {
         List<Map<String, Object>> approvalHistory = parseApprovalHistory(approvalHistoryJson);
         List<Map<String, Object>> sortedPipelines = new java.util.ArrayList<>();
         if (pipelines != null) {
@@ -3751,7 +4121,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                     Map<?, ?> map = (Map<?, ?>) deptMap;
                     departmentId = safeInt(map.get("serDepartmentId"), null);
                     Object name = map.get("txtDepartmentName");
-                    if (name != null) label = name.toString();
+                    if (name != null)
+                        label = name.toString();
                 }
                 if (departmentId == null) {
                     departmentId = safeInt(pipeline.get("serDepartmentId"), null);
@@ -3761,8 +4132,10 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 }
                 if (label == null) {
                     Object name = pipeline.get("departmentName");
-                    if (name == null) name = pipeline.get("txtDepartmentName");
-                    if (name != null) label = name.toString();
+                    if (name == null)
+                        name = pipeline.get("txtDepartmentName");
+                    if (name != null)
+                        label = name.toString();
                 }
 
                 Map<String, Object> entry = getApprovalEntryForPipeline(order, departmentId, label, approvalHistory);
@@ -3784,7 +4157,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         return html.toString();
     }
 
-    private CapfSignatureSlot buildFallbackSlot(int order, String label, List<Map<String, Object>> approvalHistory, String baseUrl) {
+    private CapfSignatureSlot buildFallbackSlot(int order, String label, List<Map<String, Object>> approvalHistory,
+            String baseUrl) {
         Map<String, Object> entry = getApprovalEntryForPipeline(order, null, null, approvalHistory);
         return buildSlotFromEntry(label, entry, baseUrl);
     }
@@ -3794,12 +4168,13 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         slot.label = label != null ? label : "";
         slot.html = "";
         slot.time = "";
-        if (entry == null) return slot;
+        if (entry == null)
+            return slot;
 
         String signaturePath = entry.get("signaturePath") != null ? String.valueOf(entry.get("signaturePath")) : "";
-        String approvedBy = entry.get("approvedBy") != null ? String.valueOf(entry.get("approvedBy")) :
-                             entry.get("approverUserId") != null ? String.valueOf(entry.get("approverUserId")) :
-                             entry.get("userId") != null ? String.valueOf(entry.get("userId")) : "";
+        String approvedBy = entry.get("approvedBy") != null ? String.valueOf(entry.get("approvedBy"))
+                : entry.get("approverUserId") != null ? String.valueOf(entry.get("approverUserId"))
+                        : entry.get("userId") != null ? String.valueOf(entry.get("userId")) : "";
         Integer approvedById = safeInt(approvedBy, null);
         String inlineSignature = buildInlineSignatureDataUri(signaturePath, approvedById);
         if (inlineSignature != null && !inlineSignature.isEmpty()) {
@@ -3816,8 +4191,9 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private Map<String, Object> getApprovalEntryForPipeline(int order, Integer departmentId, String departmentName,
-                                                            List<Map<String, Object>> approvalHistory) {
-        if (approvalHistory == null || approvalHistory.isEmpty()) return null;
+            List<Map<String, Object>> approvalHistory) {
+        if (approvalHistory == null || approvalHistory.isEmpty())
+            return null;
 
         Map<String, Object> entry = null;
         if (departmentId != null) {
@@ -3826,7 +4202,7 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
                 Integer intApprovalOrder = safeInt(e.get("intApprovalOrder"), null);
                 Integer deptId = safeInt(e.get("departmentId"), safeInt(e.get("serDepartmentId"), null));
                 if ((level != null && level == order || intApprovalOrder != null && intApprovalOrder == order)
-                    && deptId != null && deptId.equals(departmentId)) {
+                        && deptId != null && deptId.equals(departmentId)) {
                     entry = e;
                     break;
                 }
@@ -3865,9 +4241,11 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private Integer safeInt(Object val, Integer fallback) {
-        if (val == null) return fallback;
+        if (val == null)
+            return fallback;
         try {
-            if (val instanceof Integer) return (Integer) val;
+            if (val instanceof Integer)
+                return (Integer) val;
             return Integer.parseInt(val.toString());
         } catch (Exception e) {
             return fallback;
@@ -3875,8 +4253,9 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private String getFieldValue(String fieldLabel, Map<String, Object> applicationFormData,
-                                 List<CfgTblCustomFormField> formFields) {
-        if (applicationFormData == null || applicationFormData.isEmpty()) return "";
+            List<CfgTblCustomFormField> formFields) {
+        if (applicationFormData == null || applicationFormData.isEmpty())
+            return "";
 
         Map<String, String> templateKeyToConcept = new java.util.HashMap<>();
         templateKeyToConcept.put("DIVISION / DEPARTMENT", "division");
@@ -3897,26 +4276,41 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
         templateKeyToConcept.put("Third Party assessment", "thirdPartyAssessment");
 
         Map<String, List<String>> fieldMappings = new java.util.HashMap<>();
-        fieldMappings.put("division", java.util.Arrays.asList("DIVISION / DEPARTMENT", "Division", "Department", "division"));
+        fieldMappings.put("division",
+                java.util.Arrays.asList("DIVISION / DEPARTMENT", "Division", "Department", "division"));
         fieldMappings.put("capfNumber", java.util.Arrays.asList("CAPF #", "CAPF", "Capf Number", "capf_number"));
         fieldMappings.put("date", java.util.Arrays.asList("Date", "Submission Date", "date"));
-        fieldMappings.put("assetName", java.util.Arrays.asList("NAME OF ASSET / ITEM", "Name of Asset", "Asset Name", "Item Name", "asset_name"));
-        fieldMappings.put("specification", java.util.Arrays.asList("DETAIL SPECIFICATION", "DETAIL SPECIFICATION:", "Detail Specification", "Detail Specification:", "Specification", "specification", "detail_specification", "DETAIL_SPECIFICATION"));
-        fieldMappings.put("utility", java.util.Arrays.asList("UTILITY & PURPOSE", "Utility", "Purpose", "utility_purpose"));
-        fieldMappings.put("feasibilityReport", java.util.Arrays.asList("FEASIBILITY REPORT ATTACHED", "Feasibility Report", "feasibility_report"));
-        fieldMappings.put("reason", java.util.Arrays.asList("IF NO THEN MENTION REASON", "Reason", "If No Reason", "reason"));
+        fieldMappings.put("assetName", java.util.Arrays.asList("NAME OF ASSET / ITEM", "Name of Asset", "Asset Name",
+                "Item Name", "asset_name"));
+        fieldMappings.put("specification",
+                java.util.Arrays.asList("DETAIL SPECIFICATION", "DETAIL SPECIFICATION:", "Detail Specification",
+                        "Detail Specification:", "Specification", "specification", "detail_specification",
+                        "DETAIL_SPECIFICATION"));
+        fieldMappings.put("utility",
+                java.util.Arrays.asList("UTILITY & PURPOSE", "Utility", "Purpose", "utility_purpose"));
+        fieldMappings.put("feasibilityReport",
+                java.util.Arrays.asList("FEASIBILITY REPORT ATTACHED", "Feasibility Report", "feasibility_report"));
+        fieldMappings.put("reason",
+                java.util.Arrays.asList("IF NO THEN MENTION REASON", "Reason", "If No Reason", "reason"));
         fieldMappings.put("vendorName", java.util.Arrays.asList("Vendor Name", "Vendor", "Name of Vendor", "NAME"));
         fieldMappings.put("vendorAddress", java.util.Arrays.asList("Vendor Address", "Address", "ADDRESS"));
-        fieldMappings.put("approvedPrice", java.util.Arrays.asList("APPROVED PRICE", "Approved Price", "Price", "Cost"));
-        fieldMappings.put("deliveryPeriod", java.util.Arrays.asList("DELIVERY PERIOD & DATE", "Delivery Period", "Delivery Date"));
-        fieldMappings.put("termsConditions", java.util.Arrays.asList("TERMS & CONDITIONS", "Terms and Conditions", "Terms & Conditions"));
-        fieldMappings.put("thirdPartyAssessment", java.util.Arrays.asList("Third Party assessment carried out", "Third Party Assessment", "Third Party assessment", "Third Party Assessment Carried Out", "third_party_assessment", "thirdPartyAssessment"));
+        fieldMappings.put("approvedPrice",
+                java.util.Arrays.asList("APPROVED PRICE", "Approved Price", "Price", "Cost"));
+        fieldMappings.put("deliveryPeriod",
+                java.util.Arrays.asList("DELIVERY PERIOD & DATE", "Delivery Period", "Delivery Date"));
+        fieldMappings.put("termsConditions",
+                java.util.Arrays.asList("TERMS & CONDITIONS", "Terms and Conditions", "Terms & Conditions"));
+        fieldMappings.put("thirdPartyAssessment",
+                java.util.Arrays.asList("Third Party assessment carried out", "Third Party Assessment",
+                        "Third Party assessment", "Third Party Assessment Carried Out", "third_party_assessment",
+                        "thirdPartyAssessment"));
 
         String concept = templateKeyToConcept.get(fieldLabel);
         if (concept != null && fieldMappings.containsKey(concept)) {
             for (String label : fieldMappings.get(concept)) {
                 String value = lookupLabel(label, applicationFormData, formFields);
-                if (!value.isEmpty()) return value;
+                if (!value.isEmpty())
+                    return value;
             }
         }
 
@@ -3924,28 +4318,34 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private String lookupLabel(String label, Map<String, Object> applicationFormData,
-                               List<CfgTblCustomFormField> formFields) {
-        if (label == null) return "";
+            List<CfgTblCustomFormField> formFields) {
+        if (label == null)
+            return "";
         String normalizedLbl = label.replace(":", "").replace(";", "").trim();
         String lowerLbl = label.toLowerCase().trim();
         String lowerNormalized = normalizedLbl.toLowerCase().trim();
 
         String val = getNonEmptyValue(applicationFormData, label);
-        if (!val.isEmpty()) return val;
+        if (!val.isEmpty())
+            return val;
         val = getNonEmptyValue(applicationFormData, normalizedLbl);
-        if (!val.isEmpty()) return val;
+        if (!val.isEmpty())
+            return val;
 
         String slug = slugify(label);
         val = getNonEmptyValue(applicationFormData, slug);
-        if (!val.isEmpty()) return val;
+        if (!val.isEmpty())
+            return val;
 
         String normalizedSlug = slugify(normalizedLbl);
         val = getNonEmptyValue(applicationFormData, normalizedSlug);
-        if (!val.isEmpty()) return val;
+        if (!val.isEmpty())
+            return val;
 
         for (Map.Entry<String, Object> entry : applicationFormData.entrySet()) {
             String key = entry.getKey();
-            if (key == null) continue;
+            if (key == null)
+                continue;
             if (key.toLowerCase().trim().equals(lowerLbl)) {
                 return safeToString(entry.getValue());
             }
@@ -3953,7 +4353,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
 
         for (Map.Entry<String, Object> entry : applicationFormData.entrySet()) {
             String key = entry.getKey();
-            if (key == null) continue;
+            if (key == null)
+                continue;
             String keyNormalized = key.replace(":", "").replace(";", "").toLowerCase().trim();
             if (keyNormalized.equals(lowerNormalized)) {
                 return safeToString(entry.getValue());
@@ -3962,27 +4363,35 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
 
         if (formFields != null && !formFields.isEmpty()) {
             for (CfgTblCustomFormField field : formFields) {
-                if (field == null || field.getTxtFieldLabel() == null) continue;
-                String fieldLabelNormalized = field.getTxtFieldLabel().replace(":", "").replace(";", "").toLowerCase().trim();
-                if (fieldLabelNormalized.equals(lowerNormalized) || field.getTxtFieldLabel().toLowerCase().trim().equals(lowerLbl)) {
+                if (field == null || field.getTxtFieldLabel() == null)
+                    continue;
+                String fieldLabelNormalized = field.getTxtFieldLabel().replace(":", "").replace(";", "").toLowerCase()
+                        .trim();
+                if (fieldLabelNormalized.equals(lowerNormalized)
+                        || field.getTxtFieldLabel().toLowerCase().trim().equals(lowerLbl)) {
                     String fieldSlug = slugify(field.getTxtFieldLabel());
                     val = getNonEmptyValue(applicationFormData, fieldSlug);
-                    if (!val.isEmpty()) return val;
+                    if (!val.isEmpty())
+                        return val;
 
-                    String normalizedFieldSlug = slugify(field.getTxtFieldLabel().replace(":", "").replace(";", "").trim());
+                    String normalizedFieldSlug = slugify(
+                            field.getTxtFieldLabel().replace(":", "").replace(";", "").trim());
                     val = getNonEmptyValue(applicationFormData, normalizedFieldSlug);
-                    if (!val.isEmpty()) return val;
+                    if (!val.isEmpty())
+                        return val;
                 }
             }
 
             if (lowerNormalized.contains("specification") || lowerLbl.contains("specification")) {
                 for (CfgTblCustomFormField field : formFields) {
-                    if (field == null || field.getTxtFieldLabel() == null) continue;
+                    if (field == null || field.getTxtFieldLabel() == null)
+                        continue;
                     String fieldLabelLower = field.getTxtFieldLabel().toLowerCase();
                     if (fieldLabelLower.contains("specification") || fieldLabelLower.contains("detail")) {
                         String fieldSlug = slugify(field.getTxtFieldLabel());
                         val = getNonEmptyValue(applicationFormData, fieldSlug);
-                        if (!val.isEmpty()) return val;
+                        if (!val.isEmpty())
+                            return val;
                     }
                 }
             }
@@ -3992,20 +4401,24 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private String getNonEmptyValue(Map<String, Object> data, String key) {
-        if (key == null || data == null) return "";
+        if (key == null || data == null)
+            return "";
         Object val = data.get(key);
-        if (val == null) return "";
+        if (val == null)
+            return "";
         String str = safeToString(val).trim();
         return str.isEmpty() ? "" : str;
     }
 
     private String safeToString(Object val) {
-        if (val == null) return "";
+        if (val == null)
+            return "";
         return String.valueOf(val);
     }
 
     private String slugify(String label) {
-        if (label == null) return "";
+        if (label == null)
+            return "";
         String slug = label.toLowerCase().replaceAll("[^a-z0-9]+", "_").replaceAll("^_+|_+$", "");
         return slug;
     }
@@ -4027,7 +4440,8 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private boolean isApprovedEntry(Map<String, Object> entry) {
-        if (entry == null) return false;
+        if (entry == null)
+            return false;
         String action = entry.get("action") != null ? String.valueOf(entry.get("action")) : "";
         String status = entry.get("status") != null ? String.valueOf(entry.get("status")) : "";
         String state = !action.trim().isEmpty() ? action : status;
@@ -4035,43 +4449,59 @@ public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId)
     }
 
     private Integer extractApprovalUserId(Map<String, Object> entry) {
-        if (entry == null) return null;
+        if (entry == null)
+            return null;
         Integer id = extractUserId(entry.get("approvedBy"));
-        if (id == null) id = extractUserId(entry.get("approverUserId"));
-        if (id == null) id = extractUserId(entry.get("userId"));
+        if (id == null)
+            id = extractUserId(entry.get("approverUserId"));
+        if (id == null)
+            id = extractUserId(entry.get("userId"));
         return id;
     }
 
     /**
      * Generate HTML email content with optional approve/reject buttons
      */
-    private String generateApprovalEmailHtml(String recipientName, Integer level, String applicationCode, 
-                                            String formName, String status, String remarks, 
-boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackUrl, String approvalHistoryJson, String baseUrl) {
+    private String generateApprovalEmailHtml(String recipientName, Integer level, String applicationCode,
+            String formName, String status, String remarks,
+            boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackUrl,
+            String approvalHistoryJson, String baseUrl) {
         StringBuilder html = new StringBuilder();
-        html.append("<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
+        html.append(
+                "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
         html.append("<style>");
-        html.append("body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;background-color:#f5f5f5}");
-        html.append(".email-container{background-color:#ffffff;border-radius:8px;padding:30px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}");
-        html.append(".header{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;padding:20px;border-radius:8px 8px 0 0;margin:-30px -30px 20px -30px}");
+        html.append(
+                "body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;background-color:#f5f5f5}");
+        html.append(
+                ".email-container{background-color:#ffffff;border-radius:8px;padding:30px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}");
+        html.append(
+                ".header{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;padding:20px;border-radius:8px 8px 0 0;margin:-30px -30px 20px -30px}");
         html.append(".header h1{margin:0;font-size:24px;font-weight:600}");
         html.append(".content{padding:20px 0}");
         html.append(".greeting{font-size:16px;margin-bottom:20px;color:#555}");
-        html.append(".details{background-color:#f8f9fa;border-left:4px solid #667eea;padding:15px;margin:20px 0;border-radius:4px}");
+        html.append(
+                ".details{background-color:#f8f9fa;border-left:4px solid #667eea;padding:15px;margin:20px 0;border-radius:4px}");
         html.append(".detail-row{margin:10px 0;display:flex}");
         html.append(".detail-label{font-weight:600;color:#555;min-width:150px}");
         html.append(".detail-value{color:#333;flex:1}");
-        html.append(".remarks-box{background-color:#fff3cd;border-left:4px solid #ffc107;padding:15px;margin:20px 0;border-radius:4px}");
+        html.append(
+                ".remarks-box{background-color:#fff3cd;border-left:4px solid #ffc107;padding:15px;margin:20px 0;border-radius:4px}");
         html.append(".button-container{margin:30px 0;text-align:center}");
-        html.append(".btn{display:inline-block;padding:12px 30px;margin:0 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;transition:all 0.3s}");
+        html.append(
+                ".btn{display:inline-block;padding:12px 30px;margin:0 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;transition:all 0.3s}");
         html.append(".btn-approve{background-color:#27ae60;color:white}");
-        html.append(".btn-approve:hover{background-color:#229954;transform:translateY(-2px);box-shadow:0 4px 8px rgba(39,174,96,0.3)}");
+        html.append(
+                ".btn-approve:hover{background-color:#229954;transform:translateY(-2px);box-shadow:0 4px 8px rgba(39,174,96,0.3)}");
         html.append(".btn-reject{background-color:#e74c3c;color:white}");
-        html.append(".btn-reject:hover{background-color:#c0392b;transform:translateY(-2px);box-shadow:0 4px 8px rgba(231,76,60,0.3)}");
+        html.append(
+                ".btn-reject:hover{background-color:#c0392b;transform:translateY(-2px);box-shadow:0 4px 8px rgba(231,76,60,0.3)}");
         html.append(".btn-sendback{background-color:#f39c12;color:white}");
-        html.append(".btn-sendback:hover{background-color:#d68910;transform:translateY(-2px);box-shadow:0 4px 8px rgba(243,156,18,0.3)}");
-        html.append(".footer{margin-top:30px;padding-top:20px;border-top:2px solid #ecf0f1;text-align:center;color:#95a5a6;font-size:12px}");
-        html.append(".status-badge{display:inline-block;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;text-transform:uppercase}");
+        html.append(
+                ".btn-sendback:hover{background-color:#d68910;transform:translateY(-2px);box-shadow:0 4px 8px rgba(243,156,18,0.3)}");
+        html.append(
+                ".footer{margin-top:30px;padding-top:20px;border-top:2px solid #ecf0f1;text-align:center;color:#95a5a6;font-size:12px}");
+        html.append(
+                ".status-badge{display:inline-block;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;text-transform:uppercase}");
         html.append(".status-approved{background-color:#d5f4e6;color:#27ae60}");
         html.append(".status-pending{background-color:#fef5e7;color:#f39c12}");
         html.append(".status-rejected{background-color:#fadbd8;color:#e74c3c}");
@@ -4079,7 +4509,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         html.append(".history{margin-top:20px}");
         html.append(".history h3{margin:0 0 10px 0;font-size:16px;color:#333}");
         html.append(".history table{width:100%;border-collapse:collapse;font-size:12px}");
-        html.append(".history th,.history td{border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top}");
+        html.append(
+                ".history th,.history td{border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top}");
         html.append(".history th{background:#f3f4f6;font-weight:600}");
         html.append(".sig-img{max-height:36px;display:block;margin-top:4px}");
         html.append("</style></head><body>");
@@ -4088,21 +4519,29 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         html.append("<div class='header'><h1>").append(escapeHtml(headerTitle)).append("</h1></div>");
         html.append("<div class='content'>");
         html.append("<div class='greeting'>Dear ").append(escapeHtml(recipientName)).append(",</div>");
-        
+
         if (showActionButtons) {
             html.append("<p>A new application is pending your approval at Level ").append(level).append(".</p>");
         } else {
             html.append("<p>Your application has been approved at Level ").append(level).append(".</p>");
         }
-        
+
         html.append("<div class='details'>");
-        html.append("<div class='detail-row'><div class='detail-label'>Application Code:</div><div class='detail-value'>").append(escapeHtml(applicationCode)).append("</div></div>");
-        html.append("<div class='detail-row'><div class='detail-label'>Form Name:</div><div class='detail-value'>").append(escapeHtml(formName)).append("</div></div>");
-        html.append("<div class='detail-row'><div class='detail-label'>Approval Level:</div><div class='detail-value'>").append(level).append("</div></div>");
+        html.append(
+                "<div class='detail-row'><div class='detail-label'>Application Code:</div><div class='detail-value'>")
+                .append(escapeHtml(applicationCode)).append("</div></div>");
+        html.append("<div class='detail-row'><div class='detail-label'>Form Name:</div><div class='detail-value'>")
+                .append(escapeHtml(formName)).append("</div></div>");
+        html.append("<div class='detail-row'><div class='detail-label'>Approval Level:</div><div class='detail-value'>")
+                .append(level).append("</div></div>");
         String statusClass = status != null ? status.toLowerCase().replace("_", "-") : "pending";
-        html.append("<div class='detail-row'><div class='detail-label'>Status:</div><div class='detail-value'><span class='status-badge status-").append(statusClass).append("'>").append(escapeHtml(status != null ? status : "PENDING")).append("</span></div></div>");
+        html.append(
+                "<div class='detail-row'><div class='detail-label'>Status:</div><div class='detail-value'><span class='status-badge status-")
+                .append(statusClass).append("'>").append(escapeHtml(status != null ? status : "PENDING"))
+                .append("</span></div></div>");
         if (remarks != null && !remarks.trim().isEmpty()) {
-            html.append("<div class='remarks-box'><strong>Remarks:</strong><br>").append(escapeHtml(remarks)).append("</div>");
+            html.append("<div class='remarks-box'><strong>Remarks:</strong><br>").append(escapeHtml(remarks))
+                    .append("</div>");
         }
         html.append("</div>");
 
@@ -4110,41 +4549,49 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         if (historyHtml != null && !historyHtml.isEmpty()) {
             html.append(historyHtml);
         }
-        
+
         boolean canApproveReject = showActionButtons && approveUrl != null && rejectUrl != null;
         boolean canSendBack = showActionButtons && sendBackUrl != null && level != null && level >= 2;
 
         if (showActionButtons && (canApproveReject || canSendBack)) {
             html.append("<div class='button-container'>");
             if (canApproveReject) {
-                html.append("<a href='").append(approveUrl).append("' class='btn btn-approve' style='color:white;text-decoration:none;'>Approve Application</a>");
-                html.append("<a href='").append(rejectUrl).append("' class='btn btn-reject' style='color:white;text-decoration:none;'>Reject Application</a>");
+                html.append("<a href='").append(approveUrl).append(
+                        "' class='btn btn-approve' style='color:white;text-decoration:none;'>Approve Application</a>");
+                html.append("<a href='").append(rejectUrl).append(
+                        "' class='btn btn-reject' style='color:white;text-decoration:none;'>Reject Application</a>");
             }
             if (canSendBack) {
-                html.append("<a href='").append(sendBackUrl).append("' class='btn btn-sendback' style='color:white;text-decoration:none;'>Send Back</a>");
+                html.append("<a href='").append(sendBackUrl)
+                        .append("' class='btn btn-sendback' style='color:white;text-decoration:none;'>Send Back</a>");
             }
             html.append("</div>");
-            html.append("<p style='text-align:center;color:#7f8c8d;font-size:12px;margin-top:20px;'>You can also review this application in the system dashboard.</p>");
+            html.append(
+                    "<p style='text-align:center;color:#7f8c8d;font-size:12px;margin-top:20px;'>You can also review this application in the system dashboard.</p>");
         } else {
             html.append("<p>Thank you for using our system.</p>");
         }
-        
+
         html.append("</div>");
         html.append("<div class='footer'>");
         html.append("<p>Best Regards,<br>System Administrator</p>");
         html.append("<p style='font-size:10px;color:#bdc3c7;'>This is an automated email. Please do not reply.</p>");
         html.append("</div>");
         html.append("</div></body></html>");
-        
+
         return html.toString();
     }
 
     private String buildApprovalHistoryHtml(String approvalHistoryJson, String baseUrl) {
-        if (approvalHistoryJson == null || approvalHistoryJson.trim().isEmpty()) return "";
+        if (approvalHistoryJson == null || approvalHistoryJson.trim().isEmpty())
+            return "";
         try {
             ObjectMapper mapper = new ObjectMapper();
-            List<Map<String, Object>> list = mapper.readValue(approvalHistoryJson, new TypeReference<List<Map<String, Object>>>() {});
-            if (list == null || list.isEmpty()) return "";
+            List<Map<String, Object>> list = mapper.readValue(approvalHistoryJson,
+                    new TypeReference<List<Map<String, Object>>>() {
+                    });
+            if (list == null || list.isEmpty())
+                return "";
 
             StringBuilder sb = new StringBuilder();
             sb.append("<div class='history'>");
@@ -4161,10 +4608,11 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
                 if (role == null || role.trim().isEmpty()) {
                     role = entry.get("departmentName") != null ? String.valueOf(entry.get("departmentName")) : "";
                 }
-                String action = entry.get("action") != null ? String.valueOf(entry.get("action")) :
-                               entry.get("status") != null ? String.valueOf(entry.get("status")) : "";
+                String action = entry.get("action") != null ? String.valueOf(entry.get("action"))
+                        : entry.get("status") != null ? String.valueOf(entry.get("status")) : "";
                 String date = entry.get("approvedDate") != null ? String.valueOf(entry.get("approvedDate")) : "";
-                String signaturePath = entry.get("signaturePath") != null ? String.valueOf(entry.get("signaturePath")) : "";
+                String signaturePath = entry.get("signaturePath") != null ? String.valueOf(entry.get("signaturePath"))
+                        : "";
                 String approvedBy = entry.get("approvedBy") != null ? String.valueOf(entry.get("approvedBy")) : "";
 
                 String sigHtml = "";
@@ -4172,7 +4620,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
                 String inlineSignature = buildInlineSignatureDataUri(signaturePath, approvedById);
                 if (inlineSignature != null && !inlineSignature.isEmpty()) {
                     sigHtml = "<img class='sig-img' src='" + inlineSignature + "' alt='Signature' />";
-                } else if (!signaturePath.trim().isEmpty() && approvedBy != null && !approvedBy.trim().isEmpty() && baseUrl != null) {
+                } else if (!signaturePath.trim().isEmpty() && approvedBy != null && !approvedBy.trim().isEmpty()
+                        && baseUrl != null) {
                     String sigUrl = baseUrl + "/getSignature?userId=" + approvedBy;
                     sigHtml = "<img class='sig-img' src='" + sigUrl + "' alt='Signature' />";
                 }
@@ -4196,10 +4645,10 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private void drawDynamicBudgetSignatureTable(PDPageContentStream content,
-                                                 float x, float y, float width, float height,
-                                                 List<Map<String, Object>> footerFields,
-                                                 String approvalHistoryJson,
-                                                 PDDocument document) throws java.io.IOException {
+            float x, float y, float width, float height,
+            List<Map<String, Object>> footerFields,
+            String approvalHistoryJson,
+            PDDocument document) throws java.io.IOException {
         int cols = footerFields != null ? footerFields.size() : 0;
         if (cols <= 0) {
             return;
@@ -4234,8 +4683,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         float headerY = y + rowSig + 6;
         for (int i = 0; i < cols; i++) {
             String label = footerFields.get(i) != null && footerFields.get(i).get("label") != null
-                ? String.valueOf(footerFields.get(i).get("label"))
-                : "New Field";
+                    ? String.valueOf(footerFields.get(i).get("label"))
+                    : "New Field";
             drawCenteredHeader(content, label, x + colWidth * i, colWidth, headerY);
         }
 
@@ -4244,7 +4693,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         for (Map<String, Object> field : footerFields) {
             for (Object userObj : extractFooterUsers(field)) {
                 Integer uid = extractUserId(userObj);
-                if (uid != null) allUserIds.add(uid);
+                if (uid != null)
+                    allUserIds.add(uid);
             }
         }
         Integer[] userIds = allUserIds.toArray(new Integer[0]);
@@ -4255,11 +4705,14 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         for (int i = 0; i < cols; i++) {
             Map<String, Object> field = footerFields.get(i);
             String role = field != null && field.get("label") != null ? String.valueOf(field.get("label")) : "APPROVER";
-            String key = field != null && field.get("key") != null ? String.valueOf(field.get("key")).toLowerCase() : "";
+            String key = field != null && field.get("key") != null ? String.valueOf(field.get("key")).toLowerCase()
+                    : "";
             boolean allowFallback = "prepared_by".equals(key);
-            String sigPath = findSignatureForFooterFieldUsers(approvalHistory, extractFooterUsers(field), role, allowFallback, signatureFromDb);
+            String sigPath = findSignatureForFooterFieldUsers(approvalHistory, extractFooterUsers(field), role,
+                    allowFallback, signatureFromDb);
             if (sigPath != null && !sigPath.trim().isEmpty()) {
-                drawSignatureImage(document, content, sigPath, x + colWidth * i + 4, sigRowY, colWidth - 8, sigRowHeight);
+                drawSignatureImage(document, content, sigPath, x + colWidth * i + 4, sigRowY, colWidth - 8,
+                        sigRowHeight);
             }
         }
 
@@ -4281,7 +4734,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private String formatFooterUsers(List<Object> users) {
-        if (users == null || users.isEmpty()) return "--";
+        if (users == null || users.isEmpty())
+            return "--";
         List<String> chunks = new java.util.ArrayList<>();
         for (Object userObj : users) {
             Map<String, String> display = extractUserDisplay(userObj);
@@ -4290,16 +4744,18 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
                 chunks.add(txt.replace("\n", " "));
             }
         }
-        if (chunks.isEmpty()) return "--";
+        if (chunks.isEmpty())
+            return "--";
         return String.join(", ", chunks);
     }
 
     private String findSignatureForFooterFieldUsers(List<Map<String, Object>> approvalHistory,
-                                                    List<Object> users,
-                                                    String role,
-                                                    boolean allowFallback,
-                                                    Map<Integer, String> signatureFromDb) {
-        if (users == null || users.isEmpty()) return null;
+            List<Object> users,
+            String role,
+            boolean allowFallback,
+            Map<Integer, String> signatureFromDb) {
+        if (users == null || users.isEmpty())
+            return null;
         for (Object userObj : users) {
             Integer uid = extractUserId(userObj);
             String sigPath = findSignatureForUser(approvalHistory, uid, role, allowFallback, signatureFromDb);
@@ -4348,17 +4804,23 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private String detectSignatureContentType(String fileName) {
-        if (fileName == null) return "image/png";
+        if (fileName == null)
+            return "image/png";
         String lower = fileName.toLowerCase();
-        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-        if (lower.endsWith(".gif")) return "image/gif";
-        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg"))
+            return "image/jpeg";
+        if (lower.endsWith(".gif"))
+            return "image/gif";
+        if (lower.endsWith(".webp"))
+            return "image/webp";
         return "image/png";
     }
 
     private String appendCapfFragment(String baseHtml, String capfFragment) {
-        if (capfFragment == null || capfFragment.trim().isEmpty()) return baseHtml;
-        if (baseHtml == null || baseHtml.trim().isEmpty()) return capfFragment;
+        if (capfFragment == null || capfFragment.trim().isEmpty())
+            return baseHtml;
+        if (baseHtml == null || baseHtml.trim().isEmpty())
+            return capfFragment;
 
         String fragmentHtml = capfFragment;
         String styleBlock = "";
@@ -4389,7 +4851,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private byte[] renderCapfPdfToPng(byte[] pdfBytes, String approvalHistoryJson) {
-        if (pdfBytes == null || pdfBytes.length == 0) return null;
+        if (pdfBytes == null || pdfBytes.length == 0)
+            return null;
         try (PDDocument document = PDDocument.load(pdfBytes)) {
             // Ensure email image reflects latest approved signatures before rasterizing.
             overlayCapfSignaturesOnPdf(document, approvalHistoryJson, null);
@@ -4404,8 +4867,10 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         }
     }
 
-    private void overlayCapfSignaturesOnPdf(PDDocument document, String approvalHistoryJson, List<Map<String, Object>> pipelines) {
-        if (document == null || document.getNumberOfPages() == 0) return;
+    private void overlayCapfSignaturesOnPdf(PDDocument document, String approvalHistoryJson,
+            List<Map<String, Object>> pipelines) {
+        if (document == null || document.getNumberOfPages() == 0)
+            return;
         try {
             PDPage page = document.getPage(0);
             PDRectangle box = page.getMediaBox();
@@ -4439,7 +4904,7 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
             y -= 14; // Reason
             y -= 2;
             y -= 14; // Note
-            y -= 6;  // line
+            y -= 6; // line
             y -= 10; // title
             y -= 12;
 
@@ -4451,8 +4916,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
             y -= 14; // Terms
             y -= 2;
             y -= 14; // Third party assessment
-            y -= 6;  // line
-            y -= 8;  // spacing before signature section
+            y -= 6; // line
+            y -= 8; // spacing before signature section
 
             float lineStart = margin + 12;
             float lineEnd = pageWidth - margin - 12;
@@ -4462,9 +4927,12 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
             Float approvedByY = anchors.get("approvedBy");
 
             java.util.List<Float> candidates = new java.util.ArrayList<>();
-            if (userDeptY != null) candidates.add(userDeptY + 32f);
-            if (thirdPartyY != null) candidates.add(thirdPartyY - 48f);
-            if (approvedByY != null) candidates.add(approvedByY + 76f);
+            if (userDeptY != null)
+                candidates.add(userDeptY + 32f);
+            if (thirdPartyY != null)
+                candidates.add(thirdPartyY - 48f);
+            if (approvedByY != null)
+                candidates.add(approvedByY + 76f);
 
             Float anchoredSigRowY = null;
             if (!candidates.isEmpty()) {
@@ -4472,20 +4940,26 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
                 anchoredSigRowY = candidates.get(candidates.size() / 2); // median
                 float minY = margin + 20f;
                 float maxY = pageHeight - margin - 20f;
-                if (anchoredSigRowY < minY) anchoredSigRowY = minY;
-                if (anchoredSigRowY > maxY) anchoredSigRowY = maxY;
-                log.info("CAPF signature log [anchor-multi]: userDeptY={}, thirdPartyY={}, approvedByY={}, candidates={}, signatureRowY={}",
+                if (anchoredSigRowY < minY)
+                    anchoredSigRowY = minY;
+                if (anchoredSigRowY > maxY)
+                    anchoredSigRowY = maxY;
+                log.info(
+                        "CAPF signature log [anchor-multi]: userDeptY={}, thirdPartyY={}, approvedByY={}, candidates={}, signatureRowY={}",
                         userDeptY, thirdPartyY, approvedByY, candidates, anchoredSigRowY);
             } else {
                 // Stored CAPF PDFs are often image-based; text anchors may be unavailable.
                 // Use stable template-relative fallback so placement stays on signature row.
                 anchoredSigRowY = pageHeight * 0.370f;
-                log.warn("CAPF signature log [anchor-missing]: no anchors found, using template-ratio fallback signatureRowY={}", anchoredSigRowY);
+                log.warn(
+                        "CAPF signature log [anchor-missing]: no anchors found, using template-ratio fallback signatureRowY={}",
+                        anchoredSigRowY);
             }
 
             try (PDPageContentStream content = new PDPageContentStream(
                     document, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                drawCapfSignatureImages(content, lineStart, y, lineEnd - lineStart, approvalHistoryJson, document, anchoredSigRowY, pipelines);
+                drawCapfSignatureImages(content, lineStart, y, lineEnd - lineStart, approvalHistoryJson, document,
+                        anchoredSigRowY, pipelines);
             }
         } catch (Exception e) {
             log.warn("Error overlaying CAPF signatures: " + e.getMessage(), e);
@@ -4493,8 +4967,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private void drawCapfSignatureImages(PDPageContentStream content, float x, float y, float width,
-                                         String approvalHistoryJson, PDDocument document, Float anchoredSigRowY,
-                                         List<Map<String, Object>> pipelines) throws java.io.IOException {
+            String approvalHistoryJson, PDDocument document, Float anchoredSigRowY,
+            List<Map<String, Object>> pipelines) throws java.io.IOException {
         float colWidth = width / 5f;
         float sigHeight = 22f;
         float sigRowY = anchoredSigRowY != null ? anchoredSigRowY : (y - sigHeight);
@@ -4525,13 +4999,15 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
             Integer approvedBy = null;
             if (entry != null) {
                 approvedBy = extractApprovalUserId(entry);
-                if (entry.get("signaturePath") != null && !String.valueOf(entry.get("signaturePath")).trim().isEmpty()) {
+                if (entry.get("signaturePath") != null
+                        && !String.valueOf(entry.get("signaturePath")).trim().isEmpty()) {
                     sigPath = String.valueOf(entry.get("signaturePath"));
                 } else if (approvedBy != null && signatureFromDb.containsKey(approvedBy)) {
                     sigPath = signatureFromDb.get(approvedBy);
                 }
             }
-            log.info("CAPF signature log [overlay-slot]: slot={}, approvedBy={}, level={}, order={}, entrySignaturePath={}, resolvedSignaturePath={}",
+            log.info(
+                    "CAPF signature log [overlay-slot]: slot={}, approvedBy={}, level={}, order={}, entrySignaturePath={}, resolvedSignaturePath={}",
                     i + 1,
                     approvedBy,
                     entry != null ? entry.get("level") : null,
@@ -4548,18 +5024,21 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private void drawSignatureMetaText(PDPageContentStream content, float colX, float colWidth, float sigRowY,
-                                       Map<String, Object> entry, Integer approvedBy,
-                                       Map<Integer, UserSignatureMeta> userMeta) throws java.io.IOException {
+            Map<String, Object> entry, Integer approvedBy,
+            Map<Integer, UserSignatureMeta> userMeta) throws java.io.IOException {
         String dateText = formatApprovalDateTime(entry != null ? entry.get("approvedDate") : null);
         UserSignatureMeta meta = approvedBy != null ? userMeta.get(approvedBy) : null;
-        String name = meta != null && meta.userName != null ? meta.userName :
-                (entry != null && entry.get("approverName") != null ? String.valueOf(entry.get("approverName")) : "");
-        String designation = meta != null && meta.designation != null ? meta.designation :
-                (entry != null && entry.get("txtDesignation") != null ? String.valueOf(entry.get("txtDesignation")) :
-                        (entry != null && entry.get("designation") != null ? String.valueOf(entry.get("designation")) : ""));
-        String department = meta != null && meta.departmentName != null ? meta.departmentName :
-                (entry != null && entry.get("departmentName") != null ? String.valueOf(entry.get("departmentName")) :
-                        (entry != null && entry.get("txtDepartmentName") != null ? String.valueOf(entry.get("txtDepartmentName")) : ""));
+        String name = meta != null && meta.userName != null ? meta.userName
+                : (entry != null && entry.get("approverName") != null ? String.valueOf(entry.get("approverName")) : "");
+        String designation = meta != null && meta.designation != null ? meta.designation
+                : (entry != null && entry.get("txtDesignation") != null ? String.valueOf(entry.get("txtDesignation"))
+                        : (entry != null && entry.get("designation") != null ? String.valueOf(entry.get("designation"))
+                                : ""));
+        String department = meta != null && meta.departmentName != null ? meta.departmentName
+                : (entry != null && entry.get("departmentName") != null ? String.valueOf(entry.get("departmentName"))
+                        : (entry != null && entry.get("txtDepartmentName") != null
+                                ? String.valueOf(entry.get("txtDepartmentName"))
+                                : ""));
 
         // Keep metadata centered and high enough so it stays above printed slot labels.
         float metaFont = 6.5f;
@@ -4589,10 +5068,12 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private String firstWrappedLine(String text, PDType1Font font, float fontSize, float maxWidth) {
-        if (text == null) return "";
+        if (text == null)
+            return "";
         try {
             java.util.List<String> lines = wrapText(text, font, fontSize, maxWidth);
-            if (lines == null || lines.isEmpty()) return text;
+            if (lines == null || lines.isEmpty())
+                return text;
             return lines.get(0);
         } catch (Exception e) {
             return text.length() > 60 ? text.substring(0, 60) : text;
@@ -4600,11 +5081,13 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private void drawCenteredMetaLine(PDPageContentStream content, String text, PDType1Font font, float fontSize,
-                                      float colX, float colWidth, float y) throws java.io.IOException {
-        if (text == null || text.trim().isEmpty()) return;
+            float colX, float colWidth, float y) throws java.io.IOException {
+        if (text == null || text.trim().isEmpty())
+            return;
         float textWidth = font.getStringWidth(text) / 1000f * fontSize;
         float x = colX + (colWidth - textWidth) / 2f;
-        if (x < colX + 2f) x = colX + 2f;
+        if (x < colX + 2f)
+            x = colX + 2f;
         content.beginText();
         content.newLineAtOffset(x, y);
         content.showText(text);
@@ -4612,10 +5095,12 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private String formatApprovalDateTime(Object raw) {
-        if (raw == null) return "";
+        if (raw == null)
+            return "";
         try {
             String s = String.valueOf(raw).trim();
-            if (s.isEmpty()) return "";
+            if (s.isEmpty())
+                return "";
             if (s.matches("^\\d{4}-\\d{2}-\\d{2}.*")) {
                 java.text.SimpleDateFormat in = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
                 java.text.SimpleDateFormat out = new java.text.SimpleDateFormat("dd/MM/yyyy, HH:mm:ss");
@@ -4628,7 +5113,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
                     return new java.text.SimpleDateFormat("dd/MM/yyyy").format(d);
                 }
             }
-            if (s.matches("^\\d{2}/\\d{2}/\\d{4}.*")) return s;
+            if (s.matches("^\\d{2}/\\d{2}/\\d{4}.*"))
+                return s;
         } catch (Exception ignored) {
         }
         return String.valueOf(raw);
@@ -4636,12 +5122,14 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
 
     private Map<Integer, UserSignatureMeta> loadUserSignatureMeta(Integer[] userIds) {
         Map<Integer, UserSignatureMeta> map = new java.util.HashMap<>();
-        if (userIds == null || userIds.length == 0) return map;
+        if (userIds == null || userIds.length == 0)
+            return map;
         EntityManager em = getEntityManager();
         try {
             em.getTransaction().begin();
             for (Integer id : userIds) {
-                if (id == null || map.containsKey(id)) continue;
+                if (id == null || map.containsKey(id))
+                    continue;
                 CfgTblUser u = em.find(CfgTblUser.class, id);
                 if (u != null) {
                     UserSignatureMeta m = new UserSignatureMeta();
@@ -4657,10 +5145,12 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
             }
             em.getTransaction().commit();
         } catch (Exception e) {
-            if (em.getTransaction().isActive()) em.getTransaction().rollback();
+            if (em.getTransaction().isActive())
+                em.getTransaction().rollback();
             log.warn("Error loading user signature meta: " + e.getMessage(), e);
         } finally {
-            if (em.isOpen()) em.close();
+            if (em.isOpen())
+                em.close();
         }
         return map;
     }
@@ -4673,7 +5163,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
 
     private Map<String, Float> findCapfAnchorsY(PDDocument document) {
         Map<String, Float> out = new java.util.HashMap<>();
-        if (document == null || document.getNumberOfPages() == 0) return out;
+        if (document == null || document.getNumberOfPages() == 0)
+            return out;
         try {
             CapfAnchorStripper stripper = new CapfAnchorStripper();
             stripper.setSortByPosition(true);
@@ -4699,7 +5190,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
 
         Float getAnchorY(String key) {
             java.util.List<Float> ys = anchors.get(key);
-            if (ys == null || ys.isEmpty()) return null;
+            if (ys == null || ys.isEmpty())
+                return null;
             // Use the lowest occurrence on page (closest to signature block in this form).
             return ys.stream().min(Float::compareTo).orElse(null);
         }
@@ -4739,7 +5231,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private byte[] renderPdfToPng(byte[] pdfBytes) {
-        if (pdfBytes == null || pdfBytes.length == 0) return null;
+        if (pdfBytes == null || pdfBytes.length == 0)
+            return null;
         try (PDDocument document = PDDocument.load(pdfBytes)) {
             PDFRenderer renderer = new PDFRenderer(document);
             BufferedImage image = renderer.renderImageWithDPI(0, 150);
@@ -4753,7 +5246,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private byte[] renderPdfFirstPageToPng(byte[] pdfBytes) {
-        if (pdfBytes == null || pdfBytes.length == 0) return null;
+        if (pdfBytes == null || pdfBytes.length == 0)
+            return null;
         try (PDDocument document = PDDocument.load(pdfBytes)) {
             PDFRenderer renderer = new PDFRenderer(document);
             BufferedImage image = renderer.renderImageWithDPI(0, 150);
@@ -4767,7 +5261,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private byte[] buildCapfPreviewPng(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
-        // Prefer stored PDF because it is produced by the same application-details rendering flow.
+        // Prefer stored PDF because it is produced by the same application-details
+        // rendering flow.
         if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
             log.info("CAPF preview source: stored blbPdfData ({} bytes) for appId={}",
                     application.getBlbPdfData().length, application.getSerApplicationId());
@@ -4793,7 +5288,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private void persistCapfSignedPdf(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
-        if (application == null) return;
+        if (application == null)
+            return;
         try {
             byte[] basePdf = application.getBlbPdfData();
             if (basePdf == null || basePdf.length == 0) {
@@ -4801,27 +5297,34 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
                 basePdf = generateCapfPdf(application, form, appData);
             }
             if (basePdf == null || basePdf.length == 0) {
-                log.warn("CAPF signed PDF persist skipped: no base PDF for appId={}", application.getSerApplicationId());
+                log.warn("CAPF signed PDF persist skipped: no base PDF for appId={}",
+                        application.getSerApplicationId());
                 return;
             }
 
-            byte[] signedPdf = applyCapfSignaturesToPdf(basePdf, application.getTxtApprovalHistory(), loadApprovalPipeline(form));
+            byte[] signedPdf = applyCapfSignaturesToPdf(basePdf, application.getTxtApprovalHistory(),
+                    loadApprovalPipeline(form));
             if (signedPdf != null && signedPdf.length > 0) {
                 String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
                 application.setBlbPdfData(signedPdf);
                 application.setTxtPdfName(code + ".pdf");
                 application.setTxtPdfMime("application/pdf");
-                log.info("CAPF signed PDF persisted: appId={}, bytes={}", application.getSerApplicationId(), signedPdf.length);
+                log.info("CAPF signed PDF persisted: appId={}, bytes={}", application.getSerApplicationId(),
+                        signedPdf.length);
             } else {
-                log.warn("CAPF signed PDF persist failed to produce output for appId={}", application.getSerApplicationId());
+                log.warn("CAPF signed PDF persist failed to produce output for appId={}",
+                        application.getSerApplicationId());
             }
         } catch (Exception e) {
-            log.warn("Error persisting CAPF signed PDF for appId={}: {}", application.getSerApplicationId(), e.getMessage(), e);
+            log.warn("Error persisting CAPF signed PDF for appId={}: {}", application.getSerApplicationId(),
+                    e.getMessage(), e);
         }
     }
 
-    private byte[] applyCapfSignaturesToPdf(byte[] pdfBytes, String approvalHistoryJson, List<Map<String, Object>> pipelines) {
-        if (pdfBytes == null || pdfBytes.length == 0) return null;
+    private byte[] applyCapfSignaturesToPdf(byte[] pdfBytes, String approvalHistoryJson,
+            List<Map<String, Object>> pipelines) {
+        if (pdfBytes == null || pdfBytes.length == 0)
+            return null;
         try (PDDocument document = PDDocument.load(pdfBytes)) {
             overlayCapfSignaturesOnPdf(document, approvalHistoryJson, pipelines);
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -4840,7 +5343,8 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         try {
             ObjectMapper mapper = new ObjectMapper();
             List<Map<String, Object>> pipelines = mapper.readValue(form.getTxtApprovalPipeline(),
-                    new TypeReference<List<Map<String, Object>>>() {});
+                    new TypeReference<List<Map<String, Object>>>() {
+                    });
             return pipelines != null ? pipelines : new java.util.ArrayList<>();
         } catch (Exception e) {
             log.warn("Error parsing CAPF approval pipeline for signature mapping: {}", e.getMessage());
@@ -4849,11 +5353,14 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private String appendCapfInlineImage(String baseHtml, String imageCid) {
-        if (baseHtml == null || baseHtml.trim().isEmpty()) return baseHtml;
+        if (baseHtml == null || baseHtml.trim().isEmpty())
+            return baseHtml;
         String cid = imageCid != null ? imageCid : "capf-inline";
         String fragment = "<div style='margin:20px 0 0 0;text-align:center;'>" +
-                          "<img src='cid:" + cid + "' style='width:100%;max-width:820px;border:1px solid #222;display:block;margin:0 auto;' alt='CAPF Form' />" +
-                          "</div>";
+                "<img src='cid:" + cid
+                + "' style='width:100%;max-width:820px;border:1px solid #222;display:block;margin:0 auto;' alt='CAPF Form' />"
+                +
+                "</div>";
         String marker = "</body>";
         int idx = baseHtml.lastIndexOf(marker);
         if (idx == -1) {
@@ -4863,12 +5370,15 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     }
 
     private String appendInlinePdfImage(String baseHtml, String imageCid, String altText) {
-        if (baseHtml == null || baseHtml.trim().isEmpty()) return baseHtml;
+        if (baseHtml == null || baseHtml.trim().isEmpty())
+            return baseHtml;
         String cid = imageCid != null ? imageCid : "pdf-inline";
         String alt = altText != null ? altText : "Document";
         String fragment = "<div style='margin:20px 0 0 0;text-align:center;'>" +
-                          "<img src='cid:" + cid + "' style='width:100%;max-width:820px;border:1px solid #222;display:block;margin:0 auto;' alt='" + escapeHtml(alt) + "' />" +
-                          "</div>";
+                "<img src='cid:" + cid
+                + "' style='width:100%;max-width:820px;border:1px solid #222;display:block;margin:0 auto;' alt='"
+                + escapeHtml(alt) + "' />" +
+                "</div>";
         String marker = "</body>";
         int idx = baseHtml.lastIndexOf(marker);
         if (idx == -1) {
@@ -4880,36 +5390,48 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
     /**
      * Generate HTML email for application submission confirmation
      */
-    private String generateSubmissionEmailHtml(String recipientName, String applicationCode, 
-                                              String formName, String status, String submittedDate) {
+    private String generateSubmissionEmailHtml(String recipientName, String applicationCode,
+            String formName, String status, String submittedDate) {
         StringBuilder html = new StringBuilder();
-        html.append("<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
+        html.append(
+                "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
         html.append("<style>");
-        html.append("body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;background-color:#f5f5f5}");
-        html.append(".email-container{background-color:#ffffff;border-radius:8px;padding:30px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}");
-        html.append(".header{background:linear-gradient(135deg,#27ae60 0%,#229954 100%);color:white;padding:20px;border-radius:8px 8px 0 0;margin:-30px -30px 20px -30px}");
+        html.append(
+                "body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;background-color:#f5f5f5}");
+        html.append(
+                ".email-container{background-color:#ffffff;border-radius:8px;padding:30px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}");
+        html.append(
+                ".header{background:linear-gradient(135deg,#27ae60 0%,#229954 100%);color:white;padding:20px;border-radius:8px 8px 0 0;margin:-30px -30px 20px -30px}");
         html.append(".header h1{margin:0;font-size:24px;font-weight:600}");
         html.append(".content{padding:20px 0}");
         html.append(".greeting{font-size:16px;margin-bottom:20px;color:#555}");
-        html.append(".details{background-color:#f8f9fa;border-left:4px solid #27ae60;padding:15px;margin:20px 0;border-radius:4px}");
+        html.append(
+                ".details{background-color:#f8f9fa;border-left:4px solid #27ae60;padding:15px;margin:20px 0;border-radius:4px}");
         html.append(".detail-row{margin:10px 0;display:flex}");
         html.append(".detail-label{font-weight:600;color:#555;min-width:150px}");
         html.append(".detail-value{color:#333;flex:1}");
-        html.append(".footer{margin-top:30px;padding-top:20px;border-top:2px solid #ecf0f1;text-align:center;color:#95a5a6;font-size:12px}");
+        html.append(
+                ".footer{margin-top:30px;padding-top:20px;border-top:2px solid #ecf0f1;text-align:center;color:#95a5a6;font-size:12px}");
         html.append("</style></head><body>");
         String headerTitle = (applicationCode != null && !applicationCode.trim().isEmpty())
-            ? applicationCode.trim()
-            : (formName != null && !formName.trim().isEmpty() ? formName.trim() : "Application");
+                ? applicationCode.trim()
+                : (formName != null && !formName.trim().isEmpty() ? formName.trim() : "Application");
         html.append("<div class='email-container'>");
-        html.append("<div class='header'><h1>").append(escapeHtml(headerTitle)).append(" Submitted Successfully</h1></div>");
+        html.append("<div class='header'><h1>").append(escapeHtml(headerTitle))
+                .append(" Submitted Successfully</h1></div>");
         html.append("<div class='content'>");
         html.append("<div class='greeting'>Dear ").append(escapeHtml(recipientName)).append(",</div>");
         html.append("<p>Your application has been submitted successfully.</p>");
         html.append("<div class='details'>");
-        html.append("<div class='detail-row'><div class='detail-label'>Application Code:</div><div class='detail-value'>").append(escapeHtml(applicationCode)).append("</div></div>");
-        html.append("<div class='detail-row'><div class='detail-label'>Form Name:</div><div class='detail-value'>").append(escapeHtml(formName)).append("</div></div>");
-        html.append("<div class='detail-row'><div class='detail-label'>Status:</div><div class='detail-value'>").append(escapeHtml(status)).append("</div></div>");
-        html.append("<div class='detail-row'><div class='detail-label'>Submitted Date:</div><div class='detail-value'>").append(escapeHtml(submittedDate)).append("</div></div>");
+        html.append(
+                "<div class='detail-row'><div class='detail-label'>Application Code:</div><div class='detail-value'>")
+                .append(escapeHtml(applicationCode)).append("</div></div>");
+        html.append("<div class='detail-row'><div class='detail-label'>Form Name:</div><div class='detail-value'>")
+                .append(escapeHtml(formName)).append("</div></div>");
+        html.append("<div class='detail-row'><div class='detail-label'>Status:</div><div class='detail-value'>")
+                .append(escapeHtml(status)).append("</div></div>");
+        html.append("<div class='detail-row'><div class='detail-label'>Submitted Date:</div><div class='detail-value'>")
+                .append(escapeHtml(submittedDate)).append("</div></div>");
         html.append("</div>");
         html.append("<p>Your application is now pending approval. You will be notified once it is reviewed.</p>");
         html.append("<p>Thank you for using our system.</p>");
@@ -4919,34 +5441,38 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         html.append("<p style='font-size:10px;color:#bdc3c7;'>This is an automated email. Please do not reply.</p>");
         html.append("</div>");
         html.append("</div></body></html>");
-        
+
         return html.toString();
     }
-    
+
     /**
      * Escape HTML special characters
      */
     private String escapeHtml(String text) {
-        if (text == null) return "";
+        if (text == null)
+            return "";
         return text.replace("&", "&amp;")
-                   .replace("<", "&lt;")
-                   .replace(">", "&gt;")
-                   .replace("\"", "&quot;")
-                   .replace("'", "&#39;");
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     /**
      * Helper to check if a user has already approved this application at any stage
      */
     private boolean isUserAlreadyInApprovedHistory(CfgTblCustomFormApplication application, Integer userId) {
-        if (application == null || userId == null) return false;
+        if (application == null || userId == null)
+            return false;
         String history = application.getTxtApprovalHistory();
-        if (history == null || history.trim().isEmpty()) return false;
-        
-        // Simple but effective check for userId in approved state within this application's history
+        if (history == null || history.trim().isEmpty())
+            return false;
+
+        // Simple but effective check for userId in approved state within this
+        // application's history
         String userIdPattern = "\"approvedBy\":" + userId;
         String approvedPattern = "\"action\":\"APPROVED\"";
-        
+
         int idx = history.indexOf(userIdPattern);
         while (idx != -1) {
             // Find the start and end of this JSON object {}
@@ -4963,6 +5489,3 @@ boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackU
         return false;
     }
 }
-
-
-

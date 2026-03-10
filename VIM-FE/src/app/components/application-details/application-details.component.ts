@@ -1,6 +1,7 @@
 import { Component, OnInit, ViewChild } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
 import { DepartmentService } from '../../services/department/department.service';
@@ -24,7 +25,7 @@ export class ApplicationDetailsComponent implements OnInit {
   isLoading: boolean = true;
   approvalHistory: any[] = []; // Store approval history with remarks
   departmentNameMap: Map<number, string> = new Map();
-  departmentHeadMap: Map<number, number> = new Map();
+  departmentHeadMap: Map<number, any> = new Map();
   userNameMap: Map<number, string> = new Map();
   currentUser: any = null;
 
@@ -42,6 +43,22 @@ export class ApplicationDetailsComponent implements OnInit {
   showFeasibilityModal: boolean = false;
   feasibilityPreviewUrl: any = null;
   private feasibilityObjectUrl: string | null = null;
+
+  showQuotationModal: boolean = false;
+  quotationAttachments: any[] = [];
+  selectedQuotation: any = null;
+  currentQuotationPreviewUrl: any = null;
+  private quotationObjectUrl: string | null = null;
+
+  isEditingVendor: boolean = false;
+  vendorEditForm: any = {
+    vendorName: '',
+    vendorAddress: '',
+    approvedPrice: '',
+    deliveryPeriod: '',
+    termsConditions: ''
+  };
+  isSavingVendor: boolean = false;
 
   hasFeasibilityReport(): boolean {
     const report = this.applicationFormData?.feasibility_report_attached
@@ -259,6 +276,336 @@ export class ApplicationDetailsComponent implements OnInit {
     return this.isPreviewableAttachment(report);
   }
 
+  hasQuotationAttachments(): boolean {
+    const attachments = this.getQuotationAttachmentsValue();
+    return Array.isArray(attachments) && attachments.length > 0;
+  }
+
+  showQuotationAttachmentsButton(): boolean {
+    if (!this.applicationDetails) return false;
+    if (!this.isCapfForm()) return false;
+    return this.hasQuotationAttachments();
+  }
+
+  private getQuotationAttachmentsValue(): any[] {
+    const direct = this.applicationFormData?.quotation_attachments;
+    if (Array.isArray(direct)) return direct;
+
+    const fieldName = this.getFieldName('Quotation Attachments');
+    const fromFieldName = this.applicationFormData[fieldName];
+    if (Array.isArray(fromFieldName)) return fromFieldName;
+
+    const raw = this.applicationDetails?.txtApplicationData;
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        const candidate = parsed?.quotation_attachments || parsed[fieldName];
+        if (Array.isArray(candidate)) return candidate;
+      } catch { }
+    }
+    return [];
+  }
+
+  openQuotationAttachmentsModal() {
+    this.quotationAttachments = this.getQuotationAttachmentsValue();
+    if (this.quotationAttachments.length === 0) {
+      this.notificationService.showMessage('No quotation attachments available', 'danger');
+      return;
+    }
+    this.showQuotationModal = true;
+
+    // Auto-select and preview the first attachment by default
+    if (this.quotationAttachments.length > 0) {
+      this.previewQuotation(this.quotationAttachments[0]);
+    }
+  }
+
+  closeQuotationModal() {
+    this.showQuotationModal = false;
+    this.selectedQuotation = null;
+    this.currentQuotationPreviewUrl = null;
+    if (this.quotationObjectUrl) {
+      URL.revokeObjectURL(this.quotationObjectUrl);
+      this.quotationObjectUrl = null;
+    }
+  }
+
+  previewQuotation(attachment: any) {
+    this.selectedQuotation = attachment;
+    if (this.quotationObjectUrl) {
+      URL.revokeObjectURL(this.quotationObjectUrl);
+      this.quotationObjectUrl = null;
+    }
+
+    let dataUrl = '';
+    if (typeof attachment === 'object') {
+      dataUrl = attachment.dataUrl || '';
+      if (!dataUrl) {
+        const content = attachment.base64 || attachment.data || attachment.content || attachment.fileBase64 || attachment.fileData;
+        if (content) {
+          const mime = attachment.mimeType || attachment.type || this.inferMimeType(content);
+          dataUrl = `data:${mime};base64,${content}`;
+        }
+      }
+    }
+
+    if (!dataUrl) {
+      this.notificationService.showMessage('Attachment data not found', 'danger');
+      return;
+    }
+
+    if (dataUrl.startsWith('data:')) {
+      const [meta, base64] = dataUrl.split(',', 2);
+      const mime = meta?.match(/data:([^;]+);base64/)?.[1] || 'application/octet-stream';
+      try {
+        const byteString = atob(base64 || '');
+        const bytes = new Uint8Array(byteString.length);
+        for (let i = 0; i < byteString.length; i++) {
+          bytes[i] = byteString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: mime });
+        this.quotationObjectUrl = URL.createObjectURL(blob);
+        this.currentQuotationPreviewUrl = this.sanitizer.bypassSecurityTrustResourceUrl(this.quotationObjectUrl);
+      } catch {
+        this.currentQuotationPreviewUrl = this.sanitizer.bypassSecurityTrustResourceUrl(dataUrl);
+      }
+    } else {
+      this.currentQuotationPreviewUrl = this.sanitizer.bypassSecurityTrustResourceUrl(dataUrl);
+    }
+  }
+
+  downloadCurrentQuotation() {
+    if (!this.selectedQuotation) return;
+
+    let dataUrl = '';
+    const att = this.selectedQuotation;
+    if (typeof att === 'object') {
+      dataUrl = att.dataUrl || '';
+      if (!dataUrl) {
+        const content = att.base64 || att.data || att.content || att.fileBase64 || att.fileData;
+        if (content) {
+          const mime = att.mimeType || att.type || this.inferMimeType(content);
+          dataUrl = `data:${mime};base64,${content}`;
+        }
+      }
+    }
+
+    if (!dataUrl) {
+      this.notificationService.showMessage('Download data not found', 'danger');
+      return;
+    }
+
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = att.fileName || att.name || 'quotation_attachment';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  isQuotationImage(attachment: any): boolean {
+    if (!attachment) return false;
+    const content = attachment.dataUrl || attachment.base64 || attachment.data || attachment.content || attachment.fileBase64 || attachment.fileData || '';
+    if (typeof content === 'string' && content.startsWith('data:image/')) return true;
+    const mime = attachment.mimeType || attachment.type || '';
+    return mime.startsWith('image/');
+  }
+
+  isAdmin(): boolean {
+    if (!this.currentUser) return false;
+    const role = (this.currentUser.cfgTblRole?.txtRoleName || this.currentUser.txtrole || '').trim().toUpperCase();
+    return role === 'ADMIN' || role === 'SUPER ADMIN' || role === 'ROLE_ADMIN' || role === 'ROLE_SUPER ADMIN';
+  }
+
+  isProcurementUser(): boolean {
+    if (!this.currentUser) return false;
+    const deptName = this.currentUser.hrTblDepartment?.txtDepartmentName ||
+      this.currentUser.departmentName ||
+      this.currentUser.txtDepartmentName ||
+      '';
+    const deptCode = this.currentUser.hrTblDepartment?.txtDepartmentCode ||
+      this.currentUser.departmentCode ||
+      '';
+    const roleName = this.currentUser.cfgTblRole?.txtRoleName ||
+      this.currentUser.txtrole ||
+      '';
+
+    const name = deptName.trim().toUpperCase();
+    const code = deptCode.trim().toUpperCase();
+    const role = roleName.trim().toUpperCase();
+
+    return name.includes('PROCUREMENT') || name === 'PRC' ||
+      code === 'PRC' || code.includes('PROC') ||
+      role.includes('PROCURE');
+  }
+
+  isProcurementHod(): boolean {
+    if (!this.currentUser || !this.departmentHeadMap) return false;
+
+    const userId = this.currentUser.serUserId || this.currentUser.userId || this.currentUser.id;
+    if (!userId) return false;
+
+    // 1. Check if user is in a Procurement related department/role
+    if (!this.isProcurementUser()) return false;
+
+    // 2. Check if user is a head of their own department
+    const userDeptId = this.currentUser.hrTblDepartment?.serDepartmentId ||
+      this.currentUser.departmentId ||
+      this.currentUser.serDepartmentId;
+
+    if (userDeptId) {
+      const headIdsRaw = this.departmentHeadMap.get(Number(userDeptId));
+      if (headIdsRaw) {
+        const headIds = String(headIdsRaw).split(',').map(h => h.trim());
+        if (headIds.includes(String(userId))) {
+          return true;
+        }
+      }
+    }
+
+    // 3. Fallback: Check if they are head of ANY department that is named Procurement
+    for (const [deptId, headIdsRaw] of this.departmentHeadMap.entries()) {
+      const deptName = this.departmentNameMap.get(deptId) || '';
+      if (deptName.toUpperCase().includes('PROCUREMENT') || deptName.toUpperCase() === 'PRC') {
+        const headIds = String(headIdsRaw || '').split(',').map(h => h.trim());
+        if (headIds.includes(String(userId))) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  canEditVendorDetails(): boolean {
+    if (!this.applicationDetails) return false;
+    if (!this.isCapfForm()) return false;
+
+    // Check if user is Procurement HOD
+    const isProcHod = this.isProcurementHod();
+    const isAdm = this.isAdmin();
+
+    // Status can be null/empty for newly submitted ones, so we handle it gracefully
+    const rawStatus = (this.applicationDetails?.txtStatus || '').toUpperCase();
+    const isPending = rawStatus === 'PENDING' || rawStatus === '' || rawStatus === 'NEW';
+
+    // For debugging — logs every time the button visibility is evaluated
+    console.log('[canEditVendorDetails]', { isProcHod, isAdm, rawStatus, isPending });
+
+    // Only Procurement HOD (or Admins for emergency) can edit if pending
+    if (isProcHod || isAdm) {
+      return isPending;
+    }
+
+    return false;
+  }
+
+  startEditingVendor() {
+    this.vendorEditForm = {
+      vendorName: this.getFieldValueByLabel('NAME') || this.getFieldValueByLabel('Vendor Name'),
+      vendorAddress: this.getFieldValueByLabel('ADDRESS') || this.getFieldValueByLabel('Address'),
+      approvedPrice: this.getFieldValueByLabel('APPROVED PRICE') || this.getFieldValueByLabel('Approved price'),
+      deliveryPeriod: this.getFieldValueByLabel('DELIVERY PERIOD & DATE') || this.getFieldValueByLabel('DELIVERY PERIOD'),
+      termsConditions: this.getFieldValueByLabel('TERMS & CONDITIONS') || this.getFieldValueByLabel('Terms & Conditions')
+    };
+    this.isEditingVendor = true;
+    if (this.vendorEditModal) {
+      this.vendorEditModal.open();
+    }
+  }
+
+  cancelEditingVendor() {
+    this.isEditingVendor = false;
+    if (this.vendorEditModal) {
+      this.vendorEditModal.close();
+    }
+  }
+
+  async saveVendorDetails() {
+    if (!this.applicationDetails) return;
+    this.isSavingVendor = true;
+    try {
+      // 1. Get existing data
+      let appData: any = {};
+      const raw = this.applicationDetails.txtApplicationData;
+      if (typeof raw === 'string') {
+        appData = JSON.parse(raw);
+      } else if (typeof raw === 'object') {
+        appData = raw;
+      }
+
+      // 2. Map labels to keys and update
+      const mappings: any = {
+        'vendor_name': this.vendorEditForm.vendorName,
+        'vendor_address': this.vendorEditForm.vendorAddress,
+        'approved_price': this.vendorEditForm.approvedPrice,
+        'delivery_period': this.vendorEditForm.deliveryPeriod,
+        'terms_conditions': this.vendorEditForm.termsConditions
+      };
+
+      // Also update based on Field Labels to be safe
+      const fieldNameMap: any = {
+        'NAME': 'vendorName',
+        'Vendor Name': 'vendorName',
+        'ADDRESS': 'vendorAddress',
+        'Address': 'vendorAddress',
+        'APPROVED PRICE': 'approvedPrice',
+        'Approved price': 'approvedPrice',
+        'DELIVERY PERIOD & DATE': 'deliveryPeriod',
+        'DELIVERY PERIOD': 'deliveryPeriod',
+        'TERMS & CONDITIONS': 'termsConditions',
+        'Terms & Conditions': 'termsConditions'
+      };
+
+      for (const [label, formKey] of Object.entries(fieldNameMap)) {
+        appData[label] = this.vendorEditForm[formKey as string];
+        const derived = this.getFieldName(label);
+        appData[derived] = this.vendorEditForm[formKey as string];
+      }
+
+      // Explicitly update fixed keys used by template
+      for (const [key, value] of Object.entries(mappings)) {
+        appData[key] = value;
+      }
+
+      // 3. Prepare application object for update
+      const updatedApp = {
+        ...this.applicationDetails,
+        txtApplicationData: JSON.stringify(appData)
+      };
+
+      // 4. Call API
+      const response: any = await this.http.post(`${urls.API_URL}updateApplication`, updatedApp).toPromise();
+      if (response && response.status === 'Success') {
+        this.notificationService.showMessage('Vendor details updated successfully', 'success');
+        this.applicationDetails.txtApplicationData = updatedApp.txtApplicationData;
+        this.applicationFormData = appData;
+        this.isEditingVendor = false;
+        if (this.vendorEditModal) {
+          this.vendorEditModal.close();
+        }
+
+        // Refresh local data in ABC component if it exists
+        if (this.isCapfForm()) {
+          // Trigger any internal refresh needed
+        }
+      } else {
+        this.notificationService.showMessage(response?.message || 'Failed to update vendor details', 'danger');
+      }
+    } catch (error) {
+      console.error('Error saving vendor details:', error);
+      this.notificationService.showMessage('An error occurred while saving', 'danger');
+    } finally {
+      this.isSavingVendor = false;
+    }
+  }
+
+  private getFieldValueByLabel(label: string): string {
+    if (!this.applicationFormData) return '';
+    const derivedKey = this.getFieldName(label);
+    return this.applicationFormData[label] || this.applicationFormData[derivedKey] || '';
+  }
+
   private openInNewTab(url: string): boolean {
     if (!url) return false;
     const a = document.createElement('a');
@@ -288,7 +635,8 @@ export class ApplicationDetailsComponent implements OnInit {
     private departmentService: DepartmentService,
     private userService: UserService,
     private notificationService: NotificationService,
-    private sanitizer: DomSanitizer
+    private sanitizer: DomSanitizer,
+    private http: HttpClient
   ) { }
 
   ngOnInit() {
@@ -346,13 +694,26 @@ export class ApplicationDetailsComponent implements OnInit {
             }
             const headId = d?.serDepartmentHeadId;
             if (id != null && headId != null) {
-              headMap.set(Number(id), Number(headId));
+              headMap.set(Number(id), headId);
             }
           });
           this.departmentNameMap = map;
           this.departmentHeadMap = headMap;
           this.enrichPipelineWithDepartmentNames();
           this.applyDepartmentNamesToApprovalHistory();
+
+          // Debug: log HOD check result after departments load
+          const userId = this.currentUser?.serUserId || this.currentUser?.userId;
+          const userDeptId = this.currentUser?.hrTblDepartment?.serDepartmentId
+            || this.currentUser?.departmentId
+            || this.currentUser?.serDepartmentId;
+          console.log('[loadDepartments] currentUser:', {
+            userId,
+            userDeptId,
+            hrTblDepartment: this.currentUser?.hrTblDepartment,
+            headIdsInDept: userDeptId ? headMap.get(Number(userDeptId)) : 'N/A',
+            isProcurementHod: this.isProcurementHod()
+          });
         }
       },
       (error) => {
@@ -1040,6 +1401,7 @@ export class ApplicationDetailsComponent implements OnInit {
   @ViewChild('approveModal') approveModal: any;
   @ViewChild('rejectModal') rejectModal: any;
   @ViewChild('sendBackModal') sendBackModal: any;
+  @ViewChild('vendorEditModal') vendorEditModal: any;
 
   openApproveModal() {
     if (!this.applicationDetails?.serApplicationId) {

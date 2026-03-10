@@ -24,6 +24,7 @@ export class PendingApprovalsComponent implements OnInit {
   search = '';
   pendingApprovals: Application[] = [];
   forms: any[] = [];
+  currentUser: any;
 
   cols = [
     { field: 'txtFormCode', title: 'Application Code' },
@@ -41,6 +42,10 @@ export class PendingApprovalsComponent implements OnInit {
   ) {}
 
   ngOnInit() {
+    const userJson = localStorage.getItem('user');
+    if (userJson) {
+      this.currentUser = JSON.parse(userJson);
+    }
     this.loadForms();
     this.loadPendingApprovals();
   }
@@ -59,7 +64,14 @@ export class PendingApprovalsComponent implements OnInit {
   }
 
   loadPendingApprovals() {
-    this.customFormApplicationService.getAllApplicationsPendingApproval().subscribe(
+    const roleName = (this.currentUser?.cfgTblRole?.txtRoleName || this.currentUser?.txtrole || '').toUpperCase();
+    const isAdmin = roleName === 'ADMIN' || roleName === 'SUPER ADMIN';
+    
+    const request = isAdmin 
+      ? this.customFormApplicationService.getAllApplicationsPendingApproval()
+      : this.customFormApplicationService.getApplicationsPendingApproval(this.currentUser?.serUserId);
+
+    request.subscribe(
       (data: any) => {
         if (data) {
           this.pendingApprovals = data.map((app: any) => ({

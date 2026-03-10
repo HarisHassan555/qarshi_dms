@@ -63,6 +63,28 @@
                         <ng-container *ngFor="let field of selectedForm.fields">
                         <div *ngIf="!isDocumentHeaderType(field.type)" class="mb-4">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <!-- User Select (Searchable) -->
+                                <div *ngIf="field.type === 'user_select'">
+                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                        {{ field.label }}
+                                        <span *ngIf="field.required" class="text-danger">*</span>
+                                    </label>
+                                    <div class="relative">
+                                        <input type="text" [formControlName]="getFieldName(field.label)" 
+                                               [placeholder]="field.placeholder || 'Search employee...'" 
+                                               class="form-input" list="user-list"
+                                               [class.border-danger]="isFieldInvalid(getFieldName(field.label))" />
+                                        <datalist id="user-list">
+                                            <option *ngFor="let user of allUsers" [value]="user.txtUserName">
+                                                {{ user.txtUserName }} ({{ user.txtAddress }})
+                                            </option>
+                                        </datalist>
+                                    </div>
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                        {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                                    </p>
+                                </div>
+
                                 <!-- Text Input -->
                                 <div *ngIf="field.type === 'text'">
                                     <label class="block mb-2 text-sm font-semibold dark:text-white-light">
@@ -231,6 +253,37 @@
                                         class="mt-1 text-xs text-gray-500">
                                         Selected: {{ applicationForm.get(getFieldName(field.label))?.value }}
                                     </p>
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                        {{ getFieldErrorMessage(getFieldName(field.label)) }}
+                                    </p>
+                                </div>
+
+                                <!-- Multi Attachment / File Upload -->
+                                <div *ngIf="(field.type || '').toLowerCase() === 'multi_attachment'">
+                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                        {{ field.label }}
+                                        <span *ngIf="field.required" class="text-danger">*</span>
+                                    </label>
+                                    
+                                    <input type="file" multiple class="form-input"
+                                        (change)="onMultiAttachmentChange(field, $event)"
+                                        [class.border-danger]="isFieldInvalid(getFieldName(field.label))" />
+                                        
+                                    <div *ngIf="applicationForm.get(getFieldName(field.label))?.value?.length > 0" class="mt-2 space-y-1">
+                                        <p class="text-xs font-semibold text-gray-700 dark:text-gray-300">Selected Files:</p>
+                                        <ul class="text-xs text-gray-500 space-y-1 mt-1">
+                                            <li *ngFor="let fileName of applicationForm.get(getFieldName(field.label))?.value; let idx = index" class="flex items-center justify-between bg-gray-50 dark:bg-[#0e1726] p-1.5 rounded border border-gray-200 dark:border-gray-700">
+                                                <span class="truncate pr-2">{{ fileName }}</span>
+                                                <button type="button" (click)="removeMultiAttachment(field, idx)" class="text-gray-400 hover:text-danger ml-2 flex-shrink-0" title="Remove file">
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                                    </svg>
+                                                </button>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                    
                                     <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                     </p>

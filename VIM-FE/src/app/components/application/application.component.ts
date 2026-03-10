@@ -9,6 +9,7 @@ import { NotificationService } from 'src/app/NotificationService';
 import { ApplicationPdfService } from 'src/app/services/application-pdf/application-pdf.service';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { BudgetApprovalComponent } from '../budget-approval/budget-approval.component';
+import { UserService } from '../../services/user/user.service';
 import { Store } from '@ngrx/store';
 import * as QuillNamespace from 'quill';
 
@@ -83,9 +84,12 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   selectedFormId: string = '';
   editData: any = null;
   documentHeaderField: FormField | null = null;
+  allUsers: any[] = [];
   store: any;
   attachmentFiles: Record<string, File> = {};
   attachmentPayloads: Record<string, { fileName: string; mimeType: string; dataUrl: string; base64: string }> = {};
+  multiAttachmentFiles: Record<string, File[]> = {};
+  multiAttachmentPayloads: Record<string, { fileName: string; mimeType: string; dataUrl: string; base64: string }[]> = {};
   previewDate = new Date().toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -138,6 +142,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     private notificationService: NotificationService,
     private router: Router,
     private sanitizer: DomSanitizer,
+    private userService: UserService,
     public storeData: Store<any>
   ) { }
 
@@ -163,6 +168,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
     this.loadForms();
     this.initializeForm();
+    this.loadUsers();
     this.checkEditMode();
   }
 
@@ -238,6 +244,19 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       },
       (error) => {
         this.notificationService.showMessage('Error loading forms: ' + (error.error?.message || error.message), 'danger');
+      }
+    );
+  }
+
+  loadUsers() {
+    this.userService.getUsers().subscribe(
+      (data: any) => {
+        if (data) {
+          this.allUsers = data;
+        }
+      },
+      (error) => {
+        console.error('Error loading users:', error);
       }
     );
   }
@@ -469,6 +488,8 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         }
 
         formControls[fieldName] = tableFormArray;
+      } else if (normalizedFieldType === 'multi_attachment') {
+        formControls[fieldName] = [[], validators];
       } else {
         formControls[fieldName] = [normalizedFieldType === 'checkbox' ? false : '', validators];
       }
@@ -511,6 +532,60 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       delete this.attachmentPayloads[fieldName];
       this.applicationForm.get(fieldName)?.setValue('');
     }
+    this.applicationForm.get(fieldName)?.markAsTouched();
+  }
+
+  async onMultiAttachmentChange(field: FormField, event: Event) {
+    const input = event.target as HTMLInputElement;
+    const files = input?.files ? Array.from(input.files) : [];
+    const fieldName = this.getFieldName(field.label);
+    
+    if (files.length > 0) {
+      this.multiAttachmentFiles[fieldName] = files;
+      
+      const fileNames = files.map(f => f.name);
+      this.applicationForm.get(fieldName)?.setValue(fileNames);
+      
+      try {
+        const payloads = await Promise.all(files.map(f => this.buildAttachmentPayload(f)));
+        this.multiAttachmentPayloads[fieldName] = payloads;
+      } catch (err) {
+        console.error('Error generating payloads', err);
+      }
+    } else {
+      delete this.multiAttachmentFiles[fieldName];
+      delete this.multiAttachmentPayloads[fieldName];
+      this.applicationForm.get(fieldName)?.setValue([]);
+    }
+    this.applicationForm.get(fieldName)?.markAsTouched();
+  }
+
+  removeMultiAttachment(field: FormField, indexToRemove: number) {
+    const fieldName = this.getFieldName(field.label);
+    
+    // Remove from the files array
+    if (this.multiAttachmentFiles[fieldName] && this.multiAttachmentFiles[fieldName].length > indexToRemove) {
+      this.multiAttachmentFiles[fieldName].splice(indexToRemove, 1);
+      if (this.multiAttachmentFiles[fieldName].length === 0) {
+        delete this.multiAttachmentFiles[fieldName];
+      }
+    }
+    
+    // Remove from the payloads array
+    if (this.multiAttachmentPayloads[fieldName] && this.multiAttachmentPayloads[fieldName].length > indexToRemove) {
+      this.multiAttachmentPayloads[fieldName].splice(indexToRemove, 1);
+      if (this.multiAttachmentPayloads[fieldName].length === 0) {
+        delete this.multiAttachmentPayloads[fieldName];
+      }
+    }
+    
+    // Update the form control value
+    const currentValues = this.applicationForm.get(fieldName)?.value || [];
+    if (Array.isArray(currentValues) && currentValues.length > indexToRemove) {
+      currentValues.splice(indexToRemove, 1);
+      this.applicationForm.get(fieldName)?.setValue([...currentValues]);
+    }
+    
     this.applicationForm.get(fieldName)?.markAsTouched();
   }
 
@@ -908,23 +983,6 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     if (this.applicationForm.valid && this.selectedForm) {
       const formData = { ...this.applicationForm.value };
 
-      // Enforce feasibility attachment if the field exists
-      const feasibilityField = this.selectedForm.fields.find(f =>
-        (f.label || '').toLowerCase() === 'feasibility_attached_report' ||
-        (f.label || '').toLowerCase() === 'feasibility report attached'
-      );
-      if (feasibilityField) {
-        const feasibilityType = (feasibilityField.type || '').toString().toLowerCase();
-        if (feasibilityType === 'attachment' || feasibilityType === 'file') {
-          const feasibilityFieldName = this.getFieldName(feasibilityField.label);
-          if (!this.attachmentFiles[feasibilityFieldName]) {
-            this.applicationForm.get(feasibilityFieldName)?.setErrors({ required: true });
-            this.notificationService.showMessage('Please upload feasibility report attachment.', 'danger');
-            return;
-          }
-        }
-      }
-
       // Ensure attachments are captured as base64 payloads
       const attachmentFieldNames = new Set<string>();
       this.selectedForm.fields.forEach((field: FormField) => {
@@ -956,6 +1014,12 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
           const fieldName = this.getFieldName(field.label);
           if (this.attachmentPayloads[fieldName]) {
             formData[fieldName] = this.attachmentPayloads[fieldName];
+          }
+        }
+        if (type === 'multi_attachment') {
+          const fieldName = this.getFieldName(field.label);
+          if (this.multiAttachmentPayloads[fieldName]) {
+            formData[fieldName] = this.multiAttachmentPayloads[fieldName];
           }
         }
       });

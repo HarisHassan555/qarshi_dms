@@ -69,7 +69,6 @@ public class HrTblDepartmentDAO implements IHrTblDepartmentDAO {
 			List<HrTblDepartment> Departments = entityManager.createQuery(
 					"SELECT DISTINCT d FROM HrTblDepartment d " +
 					"LEFT JOIN FETCH d.cfgTblUsers " +
-					"LEFT JOIN FETCH d.departmentHead " +
 					"WHERE d.blIsDeleted = false OR d.blIsDeleted IS NULL")
 					.getResultList();
 

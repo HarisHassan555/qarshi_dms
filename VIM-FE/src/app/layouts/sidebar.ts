@@ -1,4 +1,4 @@
-﻿import { animate, style, transition, trigger } from '@angular/animations';
+import { animate, style, transition, trigger } from '@angular/animations';
 import {Component, NgZone, ViewChild} from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { Store } from '@ngrx/store';
@@ -163,14 +163,21 @@ export class SidebarComponent {
                 let allMenus = response;
                 allMenus.forEach((menu: any) => {
                     if (this.isSubMenuExist(menu.subMenus)) {
-                        menu.subMenus = menu.subMenus.filter((sm: any) =>
-                            this.subMenuRoles.some((role: any) =>
+                        menu.subMenus = menu.subMenus.filter((sm: any) => {
+                            const isPermitted = this.subMenuRoles.some((role: any) =>
                                 Number(role?.cfgTblSubMenu?.serSubMenuId) === Number(sm?.subMenuId ?? sm?.serSubMenuId) &&
                                 this.isSubMenuEnabled(role)
-                            )
-                        );
+                            );
+                            
+                            // Force show 'Pending Approvals' for HODs and Procurement
+                            if (this.isPendingApprovalsMenu(sm.subMenuName) && (this.isHOD() || this.isProcurementUser())) {
+                                return true;
+                            }
+                            
+                            return isPermitted;
+                        });
                         menu.subMenus.sort((a: any, b: any) => a.submenuOrder - b.submenuOrder);
-                        menu.canViewSubmenu = menu.subMenus.some((sm: any) => this.canViewMenu(sm.roles));
+                        menu.canViewSubmenu = menu.subMenus.some((sm: any) => this.canViewMenu(sm));
                     } else {
                         menu.canViewSubmenu = false;
                     }
@@ -252,7 +259,13 @@ export class SidebarComponent {
         return rolesArr.includes(userRole);
     }*/
 
-    canViewMenu(roles: string): boolean {
+    canViewMenu(sm: any): boolean {
+        // Force show 'Pending Approvals' for HODs and Procurement
+        if (this.isPendingApprovalsMenu(sm.subMenuName) && (this.isHOD() || this.isProcurementUser())) {
+            return true;
+        }
+
+        const roles = sm.roles;
         const roleName =
             this.user?.txtrole ||
             this.user?.cfgTblRole?.txtRoleName ||
@@ -265,8 +278,56 @@ export class SidebarComponent {
         if (!userRole) {
             return true;
         }
-        const requiredRoles = roles.split(',').map(role => role.trim());
-        return requiredRoles.some(role => role === userRole);
+        const requiredRoles = roles.split(',').map((role: string) => role.trim());
+        return requiredRoles.some((role: string) => role === userRole);
+    }
+
+    isHOD(): boolean {
+        if (!this.user) return false;
+        
+        // Check if user is the head of their department
+        if (this.user.hrTblDepartment && this.user.hrTblDepartment.serDepartmentHeadId) {
+            const headIds = String(this.user.hrTblDepartment.serDepartmentHeadId)
+                .split(',')
+                .map(id => id.trim());
+            
+            if (headIds.includes(String(this.user.serUserId))) {
+                return true;
+            }
+        }
+        
+        // Fallback or secondary check (some users might have 'HOD' in their designation or role)
+        const role = (this.user?.cfgTblRole?.txtRoleName || this.user?.txtrole || '').toUpperCase();
+        const designation = (this.user?.txtDesignation || '').toUpperCase();
+        
+        return role.includes('HOD') || designation.includes('HOD') || role.includes('HEAD');
+    }
+
+    isProcurementUser(): boolean {
+        if (!this.user) return false;
+        
+        const deptName = this.user.hrTblDepartment?.txtDepartmentName || 
+                         this.user.departmentName || 
+                         this.user.txtDepartmentName || '';
+                         
+        const deptCode = this.user.hrTblDepartment?.txtDepartmentCode || 
+                         this.user.departmentCode || '';
+
+        const roleName = this.user.cfgTblRole?.txtRoleName || 
+                         this.user.txtrole || '';
+
+        const name = deptName.trim().toUpperCase();
+        const code = deptCode.trim().toUpperCase();
+        const role = roleName.trim().toUpperCase();
+
+        return name.includes('PROCUREMENT') || name === 'PRC' || 
+               code === 'PRC' || code.includes('PROC') ||
+               role.includes('PROCURE');
+    }
+
+    isPendingApprovalsMenu(name: string): boolean {
+        const label = (name || '').trim().toLowerCase();
+        return label === 'pending approvals' || label === 'pending-approvals';
     }
 
     private isSubMenuEnabled(role: any): boolean {

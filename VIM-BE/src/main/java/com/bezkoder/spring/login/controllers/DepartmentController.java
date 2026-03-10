@@ -22,10 +22,10 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.*;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+@CrossOrigin(origins = "*", maxAge = 3600)
 @RestController
 //@RequestMapping("/api/department")
 public class DepartmentController {
@@ -158,8 +158,8 @@ public class DepartmentController {
 			Integer departmentId = (Integer) requestBody.get("departmentId");
 			@SuppressWarnings("unchecked")
 			List<Integer> userIds = (List<Integer>) requestBody.get("userIds");
-			Integer departmentHeadId = requestBody.get("departmentHeadId") != null ? 
-				(Integer) requestBody.get("departmentHeadId") : null;
+			Object headIdObj = requestBody.get("departmentHeadId");
+			boolean hasHead = headIdObj != null && !String.valueOf(headIdObj).isEmpty();
 			
 			if (departmentId == null) {
 				return "{\"status\":\"Failure\",\"message\":\"Department ID is required\"}";
@@ -184,12 +184,19 @@ public class DepartmentController {
 			}
 			
 			// Set department head if provided
-			if (departmentHeadId != null) {
-				// Verify that the department head is in the selected users list
-				if (!userIds.contains(departmentHeadId)) {
-					return "{\"status\":\"Failure\",\"message\":\"Department head must be selected from the assigned users\"}";
+			if (hasHead) {
+				String headIdStr = String.valueOf(headIdObj);
+				// Verify that all department heads are in the selected users list
+				String[] headIdsArr = headIdStr.split(",");
+				for (String hid : headIdsArr) {
+					try {
+						Integer headIdInt = Integer.parseInt(hid.trim());
+						if (!userIds.contains(headIdInt)) {
+							return "{\"status\":\"Failure\",\"message\":\"Department head must be selected from the assigned users\"}";
+						}
+					} catch (NumberFormatException e) {}
 				}
-				department.setSerDepartmentHeadId(departmentHeadId);
+				department.setSerDepartmentHeadId(headIdStr);
 				departmentService.updateDepartment(department);
 			} else {
 				// Clear department head if not provided
@@ -217,7 +224,7 @@ public class DepartmentController {
 			}
 			
 			String message = updatedCount + " user(s) assigned to department";
-			if (departmentHeadId != null) {
+			if (hasHead) {
 				message += " with department head assigned";
 			}
 			return "{\"status\":\"Success\",\"message\":\"" + message + "\"}";
