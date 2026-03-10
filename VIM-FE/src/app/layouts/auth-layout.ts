@@ -7,14 +7,14 @@ import { AppService } from '../service/app.service';
     templateUrl: './auth-layout.html',
 })
 export class AuthLayout {
-    store: any;
+    store: any = { sidebar: false, menu: '', layout: '', rtlClass: '', isShowMainLoader: false, navbar: '' };
     showTopButton = false;
     constructor(public storeData: Store<any>, private service: AppService) {
         this.initStore();
     }
     headerClass = '';
     ngOnInit() {
-        this.toggleLoader();
+        setTimeout(() => this.toggleLoader(), 0);
         window.addEventListener('scroll', () => {
             if (document.body.scrollTop > 50 || document.documentElement.scrollTop > 50) {
                 this.showTopButton = true;

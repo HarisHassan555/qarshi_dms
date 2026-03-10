@@ -34,7 +34,8 @@ public class CfgTblCustomFormField implements Serializable {
     @Column(name="int_field_order")
     private Integer intFieldOrder;
 
-    @Column(name="txt_field_options")
+    @Lob
+    @Column(name="txt_field_options", columnDefinition = "LONGTEXT")
     private String txtFieldOptions;
 
     @Column(name="bl_is_active")
@@ -176,4 +177,3 @@ public class CfgTblCustomFormField implements Serializable {
         this.cfgTblCustomForm = cfgTblCustomForm;
     }
 }
-

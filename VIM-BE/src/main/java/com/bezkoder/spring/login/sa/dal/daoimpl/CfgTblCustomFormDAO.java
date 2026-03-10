@@ -455,8 +455,13 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
             if (entityManager.getTransaction().isActive()) {
                 entityManager.getTransaction().rollback();
             }
-            log.error("Error updating custom form: " + e.getMessage(), e);
-            return "Failure";
+            Throwable rootCause = e;
+            while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
+                rootCause = rootCause.getCause();
+            }
+            String errorMessage = rootCause.getMessage() != null ? rootCause.getMessage() : e.getMessage();
+            log.error("Error updating custom form: " + errorMessage, e);
+            return "Failure: " + errorMessage;
         } finally {
             if (entityManager.isOpen()) {
                 entityManager.close();
@@ -531,4 +536,3 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
         }
     }
 }
-

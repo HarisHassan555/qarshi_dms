@@ -64,7 +64,8 @@ export class FormBuilderComponent implements OnInit {
     { value: 'checkbox', label: 'Checkbox' },
     { value: 'radio', label: 'Radio' },
     { value: 'table', label: 'Table' },
-    { value: 'footer', label: 'Footer (Approval Pipeline)' }
+    { value: 'footer', label: 'Footer (Approval Pipeline)' },
+    { value: 'individual_pipeline_footer', label: 'Individual Pipeline (Footer)' }
   ];
 
   cols = [
@@ -176,6 +177,7 @@ export class FormBuilderComponent implements OnInit {
 
   addField() {
     const fieldForm = this.fb.group({
+      fieldUid: [this.generateId()],
       label: ['', Validators.required],
       type: ['text', Validators.required],
       required: [false],
@@ -195,14 +197,21 @@ export class FormBuilderComponent implements OnInit {
   onTypeChange(index: number) {
     const field = this.fields.at(index);
     const type = field.get('type')?.value;
-    if (type === 'word_editor' || type === 'footer') {
-      field.get('label')?.setValue(type === 'word_editor' ? 'Word Editor' : 'Form Footer');
+    if (type === 'word_editor' || type === 'footer' || type === 'individual_pipeline_footer') {
+      field.get('label')?.setValue(
+        type === 'word_editor'
+          ? 'Word Editor'
+          : type === 'individual_pipeline_footer'
+            ? 'Individual Pipeline Footer'
+            : 'Form Footer'
+      );
       field.get('label')?.clearValidators();
       field.get('label')?.updateValueAndValidity();
     } else {
       field.get('label')?.setValidators([Validators.required]);
       field.get('label')?.updateValueAndValidity();
     }
+
   }
 
   add() {
@@ -265,6 +274,9 @@ export class FormBuilderComponent implements OnInit {
             rowLabels: field.tableRowLabels ? field.tableRowLabels.split(',').map((label: string) => label.trim()).filter((label: string) => label.length > 0) : []
           };
           fieldOptions = JSON.stringify(tableConfig);
+        }
+        else if (field.type === 'individual_pipeline_footer') {
+          fieldOptions = null;
         }
         
         return {
@@ -392,6 +404,7 @@ export class FormBuilderComponent implements OnInit {
       let tableColumns = 2;
       let tableRowLabels = '';
       let options = '';
+      const fieldUid = this.generateId();
       
       // Parse table configuration if it's a table field
       if (field.type === 'table' && field.txtFieldOptions) {
@@ -408,7 +421,8 @@ export class FormBuilderComponent implements OnInit {
       }
       
       const fieldForm = this.fb.group({
-        label: [field.label, (field.type === 'word_editor' || field.type === 'footer') ? [] : [Validators.required]],
+        fieldUid: [fieldUid],
+        label: [field.label, (field.type === 'word_editor' || field.type === 'footer' || field.type === 'individual_pipeline_footer') ? [] : [Validators.required]],
         type: [field.type, Validators.required],
         required: [field.required || false],
         placeholder: [field.placeholder || ''],

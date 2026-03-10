@@ -1008,6 +1008,40 @@ export class ApplicationDetailsComponent implements OnInit {
     return normalizedType === 'word_editor' || normalizedType === 'wordeditor' || normalizedType === 'rich_text' || normalizedType === 'richtext';
   }
 
+  isIndividualPipelineFooterType(fieldType: string | undefined): boolean {
+    return (fieldType || '').toLowerCase().replace(/\s+/g, '_') === 'individual_pipeline_footer';
+  }
+
+  getIndividualPipelineFooterFields(): any[] {
+    const footerFields =
+      this.applicationFormData?.footerFields ??
+      this.applicationFormData?.individual_pipeline_footer;
+    if (!Array.isArray(footerFields)) return [];
+    return [...footerFields].sort((a: any, b: any) => (Number(a?.order) || 0) - (Number(b?.order) || 0));
+  }
+
+  getIndividualFooterColSpan(section: any): number {
+    const users = Array.isArray(section?.users) ? section.users : [];
+    return Math.max(users.length, 1);
+  }
+
+  getIndividualFooterSlots(section: any): any[] {
+    const users = Array.isArray(section?.users) ? section.users : [];
+    return users.length > 0 ? users : [null];
+  }
+
+  getIndividualFooterUserLabel(user: any, section: any): string {
+    if (!user) return '';
+    const name = user.txtUserName || user.userName || user.name || '';
+    const role =
+      user.cfgTblRole?.txtRoleName ||
+      user.txtRoleName ||
+      user.roleName ||
+      '';
+    const roleLine = role ? `<br>(${role})` : '';
+    return `${name}${roleLine}`;
+  }
+
   isDocumentHeaderType(fieldType: string | undefined): boolean {
     return (fieldType || '').toLowerCase().replace(/\s+/g, '_') === 'document_header';
   }
@@ -1027,15 +1061,30 @@ export class ApplicationDetailsComponent implements OnInit {
     }
 
     const excludedKeys = new Set([
-      'preparedBy', 'reviewers', 'recommenders', 'approver', 'heading', 'content', 'editorContent', 'date'
+      'preparedBy',
+      'reviewers',
+      'recommenders',
+      'approver',
+      'heading',
+      'header',
+      'content',
+      'editorContent',
+      'date',
+      'footerFields',
+      'footerfields'
     ]);
 
     return Object.keys(this.applicationFormData)
       .filter((key: string) => !excludedKeys.has(key))
       .map((key: string) => {
         const value = this.applicationFormData[key];
+        const normalizedKey = this.getFieldName(key);
         let type = 'text';
-        if (Array.isArray(value) && value.length > 0 && Array.isArray(value[0])) {
+        if (normalizedKey === 'individual_pipeline_footer') {
+          type = 'individual_pipeline_footer';
+        } else if (normalizedKey === 'footer') {
+          type = 'footer';
+        } else if (Array.isArray(value) && value.length > 0 && Array.isArray(value[0])) {
           type = 'table';
         } else if (typeof value === 'boolean') {
           type = 'checkbox';
@@ -1078,7 +1127,60 @@ export class ApplicationDetailsComponent implements OnInit {
     if (value === null || value === undefined || value === '') {
       return this.sanitizer.bypassSecurityTrustHtml('<span>-</span>');
     }
-    return this.sanitizer.bypassSecurityTrustHtml(String(value));
+    return this.sanitizer.bypassSecurityTrustHtml(this.normalizeWordEditorHtmlForDisplay(String(value)));
+  }
+
+  private normalizeWordEditorHtmlForDisplay(html: string): string {
+    if (!html) return '';
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+
+    wrapper.querySelectorAll('textarea').forEach((node: HTMLTextAreaElement) => {
+      const replacement = document.createElement('div');
+      const raw = node.value || node.textContent || '';
+      const cleaned = raw.replace(/\r\n/g, '\n').trim();
+      replacement.style.whiteSpace = 'normal';
+      replacement.style.margin = '0';
+      replacement.style.padding = '0';
+      replacement.textContent = cleaned;
+      node.replaceWith(replacement);
+    });
+
+    wrapper.querySelectorAll('td,th').forEach((cell: Element) => {
+      const el = cell as HTMLElement;
+      el.style.height = '30px';
+      el.style.minHeight = '30px';
+      el.style.padding = '0 4px';
+      el.style.lineHeight = '1';
+      el.style.verticalAlign = 'middle';
+
+      while (el.firstChild && el.firstChild.nodeType === Node.TEXT_NODE && !(el.firstChild.textContent || '').trim()) {
+        el.removeChild(el.firstChild);
+      }
+      while (el.lastChild && el.lastChild.nodeType === Node.TEXT_NODE && !(el.lastChild.textContent || '').trim()) {
+        el.removeChild(el.lastChild);
+      }
+      while (el.firstElementChild && el.firstElementChild.tagName === 'BR') {
+        el.removeChild(el.firstElementChild);
+      }
+      while (el.lastElementChild && el.lastElementChild.tagName === 'BR') {
+        el.removeChild(el.lastElementChild);
+      }
+
+      const plainText = (el.textContent || '').replace(/\u00a0/g, '').trim();
+      const hasMedia = !!el.querySelector('img,svg,canvas');
+      if (!plainText && !hasMedia && el.children.length === 0) {
+        el.innerHTML = '&nbsp;';
+      }
+    });
+
+    wrapper.querySelectorAll('tr').forEach((row: Element) => {
+      const rowEl = row as HTMLElement;
+      rowEl.style.height = '30px';
+      rowEl.style.minHeight = '30px';
+    });
+
+    return wrapper.innerHTML;
   }
 
   getTableConfig(field: any): { rows: number; columns: number; rowLabels: string[] } {

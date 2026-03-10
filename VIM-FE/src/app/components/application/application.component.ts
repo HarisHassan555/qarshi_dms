@@ -48,6 +48,13 @@ interface FormField {
   txtFieldOptions?: string;
 }
 
+interface IndividualPipelineFooterField {
+  key: string;
+  label: string;
+  order: number;
+  users: any[];
+}
+
 interface ApprovalPipeline {
   serApprovalPipelineId?: number;
   serDepartmentId: number;
@@ -109,7 +116,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       [{ 'color': [] }, { 'background': [] }],
       [{ 'font': [] }],
       [{ 'align': [] }],
-      ['clean', 'tableInsert', 'mergeRight', 'mergeDown'],
+      ['clean'],
     ],
   };
   private previewFitPending = false;
@@ -359,10 +366,11 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
   private ensureSidebarHidden(shouldHide: boolean) {
     const isHidden = !!this.store?.sidebar;
-    if (shouldHide && !isHidden) {
-      this.storeData.dispatch({ type: 'toggleSidebar' });
-    } else if (!shouldHide && isHidden) {
-      this.storeData.dispatch({ type: 'toggleSidebar' });
+    const shouldToggle = (shouldHide && !isHidden) || (!shouldHide && isHidden);
+    if (shouldToggle) {
+      setTimeout(() => {
+        this.storeData.dispatch({ type: 'toggleSidebar' });
+      }, 0);
     }
   }
 
@@ -460,7 +468,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       const validators: any[] = [];
       const normalizedFieldType = (field.type || '').toString().trim().toLowerCase();
 
-      if (field.required) {
+      if (field.required && !this.isIndividualPipelineFooterType(field.type)) {
         if (this.isWordEditorType(field.type)) {
           validators.push(this.richTextRequiredValidator);
         } else {
@@ -488,6 +496,8 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         }
 
         formControls[fieldName] = tableFormArray;
+      } else if (normalizedFieldType === 'individual_pipeline_footer') {
+        formControls[fieldName] = [this.getInitialIndividualFooterSections(field)];
       } else if (normalizedFieldType === 'multi_attachment') {
         formControls[fieldName] = [[], validators];
       } else {
@@ -758,6 +768,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     this.mergeCellValues(primaryInput, secondaryInput);
 
     nextCell.remove();
+    this.normalizeMergedTable(cell.closest('table'));
     primaryInput.focus();
   }
 
@@ -814,7 +825,58 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     this.mergeCellValues(primaryInput, secondaryInput);
 
     belowCell.remove();
+    this.normalizeMergedTable(cell.closest('table'));
     primaryInput.focus();
+  }
+
+  private normalizeMergedTable(table: HTMLTableElement | null): void {
+    if (!table || !table.rows || table.rows.length === 0) {
+      return;
+    }
+
+    const targetColumns = this.getRowVisualColspan(table.rows[0]);
+    if (targetColumns <= 0) {
+      return;
+    }
+
+    Array.from(table.rows).forEach((row: HTMLTableRowElement) => {
+      let consumed = 0;
+      const cells = Array.from(row.cells);
+      cells.forEach((cell: HTMLTableCellElement) => {
+        const rawSpan = Number(cell.getAttribute('colspan') || '1');
+        const span = Number.isFinite(rawSpan) && rawSpan > 0 ? rawSpan : 1;
+
+        if (consumed >= targetColumns) {
+          cell.remove();
+          return;
+        }
+
+        if (consumed + span > targetColumns) {
+          const allowed = targetColumns - consumed;
+          if (allowed <= 0) {
+            cell.remove();
+            return;
+          }
+          if (allowed === 1) {
+            cell.removeAttribute('colspan');
+          } else {
+            cell.setAttribute('colspan', String(allowed));
+          }
+          consumed += allowed;
+          return;
+        }
+
+        consumed += span;
+      });
+    });
+  }
+
+  private getRowVisualColspan(row: HTMLTableRowElement): number {
+    return Array.from(row.cells).reduce((sum: number, cell: HTMLTableCellElement) => {
+      const rawSpan = Number(cell.getAttribute('colspan') || '1');
+      const span = Number.isFinite(rawSpan) && rawSpan > 0 ? rawSpan : 1;
+      return sum + span;
+    }, 0);
   }
 
   isAttachmentType(fieldType: string | undefined): boolean {
@@ -826,11 +888,33 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     return (fieldType || '').toLowerCase().replace(/\s+/g, '_') === 'table';
   }
 
+  isIndividualPipelineFooterType(fieldType: string | undefined): boolean {
+    return (fieldType || '').toLowerCase().replace(/\s+/g, '_') === 'individual_pipeline_footer';
+  }
+
   getGenericPreviewFields(): FormField[] {
     if (!this.selectedForm?.fields) {
       return [];
     }
-    return this.selectedForm.fields.filter((field: FormField) => !this.isDocumentHeaderType(field.type));
+    return this.selectedForm.fields.filter((field: FormField) =>
+      !this.isDocumentHeaderType(field.type) &&
+      field.type !== 'footer' &&
+      !this.isIndividualPipelineFooterType(field.type)
+    );
+  }
+
+  getPreviewDepartmentFooterField(): FormField | null {
+    if (!this.selectedForm?.fields) {
+      return null;
+    }
+    return this.selectedForm.fields.find((field: FormField) => field.type === 'footer') || null;
+  }
+
+  getPreviewIndividualFooterField(): FormField | null {
+    if (!this.selectedForm?.fields) {
+      return null;
+    }
+    return this.selectedForm.fields.find((field: FormField) => this.isIndividualPipelineFooterType(field.type)) || null;
   }
 
   getDocumentHeaderPreviewValue(): string {
@@ -882,7 +966,61 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     if (value === null || value === undefined || value === '') {
       return this.sanitizer.bypassSecurityTrustHtml('<p>-</p>');
     }
-    return this.sanitizer.bypassSecurityTrustHtml(String(value));
+    return this.sanitizer.bypassSecurityTrustHtml(this.normalizeWordEditorHtmlForDisplay(String(value)));
+  }
+
+  private normalizeWordEditorHtmlForDisplay(html: string): string {
+    if (!html) return '';
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+
+    // Replace editor textareas with static content so table cells don't keep textarea heights.
+    wrapper.querySelectorAll('textarea').forEach((node: HTMLTextAreaElement) => {
+      const replacement = document.createElement('div');
+      const raw = node.value || node.textContent || '';
+      const cleaned = raw.replace(/\r\n/g, '\n').trim();
+      replacement.style.whiteSpace = 'normal';
+      replacement.style.margin = '0';
+      replacement.style.padding = '0';
+      replacement.textContent = cleaned;
+      node.replaceWith(replacement);
+    });
+
+    wrapper.querySelectorAll('td,th').forEach((cell: Element) => {
+      const el = cell as HTMLElement;
+      el.style.height = '30px';
+      el.style.minHeight = '30px';
+      el.style.padding = '0 4px';
+      el.style.lineHeight = '1';
+      el.style.verticalAlign = 'middle';
+
+      while (el.firstChild && el.firstChild.nodeType === Node.TEXT_NODE && !(el.firstChild.textContent || '').trim()) {
+        el.removeChild(el.firstChild);
+      }
+      while (el.lastChild && el.lastChild.nodeType === Node.TEXT_NODE && !(el.lastChild.textContent || '').trim()) {
+        el.removeChild(el.lastChild);
+      }
+      while (el.firstElementChild && el.firstElementChild.tagName === 'BR') {
+        el.removeChild(el.firstElementChild);
+      }
+      while (el.lastElementChild && el.lastElementChild.tagName === 'BR') {
+        el.removeChild(el.lastElementChild);
+      }
+
+      const plainText = (el.textContent || '').replace(/\u00a0/g, '').trim();
+      const hasMedia = !!el.querySelector('img,svg,canvas');
+      if (!plainText && !hasMedia && el.children.length === 0) {
+        el.innerHTML = '&nbsp;';
+      }
+    });
+
+    wrapper.querySelectorAll('tr').forEach((row: Element) => {
+      const rowEl = row as HTMLElement;
+      rowEl.style.height = '30px';
+      rowEl.style.minHeight = '30px';
+    });
+
+    return wrapper.innerHTML;
   }
 
   getPreviewTableValue(field: FormField): any[][] {
@@ -891,6 +1029,149 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       return value;
     }
     return [];
+  }
+
+  getIndividualPipelineFooterFields(field: FormField): IndividualPipelineFooterField[] {
+    const fieldName = this.getFieldName(field.label);
+    const controlValue = this.applicationForm?.get(fieldName)?.value;
+    if (Array.isArray(controlValue)) {
+      return controlValue as IndividualPipelineFooterField[];
+    }
+    return [];
+  }
+
+  addIndividualFooterSection(field: FormField): void {
+    const fieldName = this.getFieldName(field.label);
+    const current = this.getIndividualPipelineFooterFields(field);
+    const next = [
+      ...current,
+      {
+        key: `wf_${current.length + 1}`,
+        label: 'New Field',
+        order: current.length + 1,
+        users: []
+      }
+    ];
+    this.applicationForm.get(fieldName)?.setValue(next);
+    this.applicationForm.get(fieldName)?.markAsDirty();
+  }
+
+  removeIndividualFooterSection(field: FormField, index: number): void {
+    const fieldName = this.getFieldName(field.label);
+    const current = this.getIndividualPipelineFooterFields(field);
+    const next = current.filter((_: IndividualPipelineFooterField, i: number) => i !== index).map((section, i) => ({
+      ...section,
+      order: i + 1,
+      key: section.key || `wf_${i + 1}`
+    }));
+    this.applicationForm.get(fieldName)?.setValue(next);
+    this.applicationForm.get(fieldName)?.markAsDirty();
+  }
+
+  updateIndividualFooterSectionLabel(field: FormField, index: number, label: string): void {
+    const fieldName = this.getFieldName(field.label);
+    const current = this.getIndividualPipelineFooterFields(field);
+    const next = current.map((section: IndividualPipelineFooterField, i: number) =>
+      i === index
+        ? {
+            ...section,
+            label: label ?? ''
+          }
+        : section
+    );
+    this.applicationForm.get(fieldName)?.setValue(next);
+    this.applicationForm.get(fieldName)?.markAsDirty();
+  }
+
+  updateIndividualFooterSectionUsers(field: FormField, index: number, users: any[]): void {
+    const fieldName = this.getFieldName(field.label);
+    const current = this.getIndividualPipelineFooterFields(field);
+    const next = current.map((section: IndividualPipelineFooterField, i: number) =>
+      i === index
+        ? {
+            ...section,
+            users: Array.isArray(users) ? users : []
+          }
+        : section
+    );
+    this.applicationForm.get(fieldName)?.setValue(next);
+    this.applicationForm.get(fieldName)?.markAsDirty();
+  }
+
+  markIndividualFooterDirty(field: FormField): void {
+    const fieldName = this.getFieldName(field.label);
+    this.applicationForm.get(fieldName)?.markAsDirty();
+  }
+
+  syncIndividualFooterSections(field: FormField, sections: IndividualPipelineFooterField[]): void {
+    const fieldName = this.getFieldName(field.label);
+    const next = (sections || []).map((section, i) => ({
+      key: section.key || `wf_${i + 1}`,
+      label: section.label || 'New Field',
+      order: i + 1,
+      users: Array.isArray(section.users) ? section.users : []
+    }));
+    this.applicationForm.get(fieldName)?.setValue(next);
+    this.applicationForm.get(fieldName)?.markAsDirty();
+  }
+
+  private getInitialIndividualFooterSections(field: FormField): IndividualPipelineFooterField[] {
+    if (!field?.txtFieldOptions) {
+      return [];
+    }
+    try {
+      const parsed = JSON.parse(field.txtFieldOptions);
+      const sections = Array.isArray(parsed?.sections) ? parsed.sections : [];
+      return sections
+        .map((section: any, index: number) => ({
+          key: section?.key || `wf_${index + 1}`,
+          label: section?.label || 'New Field',
+          order: Number(section?.order) || (index + 1),
+          users: Array.isArray(section?.users) ? section.users : []
+        }))
+        .sort((a: IndividualPipelineFooterField, b: IndividualPipelineFooterField) => a.order - b.order);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  private normalizePipelineUser(user: any): any {
+    if (!user || typeof user !== 'object') return user;
+    return {
+      serUserId: user.serUserId ?? user.userId ?? user.id ?? null,
+      txtUserName: user.txtUserName || user.userName || user.name || '',
+      txtSignaturePath: user.txtSignaturePath || '',
+      txtDepartmentName: user.txtDepartmentName || user.hrTblDepartment?.txtDepartmentName || '',
+      txtDesignation: user.txtDesignation || '',
+      cfgTblRole: user.cfgTblRole && typeof user.cfgTblRole === 'object'
+        ? {
+            serRoleId: user.cfgTblRole.serRoleId ?? null,
+            txtRoleName: user.cfgTblRole.txtRoleName || ''
+          }
+        : null
+    };
+  }
+
+  getIndividualFooterColSpan(section: IndividualPipelineFooterField): number {
+    const users = Array.isArray(section?.users) ? section.users : [];
+    return Math.max(users.length, 1);
+  }
+
+  getIndividualFooterSlots(section: IndividualPipelineFooterField): any[] {
+    const users = Array.isArray(section?.users) ? section.users : [];
+    return users.length > 0 ? users : [null];
+  }
+
+  getIndividualFooterUserLabel(user: any, section: IndividualPipelineFooterField): string {
+    if (!user) return '';
+    const name = user.txtUserName || user.userName || user.name || '';
+    const role =
+      user.cfgTblRole?.txtRoleName ||
+      user.txtRoleName ||
+      user.roleName ||
+      '';
+    const roleLine = role ? `\n(${role})` : '';
+    return `${name}${roleLine}`;
   }
 
   private richTextRequiredValidator(control: AbstractControl): ValidationErrors | null {
@@ -1021,6 +1302,17 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
           if (this.multiAttachmentPayloads[fieldName]) {
             formData[fieldName] = this.multiAttachmentPayloads[fieldName];
           }
+        }
+        if (type === 'individual_pipeline_footer') {
+          const fieldName = this.getFieldName(field.label);
+          const footerFields = this.getIndividualPipelineFooterFields(field).map((section, idx) => ({
+            key: section.key || `wf_${idx + 1}`,
+            label: section.label || 'New Field',
+            order: idx + 1,
+            users: Array.isArray(section.users) ? section.users.map((u: any) => this.normalizePipelineUser(u)) : []
+          }));
+          formData[fieldName] = footerFields;
+          formData.footerFields = footerFields;
         }
       });
 

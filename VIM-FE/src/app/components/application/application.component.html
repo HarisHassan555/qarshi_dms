@@ -304,6 +304,68 @@
                                         </div>
                                     </div>
                                 </div>
+
+                                <!-- Individual Pipeline Footer -->
+                                <div *ngIf="isIndividualPipelineFooterType(field.type)" class="md:col-span-2 mt-8">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <label class="block text-sm font-semibold dark:text-white-light">
+                                            Individual Footer Sections
+                                        </label>
+                                        <button type="button" class="btn btn-sm btn-outline-primary" (click)="addIndividualFooterSection(field)">
+                                            <icon-plus class="w-4 h-4" />
+                                            Add Section
+                                        </button>
+                                    </div>
+
+                                    <div class="space-y-3 mb-4" *ngIf="getIndividualPipelineFooterFields(field) as sections">
+                                        <div *ngFor="let section of sections; let sectionIndex = index"
+                                            class="p-3 border border-[#e0e6ed] dark:border-[#1b2e4b] rounded-md bg-gray-50 dark:bg-[#1b2e4b]">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <input type="text"
+                                                    class="form-input flex-1"
+                                                    [(ngModel)]="section.label"
+                                                    [ngModelOptions]="{standalone: true}"
+                                                    placeholder="Section heading (e.g., Recommended By)" />
+                                                <button type="button" class="btn btn-sm btn-danger"
+                                                    (click)="removeIndividualFooterSection(field, sectionIndex)">
+                                                    <icon-trash-lines class="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                            <ng-select [items]="allUsers"
+                                                bindLabel="txtUserName"
+                                                [multiple]="true"
+                                                [clearable]="true"
+                                                placeholder="Select users for this section"
+                                                [(ngModel)]="section.users"
+                                                [ngModelOptions]="{standalone: true}"
+                                                (ngModelChange)="markIndividualFooterDirty(field)">
+                                            </ng-select>
+                                        </div>
+                                    </div>
+
+                                    <div class="xyz-footer" *ngIf="getIndividualPipelineFooterFields(field) as sections">
+                                        <table class="xyz-signatures">
+                                            <tr class="xyz-signatures-blank">
+                                                <ng-container *ngFor="let section of sections">
+                                                    <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
+                                                </ng-container>
+                                            </tr>
+                                            <tr>
+                                                <th *ngFor="let section of sections"
+                                                    [attr.colspan]="getIndividualFooterColSpan(section)">
+                                                    {{ section.label || 'New Field' }}:
+                                                </th>
+                                            </tr>
+                                            <tr>
+                                                <ng-container *ngFor="let section of sections">
+                                                    <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                                        {{ getIndividualFooterUserLabel(slotUser, section) }}
+                                                    </td>
+                                                </ng-container>
+                                            </tr>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
 
                             <!-- Table Field -->
@@ -492,27 +554,14 @@
 
                                         <div class="xyz-generic-content">
                                             <div *ngFor="let field of getGenericPreviewFields()" class="xyz-field-block">
-                                                <div *ngIf="!isFormNameLabel(field.label) && !isWordEditorType(field.type)" class="xyz-field-label">{{ field.label }}</div>
+                                                <div *ngIf="!isFormNameLabel(field.label) && !isWordEditorType(field.type) && !isIndividualPipelineFooterType(field.type) && field.type !== 'footer'" class="xyz-field-label">{{ field.label }}</div>
 
-                                                <div *ngIf="!isWordEditorType(field.type) && !isTableType(field.type)" class="xyz-field-value">
+                                                <div *ngIf="!isWordEditorType(field.type) && !isTableType(field.type) && !isIndividualPipelineFooterType(field.type) && field.type !== 'footer'" class="xyz-field-value">
                                                     {{ getPreviewFieldDisplayValue(field) }}
                                                 </div>
 
-                                                <div *ngIf="isWordEditorType(field.type)" class="xyz-word-preview" [innerHTML]="getPreviewWordEditorValue(field)"></div>
-
-                                                <div *ngIf="field.type === 'footer'" class="mt-8 pt-4 border-t border-gray-100">
-                                                    <div class="flex flex-wrap justify-center gap-6 py-2">
-                                                        <div *ngFor="let pipeline of selectedForm.approvalPipelines; let i = index" 
-                                                             class="flex flex-col items-center min-w-[120px]">
-                                                            <div class="w-full h-10 flex items-end justify-center mb-1">
-                                                                <!-- Preview: Signature will appear here after approval -->
-                                                            </div>
-                                                            <div class="w-full border-t border-gray-300 mb-1"></div>
-                                                            <div class="text-[10px] font-bold text-center uppercase tracking-wider text-gray-700">
-                                                                {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' + pipeline.serDepartmentId }}
-                                                            </div>
-                                                        </div>
-                                                    </div>
+                                                <div *ngIf="isWordEditorType(field.type)" class="xyz-word-preview">
+                                                    <div class="ql-editor" [innerHTML]="getPreviewWordEditorValue(field)"></div>
                                                 </div>
 
                                                 <div *ngIf="isTableType(field.type)" class="overflow-x-auto">
@@ -527,6 +576,44 @@
                                                     <div *ngIf="getPreviewTableValue(field).length === 0" class="xyz-field-value">-</div>
                                                 </div>
                                             </div>
+                                        </div>
+
+                                        <div *ngIf="getPreviewDepartmentFooterField()" class="mt-8 pt-4 xyz-footer">
+                                            <div class="flex flex-wrap justify-center gap-6 py-2">
+                                                <div *ngFor="let pipeline of selectedForm?.approvalPipelines; let i = index"
+                                                        class="flex flex-col items-center min-w-[120px]">
+                                                    <div class="w-full h-10 flex items-end justify-center mb-1">
+                                                        <!-- Preview: Signature will appear here after approval -->
+                                                    </div>
+                                                    <div class="w-full border-t border-gray-300 mb-1"></div>
+                                                    <div class="text-[10px] font-bold text-center uppercase tracking-wider text-gray-700">
+                                                        {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' + pipeline.serDepartmentId }}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div *ngIf="getPreviewIndividualFooterField() as footerField" class="mt-8 pt-4 xyz-footer">
+                                            <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields(footerField) as sections">
+                                                <tr class="xyz-signatures-blank">
+                                                    <ng-container *ngFor="let section of sections">
+                                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
+                                                    </ng-container>
+                                                </tr>
+                                                <tr>
+                                                    <th *ngFor="let section of sections"
+                                                        [attr.colspan]="getIndividualFooterColSpan(section)">
+                                                        {{ section.label || 'New Field' }}:
+                                                    </th>
+                                                </tr>
+                                                <tr>
+                                                    <ng-container *ngFor="let section of sections">
+                                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                                            {{ getIndividualFooterUserLabel(slotUser, section) }}
+                                                        </td>
+                                                    </ng-container>
+                                                </tr>
+                                            </table>
                                         </div>
                                     </div>
                                 </div>

@@ -72,7 +72,12 @@ export class ApplicationPdfService {
         pipelines = [];
       }
 
-      htmlContent = this.generatePDFContent(data, resolvedFormName || 'Unknown Form', formFields, applicationFormData, pipelines);
+      htmlContent = this.generateGenericApplicationPdfHtml(
+        data,
+        formFields,
+        applicationFormData,
+        resolvedFormName || 'Unknown Form'
+      );
     }
 
     return htmlContent;
@@ -388,7 +393,7 @@ export class ApplicationPdfService {
     const getFieldDisplayHtml = (field: any): string => {
       const value = formatFieldValue(field, getFieldValue(field));
       if (isWordEditorType(field.type) && value !== '-') {
-        return `<div class="word-editor-value">${String(value)}</div>`;
+        return `<div class="word-editor-value"><div class="ql-editor">${String(value)}</div></div>`;
       }
       return escapeHtml(String(value));
     };
@@ -524,6 +529,9 @@ export class ApplicationPdfService {
       font-size: 11px;
       line-height: 1.45;
     }
+    .word-editor-value .ql-editor {
+      padding: 0;
+    }
     .word-editor-value p {
       margin: 0 0 6px 0;
     }
@@ -542,6 +550,21 @@ export class ApplicationPdfService {
       border: 1px solid #d9d9d9;
       padding: 4px 6px;
     }
+    .word-editor-value .ql-align-center { text-align: center; }
+    .word-editor-value .ql-align-right { text-align: right; }
+    .word-editor-value .ql-align-justify { text-align: justify; }
+    .word-editor-value .ql-direction-rtl { direction: rtl; text-align: inherit; }
+    .word-editor-value .ql-size-small { font-size: 0.75em; }
+    .word-editor-value .ql-size-large { font-size: 1.5em; }
+    .word-editor-value .ql-size-huge { font-size: 2.5em; }
+    .word-editor-value .ql-indent-1 { padding-left: 3em; }
+    .word-editor-value .ql-indent-2 { padding-left: 6em; }
+    .word-editor-value .ql-indent-3 { padding-left: 9em; }
+    .word-editor-value .ql-indent-4 { padding-left: 12em; }
+    .word-editor-value .ql-indent-5 { padding-left: 15em; }
+    .word-editor-value .ql-indent-6 { padding-left: 18em; }
+    .word-editor-value .ql-indent-7 { padding-left: 21em; }
+    .word-editor-value .ql-indent-8 { padding-left: 24em; }
     .pipeline-section {
       margin-top: 20px;
     }
@@ -744,6 +767,158 @@ export class ApplicationPdfService {
     return this.generateBudgetApprovalXyzHtml(headingText, dateStr, contentHtml, application?.txtApprovalHistory, preparedBy, reviewers, recommenders, approver, footerFields || []);
   }
 
+  private generateGenericApplicationPdfHtml(
+    application: any,
+    formFields: any[],
+    applicationFormData: any,
+    formName: string
+  ): string {
+    const normalizeFieldType = (fieldType: any): string => String(fieldType || '').toLowerCase().replace(/\s+/g, '_');
+    const slugify = (label: string): string =>
+      String(label || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+    const escapeHtml = (text: string): string => {
+      const div = document.createElement('div');
+      div.textContent = text || '';
+      return div.innerHTML;
+    };
+    const getFieldLabel = (field: any): string =>
+      field?.label || field?.txtFieldLabel || field?.name || field?.txtFieldName || 'Field';
+    const getFieldType = (field: any): string =>
+      normalizeFieldType(field?.type || field?.txtFieldType || field?.fieldType);
+    const isWordEditorType = (fieldType: string): boolean => {
+      const t = normalizeFieldType(fieldType);
+      return t === 'word_editor' || t === 'wordeditor' || t === 'rich_text' || t === 'richtext';
+    };
+    const isIndividualFooterType = (fieldType: string): boolean => {
+      const t = normalizeFieldType(fieldType);
+      return t === 'individual_pipeline_footer';
+    };
+    const isDocumentHeaderType = (fieldType: string): boolean => {
+      const t = normalizeFieldType(fieldType);
+      return t === 'document_header';
+    };
+    const getFieldValue = (field: any): any => {
+      if (!applicationFormData || typeof applicationFormData !== 'object') return null;
+      const label = getFieldLabel(field);
+      const slug = slugify(label);
+      const directKeys = [
+        label,
+        slug,
+        field?.name,
+        field?.key,
+        field?.fieldName,
+        field?.txtFieldName,
+        field?.txtFieldLabel,
+        field?.txtFieldLabel ? slugify(field.txtFieldLabel) : null,
+        field?.serFieldId ? `field_${field.serFieldId}` : null
+      ].filter(Boolean);
+      for (const key of directKeys) {
+        if ((applicationFormData as any)[key] !== undefined) {
+          return (applicationFormData as any)[key];
+        }
+      }
+      return null;
+    };
+    const normalizeWordEditorHtml = (rawHtml: any): string => {
+      const html = String(rawHtml || '').trim();
+      if (!html) return '';
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = html;
+      wrapper.querySelectorAll('textarea').forEach((el) => {
+        const ta = el as HTMLTextAreaElement;
+        const text = (ta.value || ta.textContent || '').trim();
+        const span = document.createElement('span');
+        span.textContent = text;
+        ta.replaceWith(span);
+      });
+      wrapper.querySelectorAll('script, style, button, input, textarea, select').forEach((el) => el.remove());
+      wrapper.querySelectorAll('td, th').forEach((cell) => {
+        const text = (cell.textContent || '').replace(/\u00a0/g, ' ').trim();
+        const hasNode = !!cell.querySelector('img, table, ul, ol, div, p, span');
+        if (!text && !hasNode) {
+          cell.innerHTML = '&nbsp;';
+        }
+      });
+      return wrapper.innerHTML;
+    };
+
+    const contentBlocks: string[] = [];
+    let dynamicFooterFields: any[] = Array.isArray(applicationFormData?.footerFields) ? applicationFormData.footerFields : [];
+
+    (formFields || []).forEach((field: any) => {
+      const fieldType = getFieldType(field);
+      const label = getFieldLabel(field);
+
+      if (isDocumentHeaderType(fieldType) || fieldType === 'footer') {
+        return;
+      }
+
+      const value = getFieldValue(field);
+
+      if (isIndividualFooterType(fieldType)) {
+        if ((!dynamicFooterFields || dynamicFooterFields.length === 0) && value) {
+          if (typeof value === 'string') {
+            try {
+              const parsed = JSON.parse(value);
+              dynamicFooterFields = Array.isArray(parsed?.sections) ? parsed.sections : [];
+            } catch {
+              dynamicFooterFields = [];
+            }
+          } else if (typeof value === 'object' && Array.isArray((value as any).sections)) {
+            dynamicFooterFields = (value as any).sections;
+          }
+        }
+        return;
+      }
+
+      if (isWordEditorType(fieldType)) {
+        const html = normalizeWordEditorHtml(value);
+        if (html) {
+          contentBlocks.push(`<div class="xyz-generic-word"><div class="ql-editor">${html}</div></div>`);
+        }
+        return;
+      }
+
+      if (value === null || value === undefined || value === '') {
+        return;
+      }
+
+      let displayValue = '';
+      if (typeof value === 'string') {
+        displayValue = escapeHtml(value);
+      } else if (typeof value === 'number' || typeof value === 'boolean') {
+        displayValue = escapeHtml(String(value));
+      } else {
+        displayValue = escapeHtml(JSON.stringify(value));
+      }
+
+      contentBlocks.push(`
+        <div class="xyz-generic-field">
+          <div class="xyz-generic-label">${escapeHtml(label)}</div>
+          <div class="xyz-generic-value">${displayValue}</div>
+        </div>
+      `);
+    });
+
+    const contentHtml = contentBlocks.join('');
+    const headingText = (formName || 'Application Form').trim();
+    const dateStr = application?.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleDateString() : new Date().toLocaleDateString();
+    return this.generateBudgetApprovalXyzHtml(
+      headingText,
+      dateStr,
+      contentHtml,
+      application?.txtApprovalHistory,
+      undefined,
+      [],
+      [],
+      undefined,
+      Array.isArray(dynamicFooterFields) ? dynamicFooterFields : []
+    );
+  }
+
   private generateBudgetApprovalXyzHtml(
     headingText: string,
     dateStr: string,
@@ -826,44 +1001,67 @@ export class ApplicationPdfService {
       }
       return `<div>${name}${role ? `<br>(${role})` : ''}${dept ? `<br>${dept}` : ''}</div>`;
     };
-    const renderUsersInline = (users: any[]): string => {
-      if (!Array.isArray(users) || users.length === 0) return '--';
-      return users
-        .map((u: any) => {
-          const name = u?.txtUserName || u?.userName || u?.name || '';
-          const role = u?.cfgTblRole?.txtRoleName || u?.roleName || u?.designation || '';
-          return role ? `${name} (${role})` : name;
-        })
-        .filter((v: string) => !!v)
-        .join(', ');
+    const getFooterSlots = (section: any): any[] => {
+      const users = Array.isArray(section?.users) ? section.users : [];
+      return users.length > 0 ? users : [null];
     };
-    const renderFooterSignatureCell = (users: any[]): string => {
-      if (!Array.isArray(users) || users.length === 0) return '';
-      const approvedUsers = users.filter((u: any) => isUserApproved(u));
-      if (approvedUsers.length === 0) return '';
-      return approvedUsers.slice(0, 2).map((u: any) => renderUserCell(u)).join('');
+    const renderFooterSignatureSlot = (user: any): string => {
+      if (!user || !isUserApproved(user)) return '';
+      return renderUserCell(user);
+    };
+    const renderFooterUserSlot = (user: any): string => {
+      if (!user) return '&nbsp;';
+      const name = user?.txtUserName || user?.userName || user?.name || '';
+      const role = user?.cfgTblRole?.txtRoleName || user?.roleName || user?.designation || '';
+      let dept = user?.hrTblDepartment?.txtDepartmentName || user?.departmentName || user?.txtDepartmentName || '';
+      if (!dept) {
+        const userId = getUserId(user);
+        const entry = userId ? approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId) : null;
+        dept = entry?.departmentName || '';
+      }
+      const parts = [name];
+      if (role) parts.push(`(${role})`);
+      if (dept) parts.push(dept);
+      const safe = parts.filter((p: string) => !!p).map((p: string) => {
+        const div = document.createElement('div');
+        div.textContent = p;
+        return div.innerHTML;
+      });
+      return safe.join('<br>');
     };
     const hasDynamicFooter = Array.isArray(footerFields) && footerFields.length > 0;
     const css = `
-    :root { --ink:#111827; --muted:#6b7280; --line:#c7cdd4; --accent:#0f766e; --soft:#eef4f3; }
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 0; background:#ffffff; color:var(--ink); }
+    body { margin: 0; padding: 0; background:#ffffff; color:#000; }
     .xyz-page { background:#ffffff; padding: 0; display:block; }
-    .xyz-paper { width: 210mm; min-height: 297mm; background:#ffffff; font-family: "Georgia", "Times New Roman", serif; font-size: 13.5px; line-height: 1.45; border: none; padding: 16mm 16mm 16mm 16mm; display:flex; flex-direction:column; }
-    .xyz-date-row { display:flex; justify-content:flex-end; margin-bottom:6px; font-family: "Calibri", "Arial", sans-serif; color:var(--muted); }
-    .xyz-date { font-size:12px; text-align:right; }
-    .xyz-header { display:grid; grid-template-columns:70px 1fr 140px; align-items:center; column-gap:10px; margin-bottom:4px; }
-    .xyz-logo { align-self:start; }
-    .xyz-logo img { width:58px; height:auto; display:block; }
-    .xyz-company { text-align:center; }
-    .xyz-company-name { font-family: "Cambria", "Georgia", "Times New Roman", serif; font-size:26px; font-weight:700; letter-spacing:0.2px; }
-    .xyz-company-address { font-family: "Calibri", "Arial", sans-serif; font-size:11.5px; color:var(--muted); margin-top:2px; }
-    .xyz-meta { text-align:right; font-family: "Calibri", "Arial", sans-serif; font-size:11.5px; color:var(--muted); }
-    .xyz-rule { height:1px; background:var(--line); margin:8px 0 12px 0; position:relative; }
-    .xyz-rule::before, .xyz-rule::after { content:""; position:absolute; left:0; right:0; height:1px; background:var(--line); }
-    .xyz-rule::before { top:-2px; }
-    .xyz-rule::after { bottom:-2px; }
-    .xyz-title { text-align:center; font-family: "Cambria", "Georgia", "Times New Roman", serif; font-weight:700; font-size:22px; letter-spacing:0.6px; text-transform:uppercase; margin:6px 0 14px 0; }
+    .xyz-paper {
+      width: 210mm;
+      min-height: 297mm;
+      background:#ffffff;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 13.5px;
+      line-height: 1.35;
+      border: none;
+      padding: 10mm;
+      display:flex;
+      flex-direction:column;
+      overflow: visible;
+    }
+    .xyz-date-row { display:flex; justify-content:flex-end; margin-bottom:6px; }
+    .xyz-date { font-size:14px; text-align:right; }
+    .xyz-header { display:grid; grid-template-columns:90px 1fr 90px; align-items:end; column-gap:12px; margin-bottom:6px; }
+    .xyz-logo { align-self:start; margin-top:-10px; }
+    .xyz-logo img { width:65px; height:auto; display:block; }
+    .xyz-company { text-align:center; margin:0; }
+    .xyz-header-spacer { height:1px; }
+    .xyz-company-name { font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif; font-size:30px; font-weight:700; }
+    .xyz-company-address { font-family: Verdana, Arial, sans-serif; font-size:12px; color:#000; margin-top:2px; }
+    .xyz-rule { height:1px; background:#000; margin:8px 0 12px 0; }
+    .xyz-rule.thick { position:relative; height:2px; background:#000; }
+    .xyz-rule.thick::before, .xyz-rule.thick::after { content:""; position:absolute; left:0; right:0; height:1px; background:#000; }
+    .xyz-rule.thick::before { top:-2px; }
+    .xyz-rule.thick::after { bottom:-2px; }
+    .xyz-title { text-align:center; font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif; font-weight:700; font-size:26px; line-height:1.25; margin:6px 0 16px 0; }
     .xyz-dynamic { margin-top:4px; }
     .xyz-section { margin-bottom:10px; }
     .xyz-section-title { font-family: "Georgia", "Times New Roman", serif; font-size:13.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; border-left:3px solid var(--accent); padding-left:8px; margin-bottom:4px; }
@@ -872,20 +1070,48 @@ export class ApplicationPdfService {
     .xyz-list li { margin-bottom: 6px; }
     .xyz-bold { font-weight:700; }
     .xyz-table { width:100%; border-collapse:collapse; margin:10px 0; font-size:13px; }
-    .xyz-table th, .xyz-table td { border:1px solid var(--line); padding:6px 8px; }
-    .xyz-table thead th { background:var(--soft); text-align:center; font-weight:700; }
+    .xyz-table th, .xyz-table td { border:1px solid #000; padding:2px 4px; line-height:1.15; }
+    .xyz-table thead th { background:#8bc34a; text-align:center; font-weight:700; }
     .xyz-table tbody td:first-child, .xyz-table tbody td:last-child { text-align:center; }
     .xyz-col-sr { width:8%; text-align:center; }
     .xyz-col-amount { width:18%; text-align:center; }
-    .xyz-note { margin-top:6px; font-size:11.5px; color:var(--muted); }
+    .xyz-note { margin-top:6px; font-size:11px; }
     .xyz-signatures { width:100%; border-collapse:collapse; margin-top:14px; font-family: "Calibri", "Arial", sans-serif; font-size:12px; }
-    .xyz-signatures th, .xyz-signatures td { border:1px solid var(--line); padding:6px 8px; vertical-align:top; text-align:left; }
-    .xyz-signatures-blank td { height:62px; padding:6px 8px; background:#fff; }
-    .xyz-signatures th { font-size:12.5px; font-weight:700; background:#e5e7eb; text-transform:uppercase; letter-spacing:0.3px; }
+    .xyz-signatures th, .xyz-signatures td { border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle; word-wrap:break-word; overflow-wrap:break-word; max-width:0; }
+    .xyz-signatures-blank td { height:56px; padding:0; background:#fff; }
+    .xyz-signatures th { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:14px; font-weight:700; background:#8f8f8f; text-align:center; text-transform:none; letter-spacing:0; }
     .xyz-signatures th[colspan="2"] { text-align:center; }
-    .xyz-sig-img { max-height: 30px; max-width: 100%; object-fit: contain; display:block; margin-bottom:4px; }
-    .xyz-sig-time { font-size:10px; color:var(--muted); margin-bottom:4px; }
+    .xyz-signatures td { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:12px; }
+    .xyz-sig-img { max-height: 26px; max-width: 100%; object-fit: contain; display:block; margin:0 auto 4px auto; }
+    .xyz-sig-time { font-size:10px; color:#6b7280; margin-bottom:4px; }
     .xyz-footer { margin-top:auto; }
+    .xyz-generic-field { margin-bottom:10px; }
+    .xyz-generic-label { font-size:12px; font-weight:700; margin-bottom:3px; text-transform:uppercase; letter-spacing:.2px; }
+    .xyz-generic-value { font-size:13.5px; }
+    .xyz-generic-word { margin:8px 0 12px 0; }
+    .xyz-generic-word .ql-editor { padding:0; }
+    .xyz-generic-word .ql-editor p { margin:0 0 6px 0; }
+    .xyz-generic-word .ql-editor table { width:100%; border-collapse:collapse; table-layout:fixed; margin:4px 0; }
+    .xyz-generic-word .ql-editor table tr { height:30px !important; }
+    .xyz-generic-word .ql-editor th, .xyz-generic-word .ql-editor td {
+      border:1px solid #111;
+      padding:0 4px !important;
+      min-height:30px;
+      height:30px !important;
+      line-height:1 !important;
+      vertical-align:middle;
+      box-sizing:border-box !important;
+    }
+    .xyz-generic-word .ql-editor td > *, .xyz-generic-word .ql-editor th > * {
+      margin:0 !important;
+      padding:0 !important;
+      line-height:1 !important;
+    }
+    .xyz-generic-word .ql-editor p:last-child { margin-bottom:0; }
+    .xyz-generic-word .ql-align-center { text-align:center; }
+    .xyz-generic-word .ql-align-right { text-align:right; }
+    .xyz-generic-word .ql-align-justify { text-align:justify; }
+    .xyz-footer-user { text-align:center; }
     `;
 
     return `<!DOCTYPE html>
@@ -905,9 +1131,9 @@ export class ApplicationPdfService {
           <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
           <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
         </div>
-        <div class="xyz-meta">Form: ${headingText}</div>
+        <div class="xyz-header-spacer"></div>
       </div>
-      <div class="xyz-rule"></div>
+      <div class="xyz-rule thick"></div>
       <div class="xyz-title">${headingText}</div>
       <div class="xyz-dynamic">${contentHtml}</div>
 
@@ -915,13 +1141,17 @@ export class ApplicationPdfService {
       <table class="xyz-signatures">
         ${hasDynamicFooter ? `
         <tr class="xyz-signatures-blank">
-          ${(footerFields || []).map((f: any) => `<td>${renderFooterSignatureCell(Array.isArray(f?.users) ? f.users : [])}</td>`).join('')}
+          ${(footerFields || []).map((f: any) =>
+            getFooterSlots(f).map((slot: any) => `<td>${renderFooterSignatureSlot(slot)}</td>`).join('')
+          ).join('')}
         </tr>
         <tr>
-          ${(footerFields || []).map((f: any) => `<th>${f?.label || 'New Field'}</th>`).join('')}
+          ${(footerFields || []).map((f: any) => `<th colspan="${getFooterSlots(f).length}">${f?.label || 'New Field'}:</th>`).join('')}
         </tr>
         <tr>
-          ${(footerFields || []).map((f: any) => `<td>${renderUsersInline(Array.isArray(f?.users) ? f.users : [])}</td>`).join('')}
+          ${(footerFields || []).map((f: any) =>
+            getFooterSlots(f).map((slot: any) => `<td class="xyz-footer-user">${renderFooterUserSlot(slot)}</td>`).join('')
+          ).join('')}
         </tr>` : `
         <tr class="xyz-signatures-blank">
           <td>${isUserApproved(preparedBy) ? renderUserCell(preparedBy) : ''}</td>

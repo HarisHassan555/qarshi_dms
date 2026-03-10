@@ -192,20 +192,21 @@
 
                 <div class="xyz-content-body">
                     <div *ngFor="let field of getGenericPreviewFields()" class="xyz-generic-field">
-                        <div class="xyz-generic-label" *ngIf="!isWordEditorType(field.type)">
+                        <div class="xyz-generic-label" *ngIf="!isWordEditorType(field.type) && !isIndividualPipelineFooterType(field.type) && field.type !== 'footer'">
                             {{ field.label }}
                             <span *ngIf="field.required" class="text-danger">*</span>
                         </div>
 
-                        <div *ngIf="!isWordEditorType(field.type) && !isTableType(field.type)"
+                        <div *ngIf="!isWordEditorType(field.type) && !isTableType(field.type) && !isIndividualPipelineFooterType(field.type) && field.type !== 'footer'"
                             class="xyz-generic-value">
                             {{ formatFieldValue(field, getFieldValue(field)) }}
                         </div>
 
-                        <div *ngIf="isWordEditorType(field.type)" class="xyz-generic-word"
-                            [innerHTML]="getWordEditorValue(field)"></div>
+                        <div *ngIf="isWordEditorType(field.type)" class="xyz-generic-word">
+                            <div class="ql-editor" [innerHTML]="getWordEditorValue(field)"></div>
+                        </div>
 
-                        <div *ngIf="field.type === 'footer'" class="mt-12 pt-6 border-t border-gray-100">
+                        <div *ngIf="field.type === 'footer'" class="mt-12 pt-6">
                             <div class="flex flex-wrap justify-center gap-10 py-4">
                                 <div *ngFor="let pipeline of getPipelineData(); let i = index"
                                     class="flex flex-col items-center min-w-[150px]">
@@ -230,6 +231,37 @@
                                     </div>
                                 </div>
                             </div>
+                        </div>
+
+                        <div *ngIf="isIndividualPipelineFooterType(field.type)" class="mt-12 pt-6">
+                            <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields().length > 0">
+                                <tr class="xyz-signatures-blank">
+                                    <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
+                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                            <div *ngIf="slotUser && isUserApproved(slotUser)">
+                                                <img *ngIf="getUserSignatureUrl(slotUser)" [src]="getUserSignatureUrl(slotUser)"
+                                                    class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
+                                                <div class="xyz-sig-time" *ngIf="getUserApprovalDate(slotUser)">
+                                                    {{ getUserApprovalDate(slotUser) }}
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </ng-container>
+                                </tr>
+                                <tr>
+                                    <th *ngFor="let section of getIndividualPipelineFooterFields()"
+                                        [attr.colspan]="getIndividualFooterColSpan(section)">
+                                        {{ section.label || 'New Field' }}:
+                                    </th>
+                                </tr>
+                                <tr>
+                                    <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
+                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                            <div [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></div>
+                                        </td>
+                                    </ng-container>
+                                </tr>
+                            </table>
                         </div>
 
                         <div *ngIf="isTableType(field.type)" class="overflow-x-auto">

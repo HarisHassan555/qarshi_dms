@@ -403,6 +403,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             : null;
             boolean isBudgetApproval = isBudgetApprovalForm(formForBudget);
             boolean isCapf = isCapfForm(formForBudget);
+            boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
+            boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
 
             // If CAPF form and has initial signer in JSON data, set level to -1
             if (isCapf && hasInitialSigner(application)) {
@@ -421,7 +423,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             // Auto-sign "Prepared By" for Budget Approval on submission
-            if (isBudgetApproval) {
+            if (useIndividualPipelineFlow) {
                 try {
                     Map<String, Object> appData = parseApplicationData(application);
                     BudgetApprover preparedBy = getPreparedBy(appData, entityManager);
@@ -485,7 +487,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         String code = application.getTxtFormCode() != null ? application.getTxtFormCode()
                                 : "application";
                         application.setBlbPdfData(pdfBytes);
-                        application.setTxtPdfName(code + ".pdf");
+                        application.setTxtPdfName(buildPdfFileName(formForBudget, code));
                         application.setTxtPdfMime("application/pdf");
                     }
                 } catch (Exception e) {
@@ -500,7 +502,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             boolean deferEmail = Boolean.TRUE.equals(application.getDeferEmail());
             if (!deferEmail) {
                 try {
-                    if (isBudgetApproval) {
+                    if (useIndividualPipelineFlow) {
                         sendBudgetApprovalNextEmail(application, 0);
                         sendSubmissionEmails(application); // still send submitter confirmation
                     } else {
@@ -907,8 +909,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             boolean isBudgetApproval = isBudgetApprovalForm(form);
-            if (isBudgetApproval) {
-                Map<String, Object> appData = parseApplicationData(application);
+            Map<String, Object> appData = parseApplicationData(application);
+            boolean hasDynamicFooterFlow = !extractFooterFields(appData).isEmpty();
+            boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
+            if (useIndividualPipelineFlow) {
                 List<BudgetApprover> sequence = getBudgetApprovalSequence(appData, entityManager);
                 if (sequence.isEmpty()) {
                     entityManager.getTransaction().rollback();
@@ -996,23 +1000,24 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
                 application.setSerModifiedUser(resolvedApproverId);
 
-                // Regenerate PDF only when approval happens via email or when no PDF exists.
-                // UI approvals upload the latest printed PDF before approval; preserve that file.
+                // Preserve UI-generated PDFs for non-budget forms so next-stage emails keep the
+                // exact same document layout/content. Only force regeneration for actual budget
+                // forms with dynamic footer, or when no PDF exists.
                 boolean hasDynamicFooterFields = !extractFooterFields(appData).isEmpty();
-                boolean shouldRegeneratePdf = hasDynamicFooterFields ||
-                    "EMAIL".equalsIgnoreCase(approvedVia) ||
+                boolean shouldRegeneratePdf =
+                    (isBudgetApprovalForm(form) && hasDynamicFooterFields) ||
                     application.getBlbPdfData() == null || application.getBlbPdfData().length == 0;
                 if (shouldRegeneratePdf) {
                     try {
-                        byte[] pdfBytes = generateBudgetApprovalPdf(application, form, appData);
+                        byte[] pdfBytes = generateApplicationPdf(application, form, appData);
                         if (pdfBytes != null && pdfBytes.length > 0) {
                             String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
                             application.setBlbPdfData(pdfBytes);
-                            application.setTxtPdfName(code + ".pdf");
+                            application.setTxtPdfName(buildPdfFileName(form, code));
                             application.setTxtPdfMime("application/pdf");
                         }
                     } catch (Exception e) {
-                        log.warn("Error regenerating budget approval PDF: " + e.getMessage(), e);
+                        log.warn("Error regenerating application PDF: " + e.getMessage(), e);
                     }
                 }
 
@@ -1199,12 +1204,12 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 boolean shouldRegeneratePdf = application.getBlbPdfData() == null || application.getBlbPdfData().length == 0;
                 if (shouldRegeneratePdf) {
                     try {
-                        Map<String, Object> appData = parseApplicationData(application);
+                        appData = parseApplicationData(application);
                         byte[] pdfBytes = generateApplicationPdf(application, form, appData);
                         if (pdfBytes != null && pdfBytes.length > 0) {
                             String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
                             application.setBlbPdfData(pdfBytes);
-                            application.setTxtPdfName(code + ".pdf");
+                            application.setTxtPdfName(buildPdfFileName(form, code));
                             application.setTxtPdfMime("application/pdf");
                         }
                     } catch (Exception e) {
@@ -1536,11 +1541,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             application.getSerFormId())
                     : null;
             boolean isBudgetApproval = isBudgetApprovalForm(form);
+            boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
+            boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
 
             entityManager.getTransaction().commit();
 
             try {
-                if (isBudgetApproval) {
+                if (useIndividualPipelineFlow) {
                     sendBudgetApprovalNextEmail(application, 0);
                 }
                 sendSubmissionEmails(application);
@@ -1603,7 +1610,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             !submittedByUser.getTxtAddress().trim().isEmpty()) {
 
                         // Send HTML email to submitter
-                        String submitterSubject = "Application Approved at Level " + approvedPipelineOrder + " - " +
+                        String submitterSubject = formName + " Approved at Level " + approvedPipelineOrder + " - " +
                                 (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
                         String submitterHtmlMessage = generateApprovalEmailHtml(
                                 submittedByUser.getTxtUserName() != null ? submittedByUser.getTxtUserName() : "User",
@@ -1619,33 +1626,14 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                 application.getTxtApprovalHistory(),
                                 getBaseUrl());
 
-                        if (isCapf) {
-                            String cid = "capf-inline";
-                            log.info("Email debug [sendApprovalEmails]: Building CAPF preview for Submitter");
-                            byte[] imageBytes = buildCapfPreviewPng(application, form);
-                            if (imageBytes != null && imageBytes.length > 0) {
-                                submitterHtmlMessage = appendCapfInlineImage(submitterHtmlMessage, cid);
-                                emailService.sendHtmlEmailWithInlineImage(
-                                        java.util.Arrays.asList(submittedByUser.getTxtAddress()),
-                                        submitterSubject, submitterHtmlMessage, imageBytes, "image/png", cid);
-                                log.info("Approval email with image preview sent to submitter: "
-                                        + submittedByUser.getTxtAddress());
-                            } else {
-                                log.warn("CAPF image preview failed generation for submitter approval email: "
-                                        + submittedByUser.getTxtAddress());
-                                emailService.sendHtmlEmail(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
-                                        submitterSubject, submitterHtmlMessage);
-                            }
-                        } else if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
-                            emailService.sendHtmlEmailWithAttachment(
-                                    java.util.Arrays.asList(submittedByUser.getTxtAddress()),
-                                    submitterSubject, submitterHtmlMessage,
-                                    application.getBlbPdfData(), application.getTxtPdfName(),
-                                    application.getTxtPdfMime());
-                        } else {
-                            emailService.sendHtmlEmail(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
-                                    submitterSubject, submitterHtmlMessage);
-                        }
+                        sendEmailWithInlineFormPreview(
+                                java.util.Arrays.asList(submittedByUser.getTxtAddress()),
+                                submitterSubject,
+                                submitterHtmlMessage,
+                                application,
+                                form,
+                                isCapf,
+                                isCapf ? "capf-inline" : "form-inline");
                         log.info("Approval email sent to submitter: " + submittedByUser.getTxtAddress());
                     }
                 } catch (Exception e) {
@@ -1715,7 +1703,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                                     : (currentLevel + 1);
 
                                             // Send HTML email to next level department head with approve/reject buttons
-                                            String deptHeadSubject = "New Application Pending Approval - Level "
+                                            String deptHeadSubject = formName + " Pending Approval - Level "
                                                     + nextLevelOrder +
                                                     " - "
                                                     + (application.getTxtFormCode() != null
@@ -1751,41 +1739,14 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                                     application.getTxtApprovalHistory(),
                                                     getBaseUrl());
 
-                                            if (isCapf) {
-                                                String cid = "capf-inline";
-                                                log.info(
-                                                        "Email debug [sendApprovalEmails]: Building CAPF preview for Next Dept Head");
-                                                byte[] imageBytes = buildCapfPreviewPng(application, form);
-                                                if (imageBytes != null && imageBytes.length > 0) {
-                                                    deptHeadHtmlMessage = appendCapfInlineImage(deptHeadHtmlMessage,
-                                                            cid);
-                                                    emailService.sendHtmlEmailWithInlineImage(
-                                                            java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
-                                                            deptHeadSubject, deptHeadHtmlMessage, imageBytes,
-                                                            "image/png", cid);
-                                                    log.info(
-                                                            "Approval notification email with image preview sent to next level department head: "
-                                                                    + nextDeptHead.getTxtAddress());
-                                                } else {
-                                                    log.warn(
-                                                            "CAPF image preview failed generation for next level dept head email: "
-                                                                    + nextDeptHead.getTxtAddress());
-                                                    emailService.sendHtmlEmail(
-                                                            java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
-                                                            deptHeadSubject, deptHeadHtmlMessage);
-                                                }
-                                            } else if (application.getBlbPdfData() != null
-                                                    && application.getBlbPdfData().length > 0) {
-                                                emailService.sendHtmlEmailWithAttachment(
-                                                        java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
-                                                        deptHeadSubject, deptHeadHtmlMessage,
-                                                        application.getBlbPdfData(), application.getTxtPdfName(),
-                                                        application.getTxtPdfMime());
-                                            } else {
-                                                emailService.sendHtmlEmail(
-                                                        java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
-                                                        deptHeadSubject, deptHeadHtmlMessage);
-                                            }
+                                            sendEmailWithInlineFormPreview(
+                                                    java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
+                                                    deptHeadSubject,
+                                                    deptHeadHtmlMessage,
+                                                    application,
+                                                    form,
+                                                    isCapf,
+                                                    isCapf ? "capf-inline" : "form-inline");
                                             log.info("Approval notification email sent to next level department head: "
                                                     + nextDeptHead.getTxtAddress());
                                         }
@@ -1842,6 +1803,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                      application.getTxtFormCode() != null ? application.getTxtFormCode() : "null");
             
             boolean isBudgetApproval = isBudgetApprovalForm(form);
+            boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
+            boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
             
             // Get approval pipeline from form
             List<java.util.Map<String, Object>> pipelines = new java.util.ArrayList<>();
@@ -1869,7 +1832,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         !submittedByUser.getTxtAddress().trim().isEmpty()) {
                         
                         // Send HTML confirmation email to submitter
-                        String submitterSubject = "Application Submitted Successfully - " + 
+                        String submitterSubject = formName + " Submitted Successfully - " + 
                                                (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
                         String submitterHtmlMessage = generateSubmissionEmailHtml(
                             submittedByUser.getTxtUserName() != null ? submittedByUser.getTxtUserName() : "User",
@@ -1879,24 +1842,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             application.getDteCreatedDate() != null ? application.getDteCreatedDate().toString() : "N/A"
                         );
                         
-                        if (isCapf) {
-                            String cid = "capf-inline";
-                            byte[] imageBytes = buildCapfPreviewPng(application, form);
-                            if (imageBytes != null && imageBytes.length > 0) {
-                                submitterHtmlMessage = appendCapfInlineImage(submitterHtmlMessage, cid);
-                                emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
-                                    submitterSubject, submitterHtmlMessage, imageBytes, "image/png", cid);
-                                log.info("Submission confirmation email with image preview sent to submitter: " + submittedByUser.getTxtAddress());
-                            } else {
-                                log.warn("CAPF image preview failed generation for submitter email: " + submittedByUser.getTxtAddress());
-                                emailService.sendHtmlEmail(java.util.Arrays.asList(submittedByUser.getTxtAddress()),
-                                    submitterSubject, submitterHtmlMessage);
-                            }
-                        } else {
-                            emailService.sendHtmlEmail(java.util.Arrays.asList(submittedByUser.getTxtAddress()), 
-                                                      submitterSubject, submitterHtmlMessage);
-                            log.info("Submission confirmation email sent to submitter: " + submittedByUser.getTxtAddress());
-                        }
+                        sendEmailWithInlineFormPreview(
+                                java.util.Arrays.asList(submittedByUser.getTxtAddress()),
+                                submitterSubject,
+                                submitterHtmlMessage,
+                                application,
+                                form,
+                                isCapf,
+                                isCapf ? "capf-inline" : "form-inline");
+                        log.info("Submission confirmation email sent to submitter: " + submittedByUser.getTxtAddress());
                     }
                     emailEntityManager.getTransaction().commit();
                 } catch (Exception e) {
@@ -1908,7 +1862,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
             
             // 2. Send email to the first level (Initial Signer OR Department Head)
-            if (!isBudgetApproval) {
+            if (!useIndividualPipelineFlow) {
                 Integer currentLevel = application.getIntCurrentApprovalLevel();
                 if (currentLevel != null && currentLevel == -1 && isCapf) {
                     Integer initialSignerId = extractInitialSignerId(application);
@@ -1917,7 +1871,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             emailEntityManager.getTransaction().begin();
                             CfgTblUser initialSigner = emailEntityManager.find(CfgTblUser.class, initialSignerId);
                             if (initialSigner != null && initialSigner.getTxtAddress() != null && !initialSigner.getTxtAddress().trim().isEmpty()) {
-                                String signerSubject = "Initial Signature Required - " + 
+                                String signerSubject = formName + " Initial Signature Required - " + 
                                                       (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
                                 String baseUrl = getBaseUrl();
                                 String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId=" + application.getSerApplicationId() + 
@@ -2020,7 +1974,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                                  Integer.parseInt(orderObj.toString())) : 1;
                                             
                                             // Send HTML email to first level department head with approve/reject buttons
-                                            String deptHeadSubject = "New Application Pending Approval - Level " + firstLevelOrder + 
+                                            String deptHeadSubject = formName + " Pending Approval - Level " + firstLevelOrder + 
                                                                    " - " + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
                                             String baseUrl = getBaseUrl();
                                             String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId=" + application.getSerApplicationId() + 
@@ -2045,28 +1999,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                                 getBaseUrl()
                                             );
                                             
-                                            if (isCapfForm(form)) {
-                                                String cid = "capf-inline";
-                                                log.info("Email debug [sendSubmissionEmails]: Building CAPF preview for Dept Head");
-                                                byte[] imageBytes = buildCapfPreviewPng(application, form);
-                                                if (imageBytes != null && imageBytes.length > 0) {
-                                                    deptHeadHtmlMessage = appendCapfInlineImage(deptHeadHtmlMessage, cid);
-                                                    emailService.sendHtmlEmailWithInlineImage(java.util.Arrays.asList(firstDeptHead.getTxtAddress()),
-                                                        deptHeadSubject, deptHeadHtmlMessage, imageBytes, "image/png", cid);
-                                                    log.info("Submission notification email with image preview sent to first level department head: " + firstDeptHead.getTxtAddress());
-                                                } else {
-                                                    log.warn("CAPF image preview failed generation for dept head email: " + firstDeptHead.getTxtAddress());
-                                                    emailService.sendHtmlEmail(java.util.Arrays.asList(firstDeptHead.getTxtAddress()),
-                                                        deptHeadSubject, deptHeadHtmlMessage);
-                                                }
-                                            } else if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
-                                                emailService.sendHtmlEmailWithAttachment(java.util.Arrays.asList(firstDeptHead.getTxtAddress()), 
-                                                    deptHeadSubject, deptHeadHtmlMessage,
-                                                    application.getBlbPdfData(), application.getTxtPdfName(), application.getTxtPdfMime());
-                                            } else {
-                                                emailService.sendHtmlEmail(java.util.Arrays.asList(firstDeptHead.getTxtAddress()), 
-                                                    deptHeadSubject, deptHeadHtmlMessage);
-                                            }
+                                            boolean isCapfMail = isCapfForm(form);
+                                            sendEmailWithInlineFormPreview(
+                                                    java.util.Arrays.asList(firstDeptHead.getTxtAddress()),
+                                                    deptHeadSubject,
+                                                    deptHeadHtmlMessage,
+                                                    application,
+                                                    form,
+                                                    isCapfMail,
+                                                    isCapfMail ? "capf-inline" : "form-inline");
                                             log.info("Submission notification email sent to first level department head: " + firstDeptHead.getTxtAddress());
                                         }
                                     }
@@ -2180,6 +2121,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         } catch (Exception e) {
             log.warn("Error parsing application data: " + e.getMessage());
             return new java.util.HashMap<>();
+        }
+    }
+
+    private boolean hasDynamicFooterFlow(CfgTblCustomFormApplication application) {
+        try {
+            Map<String, Object> appData = parseApplicationData(application);
+            return !extractFooterFields(appData).isEmpty();
+        } catch (Exception ex) {
+            return false;
         }
     }
 
@@ -2375,6 +2325,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         try {
             emailEntityManager.getTransaction().begin();
             Map<String, Object> appData = parseApplicationData(application);
+            CfgTblCustomForm form = application.getCfgTblCustomForm();
+            if (form == null && application.getSerFormId() != null) {
+                form = emailEntityManager.find(CfgTblCustomForm.class, application.getSerFormId());
+            }
             List<BudgetApprover> seq = getBudgetApprovalSequence(appData, emailEntityManager);
             if (sequenceIndex == null || sequenceIndex < 0 || sequenceIndex >= seq.size()) {
                 emailEntityManager.getTransaction().commit();
@@ -2387,8 +2341,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return;
             }
 
-            String formName = "Budget Approval";
-            String subject = "Budget Approval Pending - " +
+            String formName = getResolvedFormName(form);
+            String subject = formName + " Pending - " +
                     (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
 
             String baseUrl = getBaseUrl();
@@ -2416,20 +2370,14 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     application.getTxtApprovalHistory(),
                     getBaseUrl());
 
-            if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
-                String cid = "budget-inline";
-                byte[] imageBytes = renderPdfToPng(application.getBlbPdfData());
-                String htmlWithImage = appendInlinePdfImage(html, cid, "Budget Approval Form");
-                emailService.sendHtmlEmailWithInlineImage(
-                        java.util.Arrays.asList(next.email),
-                        subject,
-                        htmlWithImage,
-                        imageBytes,
-                        "image/png",
-                        cid);
-            } else {
-                emailService.sendHtmlEmail(java.util.Arrays.asList(next.email), subject, html);
-            }
+            sendEmailWithInlineFormPreview(
+                    java.util.Arrays.asList(next.email),
+                    subject,
+                    html,
+                    application,
+                    form,
+                    false,
+                    "budget-inline");
             emailEntityManager.getTransaction().commit();
         } catch (Exception e) {
             if (emailEntityManager.getTransaction().isActive()) {
@@ -4545,10 +4493,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
         html.append("</div>");
 
-        String historyHtml = buildApprovalHistoryHtml(approvalHistoryJson, baseUrl);
-        if (historyHtml != null && !historyHtml.isEmpty()) {
-            html.append(historyHtml);
-        }
+        // Approval history table is intentionally omitted from email body to keep focus on form preview.
 
         boolean canApproveReject = showActionButtons && approveUrl != null && rejectUrl != null;
         boolean canSendBack = showActionButtons && sendBackUrl != null && level != null && level >= 2;
@@ -5307,7 +5252,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (signedPdf != null && signedPdf.length > 0) {
                 String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
                 application.setBlbPdfData(signedPdf);
-                application.setTxtPdfName(code + ".pdf");
+                application.setTxtPdfName(buildPdfFileName(form, code));
                 application.setTxtPdfMime("application/pdf");
                 log.info("CAPF signed PDF persisted: appId={}, bytes={}", application.getSerApplicationId(),
                         signedPdf.length);
@@ -5376,7 +5321,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         String alt = altText != null ? altText : "Document";
         String fragment = "<div style='margin:20px 0 0 0;text-align:center;'>" +
                 "<img src='cid:" + cid
-                + "' style='width:100%;max-width:820px;border:1px solid #222;display:block;margin:0 auto;' alt='"
+                + "' style='width:100%;max-width:820px;display:block;margin:0 auto;' alt='"
                 + escapeHtml(alt) + "' />" +
                 "</div>";
         String marker = "</body>";
@@ -5385,6 +5330,55 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             return baseHtml + fragment;
         }
         return baseHtml.substring(0, idx) + fragment + baseHtml.substring(idx);
+    }
+
+    private String getResolvedFormName(CfgTblCustomForm form) {
+        if (form != null && form.getTxtFormName() != null && !form.getTxtFormName().trim().isEmpty()) {
+            return form.getTxtFormName().trim();
+        }
+        return "Application Form";
+    }
+
+    private String buildPdfFileName(CfgTblCustomForm form, String fallbackCode) {
+        String base = getResolvedFormName(form);
+        if (base == null || base.trim().isEmpty()) {
+            base = (fallbackCode != null && !fallbackCode.trim().isEmpty()) ? fallbackCode.trim() : "application";
+        }
+        String safe = base.replaceAll("[^a-zA-Z0-9._ -]", "").trim();
+        if (safe.isEmpty()) {
+            safe = "application";
+        }
+        return safe + ".pdf";
+    }
+
+    private void sendEmailWithInlineFormPreview(List<String> recipients, String subject, String html,
+            CfgTblCustomFormApplication application, CfgTblCustomForm form, boolean isCapf, String imageCid) {
+        try {
+            if (isCapf) {
+                byte[] imageBytes = buildCapfPreviewPng(application, form);
+                if (imageBytes != null && imageBytes.length > 0) {
+                    String cid = imageCid != null ? imageCid : "capf-inline";
+                    String htmlWithImage = appendCapfInlineImage(html, cid);
+                    emailService.sendHtmlEmailWithInlineImage(recipients, subject, htmlWithImage, imageBytes, "image/png",
+                            cid);
+                    return;
+                }
+            } else if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                byte[] imageBytes = renderPdfToPng(application.getBlbPdfData());
+                if (imageBytes != null && imageBytes.length > 0) {
+                    String cid = imageCid != null ? imageCid : "form-inline";
+                    String formTitle = getResolvedFormName(form) + " Form";
+                    String htmlWithImage = appendInlinePdfImage(html, cid, formTitle);
+                    emailService.sendHtmlEmailWithInlineImage(recipients, subject, htmlWithImage, imageBytes, "image/png",
+                            cid);
+                    return;
+                }
+            }
+            emailService.sendHtmlEmail(recipients, subject, html);
+        } catch (Exception e) {
+            log.warn("Inline preview email failed, fallback to HTML only: {}", e.getMessage());
+            emailService.sendHtmlEmail(recipients, subject, html);
+        }
     }
 
     /**

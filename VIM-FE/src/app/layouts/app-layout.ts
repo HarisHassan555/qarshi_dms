@@ -9,7 +9,7 @@ import { TranslateService } from '@ngx-translate/core';
     templateUrl: './app-layout.html',
 })
 export class AppLayout {
-    store: any;
+    store: any = { sidebar: false, menu: '', layout: '', rtlClass: '', isShowMainLoader: false, navbar: '' };
     showTopButton = false;
     constructor(public translate: TranslateService, public storeData: Store<any>, private service: AppService, private router: Router) {
         this.initStore();
@@ -17,7 +17,7 @@ export class AppLayout {
     headerClass = '';
     ngOnInit() {
         this.initAnimation();
-        this.toggleLoader();
+        setTimeout(() => this.toggleLoader(), 0);
         window.addEventListener('scroll', () => {
             if (document.body.scrollTop > 50 || document.documentElement.scrollTop > 50) {
                 this.showTopButton = true;

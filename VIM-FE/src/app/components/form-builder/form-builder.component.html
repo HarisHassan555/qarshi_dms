@@ -115,7 +115,7 @@
                             </div>
                             
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div *ngIf="field.get('type')?.value !== 'word_editor' && field.get('type')?.value !== 'footer'">
+                                <div *ngIf="field.get('type')?.value !== 'word_editor' && field.get('type')?.value !== 'footer' && field.get('type')?.value !== 'individual_pipeline_footer'">
                                     <label>Field Label <span class="text-danger">*</span></label>
                                     <input type="text" placeholder="e.g., First Name" class="form-input" 
                                         formControlName="label" />
@@ -124,7 +124,7 @@
                                     </ng-container>
                                 </div>
                                 
-                                <div [ngClass]="{'md:col-span-2': field.get('type')?.value === 'word_editor' || field.get('type')?.value === 'footer'}">
+                                <div [ngClass]="{'md:col-span-2': field.get('type')?.value === 'word_editor' || field.get('type')?.value === 'footer' || field.get('type')?.value === 'individual_pipeline_footer'}">
                                     <label>Field Type <span class="text-danger">*</span></label>
                                     <select class="form-select" formControlName="type" (change)="onTypeChange(i)">
                                         <option *ngFor="let type of fieldTypes" [value]="type.value">
@@ -191,8 +191,14 @@
                                         </p>
                                     </div>
                                 </div>
+
+                                <div *ngIf="field.get('type')?.value === 'individual_pipeline_footer'" class="md:col-span-2">
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                                        Sections and users for this footer are configured while filling the form in Application.
+                                    </p>
+                                </div>
                                 
-                                <div class="flex items-center pt-6">
+                                <div class="flex items-center pt-6" *ngIf="field.get('type')?.value !== 'individual_pipeline_footer'">
                                     <label class="inline-flex items-center">
                                         <input type="checkbox" class="form-checkbox" formControlName="required" />
                                         <span class="ml-2">Required Field</span>
@@ -283,4 +289,3 @@
         <button type="button" (click)="submit()" class="btn btn-primary ltr:ml-4 rtl:mr-4">Save Form</button>
     </ng-template>
 </modal>
-

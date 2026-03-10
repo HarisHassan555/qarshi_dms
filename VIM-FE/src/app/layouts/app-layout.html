@@ -1,19 +1,19 @@
 <div
     class="main-section relative font-nunito text-sm font-normal antialiased"
-    [ngClass]="[store.sidebar ? 'toggle-sidebar' : '', store.menu, store.layout, store.rtlClass]"
+    [ngClass]="[store?.sidebar ? 'toggle-sidebar' : '', store?.menu, store?.layout, store?.rtlClass]"
 >
     <!--  BEGIN MAIN CONTAINER  -->
     <div class="relative">
         <!-- sidebar menu overlay -->
         <div
             class="fixed inset-0 z-50 bg-[black]/60 lg:hidden"
-            [ngClass]="{ hidden: !store.sidebar }"
+            [ngClass]="{ hidden: !store?.sidebar }"
             (click)="storeData.dispatch({ type: 'toggleSidebar' })"
         ></div>
 
         <!-- screen loader -->
         <div
-            *ngIf="store.isShowMainLoader"
+            *ngIf="store?.isShowMainLoader"
             class="screen_loader fixed inset-0 bg-opacity-75 bg-[#fafafa] dark:bg-[#060818] z-[60] grid place-content-center animate__animated"
         >
             <svg width="64" height="64" viewBox="0 0 135 135" xmlns="http://www.w3.org/2000/svg" fill="#F87171">
@@ -56,7 +56,7 @@
         <setting></setting>
         <!-- END APP SETTING LAUNCHER -->
 
-        <div class="main-container min-h-screen text-black dark:text-white-dark" [ngClass]="[store.navbar]">
+        <div class="main-container min-h-screen text-black dark:text-white-dark" [ngClass]="[store?.navbar]">
             <!--  BEGIN SIDEBAR  -->
             <sidebar></sidebar>
             <!--  END SIDEBAR  -->
