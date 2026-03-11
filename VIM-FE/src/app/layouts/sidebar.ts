@@ -154,7 +154,15 @@ export class SidebarComponent {
             return;
         }
 
-        this.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).pipe(
+        const roleId = this.getRoleIdFromUser(user);
+        if (!roleId) {
+            console.warn('Sidebar menus not loaded: missing roleId after fallback resolution', user?.cfgTblRole);
+            this.menus = [];
+            this.isDashboardPresent = false;
+            return;
+        }
+
+        this.loadPermissionRoles(roleId, user.serUserId).pipe(
             switchMap(() => {
                 return this.menuService.getUserMenus();
             })
@@ -336,6 +344,38 @@ export class SidebarComponent {
         if (enabled === true || enabled === 1 || enabled === 'true') return true;
         // Fallback for payloads that don't send blIsEnabled reliably.
         return role?.blnStatus === true || role?.blIsActive === true;
+    }
+
+    /**
+     * Extract a numeric role id from user object, tolerating payloads where cfgTblRole
+     * is either an object ({ serRoleId }) or just a numeric id.
+     */
+    private getRoleIdFromUser(user: any): number | null {
+        if (!user) return null;
+        const candidate =
+            user?.cfgTblRole?.serRoleId ??
+            user?.cfgTblRole ??
+            user?.cfgTblRoleId ??
+            user?.roleId;
+        const num = Number(candidate);
+        if (Number.isFinite(num) && num > 0) {
+            return num;
+        }
+
+        // Fallback: derive from role name when payload only sends txtrole/txtRoleName
+        const roleName = (user?.cfgTblRole?.txtRoleName || user?.txtrole || '').toString().toUpperCase().trim();
+        if (!roleName) return null;
+        const roleMap: { [key: string]: number } = {
+            'ADMIN': 1,
+            'VENDOR': 2,
+            'MARKETING': 3,
+            'PROCURE': 4,
+            'PROCUREMENT': 4,
+            'FINANCE': 5,
+            'AUDIT': 6,
+            'CEO': 7
+        };
+        return roleMap[roleName] || null;
     }
 
     getDisplaySubMenuName(name: string): string {

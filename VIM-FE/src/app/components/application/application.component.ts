@@ -655,6 +655,14 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     }
   }
 
+  private resolveUserIdByNameLocal(value: any): number | null {
+    if (value === undefined || value === null) return null;
+    const cleaned = String(value).trim().toLowerCase();
+    if (!cleaned) return null;
+    const match = this.allUsers.find(u => (u.txtUserName || '').toLowerCase() === cleaned);
+    return match ? match.serUserId : null;
+  }
+
   promptAndInsertTable(editor: any): void {
     const sizeInput = window.prompt('Enter table size as rows x columns (e.g., 3x4):', '2x2');
     if (!sizeInput) {
@@ -1316,34 +1324,51 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         }
       });
 
-      // Convert form data to JSON string
-      const applicationDataJson = JSON.stringify(formData);
+    // Convert form data to JSON string
+    const applicationDataJson = JSON.stringify(formData);
 
-      // Get current user from localStorage
-      const userJson = localStorage.getItem('user');
-      let userId: number | null = null;
-      if (userJson) {
-        try {
-          const user = JSON.parse(userJson);
-          userId = user.serUserId || null;
-        } catch (e) {
-          console.error('Error parsing user data:', e);
-        }
+    // Get current user from localStorage
+    const userJson = localStorage.getItem('user');
+    let userId: number | null = null;
+    if (userJson) {
+      try {
+        const user = JSON.parse(userJson);
+        userId = user.serUserId || null;
+      } catch (e) {
+        console.error('Error parsing user data:', e);
       }
+    }
 
-      // Prepare payload for backend
-      const payload: any = {
-        serFormId: this.selectedForm.serFormId,
-        txtFormCode: this.generatedApplicationCode || null,
-        txtApplicationData: applicationDataJson,
-        txtStatus: 'PENDING',
-        intCurrentApprovalLevel: 0,
-        serSubmittedBy: userId,
-        blIsActive: true,
-        blIsDeleted: false,
-        blnStatus: true,
-        deferEmail: true
-      };
+    // For CAPF, prefer the selected Initiator user (user_select field) as submitter
+    let submittedById = userId;
+    if (this.isCapfSelected()) {
+      const initiatorField = this.selectedForm?.fields.find(f =>
+        (f.type || '').toLowerCase() === 'user_select' &&
+        (f.label || '').toLowerCase().includes('initiator')
+      );
+      const initiatorFieldName = initiatorField
+        ? this.getFieldName(initiatorField.label)
+        : this.getFieldName('Initiator');
+      const initiatorValue = formData[initiatorFieldName];
+      const resolvedInitiatorId = this.resolveUserIdByNameLocal(initiatorValue);
+      if (resolvedInitiatorId) {
+        submittedById = resolvedInitiatorId;
+      }
+    }
+
+    // Prepare payload for backend
+    const payload: any = {
+      serFormId: this.selectedForm.serFormId,
+      txtFormCode: this.generatedApplicationCode || null,
+      txtApplicationData: applicationDataJson,
+      txtStatus: 'PENDING',
+      intCurrentApprovalLevel: 0,
+      serSubmittedBy: submittedById,
+      blIsActive: true,
+      blIsDeleted: false,
+      blnStatus: true,
+      deferEmail: true
+    };
 
       try {
         const response: any = await firstValueFrom(this.customFormApplicationService.submitApplication(payload));

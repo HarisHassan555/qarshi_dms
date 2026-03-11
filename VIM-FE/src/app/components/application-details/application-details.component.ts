@@ -264,6 +264,34 @@ export class ApplicationDetailsComponent implements OnInit {
     }
   }
 
+  downloadFeasibilityReport() {
+    const dataUrl = this.getFeasibilityReportDataUrl();
+    if (!dataUrl) {
+      this.notificationService.showMessage('Feasibility report data not found', 'danger');
+      return;
+    }
+
+    // Try to get the original file name if it exists
+    let fileName = 'feasibility_report';
+    const report = this.getFeasibilityReportValue();
+    if (report && typeof report === 'object' && (report.fileName || report.name)) {
+      fileName = report.fileName || report.name;
+    } else {
+      // Determine optional file extension from dataUrl mime type
+      const mime = dataUrl.match(/data:([^;]+);base64/)?.[1] || '';
+      if (mime === 'application/pdf') fileName += '.pdf';
+      else if (mime === 'image/jpeg') fileName += '.jpg';
+      else if (mime === 'image/png') fileName += '.png';
+    }
+
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
   isFeasibilityImage(): boolean {
     const url = this.getFeasibilityReportDataUrl();
     return url.startsWith('data:image/');
@@ -1427,6 +1455,89 @@ export class ApplicationDetailsComponent implements OnInit {
       (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0)
     );
     console.log('Sorted pipelines:', sortedPipelines);
+
+    // Prepend Initiator stage so it appears in the workflow
+    const initiatorUserId =
+      this.applicationDetails?.serSubmittedBy ||
+      this.applicationDetails?.cfgTblUser?.serUserId ||
+      this.applicationDetails?.serUserId ||
+      null;
+    const initiatorUserName =
+      this.applicationDetails?.cfgTblUser?.txtUserName ||
+      this.applicationDetails?.txtSubmittedBy ||
+      this.applicationDetails?.submittedByName ||
+      this.applicationDetails?.txtUserName ||
+      'Initiator';
+
+    let initiatorDeptId =
+      this.applicationDetails?.hrTblDepartment?.serDepartmentId ||
+      this.applicationDetails?.serDepartmentId ||
+      this.applicationDetails?.cfgTblUser?.hrTblDepartment?.serDepartmentId ||
+      this.applicationDetails?.cfgTblUser?.serDepartmentId ||
+      null;
+
+    let initiatorDeptName =
+      this.applicationDetails?.hrTblDepartment?.txtDepartmentName ||
+      this.applicationDetails?.departmentName ||
+      this.applicationDetails?.cfgTblUser?.hrTblDepartment?.txtDepartmentName ||
+      this.applicationDetails?.cfgTblUser?.txtDepartmentName ||
+      null;
+
+    // If we have a departmentId but no name, try the loaded department map
+    if (!initiatorDeptName && initiatorDeptId && this.departmentNameMap?.has(Number(initiatorDeptId))) {
+      initiatorDeptName = this.departmentNameMap.get(Number(initiatorDeptId)) as string;
+    }
+
+    // Fallback to approval history entry for level 0 (if exists)
+    if (!initiatorDeptName && this.approvalHistory && this.approvalHistory.length > 0) {
+      const first = this.approvalHistory.find((e: any) => Number(e.level) === 0);
+      if (first?.departmentName) initiatorDeptName = first.departmentName;
+      if (!initiatorDeptId && first?.departmentId) initiatorDeptId = first.departmentId;
+    }
+
+    // Final fallback: look up department by submitter's departmentId via map; if still none, keep generic.
+    if (!initiatorDeptName && initiatorDeptId && this.departmentNameMap?.has(Number(initiatorDeptId))) {
+      initiatorDeptName = this.departmentNameMap.get(Number(initiatorDeptId)) as string;
+    }
+    if (!initiatorDeptName) {
+      initiatorDeptName = initiatorDeptId ? `Department ${initiatorDeptId}` : 'Department';
+    }
+
+    const hasInitiatorStage = sortedPipelines.some((p: any) => p.isInitiator === true);
+
+    if (!hasInitiatorStage) {
+      sortedPipelines.unshift({
+        intApprovalOrder: -1,
+        hrTblDepartment: initiatorDeptId
+          ? { serDepartmentId: initiatorDeptId, txtDepartmentName: initiatorDeptName }
+          : null,
+        serDepartmentId: initiatorDeptId,
+        departmentName: initiatorDeptName,
+        txtDepartmentName: initiatorDeptName,
+        isInitiator: true
+      });
+
+      // Also inject a history entry so "Approved By" shows the initiator and submission time
+      const hasInitiatorHistory = this.approvalHistory?.some(
+        (e: any) => Number(e.level) === 0
+      );
+      if (!hasInitiatorHistory) {
+        const entry: any = {
+          level: 0,
+          departmentId: initiatorDeptId,
+          departmentName: initiatorDeptName,
+          approverName: initiatorUserName,
+          approvedBy: initiatorUserId,
+          approvedDate: this.applicationDetails?.dteCreatedDate || this.applicationDetails?.createdAt || new Date().toISOString(),
+          approvedVia: this.applicationDetails?.txtIpAddress ? 'IP:' + this.applicationDetails.txtIpAddress : 'SUBMISSION',
+          approvedIp: this.applicationDetails?.txtIpAddress || '',
+          status: 'APPROVED',
+          action: 'APPROVED'
+        };
+        this.approvalHistory = [entry, ...(this.approvalHistory || [])];
+      }
+    }
+
     return sortedPipelines;
   }
 
@@ -1524,7 +1635,28 @@ export class ApplicationDetailsComponent implements OnInit {
     if (this.isApproving) return;
     this.isApproving = true;
 
-    // Do not auto-generate/upload PDF on approve.
+    try {
+      const pdfBlob = await this.generatePdf(false);
+      if (pdfBlob && this.selectedApplicationForRemarks?.serApplicationId) {
+        const filename = `application_${this.applicationDetails?.txtFormCode || this.selectedApplicationForRemarks.serApplicationId}.pdf`;
+        const pdfResponse: any = await firstValueFrom(
+          this.customFormApplicationService.updateApplicationPdf(
+            this.selectedApplicationForRemarks.serApplicationId,
+            pdfBlob,
+            filename
+          )
+        );
+        if (!pdfResponse || pdfResponse.status !== 'Success') {
+          this.notificationService.showMessage(pdfResponse?.message || 'Failed to upload latest form snapshot', 'danger');
+          this.isApproving = false;
+          return;
+        }
+      }
+    } catch (e) {
+      this.notificationService.showMessage('Failed to prepare latest form snapshot', 'danger');
+      this.isApproving = false;
+      return;
+    }
 
     this.customFormApplicationService.approveApplication(
       this.selectedApplicationForRemarks.serApplicationId,

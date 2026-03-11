@@ -1019,6 +1019,23 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     } catch (Exception e) {
                         log.warn("Error regenerating application PDF: " + e.getMessage(), e);
                     }
+                } else if (hasDynamicFooterFields && application.getBlbPdfData() != null
+                        && application.getBlbPdfData().length > 0) {
+                    // Keep the exact existing form layout and only refresh footer signatures.
+                    try {
+                        byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
+                                application.getBlbPdfData(),
+                                appData,
+                                application.getTxtApprovalHistory());
+                        if (signedPdf != null && signedPdf.length > 0) {
+                            application.setBlbPdfData(signedPdf);
+                            String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
+                            application.setTxtPdfName(buildPdfFileName(form, code));
+                            application.setTxtPdfMime("application/pdf");
+                        }
+                    } catch (Exception e) {
+                        log.warn("Error applying dynamic footer signatures to existing PDF: " + e.getMessage(), e);
+                    }
                 }
 
                 entityManager.merge(application);
@@ -2342,7 +2359,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             String formName = getResolvedFormName(form);
-            String subject = formName + " Pending - " +
+            String subject = formName + " Pending Approval - Level " + (sequenceIndex + 1) + " - " +
                     (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
 
             String baseUrl = getBaseUrl();
@@ -4493,7 +4510,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
         html.append("</div>");
 
-        // Approval history table is intentionally omitted from email body to keep focus on form preview.
+        String historyHtml = buildApprovalHistoryHtml(approvalHistoryJson, baseUrl);
+        if (historyHtml != null && !historyHtml.trim().isEmpty()) {
+            html.append(historyHtml);
+        }
 
         boolean canApproveReject = showActionButtons && approveUrl != null && rejectUrl != null;
         boolean canSendBack = showActionButtons && sendBackUrl != null && level != null && level >= 2;
@@ -4562,13 +4582,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
                 String sigHtml = "";
                 Integer approvedById = safeInt(approvedBy, null);
-                String inlineSignature = buildInlineSignatureDataUri(signaturePath, approvedById);
-                if (inlineSignature != null && !inlineSignature.isEmpty()) {
-                    sigHtml = "<img class='sig-img' src='" + inlineSignature + "' alt='Signature' />";
-                } else if (!signaturePath.trim().isEmpty() && approvedBy != null && !approvedBy.trim().isEmpty()
+                if (!signaturePath.trim().isEmpty() && approvedBy != null && !approvedBy.trim().isEmpty()
                         && baseUrl != null) {
                     String sigUrl = baseUrl + "/getSignature?userId=" + approvedBy;
                     sigHtml = "<img class='sig-img' src='" + sigUrl + "' alt='Signature' />";
+                } else {
+                    String inlineSignature = buildInlineSignatureDataUri(signaturePath, approvedById);
+                    if (inlineSignature != null && !inlineSignature.isEmpty()) {
+                        sigHtml = "<img class='sig-img' src='" + inlineSignature + "' alt='Signature' />";
+                    }
                 }
 
                 sb.append("<tr>");
@@ -5281,6 +5303,114 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
     }
 
+    private byte[] applyDynamicFooterSignaturesToPdf(byte[] pdfBytes, Map<String, Object> appData,
+            String approvalHistoryJson) {
+        if (pdfBytes == null || pdfBytes.length == 0) {
+            return null;
+        }
+        List<Map<String, Object>> footerFields = extractFooterFields(appData);
+        if (footerFields == null || footerFields.isEmpty()) {
+            return pdfBytes;
+        }
+        try (PDDocument document = PDDocument.load(pdfBytes)) {
+            if (document.getNumberOfPages() <= 0) {
+                return pdfBytes;
+            }
+            PDPage firstPage = document.getPage(0);
+            float pageWidth = firstPage.getMediaBox().getWidth();
+            float margin = 40f;
+            float tableBottomY = 60f;
+            float tableHeight = 110f;
+            try (PDPageContentStream content = new PDPageContentStream(
+                    document,
+                    firstPage,
+                    PDPageContentStream.AppendMode.APPEND,
+                    true,
+                    true)) {
+                drawDynamicFooterSignaturesOnly(
+                        content,
+                        margin,
+                        tableBottomY,
+                        pageWidth - margin * 2,
+                        tableHeight,
+                        footerFields,
+                        approvalHistoryJson,
+                        document);
+            }
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            document.save(baos);
+            return baos.toByteArray();
+        } catch (Exception e) {
+            log.warn("Error applying dynamic footer signatures: " + e.getMessage(), e);
+            return pdfBytes;
+        }
+    }
+
+    private void drawDynamicFooterSignaturesOnly(PDPageContentStream content,
+            float x, float y, float width, float height,
+            List<Map<String, Object>> footerFields,
+            String approvalHistoryJson,
+            PDDocument document) throws java.io.IOException {
+        int sections = footerFields != null ? footerFields.size() : 0;
+        if (sections <= 0) {
+            return;
+        }
+        List<List<Object>> sectionSlots = new java.util.ArrayList<>();
+        int totalSlots = 0;
+        for (int i = 0; i < sections; i++) {
+            Map<String, Object> field = footerFields.get(i);
+            List<Object> users = extractFooterUsers(field);
+            if (users == null || users.isEmpty()) {
+                users = new java.util.ArrayList<>();
+                users.add(null); // keep section visible as one slot
+            }
+            sectionSlots.add(users);
+            totalSlots += users.size();
+        }
+        if (totalSlots <= 0) {
+            return;
+        }
+        float colWidth = width / totalSlots;
+        float rowSig = 50f;
+        float rowHeader = 22f;
+        float rowNames = height - rowSig - rowHeader;
+
+        List<Map<String, Object>> approvalHistory = parseApprovalHistory(approvalHistoryJson);
+        java.util.Set<Integer> allUserIds = new java.util.LinkedHashSet<>();
+        for (Map<String, Object> field : footerFields) {
+            for (Object userObj : extractFooterUsers(field)) {
+                Integer uid = extractUserId(userObj);
+                if (uid != null)
+                    allUserIds.add(uid);
+            }
+        }
+        Integer[] userIds = allUserIds.toArray(new Integer[0]);
+        Map<Integer, String> signatureFromDb = loadUserSignaturePaths(userIds);
+
+        float sigRowY = y + rowSig + rowHeader + 4;
+        float sigRowHeight = rowNames - 8;
+        int slotIndex = 0;
+        for (int i = 0; i < sections; i++) {
+            Map<String, Object> field = footerFields.get(i);
+            String role = field != null && field.get("label") != null ? String.valueOf(field.get("label")) : "APPROVER";
+            List<Object> users = sectionSlots.get(i);
+            for (Object userObj : users) {
+                Integer uid = extractUserId(userObj);
+                String sigPath = "";
+                if (uid != null) {
+                    // Strict match by approved user and section label; no fallback to avoid
+                    // placing signatures in wrong person's slot.
+                    sigPath = findSignatureForUser(approvalHistory, uid, role, false, signatureFromDb);
+                }
+                if (sigPath != null && !sigPath.trim().isEmpty()) {
+                    float cellX = x + colWidth * slotIndex;
+                    drawSignatureImage(document, content, sigPath, cellX + 4, sigRowY, colWidth - 8, sigRowHeight);
+                }
+                slotIndex++;
+            }
+        }
+    }
+
     private List<Map<String, Object>> loadApprovalPipeline(CfgTblCustomForm form) {
         if (form == null || form.getTxtApprovalPipeline() == null || form.getTxtApprovalPipeline().trim().isEmpty()) {
             return new java.util.ArrayList<>();
@@ -5351,22 +5481,73 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         return safe + ".pdf";
     }
 
+    private byte[] resolveBestPdfBytesForEmail(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
+        try {
+            if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                return application.getBlbPdfData();
+            }
+
+            CfgTblCustomFormApplication dbApp = null;
+            EntityManager em = getEntityManager();
+            try {
+                if (application != null && application.getSerApplicationId() != null) {
+                    dbApp = em.find(CfgTblCustomFormApplication.class, application.getSerApplicationId());
+                }
+            } finally {
+                if (em.isOpen()) {
+                    em.close();
+                }
+            }
+
+            if (dbApp != null && dbApp.getBlbPdfData() != null && dbApp.getBlbPdfData().length > 0) {
+                return dbApp.getBlbPdfData();
+            }
+
+            CfgTblCustomForm useForm = form;
+            if (useForm == null && dbApp != null) {
+                useForm = dbApp.getCfgTblCustomForm();
+            }
+            if (useForm == null && application != null) {
+                useForm = application.getCfgTblCustomForm();
+            }
+
+            Map<String, Object> appData = null;
+            if (dbApp != null) {
+                appData = parseApplicationData(dbApp);
+            } else if (application != null) {
+                appData = parseApplicationData(application);
+            }
+            CfgTblCustomFormApplication src = dbApp != null ? dbApp : application;
+            if (src != null) {
+                return generateApplicationPdf(src, useForm, appData != null ? appData : new java.util.HashMap<>());
+            }
+        } catch (Exception e) {
+            log.warn("Could not resolve PDF bytes for inline email preview: {}", e.getMessage());
+        }
+        return null;
+    }
+
     private void sendEmailWithInlineFormPreview(List<String> recipients, String subject, String html,
             CfgTblCustomFormApplication application, CfgTblCustomForm form, boolean isCapf, String imageCid) {
         try {
+            String cidBase = imageCid != null ? imageCid : (isCapf ? "capf-inline" : "form-inline");
+            String appIdPart = application != null && application.getSerApplicationId() != null
+                    ? String.valueOf(application.getSerApplicationId())
+                    : "na";
+            String cid = cidBase + "-" + appIdPart + "-" + System.currentTimeMillis();
+
             if (isCapf) {
                 byte[] imageBytes = buildCapfPreviewPng(application, form);
                 if (imageBytes != null && imageBytes.length > 0) {
-                    String cid = imageCid != null ? imageCid : "capf-inline";
                     String htmlWithImage = appendCapfInlineImage(html, cid);
                     emailService.sendHtmlEmailWithInlineImage(recipients, subject, htmlWithImage, imageBytes, "image/png",
                             cid);
                     return;
                 }
-            } else if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
-                byte[] imageBytes = renderPdfToPng(application.getBlbPdfData());
+            } else {
+                byte[] pdfBytes = resolveBestPdfBytesForEmail(application, form);
+                byte[] imageBytes = renderPdfToPng(pdfBytes);
                 if (imageBytes != null && imageBytes.length > 0) {
-                    String cid = imageCid != null ? imageCid : "form-inline";
                     String formTitle = getResolvedFormName(form) + " Form";
                     String htmlWithImage = appendInlinePdfImage(html, cid, formTitle);
                     emailService.sendHtmlEmailWithInlineImage(recipients, subject, htmlWithImage, imageBytes, "image/png",

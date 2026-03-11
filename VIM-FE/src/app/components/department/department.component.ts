@@ -14,7 +14,7 @@ export class DepartmentComponent implements OnInit {
   @ViewChild('datatable') datatable: any;
   @ViewChild('modal') modal: any;
   @ViewChild('assignUsersModal') assignUsersModal: any;
-  
+
   search = '';
   departmentForm!: FormGroup;
   isSubmit = false;
@@ -64,7 +64,6 @@ export class DepartmentComponent implements OnInit {
     }
     // @ts-ignore
     this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
-      this.getDepartments();
       this.getAllUsers();
     });
   }
@@ -78,26 +77,26 @@ export class DepartmentComponent implements OnInit {
           // Count users assigned to each department
           this.departments = data.map((dept: any) => {
             let userCount = 0;
-            
+
             // Count from cfgTblUsers array (primary source)
             if (dept.cfgTblUsers && Array.isArray(dept.cfgTblUsers)) {
               userCount = dept.cfgTblUsers.length;
             }
-            
+
             // Fallback: Count from employees relationship if cfgTblUsers is not available
             if (userCount === 0 && dept.hrTblEmployees && Array.isArray(dept.hrTblEmployees)) {
               userCount = dept.hrTblEmployees.length;
             }
-            
+
             // Fallback: Count from allUsers if neither cfgTblUsers nor hrTblEmployees is available
             if (userCount === 0 && this.allUsers) {
-              const usersInDept = this.allUsers.filter((user: any) => 
-                user.hrTblDepartment && 
+              const usersInDept = this.allUsers.filter((user: any) =>
+                user.hrTblDepartment &&
                 user.hrTblDepartment.serDepartmentId === dept.serDepartmentId
               );
               userCount = usersInDept.length;
             }
-            
+
             // Get department head name
             let departmentHeadName = '-';
             if (dept.departmentHead && dept.departmentHead.txtUserName) {
@@ -107,16 +106,16 @@ export class DepartmentComponent implements OnInit {
               const headIds = String(dept.serDepartmentHeadId).split(',').map(id => id.trim());
               const headNames: string[] = [];
               headIds.forEach(id => {
-                  const headUser = this.allUsers.find((user: any) => String(user.serUserId) === id);
-                  if (headUser && headUser.txtUserName) {
-                      headNames.push(headUser.txtUserName);
-                  }
+                const headUser = this.allUsers.find((user: any) => String(user.serUserId) === id);
+                if (headUser && headUser.txtUserName) {
+                  headNames.push(headUser.txtUserName);
+                }
               });
               if (headNames.length > 0) {
-                  departmentHeadName = headNames.join(', ');
+                departmentHeadName = headNames.join(', ');
               }
             }
-            
+
             return {
               ...dept,
               userCount: userCount,
@@ -133,6 +132,7 @@ export class DepartmentComponent implements OnInit {
         if (data) {
           this.allUsers = data;
         }
+        this.getDepartments();
       });
   }
 
@@ -182,7 +182,7 @@ export class DepartmentComponent implements OnInit {
   submit() {
     this.isSubmit = true;
     if (this.departmentForm.invalid) return;
-    
+
     const payload = this.departmentForm.value;
 
     if (payload.serDepartmentId) {
@@ -232,21 +232,21 @@ export class DepartmentComponent implements OnInit {
     this.selectedDepartment = department;
     this.selectedUserIds = [];
     this.selectedDepartmentHeadIds = [];
-    
+
     if (department.serDepartmentHeadId) {
-        this.selectedDepartmentHeadIds = String(department.serDepartmentHeadId)
-            .split(',')
-            .map(id => Number(id.trim()))
-            .filter(id => !isNaN(id));
-            
-        // Pre-fill selectedUserIds with HODs to ensure they are consistent
-        this.selectedDepartmentHeadIds.forEach(id => {
-            if (!this.selectedUserIds.includes(id)) {
-                this.selectedUserIds.push(id);
-            }
-        });
+      this.selectedDepartmentHeadIds = String(department.serDepartmentHeadId)
+        .split(',')
+        .map(id => Number(id.trim()))
+        .filter(id => !isNaN(id));
+
+      // Pre-fill selectedUserIds with HODs to ensure they are consistent
+      this.selectedDepartmentHeadIds.forEach(id => {
+        if (!this.selectedUserIds.includes(id)) {
+          this.selectedUserIds.push(id);
+        }
+      });
     }
-    
+
     // Load users already assigned to this department from backend
     this.departmentService.getUsersByDepartment(department.serDepartmentId)
       .subscribe((users: any) => {
@@ -258,7 +258,7 @@ export class DepartmentComponent implements OnInit {
           });
         }
       });
-    
+
     // Also check if users are already loaded and have department reference
     if (this.allUsers) {
       this.allUsers.forEach((user: any) => {
@@ -269,7 +269,7 @@ export class DepartmentComponent implements OnInit {
         }
       });
     }
-    
+
     this.assignUsersModal.open();
   }
 
@@ -321,7 +321,7 @@ export class DepartmentComponent implements OnInit {
 
     // Use the backend endpoint for assigning users to department
     const headsString = this.selectedDepartmentHeadIds.length > 0 ? this.selectedDepartmentHeadIds.join(',') : null;
-    
+
     this.departmentService.assignUsersToDepartment(
       this.selectedDepartment.serDepartmentId,
       this.selectedUserIds,
@@ -331,7 +331,6 @@ export class DepartmentComponent implements OnInit {
         if (response && (response.includes('Success') || response.includes('"status":"Success"'))) {
           this.notificationService.showMessage('Users assigned to department successfully', 'success');
           this.assignUsersModal.close();
-          this.getDepartments();
           this.getAllUsers();
         } else {
           this.notificationService.showMessage('Error occurred while assigning users', 'danger');
