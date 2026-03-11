@@ -29,6 +29,16 @@
                     Send Back
                 </button>
             </div>
+            <div *ngIf="showAssetCodeForm()" class="flex flex-wrap items-center gap-2">
+                <input type="text" class="form-input w-52" placeholder="Asset Code" [(ngModel)]="assetCodeInput"
+                    [disabled]="isSavingAssetCode">
+                <button class="btn btn-primary gap-2" (click)="saveAssetCode()" [disabled]="isSavingAssetCode">
+                    <span *ngIf="isSavingAssetCode"
+                        class="animate-spin border-2 border-white border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
+                    <icon-save class="w-4 h-4" *ngIf="!isSavingAssetCode" />
+                    Assign Asset Code
+                </button>
+            </div>
             <div class="flex flex-wrap gap-2 justify-end">
 
                 <button *ngIf="showFeasibilityReportButton()" (click)="openFeasibilityReport()"

@@ -60,6 +60,9 @@ export class ApplicationDetailsComponent implements OnInit {
   };
   isSavingVendor: boolean = false;
 
+  assetCodeInput: string = '';
+  isSavingAssetCode: boolean = false;
+
   hasFeasibilityReport(): boolean {
     const report = this.applicationFormData?.feasibility_report_attached
       ?? this.applicationFormData?.feasibility_attached_report;
@@ -74,6 +77,36 @@ export class ApplicationDetailsComponent implements OnInit {
       return raw.includes('data:application') || raw.includes('base64,') || raw.includes('"feasibility_attached_report"');
     }
     return false;
+  }
+
+  isFinance(): boolean {
+    if (!this.currentUser) return false;
+    const role = (this.currentUser?.cfgTblRole?.txtRoleName || this.currentUser?.txtrole || '').toUpperCase();
+    return role.includes('FINANCE');
+  }
+
+  showAssetCodeForm(): boolean {
+    return this.applicationDetails?.txtStatus === 'ASSET_PENDING' && this.isFinance();
+  }
+
+  saveAssetCode() {
+    if (!this.applicationId || !this.assetCodeInput.trim()) {
+      this.notificationService.showMessage('Asset code is required', 'danger');
+      return;
+    }
+    this.isSavingAssetCode = true;
+    this.customFormApplicationService
+      .assignAssetCode(this.applicationId, this.assetCodeInput.trim(), this.currentUser?.serUserId)
+      .pipe(finalize(() => (this.isSavingAssetCode = false)))
+      .subscribe(
+        () => {
+          this.notificationService.showMessage('Asset code saved; application approved', 'success');
+          this.loadApplicationDetails();
+        },
+        () => {
+          this.notificationService.showMessage('Failed to save asset code', 'danger');
+        }
+      );
   }
 
   private getFeasibilityReportValue(): any {

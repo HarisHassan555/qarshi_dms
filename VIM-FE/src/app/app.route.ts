@@ -43,6 +43,7 @@ import { ApplicationComponent } from './components/application/application.compo
 import { ApplicationsViewComponent } from './components/applications-view/applications-view.component';
 import { PendingApprovalsComponent } from './components/pending-approvals/pending-approvals.component';
 import { ApplicationDetailsComponent } from './components/application-details/application-details.component';
+import { AssignAssetCodeComponent } from './components/assign-asset-code/assign-asset-code.component';
 import { FormBuilderComponent } from './components/form-builder/form-builder.component';
 import { EmailApprovalComponent } from './components/email-approval/email-approval.component';
 import { OrderListComponent } from "./apps/order/list";
@@ -125,6 +126,7 @@ export const routes: Routes = [
             { path: 'applicationsview', canActivate: [canActivate], component: ApplicationsViewComponent, title: 'Applications View' },
             { path: 'pending-approvals', canActivate: [canActivate], component: PendingApprovalsComponent, title: 'Pending Approvals' },
             { path: 'application-details/:id', canActivate: [canActivate], component: ApplicationDetailsComponent, title: 'Application Details' },
+            { path: 'assign-asset-code/:id', canActivate: [canActivate], component: AssignAssetCodeComponent, title: 'Assign Asset Code' },
             { path: 'formbuilder', canActivate: [canActivate], component: FormBuilderComponent, title: 'Form Builder' },
             { path: 'order', canActivate: [canActivate], component: OrderListComponent, title: 'Order' },
             { path: 'sale-invoice', canActivate: [canActivate], component: SaleInvoiceListComponent, title: 'Sale Invoice' },

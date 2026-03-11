@@ -566,6 +566,34 @@ public class CustomFormApplicationController {
         }
     }
 
+    @PostMapping(value = "/assignAssetCode", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> assignAssetCode(@RequestParam Integer applicationId,
+                                               @RequestParam String assetCode,
+                                               @RequestParam(required = false) Integer userId,
+                                               HttpServletRequest request,
+                                               HttpServletResponse response) {
+        logger.debug("assignAssetCode() - applicationId: " + applicationId + ", userId: " + userId);
+        Map<String, Object> result = new HashMap<>();
+        try {
+            String ip = resolveClientIp(request);
+            String status = customFormApplicationService.assignAssetCode(applicationId, assetCode, userId, ip);
+            if ("Success".equalsIgnoreCase(status)) {
+                result.put("status", "Success");
+                result.put("message", "Asset code saved and application approved");
+            } else {
+                result.put("status", "Failure");
+                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8) : status);
+                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            }
+        } catch (Exception ex) {
+            logger.error("Error assigning asset code: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+        }
+        return result;
+    }
+
     private String resolveClientIp(HttpServletRequest request) {
         if (request == null) return "";
         String forwarded = request.getHeader("X-Forwarded-For");

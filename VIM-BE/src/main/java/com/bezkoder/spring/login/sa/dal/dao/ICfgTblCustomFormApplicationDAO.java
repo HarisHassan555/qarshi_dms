@@ -38,4 +38,6 @@ public interface ICfgTblCustomFormApplicationDAO {
     String sendBackApplication(Integer applicationId, String remarks);
 
     String sendSubmissionEmailsForApplication(Integer applicationId);
+
+    String assignAssetCode(Integer applicationId, String assetCode, Integer userId, String approvedIp);
 }

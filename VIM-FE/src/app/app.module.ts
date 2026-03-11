@@ -99,6 +99,7 @@ import { ApplicationComponent } from './components/application/application.compo
 import { ApplicationsViewComponent } from './components/applications-view/applications-view.component';
 import { PendingApprovalsComponent } from './components/pending-approvals/pending-approvals.component';
 import { ApplicationDetailsComponent } from './components/application-details/application-details.component';
+import { AssignAssetCodeComponent } from './components/assign-asset-code/assign-asset-code.component';
 import { FormBuilderComponent } from './components/form-builder/form-builder.component';
 import { EmailApprovalComponent } from './components/email-approval/email-approval.component';
 import { OrderListComponent } from "./apps/order/list";
@@ -219,6 +220,7 @@ import { CustomDocumentBuilderComponent } from './components/custom-document-bui
         ApplicationsViewComponent,
         PendingApprovalsComponent,
         ApplicationDetailsComponent,
+        AssignAssetCodeComponent,
         FormBuilderComponent,
         EmailApprovalComponent,
         OrderListComponent,

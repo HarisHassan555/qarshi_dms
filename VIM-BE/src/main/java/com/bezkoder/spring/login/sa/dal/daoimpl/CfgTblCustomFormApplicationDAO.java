@@ -747,7 +747,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             List<CfgTblCustomFormApplication> allPendingApplications = entityManager.createQuery(
                     "SELECT a FROM CfgTblCustomFormApplication a " +
                             "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                            "WHERE (a.txtStatus = 'PENDING' OR a.txtStatus = 'IN_PROGRESS') " +
+                        "WHERE (a.txtStatus = 'PENDING' OR a.txtStatus = 'IN_PROGRESS' OR a.txtStatus = 'CEO_PENDING' OR a.txtStatus = 'ASSET_PENDING') " +
                             "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
                             "ORDER BY a.dteCreatedDate DESC",
                     CfgTblCustomFormApplication.class)
@@ -835,7 +835,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
                     "SELECT a FROM CfgTblCustomFormApplication a " +
                             "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                            "WHERE (a.txtStatus = 'PENDING' OR a.txtStatus = 'IN_PROGRESS') " +
+                        "WHERE (a.txtStatus = 'PENDING' OR a.txtStatus = 'IN_PROGRESS' OR a.txtStatus = 'CEO_PENDING' OR a.txtStatus = 'ASSET_PENDING') " +
                             "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
                             "ORDER BY a.dteCreatedDate DESC",
                     CfgTblCustomFormApplication.class)
@@ -896,6 +896,33 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (approverSignaturePath == null || approverSignaturePath.trim().isEmpty()) {
                 entityManager.getTransaction().rollback();
                 return "Failure: Signature not uploaded. Please upload your signature before approving.";
+            }
+
+            // Short-circuit CEO approval stage
+            if ("CEO_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
+                if (!userHasRole(approverUser, "CEO")) {
+                    entityManager.getTransaction().rollback();
+                    return "Failure: Only CEO can approve at this stage";
+                }
+                application.setTxtStatus("ASSET_PENDING");
+                Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
+                if (financeUserId == null) {
+                    financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
+                }
+                application.setSerCurrentApprover(financeUserId);
+                // Append history entry for CEO approval
+                appendHistoryEntry(entityManager, application, resolvedApproverId, "APPROVED", "CEO", -99, approvedVia,
+                        approvedIp);
+                application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+                entityManager.merge(application);
+                entityManager.getTransaction().commit();
+                // Send Finance email
+                try {
+                    sendFinanceEmails(application, null);
+                } catch (Exception e) {
+                    log.warn("Finance email send failed: {}", e.getMessage());
+                }
+                return "Success";
             }
 
             // Get the form to check approval pipeline
@@ -990,12 +1017,23 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
                 currentLevel++;
                 if (currentLevel >= sequence.size()) {
-                    application.setTxtStatus("APPROVED");
+                    Integer ceoUserId = findFirstUserIdByRole(entityManager, "CEO");
+                    if (ceoUserId != null) {
+                        application.setTxtStatus("CEO_PENDING");
+                        application.setSerCurrentApprover(ceoUserId);
+                    } else {
+                        application.setTxtStatus("ASSET_PENDING");
+                        Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
+                        if (financeUserId == null) {
+                            financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
+                        }
+                        application.setSerCurrentApprover(financeUserId);
+                    }
                 } else {
                     application.setTxtStatus("IN_PROGRESS");
+                    application.setSerCurrentApprover(resolvedApproverId);
                 }
                 application.setIntCurrentApprovalLevel(currentLevel);
-                application.setSerCurrentApprover(resolvedApproverId);
                 application.setTxtRemarks(remarks);
                 application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
                 application.setSerModifiedUser(resolvedApproverId);
@@ -1197,16 +1235,29 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
             // Check if this is the last level
             if (pipelines.isEmpty() || currentLevel >= pipelines.size()) {
-                // All approvals complete
-                application.setTxtStatus("APPROVED");
+                // All approvals complete -> route to CEO (if available) otherwise go straight to Finance
                 application.setIntCurrentApprovalLevel(currentLevel);
+                Integer ceoUserId = findFirstUserIdByRole(entityManager, "CEO");
+                if (ceoUserId != null) {
+                    application.setTxtStatus("CEO_PENDING");
+                    application.setSerCurrentApprover(ceoUserId);
+                } else {
+                    application.setTxtStatus("ASSET_PENDING");
+                    Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
+                    if (financeUserId == null) {
+                        financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
+                    }
+                    application.setSerCurrentApprover(financeUserId);
+                }
             } else {
                 // Move to next level
                 application.setTxtStatus("IN_PROGRESS");
                 application.setIntCurrentApprovalLevel(currentLevel);
             }
 
-            application.setSerCurrentApprover(resolvedApproverId);
+            if (!"CEO_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
+                application.setSerCurrentApprover(resolvedApproverId);
+            }
             application.setTxtRemarks(remarks);
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
             application.setSerModifiedUser(resolvedApproverId);
@@ -1245,11 +1296,20 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             Integer approvedPipelineOrder = pipelineOrder != null ? pipelineOrder : (currentLevel);
             try {
                 sendApprovalEmails(application, approvedPipelineOrder, currentLevel, pipelines);
+                if ("CEO_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
+                    sendCeoApprovalEmails(application, form);
+                }
             } catch (Exception emailEx) {
                 log.error("Error sending approval emails: " + emailEx.getMessage(), emailEx);
                 // Don't fail the approval if email fails
             }
-            
+            if ("ASSET_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
+                try {
+                    sendFinanceEmails(application, form);
+                } catch (Exception e) {
+                    log.warn("Finance email send failed: {}", e.getMessage());
+                }
+            }
             return "Success";
         } catch (Exception e) {
             if (entityManager.getTransaction().isActive()) {
@@ -1577,7 +1637,54 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 entityManager.getTransaction().rollback();
             }
             log.error("Error in sendSubmissionEmailsForApplication: " + e.getMessage(), e);
-            return "Failure: " + (e.getMessage() != null ? e.getMessage() : "Unknown error");
+                return "Failure: " + (e.getMessage() != null ? e.getMessage() : "Unknown error");
+        } finally {
+            if (entityManager.isOpen()) {
+                entityManager.close();
+            }
+        }
+    }
+
+    @Override
+    public String assignAssetCode(Integer applicationId, String assetCode, Integer userId, String approvedIp) {
+        EntityManager entityManager = getEntityManager();
+        try {
+            entityManager.getTransaction().begin();
+            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class,
+                    applicationId);
+            if (application == null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Application not found";
+            }
+            if (!"ASSET_PENDING".equalsIgnoreCase(application.getTxtStatus())
+                    && !"ASSET_CODE_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Application is not pending asset code";
+            }
+            if (assetCode == null || assetCode.trim().isEmpty()) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Asset code is required";
+            }
+            application.setTxtAssetCode(assetCode.trim());
+            application.setTxtStatus("APPROVED");
+            application.setSerCurrentApprover(null);
+            appendHistoryEntry(entityManager, application, userId, "APPROVED", "FINANCE", 999, "SYSTEM", approvedIp);
+            application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+            entityManager.merge(application);
+            entityManager.getTransaction().commit();
+
+            try {
+                sendFinalInitiatorEmail(application);
+            } catch (Exception e) {
+                log.warn("Failed to send final initiator email after asset code: {}", e.getMessage());
+            }
+            return "Success";
+        } catch (Exception e) {
+            if (entityManager.getTransaction().isActive()) {
+                entityManager.getTransaction().rollback();
+            }
+            log.error("Error assigning asset code: " + e.getMessage(), e);
+            return "Failure: " + e.getMessage();
         } finally {
             if (entityManager.isOpen()) {
                 entityManager.close();
@@ -1785,6 +1892,162 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
         } catch (Exception e) {
             log.error("Error in sendApprovalEmails: " + e.getMessage(), e);
+        } finally {
+            if (emailEntityManager.isOpen()) {
+                emailEntityManager.close();
+            }
+        }
+    }
+
+    private void sendCeoApprovalEmails(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
+        EntityManager emailEntityManager = getEntityManager();
+        try {
+            emailEntityManager.getTransaction().begin();
+            java.util.List<String> ceoEmails = findEmailsByRole(emailEntityManager, "CEO");
+            if (ceoEmails == null || ceoEmails.isEmpty()) {
+                log.warn("CEO notification skipped (no CEO emails) for appId={}", application.getSerApplicationId());
+                emailEntityManager.getTransaction().rollback();
+                return;
+            }
+            String formName = form != null ? form.getTxtFormName() : "Application";
+            String baseUrl = getBaseUrl();
+            Integer ceoUserId = findFirstUserIdByRole(emailEntityManager, "CEO");
+            String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId=" + application.getSerApplicationId()
+                    + "&userId=" + (ceoUserId != null ? ceoUserId : "");
+            String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId=" + application.getSerApplicationId()
+                    + "&userId=" + (ceoUserId != null ? ceoUserId : "");
+            String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId=" + application.getSerApplicationId()
+                    + "&userId=" + (ceoUserId != null ? ceoUserId : "");
+
+            String subject = "CEO Approval Required - " + (application.getTxtFormCode() != null
+                    ? application.getTxtFormCode()
+                    : formName);
+
+            String html = generateApprovalEmailHtml(
+                    "CEO",
+                    currentLevelSafe(application),
+                    application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
+                    formName,
+                    "CEO_APPROVAL_REQUIRED",
+                    null,
+                    true,
+                    approveUrl,
+                    rejectUrl,
+                    sendBackUrl,
+                    application.getTxtApprovalHistory(),
+                    getBaseUrl());
+
+            if (isCapfForm(form)) {
+                String cid = "capf-inline";
+                byte[] imageBytes = buildCapfPreviewPng(application, form);
+                if (imageBytes != null && imageBytes.length > 0) {
+                    html = appendCapfInlineImage(html, cid);
+                    emailService.sendHtmlEmailWithInlineImage(ceoEmails, subject, html, imageBytes, "image/png", cid);
+                } else {
+                    emailService.sendHtmlEmail(ceoEmails, subject, html);
+                }
+            } else {
+                emailService.sendHtmlEmail(ceoEmails, subject, html);
+            }
+            emailEntityManager.getTransaction().commit();
+            log.info("CEO approval emails sent for appId={} to {}", application.getSerApplicationId(), ceoEmails);
+        } catch (Exception e) {
+            if (emailEntityManager.getTransaction().isActive())
+                emailEntityManager.getTransaction().rollback();
+            log.error("Error sending CEO approval emails: " + e.getMessage(), e);
+        } finally {
+            if (emailEntityManager.isOpen()) {
+                emailEntityManager.close();
+            }
+        }
+    }
+
+    private void sendFinanceEmails(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
+        EntityManager emailEntityManager = getEntityManager();
+        try {
+            emailEntityManager.getTransaction().begin();
+            java.util.List<String> financeEmails = findEmailsByRole(emailEntityManager, "FINANCE_HEAD");
+            if (financeEmails == null || financeEmails.isEmpty()) {
+                financeEmails = findEmailsByRole(emailEntityManager, "FINANCE");
+            }
+            if (financeEmails == null || financeEmails.isEmpty()) {
+                log.warn("Finance notification skipped (no finance emails) for appId={}", application.getSerApplicationId());
+                emailEntityManager.getTransaction().rollback();
+                return;
+            }
+            String formName = form != null ? form.getTxtFormName() : "Application";
+            String subject = "Finance Action Required (Asset Code) - " + (application.getTxtFormCode() != null
+                    ? application.getTxtFormCode()
+                    : formName);
+
+            String frontendUrl = frontendBaseUrl != null ? frontendBaseUrl : "http://localhost:4200";
+            // direct the finance HOD to the dedicated asset-code page
+            String assignUrl = frontendUrl + "/velocity/assign-asset-code/" + application.getSerApplicationId();
+
+            StringBuilder html = new StringBuilder();
+            html.append("<p>Dear Finance Team,</p>");
+            html.append("<p>The application <strong>").append(application.getTxtFormCode()).append("</strong> is awaiting asset code assignment.</p>");
+            html.append("<p>Please review and assign the asset code:</p>");
+            html.append("<p><a href='").append(assignUrl).append("' style='padding:10px 16px;background:#2c7be5;color:#fff;text-decoration:none;border-radius:4px;'>Assign Asset Code</a></p>");
+            html.append("<p>If you need to reject or send back, use the standard action buttons in the application.</p>");
+            html.append("<p>Thank you.</p>");
+
+            if (isCapfForm(form)) {
+                String cid = "capf-inline";
+                byte[] imageBytes = buildCapfPreviewPng(application, form);
+                String htmlStr = html.toString();
+                if (imageBytes != null && imageBytes.length > 0) {
+                    htmlStr = appendCapfInlineImage(htmlStr, cid);
+                    emailService.sendHtmlEmailWithInlineImage(financeEmails, subject, htmlStr, imageBytes, "image/png", cid);
+                } else {
+                    emailService.sendHtmlEmail(financeEmails, subject, htmlStr);
+                }
+            } else {
+                emailService.sendHtmlEmail(financeEmails, subject, html.toString());
+            }
+            emailEntityManager.getTransaction().commit();
+            log.info("Finance emails sent for appId={} to {}", application.getSerApplicationId(), financeEmails);
+        } catch (Exception e) {
+            if (emailEntityManager.getTransaction().isActive())
+                emailEntityManager.getTransaction().rollback();
+            log.error("Error sending Finance emails: " + e.getMessage(), e);
+        } finally {
+            if (emailEntityManager.isOpen()) {
+                emailEntityManager.close();
+            }
+        }
+    }
+
+    private void sendFinalInitiatorEmail(CfgTblCustomFormApplication application) {
+        EntityManager emailEntityManager = getEntityManager();
+        try {
+            emailEntityManager.getTransaction().begin();
+            if (application.getSerSubmittedBy() == null) {
+                emailEntityManager.getTransaction().rollback();
+                return;
+            }
+            CfgTblUser submitter = emailEntityManager.find(CfgTblUser.class, application.getSerSubmittedBy());
+            if (submitter == null || submitter.getTxtAddress() == null || submitter.getTxtAddress().trim().isEmpty()) {
+                emailEntityManager.getTransaction().rollback();
+                return;
+            }
+            String subject = "Application Approved - " + (application.getTxtFormCode() != null
+                    ? application.getTxtFormCode()
+                    : "Application");
+            StringBuilder html = new StringBuilder();
+            html.append("<p>Dear ").append(submitter.getTxtUserName() != null ? submitter.getTxtUserName() : "User")
+                    .append(",</p>");
+            html.append("<p>Your application has been fully approved.</p>");
+            if (application.getTxtAssetCode() != null) {
+                html.append("<p>Asset Code: <strong>").append(application.getTxtAssetCode()).append("</strong></p>");
+            }
+            html.append("<p>Thank you.</p>");
+            emailService.sendHtmlEmail(java.util.Arrays.asList(submitter.getTxtAddress()), subject, html.toString());
+            emailEntityManager.getTransaction().commit();
+        } catch (Exception e) {
+            if (emailEntityManager.getTransaction().isActive())
+                emailEntityManager.getTransaction().rollback();
+            log.warn("Failed to send final initiator email: {}", e.getMessage());
         } finally {
             if (emailEntityManager.isOpen()) {
                 emailEntityManager.close();
@@ -3167,7 +3430,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     @SuppressWarnings("unchecked")
     private Map<String, Object>[] mapCapfApprovalEntries(List<Map<String, Object>> approved,
             List<Map<String, Object>> pipelines) {
-        Map<String, Object>[] mapped = new Map[6];
+        // CAPF footer has 5 visible slots; keep mapping array length 5
+        Map<String, Object>[] mapped = new Map[5];
         if (approved == null || approved.isEmpty())
             return mapped;
 
@@ -3177,7 +3441,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             sorted.sort(
                     (a, b) -> safeInt(a.get("intApprovalOrder"), 0).compareTo(safeInt(b.get("intApprovalOrder"), 0)));
             for (Map<String, Object> p : sorted) {
-                if (pipelineSlots.size() >= 6)
+                if (pipelineSlots.size() >= 5)
                     break;
                 pipelineSlots.add(extractPipelineDepartmentName(p));
             }
@@ -3189,7 +3453,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         for (int i = 0; i < approved.size(); i++) {
             Map<String, Object> entry = approved.get(i);
             Integer order = safeInt(entry.get("intApprovalOrder"), safeInt(entry.get("level"), null));
-            if (order != null && order >= 1 && order <= 6 && mapped[order - 1] == null) {
+            if (order != null && order >= 1 && order <= 5 && mapped[order - 1] == null) {
                 mapped[order - 1] = entry;
                 usedIndexes.add(i);
             }
@@ -3231,10 +3495,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         if (mapped[3] == null)
             mapped[3] = findCapfEntryForRole(approved, new String[] { "finance", "account" }, 3, usedIndexes);
         if (mapped[4] == null)
-            mapped[4] = findCapfEntryForRole(approved, new String[] { "core", "cct", "hrt", "hr", "team" }, 4,
-                    usedIndexes);
-        if (mapped[5] == null)
-            mapped[5] = findCapfEntryForRole(approved, new String[] { "chief", "executive", "ceo" }, 5, usedIndexes);
+            mapped[4] = findCapfEntryForRole(approved, new String[] { "chief", "executive", "ceo" }, 4, usedIndexes);
 
         int fillIdx = 0;
         for (int i = 0; i < mapped.length; i++) {
@@ -5559,6 +5820,88 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         } catch (Exception e) {
             log.warn("Inline preview email failed, fallback to HTML only: {}", e.getMessage());
             emailService.sendHtmlEmail(recipients, subject, html);
+        }
+    }
+
+    private Integer findFirstUserIdByRole(EntityManager entityManager, String roleName) {
+        if (entityManager == null || roleName == null)
+            return null;
+        try {
+            return (Integer) entityManager
+                    .createQuery(
+                            "SELECT u.serUserId FROM com.bezkoder.spring.login.admin.dal.entities.CfgTblUser u "
+                                    + "WHERE (u.blIsDeleted = false OR u.blIsDeleted IS NULL) "
+                                    + "AND UPPER(u.cfgTblRole.txtRoleName) = :roleName "
+                                    + "ORDER BY u.serUserId ASC")
+                    .setParameter("roleName", roleName.trim().toUpperCase())
+                    .setMaxResults(1)
+                    .getSingleResult();
+        } catch (Exception e) {
+            log.warn("findFirstUserIdByRole failed for role {}: {}", roleName, e.getMessage());
+            return null;
+        }
+    }
+
+    private java.util.List<String> findEmailsByRole(EntityManager entityManager, String roleName) {
+        java.util.List<String> emails = new java.util.ArrayList<>();
+        if (entityManager == null || roleName == null)
+            return emails;
+        try {
+            emails = entityManager
+                    .createQuery(
+                            "SELECT u.txtAddress FROM com.bezkoder.spring.login.admin.dal.entities.CfgTblUser u "
+                                    + "WHERE (u.blIsDeleted = false OR u.blIsDeleted IS NULL) "
+                                    + "AND UPPER(u.cfgTblRole.txtRoleName) = :roleName "
+                                    + "AND u.txtAddress IS NOT NULL",
+                            String.class)
+                    .setParameter("roleName", roleName.trim().toUpperCase())
+                    .getResultList();
+        } catch (Exception e) {
+            log.warn("findEmailsByRole failed for role {}: {}", roleName, e.getMessage());
+        }
+        return emails != null ? emails : new java.util.ArrayList<>();
+    }
+
+    private int currentLevelSafe(CfgTblCustomFormApplication application) {
+        Integer lvl = application != null ? application.getIntCurrentApprovalLevel() : null;
+        return lvl != null ? lvl : 0;
+    }
+
+    private boolean userHasRole(CfgTblUser user, String roleName) {
+        if (user == null || roleName == null)
+            return false;
+        String rn = "";
+        try {
+            rn = user.getCfgTblRole() != null && user.getCfgTblRole().getTxtRoleName() != null
+                    ? user.getCfgTblRole().getTxtRoleName()
+                    : "";
+        } catch (Exception ignored) {
+        }
+        return roleName.trim().equalsIgnoreCase(rn.trim());
+    }
+
+    private void appendHistoryEntry(EntityManager em, CfgTblCustomFormApplication application, Integer userId,
+            String action, String role, Integer level, String approvedVia, String approvedIp) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            java.util.List<java.util.Map<String, Object>> history = new java.util.ArrayList<>();
+            if (application.getTxtApprovalHistory() != null && !application.getTxtApprovalHistory().trim().isEmpty()) {
+                history = mapper.readValue(application.getTxtApprovalHistory(),
+                        new com.fasterxml.jackson.core.type.TypeReference<java.util.List<java.util.Map<String, Object>>>() {
+                        });
+            }
+            java.util.Map<String, Object> entry = new java.util.HashMap<>();
+            entry.put("approvedBy", userId);
+            entry.put("action", action);
+            entry.put("role", role);
+            entry.put("level", level);
+            entry.put("approvedVia", approvedVia != null ? approvedVia : "SYSTEM");
+            entry.put("approvedIp", approvedIp != null ? approvedIp : "");
+            entry.put("approvedAt", commonService.getCurrentTimeStamp_new());
+            history.add(entry);
+            application.setTxtApprovalHistory(mapper.writeValueAsString(history));
+        } catch (Exception e) {
+            log.warn("appendHistoryEntry failed: {}", e.getMessage());
         }
     }
 
