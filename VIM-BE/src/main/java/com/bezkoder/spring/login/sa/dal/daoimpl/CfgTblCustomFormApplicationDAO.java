@@ -1620,6 +1620,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             boolean isBudgetApproval = isBudgetApprovalForm(form);
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
             boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
+            Map<String, Object> appData = parseApplicationData(application);
+            String quotationAttachmentHtml = buildQuotationAttachmentHtml(appData);
 
             entityManager.getTransaction().commit();
 
@@ -2082,6 +2084,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                      application.getSerApplicationId(), isCapf, formName, 
                      application.getTxtFormCode() != null ? application.getTxtFormCode() : "null");
             
+            Map<String, Object> appData = parseApplicationData(application);
+            String quotationAttachmentHtml = buildQuotationAttachmentHtml(appData);
+
             boolean isBudgetApproval = isBudgetApprovalForm(form);
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
             boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
@@ -2121,6 +2126,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             application.getTxtStatus(),
                             application.getDteCreatedDate() != null ? application.getDteCreatedDate().toString() : "N/A"
                         );
+                        if (!quotationAttachmentHtml.isEmpty()) {
+                            submitterHtmlMessage += quotationAttachmentHtml;
+                        }
                         
                         sendEmailWithInlineFormPreview(
                                 java.util.Arrays.asList(submittedByUser.getTxtAddress()),
@@ -2173,6 +2181,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                     application.getTxtApprovalHistory(),
                                     getBaseUrl()
                                 );
+                                if (!quotationAttachmentHtml.isEmpty()) {
+                                    signerHtml += quotationAttachmentHtml;
+                                }
                                 
                                 String cid = "capf-inline";
                                 byte[] imageBytes = buildCapfPreviewPng(application, form);
@@ -5831,6 +5842,95 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             log.warn("Inline preview email failed, fallback to HTML only: {}", e.getMessage());
             emailService.sendHtmlEmail(recipients, subject, html);
         }
+    }
+
+    private String buildQuotationAttachmentHtml(Map<String, Object> appData) {
+        if (appData == null)
+            return "";
+        Object val = appData.get("quotation_attachments");
+        if (!(val instanceof List<?>))
+            return "";
+        List<?> attachments = (List<?>) val;
+        if (attachments.isEmpty())
+            return "";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("<div style='margin-top:14px;padding:12px;border:1px solid #e5e7eb;border-radius:6px;background:#fafafa;'>");
+        sb.append("<div style='font-weight:600;margin-bottom:6px;'>Quotation Attachments</div>");
+        sb.append("<ul style='margin:0;padding-left:18px;font-size:13px;'>");
+        int idx = 1;
+        for (Object att : attachments) {
+            String name = null;
+            String link = null;
+            String mimeHint = null;
+            if (att instanceof Map<?, ?>) {
+                Map<?, ?> m = (Map<?, ?>) att;
+                name = stringFirst(m.get("fileName"), m.get("name"), m.get("originalName"), m.get("filename"), m.get("title"));
+                mimeHint = stringFirst(m.get("mimeType"), m.get("type"));
+                Object urlObj = m.get("url");
+                if (urlObj instanceof String && ((String) urlObj).trim().toLowerCase().startsWith("http")) {
+                    link = ((String) urlObj).trim();
+                } else {
+                    Object dataUrlObj = m.get("dataUrl");
+                    if (dataUrlObj instanceof String) {
+                        link = ((String) dataUrlObj).trim();
+                    } else {
+                        Object content = stringFirst(m.get("base64"), m.get("data"), m.get("content"), m.get("fileBase64"), m.get("fileData"));
+                        if (content instanceof String && ((String) content).length() > 40) {
+                            String mime = mimeHint != null ? mimeHint : "image/png";
+                            link = "data:" + htmlEscape(mime) + ";base64," + content;
+                        }
+                    }
+                }
+            } else if (att instanceof String) {
+                String s = ((String) att).trim();
+                name = s;
+                if (s.toLowerCase().startsWith("http")) {
+                    link = s;
+                }
+            }
+            if (name == null || name.trim().isEmpty()) {
+                name = "Attachment " + idx;
+            }
+            sb.append("<li>");
+            boolean isImageLink = link != null && (link.startsWith("data:image")
+                    || link.toLowerCase().matches("(?i).+\\.(png|jpe?g|gif|webp|bmp)$")
+                    || (mimeHint != null && mimeHint.toLowerCase().startsWith("image")));
+
+            if (link != null && isImageLink) {
+                sb.append("<div style='margin:6px 0;'>")
+                  .append("<div style='font-weight:500;'>").append(htmlEscape(name)).append("</div>")
+                  .append("<img src='").append(htmlEscape(link)).append("' style='max-width:480px;border:1px solid #e5e7eb;border-radius:4px;padding:4px;margin-top:4px;'>")
+                  .append("</div>");
+            } else if (link != null) {
+                sb.append("<a href='").append(htmlEscape(link)).append("' target='_blank' rel='noopener'>")
+                        .append(htmlEscape(name)).append("</a>");
+            } else {
+                sb.append(htmlEscape(name));
+            }
+            sb.append("</li>");
+            idx++;
+        }
+        sb.append("</ul></div>");
+        return sb.toString();
+    }
+
+    private String stringFirst(Object... objs) {
+        if (objs == null)
+            return null;
+        for (Object o : objs) {
+            if (o instanceof String && !((String) o).trim().isEmpty()) {
+                return ((String) o).trim();
+            }
+        }
+        return null;
+    }
+
+    private String htmlEscape(String s) {
+        if (s == null)
+            return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     private Integer findFirstUserIdByRole(EntityManager entityManager, String roleName) {
