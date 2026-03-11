@@ -1,1 +1,17 @@
 /* Pending Approvals styles */
+
+.loader-spinner {
+    width: 1.1rem;
+    height: 1.1rem;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    display: inline-block;
+    animation: pending-spin 0.75s linear infinite;
+}
+
+@keyframes pending-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}

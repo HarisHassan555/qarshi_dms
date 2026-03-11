@@ -494,14 +494,19 @@
       border-bottom: 1px solid var(--line);
       height: 32px;
       margin-bottom: 4px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      gap: 6px;
+      overflow: hidden;
     }
 
     .sig-img {
       max-height: 36px;
-      max-width: 100%;
+      max-width: calc(50% - 3px);
       object-fit: contain;
-      display: block;
-      margin: 0 auto;
+      display: inline-block;
+      margin: 0;
     }
 
     .sig-time {

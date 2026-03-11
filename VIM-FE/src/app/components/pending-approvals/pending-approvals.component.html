@@ -13,7 +13,14 @@
         </div>
     </div>
 
-    <div class="datatable invoice-table" *ngIf="getDisplayedPendingApprovals().length > 0">
+    <div *ngIf="isLoading" class="px-5 py-10 text-center">
+        <div class="inline-flex items-center gap-3 text-primary">
+            <span class="loader-spinner" aria-hidden="true"></span>
+            <span>Loading pending approvals...</span>
+        </div>
+    </div>
+
+    <div class="datatable invoice-table" *ngIf="!isLoading && getDisplayedPendingApprovals().length > 0">
         <ng-datatable 
             [rows]="getDisplayedPendingApprovals()" 
             [columns]="cols" 
@@ -49,7 +56,7 @@
         </ng-datatable>
     </div>
 
-    <div *ngIf="getDisplayedPendingApprovals().length === 0" class="px-5 py-8 text-center">
+    <div *ngIf="!isLoading && getDisplayedPendingApprovals().length === 0" class="px-5 py-8 text-center">
         <p class="text-gray-600 dark:text-gray-400">
             No pending approvals found.
         </p>

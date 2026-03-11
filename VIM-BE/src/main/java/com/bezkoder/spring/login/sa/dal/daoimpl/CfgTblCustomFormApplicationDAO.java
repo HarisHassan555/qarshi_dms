@@ -711,39 +711,18 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         EntityManager entityManager = getEntityManager();
         try {
             entityManager.getTransaction().begin();
-
-            // First, find all departments where this user is the head
-            java.util.List<com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment> departments = new java.util.ArrayList<>();
-            try {
-                departments = entityManager.createNativeQuery(
-                        "SELECT * FROM hr_tbl_department d " +
-                                "WHERE FIND_IN_SET(:headUserId, d.ser_department_head_id) " +
-                                "AND (d.bl_is_deleted = false OR d.bl_is_deleted IS NULL)",
-                        com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class)
-                        .setParameter("headUserId", String.valueOf(departmentHeadUserId))
-                        .getResultList();
-            } catch (Exception e) {
-                log.warn("Error finding department for head user " + departmentHeadUserId + ": " + e.getMessage());
-            }
-
-            if (departments == null || departments.isEmpty()) {
+            if (departmentHeadUserId == null || departmentHeadUserId <= 0) {
                 entityManager.getTransaction().commit();
                 return new java.util.ArrayList<>();
             }
 
-            java.util.Set<Integer> departmentIds = new java.util.HashSet<>();
-            for (com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment dept : departments) {
-                if (dept != null && dept.getSerDepartmentId() != null) {
-                    departmentIds.add(dept.getSerDepartmentId());
-                }
-            }
-            if (departmentIds.isEmpty()) {
+            CfgTblUser approverUser = commonService.getCurrentUser(departmentHeadUserId);
+            if (approverUser == null) {
                 entityManager.getTransaction().commit();
                 return new java.util.ArrayList<>();
             }
 
-            // Get applications with PENDING or IN_PROGRESS status (capped to avoid MySQL
-            // sort buffer overflow)
+            // Keep query broad, then apply precise "is pending for this user at this stage" filtering.
             List<CfgTblCustomFormApplication> allPendingApplications = entityManager.createQuery(
                     "SELECT a FROM CfgTblCustomFormApplication a " +
                             "LEFT JOIN FETCH a.cfgTblCustomForm f " +
@@ -755,58 +734,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     .setMaxResults(2000)
                     .getResultList();
 
-            // Filter applications where the current approval level matches this
-            // department's order in the pipeline
             List<CfgTblCustomFormApplication> filteredApplications = new java.util.ArrayList<>();
-
             for (CfgTblCustomFormApplication app : allPendingApplications) {
-                if (app.getCfgTblCustomForm() == null) {
-                    continue;
-                }
-
-                // Deserialize approval pipeline from JSON
-                String pipelineJson = app.getCfgTblCustomForm().getTxtApprovalPipeline();
-                if (pipelineJson == null || pipelineJson.trim().isEmpty()) {
-                    continue; // No approval pipeline configured
-                }
-
-                try {
-                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                    List<java.util.Map<String, Object>> pipelines = mapper.readValue(
-                            pipelineJson,
-                            new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
-                            });
-
-                    Integer currentLevel = app.getIntCurrentApprovalLevel();
-                    if (currentLevel == null) {
-                        currentLevel = 0;
-                    }
-
-                    // Check if any department headed by this user matches the current approval
-                    // level
-                    for (java.util.Map<String, Object> pipeline : pipelines) {
-                        Object deptIdObj = pipeline.get("serDepartmentId");
-                        Object orderObj = pipeline.get("intApprovalOrder");
-                        if (deptIdObj == null || orderObj == null) {
-                            continue;
-                        }
-                        Integer deptId = deptIdObj instanceof Integer ? (Integer) deptIdObj
-                                : Integer.parseInt(deptIdObj.toString());
-                        if (!departmentIds.contains(deptId)) {
-                            continue;
-                        }
-                        Integer departmentOrder = orderObj instanceof Integer ? (Integer) orderObj
-                                : Integer.parseInt(orderObj.toString());
-                        // Approval level 0 means first department (order 1), level 1 means second
-                        // department (order 2), etc.
-                        if (currentLevel.equals(departmentOrder - 1)) {
-                            filteredApplications.add(app);
-                            break;
-                        }
-                    }
-                } catch (Exception e) {
-                    log.warn("Error parsing approval pipeline for application " + app.getSerApplicationId() + ": "
-                            + e.getMessage());
+                if (isPendingForUserAtCurrentStage(entityManager, app, departmentHeadUserId, approverUser)) {
+                    filteredApplications.add(app);
                 }
             }
 
@@ -831,6 +762,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         EntityManager entityManager = getEntityManager();
         try {
             entityManager.getTransaction().begin();
+            Integer currentUserId = commonService.getCurrentLoggedInUser();
+            if (currentUserId == null || currentUserId <= 0) {
+                entityManager.getTransaction().commit();
+                return new java.util.ArrayList<>();
+            }
+
+            CfgTblUser currentUser = commonService.getCurrentUser(currentUserId);
+            if (currentUser == null) {
+                entityManager.getTransaction().commit();
+                return new java.util.ArrayList<>();
+            }
 
             List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
                     "SELECT a FROM CfgTblCustomFormApplication a " +
@@ -843,8 +785,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     .setMaxResults(2000)
                     .getResultList();
 
+            List<CfgTblCustomFormApplication> filteredApplications = new java.util.ArrayList<>();
+            for (CfgTblCustomFormApplication app : applications) {
+                if (isPendingForUserAtCurrentStage(entityManager, app, currentUserId, currentUser)) {
+                    filteredApplications.add(app);
+                }
+            }
+
             entityManager.getTransaction().commit();
-            return applications;
+            return filteredApplications;
         } catch (Exception e) {
             if (entityManager.getTransaction().isActive()) {
                 entityManager.getTransaction().rollback();
@@ -855,6 +804,88 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (entityManager.isOpen()) {
                 entityManager.close();
             }
+        }
+    }
+
+    private boolean isPendingForUserAtCurrentStage(EntityManager entityManager,
+            CfgTblCustomFormApplication application,
+            Integer userId,
+            CfgTblUser user) {
+        if (entityManager == null || application == null || userId == null || userId <= 0) {
+            return false;
+        }
+        String status = application.getTxtStatus() != null ? application.getTxtStatus().trim().toUpperCase() : "";
+        if ("CEO_PENDING".equals(status)) {
+            return userHasRole(user, "CEO");
+        }
+        if ("ASSET_PENDING".equals(status)) {
+            return userHasRole(user, "FINANCE_HEAD") || userHasRole(user, "FINANCE");
+        }
+
+        com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form = application.getCfgTblCustomForm();
+        if (form == null && application.getSerFormId() != null) {
+            form = entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class,
+                    application.getSerFormId());
+        }
+        if (form == null) {
+            return false;
+        }
+
+        if (isCapfForm(form) && application.getIntCurrentApprovalLevel() != null
+                && application.getIntCurrentApprovalLevel() == -1) {
+            Integer initialSignerId = extractInitialSignerId(application);
+            return initialSignerId != null && initialSignerId.equals(userId);
+        }
+
+        Map<String, Object> appData = parseApplicationData(application);
+        boolean useIndividualPipelineFlow = isBudgetApprovalForm(form) || !extractFooterFields(appData).isEmpty();
+        if (useIndividualPipelineFlow) {
+            List<BudgetApprover> sequence = getBudgetApprovalSequence(appData, entityManager);
+            int currentLevel = currentLevelSafe(application);
+            if (currentLevel >= 0 && currentLevel < sequence.size()) {
+                BudgetApprover expected = sequence.get(currentLevel);
+                return expected != null && expected.userId != null && expected.userId.equals(userId);
+            }
+            return false;
+        }
+
+        String pipelineJson = form.getTxtApprovalPipeline();
+        if (pipelineJson == null || pipelineJson.trim().isEmpty()) {
+            return false;
+        }
+
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            List<Map<String, Object>> pipelines = mapper.readValue(
+                    pipelineJson,
+                    new TypeReference<List<Map<String, Object>>>() {
+                    });
+            int currentLevel = currentLevelSafe(application);
+            if (currentLevel < 0 || currentLevel >= pipelines.size()) {
+                return false;
+            }
+
+            Map<String, Object> currentPipeline = pipelines.get(currentLevel);
+            if (currentPipeline == null) {
+                return false;
+            }
+
+            Integer departmentId = safeInt(currentPipeline.get("serDepartmentId"),
+                    safeInt(currentPipeline.get("departmentId"), null));
+            String departmentName = resolveDepartmentName(entityManager, departmentId, currentPipeline);
+            if (isUserDepartmentHodStage(currentPipeline, departmentName)) {
+                Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
+                if (submitterDeptId != null) {
+                    departmentId = submitterDeptId;
+                }
+            }
+
+            Integer userDepartmentId = loadUserDepartmentId(entityManager, userId);
+            return departmentId != null && userDepartmentId != null && departmentId.equals(userDepartmentId);
+        } catch (Exception e) {
+            log.warn("Error filtering pending app {} for user {}: {}", application.getSerApplicationId(), userId,
+                    e.getMessage());
+            return false;
         }
     }
 

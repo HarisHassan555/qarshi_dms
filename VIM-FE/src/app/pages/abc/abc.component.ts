@@ -22,11 +22,11 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
     signatureSlots: Array<{
         nameText: string;
         designationText: string;
-        departmentUserText?: string;
         departmentText: string;
         order: number;
         departmentId?: number;
         signatureUrl: string;
+        signatureUrls?: string[];
         approvedDateText: string;
     }> = [];
 
@@ -224,10 +224,6 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
                 '';
             return designation;
         };
-        const getDepartmentUserText = (entry: any): string => {
-            return entry?.departmentName || entry?.txtDepartmentName || '';
-        };
-
         this.approvalHistory = this.parseApprovalHistory();
         const pipelines = this.getPipelineData();
         const staticLabels = this.fallbackSignatureSlots.map(s => s.label);
@@ -236,23 +232,27 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
             this.signatureSlots = pipelines.slice(0, staticLabels.length).map((pipeline: any, index: number) => {
                 const order = pipeline.intApprovalOrder || (index + 1);
                 const departmentId = pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId || pipeline.departmentId;
-                const entry = this.getApprovalEntryForPipeline(order, departmentId);
+                const entries = this.getApprovalEntriesForPipeline(order, departmentId);
+                const entry = entries[0] || null;
                 const nameText = getNameText(entry);
                 const designationText = getDesignationText(entry);
-                const departmentUserText = getDepartmentUserText(entry);
                 const departmentText = staticLabels[index] || `Department ${order}`;
-                const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
                 const approvedDate = entry?.approvedDate;
                 const hasSignature = !!entry?.signaturePath;
+                const signatureUrls = entries
+                    .filter((e: any) => !!e?.signaturePath)
+                    .map((e: any) => e?.approvedBy || e?.approverUserId || e?.userId)
+                    .filter((id: any) => !!id)
+                    .map((id: any) => `${urls.API_URL}getSignature?userId=${id}`)
+                    .slice(0, 2);
                 console.log('[CAPF FE][abc][slot-pipeline]', {
                     slot: index + 1,
                     order,
                     departmentId,
-                    entryLevel: entry?.level,
-                    entryOrder: entry?.intApprovalOrder,
-                    approvedBy: entry?.approvedBy || entry?.approverUserId || entry?.userId,
-                    entrySignaturePath: entry?.signaturePath || '',
-                    hasSignature
+                    entriesFound: entries.length,
+                    entryLevels: entries.map((e: any) => e?.level || e?.intApprovalOrder),
+                    approvedBy: entries.map((e: any) => e?.approvedBy || e?.approverUserId || e?.userId),
+                    hasSignatureCount: signatureUrls.length
                 });
                 return {
                     nameText,
@@ -260,7 +260,8 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
                     departmentText,
                     order,
                     departmentId,
-                    signatureUrl: userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '',
+                    signatureUrl: signatureUrls[0] || '',
+                    signatureUrls,
                     approvedDateText: hasSignature ? this.formatApprovalDate(approvedDate) : ''
                 };
             });
@@ -271,7 +272,6 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
             const entry = this.getApprovalEntryForSlot(slot);
             const nameText = getNameText(entry);
             const designationText = getDesignationText(entry);
-            const departmentUserText = getDepartmentUserText(entry);
             const departmentText = slot.label;
             const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
             const approvedDate = entry?.approvedDate;
@@ -286,7 +286,6 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
             return {
                 nameText,
                 designationText,
-                departmentUserText,
                 departmentText,
                 order: index + 1,
                 signatureUrl: userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '',
@@ -311,62 +310,80 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
     }
 
     private getApprovalEntryForSlot(slot: { keywords: string[] }): any | null {
+        const entries = this.getApprovalEntriesForSlot(slot);
+        return entries[0] || null;
+    }
+
+    private getApprovalEntriesForSlot(slot: { keywords: string[] }): any[] {
         if (!this.approvalHistory || this.approvalHistory.length === 0) {
-            return null;
+            return [];
         }
 
         const keywordsLower = (slot.keywords || []).map(k => k.toLowerCase());
-        const byDept = this.approvalHistory.find((e: any) => {
+        const byDept = this.approvalHistory.filter((e: any) => {
             const deptName = (e.departmentName || '').toString().toLowerCase();
             const roleName = (e.role || '').toString().toLowerCase();
             const combined = `${deptName} ${roleName}`.trim();
             if (!combined) return false;
             return keywordsLower.every(k => combined.includes(k));
         });
-        if (byDept) {
+        if (byDept.length > 0) {
             return byDept;
         }
 
-        return null;
+        return [];
     }
 
     private getApprovalEntryForPipeline(order: number, departmentId?: number, departmentName?: string): any | null {
+        const entries = this.getApprovalEntriesForPipeline(order, departmentId, departmentName);
+        return entries[0] || null;
+    }
+
+    private getApprovalEntriesForPipeline(order: number, departmentId?: number, departmentName?: string): any[] {
         if (!this.approvalHistory || this.approvalHistory.length === 0) {
-            return null;
+            return [];
         }
 
-        let entry = null;
+        let entries: any[] = [];
         if (departmentId) {
-            entry = this.approvalHistory.find((e: any) =>
+            entries = this.approvalHistory.filter((e: any) =>
                 (e.level === order || e.intApprovalOrder === order) &&
                 (Number(e.departmentId) === Number(departmentId) || Number(e.serDepartmentId) === Number(departmentId))
             );
         }
-        if (!entry) {
-            entry = this.approvalHistory.find((e: any) => e.level === order || e.intApprovalOrder === order);
+        if (entries.length === 0) {
+            entries = this.approvalHistory.filter((e: any) => e.level === order || e.intApprovalOrder === order);
         }
-        if (!entry && departmentId) {
-            entry = this.approvalHistory.find((e: any) =>
+        if (entries.length === 0 && departmentId) {
+            entries = this.approvalHistory.filter((e: any) =>
                 Number(e.departmentId) === Number(departmentId) || Number(e.serDepartmentId) === Number(departmentId)
             );
         }
-        if (!entry && departmentName) {
+        if (entries.length === 0 && departmentName) {
             const nameLower = departmentName.toLowerCase();
-            entry = this.approvalHistory.find((e: any) =>
+            entries = this.approvalHistory.filter((e: any) =>
                 (e.departmentName || '').toString().toLowerCase() === nameLower
             );
         }
+        const dedupMap = new Map<string, any>();
+        entries.forEach((e: any) => {
+            const approverId = e?.approvedBy || e?.approverUserId || e?.userId || '';
+            const key = `${approverId}_${e?.signaturePath || ''}_${e?.approvedDate || ''}`;
+            if (!dedupMap.has(key)) {
+                dedupMap.set(key, e);
+            }
+        });
+        const uniqueEntries = Array.from(dedupMap.values());
         console.log('[CAPF FE][abc] getApprovalEntryForPipeline', {
             order,
             departmentId,
             departmentName,
-            matched: !!entry,
-            matchedLevel: entry?.level,
-            matchedOrder: entry?.intApprovalOrder,
-            matchedApprovedBy: entry?.approvedBy || entry?.approverUserId || entry?.userId,
-            matchedSignaturePath: entry?.signaturePath || ''
+            matchedCount: uniqueEntries.length,
+            matchedLevels: uniqueEntries.map((e: any) => e?.level || e?.intApprovalOrder),
+            matchedApprovedBy: uniqueEntries.map((e: any) => e?.approvedBy || e?.approverUserId || e?.userId),
+            matchedSignaturePath: uniqueEntries.map((e: any) => e?.signaturePath || '')
         });
-        return entry || null;
+        return uniqueEntries;
     }
 
     private getPipelineData(): any[] {

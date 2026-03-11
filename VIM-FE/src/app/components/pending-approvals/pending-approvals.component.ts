@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
 import { NotificationService } from 'src/app/NotificationService';
+import { finalize } from 'rxjs/operators';
 
 interface Application {
   serApplicationId?: number;
@@ -25,6 +26,7 @@ export class PendingApprovalsComponent implements OnInit {
   pendingApprovals: Application[] = [];
   forms: any[] = [];
   currentUser: any;
+  isLoading = false;
 
   cols = [
     { field: 'txtFormCode', title: 'Application Code' },
@@ -64,6 +66,7 @@ export class PendingApprovalsComponent implements OnInit {
   }
 
   loadPendingApprovals() {
+    this.isLoading = true;
     const roleName = (this.currentUser?.cfgTblRole?.txtRoleName || this.currentUser?.txtrole || '').toUpperCase();
     const isAdmin = roleName === 'ADMIN' || roleName === 'SUPER ADMIN';
     
@@ -71,7 +74,7 @@ export class PendingApprovalsComponent implements OnInit {
       ? this.customFormApplicationService.getAllApplicationsPendingApproval()
       : this.customFormApplicationService.getApplicationsPendingApproval(this.currentUser?.serUserId);
 
-    request.subscribe(
+    request.pipe(finalize(() => this.isLoading = false)).subscribe(
       (data: any) => {
         if (data) {
           this.pendingApprovals = data.map((app: any) => ({

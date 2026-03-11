@@ -175,12 +175,12 @@
       <div class="sig-row">
         <div class="sig" *ngFor="let slot of signatureSlots">
           <div class="sig-line">
-            <img *ngIf="slot.signatureUrl" [src]="slot.signatureUrl" class="sig-img" alt="Signature" crossorigin="anonymous">
+            <img *ngFor="let signatureUrl of (slot.signatureUrls?.length ? slot.signatureUrls : (slot.signatureUrl ? [slot.signatureUrl] : []))"
+              [src]="signatureUrl" class="sig-img" alt="Signature" crossorigin="anonymous">
           </div>
           <div class="sig-time" *ngIf="slot.signatureUrl && slot.approvedDateText">{{ slot.approvedDateText }}</div>
           <div class="sig-meta" *ngIf="slot.nameText">{{ slot.nameText }}</div>
           <div class="sig-meta" *ngIf="slot.designationText">{{ slot.designationText }}</div>
-          <div class="sig-meta" *ngIf="slot.departmentUserText"><b>{{ slot.departmentUserText }}</b></div>
           <div class="sig-label">{{ slot.departmentText }}</div>
         </div>
       </div>
