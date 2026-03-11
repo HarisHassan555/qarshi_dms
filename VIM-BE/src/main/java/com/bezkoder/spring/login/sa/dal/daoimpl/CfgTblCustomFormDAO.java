@@ -13,6 +13,7 @@ import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import java.util.ArrayList;
+import java.util.Locale;
 
 @Repository
 public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
@@ -38,45 +39,78 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
      * Generate next form code based on convention prefix
      * Format: PREFIX-0001, PREFIX-0002, etc.
      */
-    private String generateNextFormCode(String conventionPrefix, EntityManager entityManager) {
+    private String generateNextFormCode(String conventionPrefix, String seedCode, EntityManager entityManager) {
         try {
-            // Find the highest number for this convention
-            String maxCodeQuery = "SELECT MAX(f.txtFormCode) FROM CfgTblCustomForm f " +
-                                 "WHERE f.txtConventionPrefix = :prefix " +
-                                 "AND (f.blIsDeleted = false OR f.blIsDeleted IS NULL)";
-            
-            String maxCode = null;
-            try {
-                maxCode = (String) entityManager.createQuery(maxCodeQuery)
-                    .setParameter("prefix", conventionPrefix)
-                    .getSingleResult();
-            } catch (NoResultException e) {
-                // No existing forms with this convention
-                maxCode = null;
+            String normalizedPrefix = conventionPrefix.trim().toUpperCase(Locale.ROOT);
+            String codeQuery = "SELECT f.txtFormCode FROM CfgTblCustomForm f " +
+                    "WHERE f.txtFormCode IS NOT NULL " +
+                    "AND UPPER(f.txtFormCode) LIKE :prefixPattern " +
+                    "AND (f.blIsDeleted = false OR f.blIsDeleted IS NULL)";
+
+            @SuppressWarnings("unchecked")
+            List<String> existingCodes = entityManager.createQuery(codeQuery)
+                    .setParameter("prefixPattern", normalizedPrefix + "-%")
+                    .getResultList();
+
+            int maxNumber = 0;
+            int width = 4;
+
+            Integer seedNumber = extractNumericSuffix(seedCode, normalizedPrefix);
+            if (seedNumber != null) {
+                maxNumber = Math.max(maxNumber, seedNumber);
+                width = Math.max(width, getNumericSuffixLength(seedCode, normalizedPrefix));
             }
-            
-            int nextNumber = 0;
-            if (maxCode != null && maxCode.startsWith(conventionPrefix + "-")) {
-                try {
-                    // Extract number from code (e.g., "CAPF-0005" -> 5)
-                    String numberPart = maxCode.substring(conventionPrefix.length() + 1);
-                    nextNumber = Integer.parseInt(numberPart);
-                } catch (NumberFormatException e) {
-                    log.warn("Could not parse number from form code: " + maxCode);
-                    nextNumber = 0;
+
+            if (existingCodes != null) {
+                for (String code : existingCodes) {
+                    Integer numeric = extractNumericSuffix(code, normalizedPrefix);
+                    if (numeric != null) {
+                        maxNumber = Math.max(maxNumber, numeric);
+                        width = Math.max(width, getNumericSuffixLength(code, normalizedPrefix));
+                    }
                 }
             }
-            
-            // Generate next code with zero-padding (4 digits)
-            nextNumber++;
-            String nextCode = String.format("%s-%04d", conventionPrefix, nextNumber);
-            
-            return nextCode;
+
+            int nextNumber = maxNumber + 1;
+            return String.format("%s-%0" + width + "d", normalizedPrefix, nextNumber);
         } catch (Exception e) {
             log.error("Error generating form code: " + e.getMessage(), e);
             // Fallback: use timestamp-based code
             return conventionPrefix + "-" + System.currentTimeMillis();
         }
+    }
+
+    private Integer extractNumericSuffix(String code, String prefix) {
+        if (code == null || prefix == null) {
+            return null;
+        }
+        String normalizedCode = code.trim().toUpperCase(Locale.ROOT);
+        String normalizedPrefix = prefix.trim().toUpperCase(Locale.ROOT) + "-";
+        if (!normalizedCode.startsWith(normalizedPrefix)) {
+            return null;
+        }
+        String numberPart = normalizedCode.substring(normalizedPrefix.length());
+        if (!numberPart.matches("\\d+")) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(numberPart);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private int getNumericSuffixLength(String code, String prefix) {
+        if (code == null || prefix == null) {
+            return 4;
+        }
+        String normalizedCode = code.trim().toUpperCase(Locale.ROOT);
+        String normalizedPrefix = prefix.trim().toUpperCase(Locale.ROOT) + "-";
+        if (!normalizedCode.startsWith(normalizedPrefix)) {
+            return 4;
+        }
+        String numberPart = normalizedCode.substring(normalizedPrefix.length());
+        return numberPart.matches("\\d+") ? Math.max(4, numberPart.length()) : 4;
     }
 
     /**
@@ -238,10 +272,19 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
                 customForm.setSerCreatedUser(commonService.getCurrentLoggedInUser());
             }
 
-            // Generate form code based on convention
+            // Generate form code based on convention or provided form code prefix
+            String conventionPrefix = null;
             if (customForm.getTxtConventionPrefix() != null && !customForm.getTxtConventionPrefix().trim().isEmpty()) {
-                String conventionPrefix = customForm.getTxtConventionPrefix().trim().toUpperCase();
-                String nextCode = generateNextFormCode(conventionPrefix, entityManager);
+                conventionPrefix = customForm.getTxtConventionPrefix().trim().toUpperCase(Locale.ROOT);
+            } else if (customForm.getTxtFormCode() != null && customForm.getTxtFormCode().contains("-")) {
+                conventionPrefix = customForm.getTxtFormCode()
+                        .substring(0, customForm.getTxtFormCode().indexOf("-"))
+                        .trim()
+                        .toUpperCase(Locale.ROOT);
+            }
+
+            if (conventionPrefix != null && !conventionPrefix.isEmpty()) {
+                String nextCode = generateNextFormCode(conventionPrefix, customForm.getTxtFormCode(), entityManager);
                 customForm.setTxtFormCode(nextCode);
                 customForm.setTxtConventionPrefix(conventionPrefix);
             }
@@ -355,7 +398,7 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
                 // Only generate new code if convention changed or code doesn't exist
                 if (existingForm.getTxtConventionPrefix() == null || 
                     !existingForm.getTxtConventionPrefix().equals(newConventionPrefix)) {
-                    String nextCode = generateNextFormCode(newConventionPrefix, entityManager);
+                    String nextCode = generateNextFormCode(newConventionPrefix, customForm.getTxtFormCode(), entityManager);
                     existingForm.setTxtFormCode(nextCode);
                     existingForm.setTxtConventionPrefix(newConventionPrefix);
                 } else {

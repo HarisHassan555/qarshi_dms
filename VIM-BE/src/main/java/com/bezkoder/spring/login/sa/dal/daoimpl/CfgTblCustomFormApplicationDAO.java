@@ -129,54 +129,143 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 }
             }
 
-            conventionPrefix = conventionPrefix.trim().toUpperCase();
+            conventionPrefix = conventionPrefix.trim().toUpperCase(Locale.ROOT);
 
-            // Find the highest application code for this form (or same convention)
-            String maxCodeQuery = "SELECT MAX(a.txtFormCode) FROM CfgTblCustomFormApplication a " +
+            String appCodesQuery = "SELECT a.txtFormCode FROM CfgTblCustomFormApplication a " +
                     "WHERE a.serFormId = :formId " +
                     "AND a.txtFormCode IS NOT NULL " +
-                    "AND a.txtFormCode LIKE :prefixPattern " +
+                    "AND UPPER(a.txtFormCode) LIKE :prefixPattern " +
                     "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL)";
 
-            String maxCode = null;
-            try {
-                maxCode = (String) entityManager.createQuery(maxCodeQuery)
-                        .setParameter("formId", formId)
-                        .setParameter("prefixPattern", conventionPrefix + "-%")
-                        .getSingleResult();
-            } catch (NoResultException e) {
-                // No existing applications with this convention
-                maxCode = null;
+            @SuppressWarnings("unchecked")
+            List<String> appCodes = entityManager.createQuery(appCodesQuery)
+                    .setParameter("formId", formId)
+                    .setParameter("prefixPattern", conventionPrefix + "-%")
+                    .getResultList();
+
+            int maxNumber = 0;
+            int width = 4;
+
+            Integer formCodeNumber = extractNumericSuffix(form.getTxtFormCode(), conventionPrefix);
+            if (formCodeNumber != null) {
+                maxNumber = Math.max(maxNumber, formCodeNumber);
+                width = Math.max(width, getNumericSuffixLength(form.getTxtFormCode(), conventionPrefix));
             }
 
-            // If no applications exist, check the form code itself
-            if (maxCode == null && form.getTxtFormCode() != null
-                    && form.getTxtFormCode().startsWith(conventionPrefix + "-")) {
-                maxCode = form.getTxtFormCode();
-            }
-
-            int nextNumber = 0;
-            if (maxCode != null && maxCode.startsWith(conventionPrefix + "-")) {
-                try {
-                    // Extract number from code (e.g., "PRC-0001" -> 1)
-                    String numberPart = maxCode.substring(conventionPrefix.length() + 1);
-                    nextNumber = Integer.parseInt(numberPart);
-                } catch (NumberFormatException e) {
-                    log.warn("Could not parse number from application code: " + maxCode);
-                    nextNumber = 0;
+            if (appCodes != null) {
+                for (String code : appCodes) {
+                    Integer numeric = extractNumericSuffix(code, conventionPrefix);
+                    if (numeric != null) {
+                        maxNumber = Math.max(maxNumber, numeric);
+                        width = Math.max(width, getNumericSuffixLength(code, conventionPrefix));
+                    }
                 }
             }
 
-            // Generate next code with zero-padding (4 digits)
-            nextNumber++;
-            String nextCode = String.format("%s-%04d", conventionPrefix, nextNumber);
-
-            return nextCode;
+            return String.format("%s-%0" + width + "d", conventionPrefix, maxNumber + 1);
         } catch (Exception e) {
             log.error("Error generating application code: " + e.getMessage(), e);
             // Fallback: use timestamp-based code
             return "APP-" + System.currentTimeMillis();
         }
+    }
+
+    private Integer extractNumericSuffix(String code, String prefix) {
+        if (code == null || prefix == null) {
+            return null;
+        }
+        String normalizedCode = code.trim().toUpperCase(Locale.ROOT);
+        String normalizedPrefix = prefix.trim().toUpperCase(Locale.ROOT) + "-";
+        if (!normalizedCode.startsWith(normalizedPrefix)) {
+            return null;
+        }
+        String numberPart = normalizedCode.substring(normalizedPrefix.length());
+        if (!numberPart.matches("\\d+")) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(numberPart);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private int getNumericSuffixLength(String code, String prefix) {
+        if (code == null || prefix == null) {
+            return 4;
+        }
+        String normalizedCode = code.trim().toUpperCase(Locale.ROOT);
+        String normalizedPrefix = prefix.trim().toUpperCase(Locale.ROOT) + "-";
+        if (!normalizedCode.startsWith(normalizedPrefix)) {
+            return 4;
+        }
+        String numberPart = normalizedCode.substring(normalizedPrefix.length());
+        return numberPart.matches("\\d+") ? Math.max(4, numberPart.length()) : 4;
+    }
+
+    private boolean applicationCodeExists(Integer formId, String formCode, EntityManager entityManager) {
+        if (formId == null || formCode == null || formCode.trim().isEmpty()) {
+            return false;
+        }
+        Long count = (Long) entityManager.createQuery(
+                "SELECT COUNT(a.serApplicationId) FROM CfgTblCustomFormApplication a " +
+                        "WHERE a.serFormId = :formId " +
+                        "AND UPPER(a.txtFormCode) = :code " +
+                        "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL)")
+                .setParameter("formId", formId)
+                .setParameter("code", formCode.trim().toUpperCase(Locale.ROOT))
+                .getSingleResult();
+        return count != null && count > 0;
+    }
+
+    private String incrementCode(String code) {
+        if (code == null) {
+            return null;
+        }
+        String trimmed = code.trim().toUpperCase(Locale.ROOT);
+        int sep = trimmed.lastIndexOf("-");
+        if (sep <= 0 || sep >= trimmed.length() - 1) {
+            return null;
+        }
+        String prefix = trimmed.substring(0, sep);
+        String numberPart = trimmed.substring(sep + 1);
+        if (!numberPart.matches("\\d+")) {
+            return null;
+        }
+        try {
+            int number = Integer.parseInt(numberPart);
+            int width = Math.max(4, numberPart.length());
+            return String.format("%s-%0" + width + "d", prefix, number + 1);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private String resolveUniqueApplicationCode(Integer formId, String requestedCode, EntityManager entityManager) {
+        if (formId == null) {
+            return requestedCode != null ? requestedCode.trim().toUpperCase(Locale.ROOT) : null;
+        }
+
+        String candidate = requestedCode != null ? requestedCode.trim().toUpperCase(Locale.ROOT) : null;
+        if (candidate == null || candidate.isEmpty()) {
+            return generateNextApplicationCode(formId, entityManager);
+        }
+
+        int attempts = 0;
+        while (applicationCodeExists(formId, candidate, entityManager) && attempts < 1000) {
+            String incremented = incrementCode(candidate);
+            if (incremented == null) {
+                return generateNextApplicationCode(formId, entityManager);
+            }
+            candidate = incremented;
+            attempts++;
+        }
+
+        if (attempts >= 1000 && applicationCodeExists(formId, candidate, entityManager)) {
+            return generateNextApplicationCode(formId, entityManager);
+        }
+
+        return candidate;
     }
 
     @Override
@@ -412,14 +501,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 log.info("Setting initial approval level to -1 for CAPF with Initial Signer");
             }
 
-            // Generate application code based on form's convention if not provided
-            if (application.getTxtFormCode() == null || application.getTxtFormCode().trim().isEmpty()) {
-                if (application.getSerFormId() != null) {
-                    String generatedCode = generateNextApplicationCode(application.getSerFormId(), entityManager);
-                    if (generatedCode != null) {
-                        application.setTxtFormCode(generatedCode);
-                    }
+            // Ensure a unique code at submission time; if requested code already exists, increment until available.
+            if (application.getSerFormId() != null) {
+                String uniqueCode = resolveUniqueApplicationCode(
+                        application.getSerFormId(),
+                        application.getTxtFormCode(),
+                        entityManager);
+                if (uniqueCode != null && !uniqueCode.trim().isEmpty()) {
+                    application.setTxtFormCode(uniqueCode);
                 }
+            } else if (application.getTxtFormCode() != null) {
+                application.setTxtFormCode(application.getTxtFormCode().trim().toUpperCase(Locale.ROOT));
             }
 
             // Auto-sign "Prepared By" for Budget Approval on submission
