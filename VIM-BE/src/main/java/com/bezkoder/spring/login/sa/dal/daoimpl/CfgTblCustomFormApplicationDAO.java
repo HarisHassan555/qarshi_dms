@@ -2929,6 +2929,16 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             content.newLineAtOffset(margin + 40, y - 16);
             content.showText("Qarshi Industries (Pvt) Ltd.");
             content.endText();
+            if (application != null && application.getTxtAssetCode() != null
+                    && !application.getTxtAssetCode().trim().isEmpty()) {
+                content.setFont(PDType1Font.HELVETICA_BOLD, 9);
+                String codeLabel = "Asset Code: " + application.getTxtAssetCode().trim();
+                float codeWidth = PDType1Font.HELVETICA_BOLD.getStringWidth(codeLabel) / 1000 * 9;
+                content.beginText();
+                content.newLineAtOffset(lineEnd - codeWidth, y - 12);
+                content.showText(codeLabel);
+                content.endText();
+            }
 
             y -= 36;
 
