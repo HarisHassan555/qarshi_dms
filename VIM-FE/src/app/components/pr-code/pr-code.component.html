@@ -1,0 +1,44 @@
+<div class="panel border border-gray-200 p-6 bg-white dark:bg-[#1b2e4b]" *ngIf="!isLoading && application">
+  <div class="mb-4 flex items-center gap-3 flex-wrap">
+    <button class="btn btn-outline-primary" (click)="router.navigateByUrl('/applicationsview')">
+      <icon-arrow-left class="w-4 h-4" /> Back
+    </button>
+    <h4 class="text-lg font-bold">Assign PR Code</h4>
+  </div>
+
+  <div class="grid md:grid-cols-2 gap-4 mb-6">
+    <div>
+      <p class="text-xs text-gray-500">Application Code</p>
+      <div class="font-semibold">{{ application?.txtFormCode || '-' }}</div>
+    </div>
+    <div>
+      <p class="text-xs text-gray-500">Form Name</p>
+      <div class="font-semibold">{{ application?.cfgTblCustomForm?.txtFormName || 'Custom Form' }}</div>
+    </div>
+    <div>
+      <p class="text-xs text-gray-500">Status</p>
+      <div class="font-semibold">{{ application?.txtStatus || '-' }}</div>
+    </div>
+    <div>
+      <p class="text-xs text-gray-500">Asset Code</p>
+      <div class="font-semibold">{{ application?.txtAssetCode || 'Not assigned' }}</div>
+    </div>
+    <div>
+      <p class="text-xs text-gray-500">Current PR Code</p>
+      <div class="font-semibold">{{ application?.txtPrCode || 'Not assigned' }}</div>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-3 flex-wrap">
+    <input type="text" class="form-input w-64" placeholder="PR Code" [(ngModel)]="prCode" [disabled]="isSaving" />
+    <button class="btn btn-primary" (click)="save()" [disabled]="isSaving">
+      <span *ngIf="isSaving" class="animate-spin border-2 border-white border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
+      <span *ngIf="!isSaving">Save PR Code</span>
+    </button>
+  </div>
+</div>
+
+<div *ngIf="isLoading" class="text-center py-10">
+  <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+  <p class="mt-3 text-gray-600">Loading...</p>
+</div>

@@ -161,6 +161,9 @@
                 </div>
             </div>
 
+            <!-- Inline codes (pill style) -->
+
+
             <!-- Detailed Remarks Section (Square Card) -->
             <!-- <div *ngIf="applicationDetails.txtRemarks"
                 class="mt-6 bg-gray-50 dark:bg-gray-800/50 border border-dashed border-[#e0e6ed] dark:border-[#1b2e4b] p-5">
@@ -178,7 +181,7 @@
             </div> -->
         </div>
 
-        
+
         <!-- Professional Paper View for Generic Forms -->
         <div *ngIf="!isBudgetApprovalForm() && !isCapfForm()" class="xyz-page-inline">
             <div id="generic-pdf-content" class="xyz-paper">
@@ -195,7 +198,17 @@
                         <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
                     </div>
                     <div class="xyz-header-spacer"></div>
-                    
+                    <div class="flex flex-col items-end gap-2">
+                        <div *ngIf="applicationDetails?.txtAssetCode"
+                            class="px-3 py-1 border border-green-600 text-green-700 rounded-full text-xs font-semibold bg-green-50">
+                            Asset Code: {{ applicationDetails.txtAssetCode }}
+                        </div>
+                        <div *ngIf="applicationDetails?.txtPrCode"
+                            class="px-3 py-1 border border-blue-600 text-blue-700 rounded-full text-xs font-semibold bg-blue-50">
+                            PR Code: {{ applicationDetails.txtPrCode }}
+                        </div>
+                    </div>
+
                 </div>
 
                 <div class="xyz-rule thick"></div>
@@ -204,7 +217,8 @@
 
                 <div class="xyz-content-body">
                     <div *ngFor="let field of getGenericPreviewFields()" class="xyz-generic-field">
-                        <div class="xyz-generic-label" *ngIf="!isWordEditorType(field.type) && !isIndividualPipelineFooterType(field.type) && field.type !== 'footer'">
+                        <div class="xyz-generic-label"
+                            *ngIf="!isWordEditorType(field.type) && !isIndividualPipelineFooterType(field.type) && field.type !== 'footer'">
                             {{ field.label }}
                             <span *ngIf="field.required" class="text-danger">*</span>
                         </div>
@@ -251,8 +265,9 @@
                                     <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
                                         <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
                                             <div *ngIf="slotUser && isUserApproved(slotUser)">
-                                                <img *ngIf="getUserSignatureUrl(slotUser)" [src]="getUserSignatureUrl(slotUser)"
-                                                    class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
+                                                <img *ngIf="getUserSignatureUrl(slotUser)"
+                                                    [src]="getUserSignatureUrl(slotUser)" class="xyz-sig-img"
+                                                    alt="Signature" crossorigin="anonymous">
                                                 <div class="xyz-sig-time" *ngIf="getUserApprovalDate(slotUser)">
                                                     {{ getUserApprovalDate(slotUser) }}
                                                 </div>
@@ -302,19 +317,35 @@
         <div *ngIf="isBudgetApprovalForm()" class="xyz-page-inline">
             <div id="budget-pdf-content" class="xyz-paper">
                 <div class="xyz-date-row">
-                    <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'M/d/yyyy' }}</div>
+                    <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd/MM/yyyy' }}</div>
                 </div>
 
                 <div class="xyz-header">
+                    <!-- Left (Logo) -->
                     <div class="xyz-logo">
                         <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
                     </div>
+
+                    <!-- Center (Company) -->
                     <div class="xyz-company">
                         <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
-                        <div class="xyz-company-address">15-G, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+                        <div class="xyz-company-address">
+                            15-G, Jam-e-Shirin Boulevard, Gulberg-III, Lahore
+                        </div>
                     </div>
-                    <div class="xyz-header-spacer"></div>
-                    
+
+                    <!-- Right (Codes) -->
+                    <div class="flex flex-col items-end gap-1">
+                        <div *ngIf="applicationDetails?.txtAssetCode"
+                            class="px-2 py-0.5 border border-green-600 text-green-700 rounded-full text-[10px] font-semibold bg-green-50">
+                            Asset Code: {{ applicationDetails.txtAssetCode }}
+                        </div>
+
+                        <div *ngIf="applicationDetails?.txtPrCode"
+                            class="px-2 py-0.5 border border-blue-600 text-blue-700 rounded-full text-[10px] font-semibold bg-blue-50">
+                            PR Code: {{ applicationDetails.txtPrCode }}
+                        </div>
+                    </div>
                 </div>
 
                 <div class="xyz-rule thick"></div>
@@ -322,110 +353,45 @@
                 <div class="xyz-title">{{ formHeading }}</div>
 
                 <div class="xyz-content-body">
-                    <div [innerHTML]="safeContent"></div>
+                    <div [innerHTML]="safeContent || '<i>(No content found in application data)</i>'"></div>
                 </div>
 
                 <div class="xyz-footer">
                     <table class="xyz-signatures">
+                        <!-- Signature Images Row -->
                         <tr class="xyz-signatures-blank">
-                            <td>
-                                <div *ngIf="preparedBy && isUserApproved(preparedBy)">
-                                    <img *ngIf="getUserSignatureUrl(preparedBy)" [src]="getUserSignatureUrl(preparedBy)"
-                                        class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
-                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(preparedBy)">{{
-                                        getUserApprovalDate(preparedBy) }}</div>
-                                </div>
-                            </td>
-                            <td>
-                                <div *ngIf="reviewers?.[0] && isUserApproved(reviewers[0])">
-                                    <img *ngIf="getUserSignatureUrl(reviewers[0])"
-                                        [src]="getUserSignatureUrl(reviewers[0])" class="xyz-sig-img" alt="Signature"
-                                        crossorigin="anonymous">
-                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(reviewers[0])">{{
-                                        getUserApprovalDate(reviewers[0]) }}</div>
-                                </div>
-                            </td>
-                            <td>
-                                <div *ngIf="reviewers?.[1] && isUserApproved(reviewers[1])">
-                                    <img *ngIf="getUserSignatureUrl(reviewers[1])"
-                                        [src]="getUserSignatureUrl(reviewers[1])" class="xyz-sig-img" alt="Signature"
-                                        crossorigin="anonymous">
-                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(reviewers[1])">{{
-                                        getUserApprovalDate(reviewers[1]) }}</div>
-                                </div>
-                            </td>
-                            <td>
-                                <div *ngIf="recommenders?.[0] && isUserApproved(recommenders[0])">
-                                    <img *ngIf="getUserSignatureUrl(recommenders[0])"
-                                        [src]="getUserSignatureUrl(recommenders[0])" class="xyz-sig-img" alt="Signature"
-                                        crossorigin="anonymous">
-                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(recommenders[0])">{{
-                                        getUserApprovalDate(recommenders[0]) }}</div>
-                                </div>
-                            </td>
-                            <td>
-                                <div *ngIf="recommenders?.[1] && isUserApproved(recommenders[1])">
-                                    <img *ngIf="getUserSignatureUrl(recommenders[1])"
-                                        [src]="getUserSignatureUrl(recommenders[1])" class="xyz-sig-img" alt="Signature"
-                                        crossorigin="anonymous">
-                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(recommenders[1])">{{
-                                        getUserApprovalDate(recommenders[1]) }}</div>
-                                </div>
-                            </td>
-                            <td>
-                                <div *ngIf="approver && isUserApproved(approver)">
-                                    <img *ngIf="getUserSignatureUrl(approver)" [src]="getUserSignatureUrl(approver)"
-                                        class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
-                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(approver)">{{
-                                        getUserApprovalDate(approver) }}</div>
-                                </div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th>Prepared by:</th>
-                            <th colspan="2">Reviewed by:</th>
-                            <th colspan="2">Recommended by:</th>
-                            <th>Approved by:</th>
-                        </tr>
-                        <tr>
-                            <td>
-                                <div *ngIf="preparedBy">
-                                    <div>
-                                        {{ preparedBy.txtUserName }}<br>
-                                        ({{ getUserRoleDisplay(preparedBy) || 'Role' }})<br>
-                                        {{ getUserDepartmentDisplay(preparedBy) || 'Department' }}
+                            <ng-container *ngFor="let field of footerFields">
+                                <td *ngFor="let user of getFooterSlots(field)">
+                                    <div *ngIf="user && isUserApproved(user)">
+                                        <img *ngIf="getUserSignatureUrl(user)" [src]="getUserSignatureUrl(user)"
+                                            class="xyz-sig-img" alt="Signature" crossorigin="anonymous">
+                                        <div class="xyz-sig-time" *ngIf="getUserApprovalDate(user)">{{
+                                            getUserApprovalDate(user) }}</div>
                                     </div>
-                                </div>
-                            </td>
-                            <td>
-                                <div *ngIf="reviewers?.[0]">
-                                    <div [innerHTML]="formatUserForSignature(reviewers, 0)"></div>
-                                </div>
-                            </td>
-                            <td>
-                                <div *ngIf="reviewers?.[1]">
-                                    <div [innerHTML]="formatUserForSignature(reviewers, 1)"></div>
-                                </div>
-                            </td>
-                            <td>
-                                <div *ngIf="recommenders?.[0]">
-                                    <div [innerHTML]="formatUserForSignature(recommenders, 0)"></div>
-                                </div>
-                            </td>
-                            <td>
-                                <div *ngIf="recommenders?.[1]">
-                                    <div [innerHTML]="formatUserForSignature(recommenders, 1)"></div>
-                                </div>
-                            </td>
-                            <td>
-                                <div *ngIf="approver">
-                                    <div>
-                                        {{ approver.txtUserName }}<br>
-                                        ({{ getUserRoleDisplay(approver) || 'Role' }})<br>
-                                        {{ getUserDepartmentDisplay(approver) || 'Department' }}
+                                </td>
+                            </ng-container>
+                        </tr>
+
+                        <!-- Header Row -->
+                        <tr>
+                            <th *ngFor="let field of footerFields" [attr.colspan]="getFooterColSpan(field)">
+                                {{ field.label }}:
+                            </th>
+                        </tr>
+
+                        <!-- User Details Row -->
+                        <tr>
+                            <ng-container *ngFor="let field of footerFields">
+                                <td *ngFor="let user of getFooterSlots(field)">
+                                    <div *ngIf="user">
+                                        <div>
+                                            {{ user.txtUserName }}<br>
+                                            ({{ getUserRoleDisplay(user) || 'Role' }})<br>
+                                            {{ getUserDepartmentDisplay(user) || 'Department' }}
+                                        </div>
                                     </div>
-                                </div>
-                            </td>
+                                </td>
+                            </ng-container>
                         </tr>
                     </table>
                 </div>

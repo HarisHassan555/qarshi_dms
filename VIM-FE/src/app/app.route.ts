@@ -44,6 +44,7 @@ import { ApplicationsViewComponent } from './components/applications-view/applic
 import { PendingApprovalsComponent } from './components/pending-approvals/pending-approvals.component';
 import { ApplicationDetailsComponent } from './components/application-details/application-details.component';
 import { AssignAssetCodeComponent } from './components/assign-asset-code/assign-asset-code.component';
+import { PrCodeComponent } from './components/pr-code/pr-code.component';
 import { FormBuilderComponent } from './components/form-builder/form-builder.component';
 import { EmailApprovalComponent } from './components/email-approval/email-approval.component';
 import { OrderListComponent } from "./apps/order/list";
@@ -75,6 +76,7 @@ import { OrderDetailComponent } from "./order-detail/edit";
 import { BudgetApprovalComponent } from './components/budget-approval/budget-approval.component';
 import { BudgetApprovalViewComponent } from './components/budget-approval-view/budget-approval-view.component';
 import { XyzComponent } from './pages/xyz/xyz.component';
+import { ApprovedApplicationsComponent } from './components/approved-applications/approved-applications.component';
 import { CustomDocumentBuilderComponent } from './components/custom-document-builder/custom-document-builder.component';
 
 
@@ -126,7 +128,9 @@ export const routes: Routes = [
             { path: 'applicationsview', canActivate: [canActivate], component: ApplicationsViewComponent, title: 'Applications View' },
             { path: 'pending-approvals', canActivate: [canActivate], component: PendingApprovalsComponent, title: 'Pending Approvals' },
             { path: 'application-details/:id', canActivate: [canActivate], component: ApplicationDetailsComponent, title: 'Application Details' },
+            { path: 'approved-applications', canActivate: [canActivate], component: ApprovedApplicationsComponent, title: 'Approved Applications' },
             { path: 'assign-asset-code/:id', canActivate: [canActivate], component: AssignAssetCodeComponent, title: 'Assign Asset Code' },
+            { path: 'pr-code/:id', canActivate: [canActivate], component: PrCodeComponent, title: 'Assign PR Code' },
             { path: 'formbuilder', canActivate: [canActivate], component: FormBuilderComponent, title: 'Form Builder' },
             { path: 'order', canActivate: [canActivate], component: OrderListComponent, title: 'Order' },
             { path: 'sale-invoice', canActivate: [canActivate], component: SaleInvoiceListComponent, title: 'Sale Invoice' },

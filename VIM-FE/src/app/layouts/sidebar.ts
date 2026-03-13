@@ -1,12 +1,12 @@
 import { animate, style, transition, trigger } from '@angular/animations';
-import {Component, NgZone, ViewChild} from '@angular/core';
+import { Component, NgZone, ViewChild } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { Store } from '@ngrx/store';
 import { TranslateService } from '@ngx-translate/core';
 import { slideDownUp } from '../shared/animations';
 import { MenuService } from '../layout/menu-service/menu.service';
 import { SharedDataService } from '../services/shared-data/shared-data.service';
-import {catchError, Observable, of, switchMap, tap} from "rxjs";
+import { catchError, Observable, of, switchMap, tap } from "rxjs";
 
 @Component({
     moduleId: module.id,
@@ -57,7 +57,7 @@ export class SidebarComponent {
                     this.user = this.getUserFromLocalStorage();
                     this.getMenus();
                 }
-        });
+            });
     }
 
     private getUserFromLocalStorage(): any {
@@ -147,7 +147,8 @@ export class SidebarComponent {
         if (!this.user && user) {
             this.user = user;
         }
-        if (!user?.cfgTblRole?.serRoleId || !user?.serUserId) {
+        const rawRoleId = user?.cfgTblRole?.serRoleId ?? user?.cfgTblRole;
+        if (!rawRoleId || !user?.serUserId) {
             console.warn('Sidebar menus not loaded: missing user role/userId');
             this.menus = [];
             this.isDashboardPresent = false;
@@ -176,12 +177,12 @@ export class SidebarComponent {
                                 Number(role?.cfgTblSubMenu?.serSubMenuId) === Number(sm?.subMenuId ?? sm?.serSubMenuId) &&
                                 this.isSubMenuEnabled(role)
                             );
-                            
+
                             // Force show 'Pending Approvals' for HODs and Procurement
                             if (this.isPendingApprovalsMenu(sm.subMenuName) && (this.isHOD() || this.isProcurementUser())) {
                                 return true;
                             }
-                            
+
                             return isPermitted;
                         });
                         menu.subMenus.sort((a: any, b: any) => a.submenuOrder - b.submenuOrder);
@@ -198,7 +199,7 @@ export class SidebarComponent {
                 this.ngZone.run(() => {
                     if (!this.isDashboardPresent) {
                         console.log("Redirecting to signin...");
-                       /* this.router.navigateByUrl('auth/signin');*/
+                        /* this.router.navigateByUrl('auth/signin');*/
                         this.router.navigateByUrl('auth/signin?error=You%20do%20not%20have%20access%20to%20the%20application.%20Please%20contact%20the%20administrator%20for%20further%20assistance.');
                         localStorage.removeItem('token');
                         localStorage.removeItem('user');
@@ -292,45 +293,45 @@ export class SidebarComponent {
 
     isHOD(): boolean {
         if (!this.user) return false;
-        
+
         // Check if user is the head of their department
         if (this.user.hrTblDepartment && this.user.hrTblDepartment.serDepartmentHeadId) {
             const headIds = String(this.user.hrTblDepartment.serDepartmentHeadId)
                 .split(',')
                 .map(id => id.trim());
-            
+
             if (headIds.includes(String(this.user.serUserId))) {
                 return true;
             }
         }
-        
+
         // Fallback or secondary check (some users might have 'HOD' in their designation or role)
         const role = (this.user?.cfgTblRole?.txtRoleName || this.user?.txtrole || '').toUpperCase();
         const designation = (this.user?.txtDesignation || '').toUpperCase();
-        
+
         return role.includes('HOD') || designation.includes('HOD') || role.includes('HEAD');
     }
 
     isProcurementUser(): boolean {
         if (!this.user) return false;
-        
-        const deptName = this.user.hrTblDepartment?.txtDepartmentName || 
-                         this.user.departmentName || 
-                         this.user.txtDepartmentName || '';
-                         
-        const deptCode = this.user.hrTblDepartment?.txtDepartmentCode || 
-                         this.user.departmentCode || '';
 
-        const roleName = this.user.cfgTblRole?.txtRoleName || 
-                         this.user.txtrole || '';
+        const deptName = this.user.hrTblDepartment?.txtDepartmentName ||
+            this.user.departmentName ||
+            this.user.txtDepartmentName || '';
+
+        const deptCode = this.user.hrTblDepartment?.txtDepartmentCode ||
+            this.user.departmentCode || '';
+
+        const roleName = this.user.cfgTblRole?.txtRoleName ||
+            this.user.txtrole || '';
 
         const name = deptName.trim().toUpperCase();
         const code = deptCode.trim().toUpperCase();
         const role = roleName.trim().toUpperCase();
 
-        return name.includes('PROCUREMENT') || name === 'PRC' || 
-               code === 'PRC' || code.includes('PROC') ||
-               role.includes('PROCURE');
+        return name.includes('PROCUREMENT') || name === 'PRC' ||
+            code === 'PRC' || code.includes('PROC') ||
+            role.includes('PROCURE');
     }
 
     isPendingApprovalsMenu(name: string): boolean {

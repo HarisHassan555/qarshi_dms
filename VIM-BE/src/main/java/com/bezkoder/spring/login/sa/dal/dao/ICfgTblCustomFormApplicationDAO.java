@@ -23,6 +23,10 @@ public interface ICfgTblCustomFormApplicationDAO {
 
     List<CfgTblCustomFormApplication> getApplicationsByStatus(String status);
 
+    List<CfgTblCustomFormApplication> getApplicationsApprovedByUser(String status, Integer userId);
+
+    List<CfgTblCustomFormApplication> getApplicationsByStatusAndUserId(String status, Integer userId);
+
     String getNextApplicationCode(Integer formId);
 
     List<CfgTblCustomFormApplication> getApplicationsPendingApprovalForDepartmentHead(Integer departmentHeadUserId);
@@ -31,7 +35,8 @@ public interface ICfgTblCustomFormApplicationDAO {
 
     String approveApplication(Integer applicationId, String remarks);
 
-    String approveApplication(Integer applicationId, String remarks, Integer approverUserId, String approvedVia, String approvedIp);
+    String approveApplication(Integer applicationId, String remarks, Integer approverUserId, String approvedVia,
+            String approvedIp);
 
     String rejectApplication(Integer applicationId, String remarks);
 
@@ -40,4 +45,6 @@ public interface ICfgTblCustomFormApplicationDAO {
     String sendSubmissionEmailsForApplication(Integer applicationId);
 
     String assignAssetCode(Integer applicationId, String assetCode, Integer userId, String approvedIp);
+
+    String assignPrCode(Integer applicationId, String prCode, Integer userId, String approvedIp);
 }

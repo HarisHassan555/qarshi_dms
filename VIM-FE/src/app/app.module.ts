@@ -100,6 +100,7 @@ import { ApplicationsViewComponent } from './components/applications-view/applic
 import { PendingApprovalsComponent } from './components/pending-approvals/pending-approvals.component';
 import { ApplicationDetailsComponent } from './components/application-details/application-details.component';
 import { AssignAssetCodeComponent } from './components/assign-asset-code/assign-asset-code.component';
+import { PrCodeComponent } from './components/pr-code/pr-code.component';
 import { FormBuilderComponent } from './components/form-builder/form-builder.component';
 import { EmailApprovalComponent } from './components/email-approval/email-approval.component';
 import { OrderListComponent } from "./apps/order/list";
@@ -135,7 +136,7 @@ import { IntegrationLogComponent } from "./apps/inetgration-log/list";
 import { SesLogComponent } from "./apps/ses-log/list";
 import { TransactionsDetailsComponent } from './transactions-details/transactions-details.component';
 import { ReportViewComponent } from './report-view/report-view.component';
-// @ts-ignore
+import { ApprovedApplicationsComponent } from './components/approved-applications/approved-applications.component';
 import { OrderDetailComponent } from './order-detail/edit';
 import { BudgetApprovalComponent } from './components/budget-approval/budget-approval.component';
 import { BudgetApprovalViewComponent } from './components/budget-approval-view/budget-approval-view.component';
@@ -221,6 +222,7 @@ import { CustomDocumentBuilderComponent } from './components/custom-document-bui
         PendingApprovalsComponent,
         ApplicationDetailsComponent,
         AssignAssetCodeComponent,
+        PrCodeComponent,
         FormBuilderComponent,
         EmailApprovalComponent,
         OrderListComponent,
@@ -260,7 +262,8 @@ import { CustomDocumentBuilderComponent } from './components/custom-document-bui
         BudgetApprovalViewComponent,
         XyzComponent,
         FormDocumentHeaderComponent,
-        CustomDocumentBuilderComponent
+        CustomDocumentBuilderComponent,
+        ApprovedApplicationsComponent
     ],
 
     providers: [

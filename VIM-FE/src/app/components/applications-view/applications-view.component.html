@@ -1,6 +1,6 @@
 <div>
     <!-- Pending Approvals Section (for Department Heads) -->
-    
+
 
     <!-- My Applications Section -->
     <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
@@ -12,22 +12,14 @@
                 <div>
                     <input [(ngModel)]="search" type="text" class="form-input" placeholder="Search applications..." />
                 </div>
-                <button 
-                    type="button" 
-                    class="btn btn-primary"
-                    (click)="downloadApplications()"
-                    [disabled]="getDisplayedApplications().length === 0"
-                    title="Download Applications as CSV">
+                <button type="button" class="btn btn-primary" (click)="downloadApplications()"
+                    [disabled]="getDisplayedApplications().length === 0" title="Download Applications as CSV">
                     Download CSV
                 </button>
             </div>
         </div>
         <div class="datatable invoice-table" *ngIf="getDisplayedApplications().length > 0">
-            <ng-datatable 
-                [rows]="getDisplayedApplications()" 
-                [columns]="cols" 
-                [hasCheckbox]="false" 
-                [sortable]="true"
+            <ng-datatable [rows]="getDisplayedApplications()" [columns]="cols" [hasCheckbox]="false" [sortable]="true"
                 skin="whitespace-nowrap bh-table-hover"
                 firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
                 lastArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M11 19L17 12L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M6.99976 19L12.9998 12L6.99976 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg> '
@@ -63,13 +55,15 @@
                         <a (click)="viewApplication(value)" class="hover:text-info" title="View Application">
                             <icon-eye class="h-4.5 w-4.5" />
                         </a>
-                        <a (click)="editApplication(value)" class="hover:text-primary" title="Edit Application" *ngIf="canEditApplication(value)">
+                        <a (click)="editApplication(value)" class="hover:text-primary" title="Edit Application"
+                            *ngIf="canEditApplication(value)">
                             <icon-edit class="h-4.5 w-4.5" />
                         </a>
                         <!-- <a (click)="downloadApplicationAsPDF(value)" class="hover:text-success" title="Download as PDF">
                             <icon-file class="h-4.5 w-4.5" />
                         </a> -->
-                        <a (click)="deleteApplication(value)" class="hover:text-danger" title="Delete Application">
+                        <a (click)="deleteApplication(value)" class="hover:text-danger" title="Delete Application"
+                            *ngIf="canEditApplication(value)">
                             <icon-trash-lines class="h-4.5 w-4.5" />
                         </a>
                     </div>
@@ -96,7 +90,8 @@
             </p>
             <div *ngIf="selectedApplicationForRemarks">
                 <p class="text-sm font-medium dark:text-white-light mb-2">
-                    Application Code: <span class="badge badge-outline-primary">{{ selectedApplicationForRemarks.txtFormCode }}</span>
+                    Application Code: <span class="badge badge-outline-primary">{{
+                        selectedApplicationForRemarks.txtFormCode }}</span>
                 </p>
                 <p class="text-sm font-medium dark:text-white-light mb-2">
                     Form Name: {{ selectedApplicationForRemarks.formName }}
@@ -104,17 +99,15 @@
             </div>
             <div>
                 <label class="block text-sm font-medium mb-2 dark:text-white-light">Remarks (Optional)</label>
-                <textarea 
-                    [(ngModel)]="remarksText" 
-                    class="form-textarea" 
-                    rows="3" 
+                <textarea [(ngModel)]="remarksText" class="form-textarea" rows="3"
                     placeholder="Enter any remarks or comments...">
                 </textarea>
             </div>
         </div>
     </ng-template>
     <ng-template #modalFooter>
-        <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''" class="btn btn-outline-danger">Cancel</button>
+        <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''"
+            class="btn btn-outline-danger">Cancel</button>
         <button type="button" (click)="approveApplication()" class="btn btn-success ltr:ml-4 rtl:mr-4">Approve</button>
     </ng-template>
 </modal>
@@ -131,27 +124,27 @@
             </p>
             <div *ngIf="selectedApplicationForRemarks">
                 <p class="text-sm font-medium dark:text-white-light mb-2">
-                    Application Code: <span class="badge badge-outline-primary">{{ selectedApplicationForRemarks.txtFormCode }}</span>
+                    Application Code: <span class="badge badge-outline-primary">{{
+                        selectedApplicationForRemarks.txtFormCode }}</span>
                 </p>
                 <p class="text-sm font-medium dark:text-white-light mb-2">
                     Form Name: {{ selectedApplicationForRemarks.formName }}
                 </p>
             </div>
             <div>
-                <label class="block text-sm font-medium mb-2 dark:text-white-light">Rejection Reason <span class="text-danger">*</span></label>
-                <textarea 
-                    [(ngModel)]="remarksText" 
-                    class="form-textarea" 
-                    rows="3" 
-                    placeholder="Please provide a reason for rejection..."
-                    required>
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Rejection Reason <span
+                        class="text-danger">*</span></label>
+                <textarea [(ngModel)]="remarksText" class="form-textarea" rows="3"
+                    placeholder="Please provide a reason for rejection..." required>
                 </textarea>
             </div>
         </div>
     </ng-template>
     <ng-template #modalFooter>
-        <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''" class="btn btn-outline-danger">Cancel</button>
-        <button type="button" (click)="rejectApplication()" [disabled]="!remarksText || remarksText.trim() === ''" class="btn btn-danger ltr:ml-4 rtl:mr-4">Reject</button>
+        <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''"
+            class="btn btn-outline-danger">Cancel</button>
+        <button type="button" (click)="rejectApplication()" [disabled]="!remarksText || remarksText.trim() === ''"
+            class="btn btn-danger ltr:ml-4 rtl:mr-4">Reject</button>
     </ng-template>
 </modal>
 
@@ -167,30 +160,31 @@
             </p>
             <div *ngIf="selectedApplicationForRemarks">
                 <p class="text-sm font-medium dark:text-white-light mb-2">
-                    Application Code: <span class="badge badge-outline-primary">{{ selectedApplicationForRemarks.txtFormCode }}</span>
+                    Application Code: <span class="badge badge-outline-primary">{{
+                        selectedApplicationForRemarks.txtFormCode }}</span>
                 </p>
                 <p class="text-sm font-medium dark:text-white-light mb-2">
                     Form Name: {{ selectedApplicationForRemarks.formName }}
                 </p>
                 <p class="text-sm font-medium dark:text-white-light mb-2">
-                    Current Approval Level: <span class="badge badge-outline-info">Level {{ selectedApplicationForRemarks.intCurrentApprovalLevel || 0 }}</span>
+                    Current Approval Level: <span class="badge badge-outline-info">Level {{
+                        selectedApplicationForRemarks.intCurrentApprovalLevel || 0 }}</span>
                 </p>
             </div>
             <div>
-                <label class="block text-sm font-medium mb-2 dark:text-white-light">Remarks <span class="text-danger">*</span></label>
-                <textarea 
-                    [(ngModel)]="remarksText" 
-                    class="form-textarea" 
-                    rows="3" 
-                    placeholder="Please provide remarks for sending back this application..."
-                    required>
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Remarks <span
+                        class="text-danger">*</span></label>
+                <textarea [(ngModel)]="remarksText" class="form-textarea" rows="3"
+                    placeholder="Please provide remarks for sending back this application..." required>
                 </textarea>
             </div>
         </div>
     </ng-template>
     <ng-template #modalFooter>
-        <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''" class="btn btn-outline-danger">Cancel</button>
-        <button type="button" (click)="sendBackApplication()" [disabled]="!remarksText || remarksText.trim() === ''" class="btn btn-warning ltr:ml-4 rtl:mr-4">Send Back</button>
+        <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''"
+            class="btn btn-outline-danger">Cancel</button>
+        <button type="button" (click)="sendBackApplication()" [disabled]="!remarksText || remarksText.trim() === ''"
+            class="btn btn-warning ltr:ml-4 rtl:mr-4">Send Back</button>
     </ng-template>
 </modal>
 
@@ -209,7 +203,7 @@
                     <strong>Form Name:</strong> {{ selectedApplicationForEdit.formName }}
                 </p>
             </div>
-            
+
             <form [formGroup]="editForm">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <!-- Text Input -->
@@ -219,13 +213,9 @@
                                 {{ field.label }}
                                 <span *ngIf="field.required" class="text-danger">*</span>
                             </label>
-                            <input 
-                                type="text" 
-                                [formControlName]="getFieldName(field.label)"
-                                [placeholder]="field.placeholder || ''"
-                                class="form-input"
-                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
-                            />
+                            <input type="text" [formControlName]="getFieldName(field.label)"
+                                [placeholder]="field.placeholder || ''" class="form-input"
+                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))" />
                             <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
                                 {{ getFieldErrorMessage(getFieldName(field.label)) }}
                             </p>
@@ -237,13 +227,9 @@
                                 {{ field.label }}
                                 <span *ngIf="field.required" class="text-danger">*</span>
                             </label>
-                            <input 
-                                type="number" 
-                                [formControlName]="getFieldName(field.label)"
-                                [placeholder]="field.placeholder || ''"
-                                class="form-input"
-                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
-                            />
+                            <input type="number" [formControlName]="getFieldName(field.label)"
+                                [placeholder]="field.placeholder || ''" class="form-input"
+                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))" />
                             <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
                                 {{ getFieldErrorMessage(getFieldName(field.label)) }}
                             </p>
@@ -255,13 +241,9 @@
                                 {{ field.label }}
                                 <span *ngIf="field.required" class="text-danger">*</span>
                             </label>
-                            <input 
-                                type="email" 
-                                [formControlName]="getFieldName(field.label)"
-                                [placeholder]="field.placeholder || ''"
-                                class="form-input"
-                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
-                            />
+                            <input type="email" [formControlName]="getFieldName(field.label)"
+                                [placeholder]="field.placeholder || ''" class="form-input"
+                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))" />
                             <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
                                 {{ getFieldErrorMessage(getFieldName(field.label)) }}
                             </p>
@@ -273,12 +255,8 @@
                                 {{ field.label }}
                                 <span *ngIf="field.required" class="text-danger">*</span>
                             </label>
-                            <input 
-                                type="date" 
-                                [formControlName]="getFieldName(field.label)"
-                                class="form-input"
-                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
-                            />
+                            <input type="date" [formControlName]="getFieldName(field.label)" class="form-input"
+                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))" />
                             <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
                                 {{ getFieldErrorMessage(getFieldName(field.label)) }}
                             </p>
@@ -292,13 +270,9 @@
                                 {{ field.label }}
                                 <span *ngIf="field.required" class="text-danger">*</span>
                             </label>
-                            <textarea 
-                                [formControlName]="getFieldName(field.label)"
-                                [placeholder]="field.placeholder || ''"
-                                rows="4"
-                                class="form-textarea"
-                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
-                            ></textarea>
+                            <textarea [formControlName]="getFieldName(field.label)"
+                                [placeholder]="field.placeholder || ''" rows="4" class="form-textarea"
+                                [class.border-danger]="isFieldInvalid(getFieldName(field.label))"></textarea>
                             <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
                                 {{ getFieldErrorMessage(getFieldName(field.label)) }}
                             </p>
@@ -312,8 +286,7 @@
                                 {{ field.label }}
                                 <span *ngIf="field.required" class="text-danger">*</span>
                             </label>
-                            <quill-editor [formControlName]="getFieldName(field.label)"
-                                [modules]="wordEditorModules"
+                            <quill-editor [formControlName]="getFieldName(field.label)" [modules]="wordEditorModules"
                                 [styles]="{height: '260px'}"
                                 [placeholder]="field.placeholder || 'Enter details, bullet points, headings...'">
                             </quill-editor>
@@ -330,9 +303,7 @@
                                 {{ field.label }}
                                 <span *ngIf="field.required" class="text-danger">*</span>
                             </label>
-                            <select 
-                                [formControlName]="getFieldName(field.label)"
-                                class="form-select"
+                            <select [formControlName]="getFieldName(field.label)" class="form-select"
                                 [class.border-danger]="isFieldInvalid(getFieldName(field.label))">
                                 <option value="">Select {{ field.label }}</option>
                                 <option *ngFor="let option of getFieldOptions(field)" [value]="option">
@@ -354,12 +325,8 @@
                             </label>
                             <div class="flex flex-wrap gap-4">
                                 <label *ngFor="let option of getFieldOptions(field)" class="flex items-center">
-                                    <input 
-                                        type="radio" 
-                                        [formControlName]="getFieldName(field.label)"
-                                        [value]="option"
-                                        class="form-radio"
-                                    />
+                                    <input type="radio" [formControlName]="getFieldName(field.label)" [value]="option"
+                                        class="form-radio" />
                                     <span class="ml-2 dark:text-white-light">{{ option }}</span>
                                 </label>
                             </div>
@@ -373,11 +340,8 @@
                     <div *ngFor="let field of editFormFields">
                         <div *ngIf="field.type === 'checkbox'">
                             <label class="flex items-center">
-                                <input 
-                                    type="checkbox" 
-                                    [formControlName]="getFieldName(field.label)"
-                                    class="form-checkbox"
-                                />
+                                <input type="checkbox" [formControlName]="getFieldName(field.label)"
+                                    class="form-checkbox" />
                                 <span class="ml-2 text-sm font-semibold dark:text-white-light">
                                     {{ field.label }}
                                     <span *ngIf="field.required" class="text-danger">*</span>
@@ -400,8 +364,10 @@
                                 <table class="min-w-full border border-[#e0e6ed] dark:border-[#1b2e4b]">
                                     <thead>
                                         <tr class="bg-gray-50 dark:bg-[#1b2e4b]">
-                                            <th class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light"></th>
-                                            <th *ngFor="let col of getTableColumns(field); let colIndex = index" 
+                                            <th
+                                                class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light">
+                                            </th>
+                                            <th *ngFor="let col of getTableColumns(field); let colIndex = index"
                                                 class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 text-left text-sm font-semibold dark:text-white-light">
                                                 Column {{ colIndex + 1 }}
                                             </th>
@@ -409,18 +375,17 @@
                                     </thead>
                                     <tbody>
                                         <tr *ngFor="let row of getTableRows(field); let rowIndex = index">
-                                            <td class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 bg-gray-50 dark:bg-[#1b2e4b] text-sm font-medium dark:text-white-light">
+                                            <td
+                                                class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-4 py-2 bg-gray-50 dark:bg-[#1b2e4b] text-sm font-medium dark:text-white-light">
                                                 {{ getTableRowLabel(field, rowIndex) }}
                                             </td>
-                                            <td *ngFor="let col of getTableColumns(field); let colIndex = index" 
+                                            <td *ngFor="let col of getTableColumns(field); let colIndex = index"
                                                 class="border border-[#e0e6ed] dark:border-[#1b2e4b] px-2 py-1">
-                                                <input 
-                                                    type="text"
+                                                <input type="text"
                                                     [formControl]="getTableCellControl(getFieldName(field.label), rowIndex, colIndex)"
                                                     class="form-input w-full text-sm"
                                                     [class.border-danger]="isFieldInvalid(getFieldName(field.label))"
-                                                    placeholder="Enter value"
-                                                />
+                                                    placeholder="Enter value" />
                                             </td>
                                         </tr>
                                     </tbody>
@@ -439,8 +404,10 @@
         </div>
     </ng-template>
     <ng-template #modalFooter>
-        <button type="button" (click)="editModal.close(); selectedApplicationForEdit = null" class="btn btn-outline-danger">Cancel</button>
-        <button type="button" (click)="updateApplication()" [disabled]="isSubmitting || editForm.invalid" class="btn btn-primary ltr:ml-4 rtl:mr-4">
+        <button type="button" (click)="editModal.close(); selectedApplicationForEdit = null"
+            class="btn btn-outline-danger">Cancel</button>
+        <button type="button" (click)="updateApplication()" [disabled]="isSubmitting || editForm.invalid"
+            class="btn btn-primary ltr:ml-4 rtl:mr-4">
             <span *ngIf="isSubmitting">Updating...</span>
             <span *ngIf="!isSubmitting">Update Application</span>
         </button>

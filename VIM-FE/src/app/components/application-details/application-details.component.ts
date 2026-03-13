@@ -671,6 +671,7 @@ export class ApplicationDetailsComponent implements OnInit {
   reviewers: any[] = [];
   recommenders: any[] = [];
   approver: any = null;
+  footerFields: any[] = [];
   formHeading: string = 'Budget Approval Form';
 
   constructor(
@@ -827,26 +828,43 @@ export class ApplicationDetailsComponent implements OnInit {
           }
 
           // Parse application data JSON
-          if (data.txtApplicationData) {
-            try {
-              this.applicationFormData = JSON.parse(data.txtApplicationData);
-
-              // Prepare budget approval specific data
-              if (this.isBudgetApprovalForm()) {
-                const content = this.applicationFormData.content || this.applicationFormData.editorContent || '';
-                this.safeContent = this.sanitizer.bypassSecurityTrustHtml(content);
-                this.preparedBy = this.applicationFormData.preparedBy;
-                this.reviewers = this.applicationFormData.reviewers || [];
-                this.recommenders = this.applicationFormData.recommenders || [];
-                this.approver = this.applicationFormData.approver;
-                this.formHeading = this.applicationFormData.heading || this.applicationDetails.cfgTblCustomForm?.txtFormName || 'Budget Approval Form';
+          let rawData = data.txtApplicationData || '{}';
+          try {
+            let parsed = JSON.parse(rawData);
+            // Handle double-serialization
+            if (typeof parsed === 'string') {
+              try {
+                parsed = JSON.parse(parsed);
+              } catch (e) {
+                parsed = { content: parsed };
               }
-            } catch (e) {
-              console.error('Error parsing application data:', e);
-              this.applicationFormData = {};
             }
+            // Handle appData wrapper
+            this.applicationFormData = parsed.appData || parsed || {};
+          } catch (e) {
+            console.error('Error parsing application data:', e);
+            this.applicationFormData = { content: rawData };
           }
 
+          // Prepare budget approval specific data
+          // Ensure this runs even if txtApplicationData was empty
+          if (this.isBudgetApprovalForm()) {
+            const content = this.applicationFormData.word_editor ||
+              this.applicationFormData.budget_approval_form ||
+              this.applicationFormData.content ||
+              this.applicationFormData.editorContent ||
+              this.applicationFormData.richTextContent ||
+              this.applicationFormData.txtApplicationData ||
+              (typeof rawData === 'string' && !rawData.startsWith('{') ? rawData : '') || '';
+
+            this.safeContent = this.sanitizer.bypassSecurityTrustHtml(content);
+            this.preparedBy = this.applicationFormData.preparedBy || this.applicationDetails.cfgTblUser;
+            this.reviewers = this.applicationFormData.reviewers || [];
+            this.recommenders = this.applicationFormData.recommenders || [];
+            this.approver = this.applicationFormData.approver;
+            this.formHeading = this.applicationFormData.heading || this.applicationDetails.cfgTblCustomForm?.txtFormName || 'Budget Approval Form';
+            this.footerFields = this.buildFooterFields(this.applicationFormData);
+          }
           // Parse approval history JSON
           if (data.txtApprovalHistory) {
             try {
@@ -2038,7 +2056,7 @@ export class ApplicationDetailsComponent implements OnInit {
     if (!this.applicationDetails) return false;
     const name = (this.applicationDetails.cfgTblCustomForm?.txtFormName || this.applicationDetails.formName || '').replace(/\s+/g, ' ').toUpperCase();
     const code = (this.applicationDetails.txtFormCode || '').toUpperCase();
-    return name === 'BUDGET APPROVAL FORM' || name.includes('BUDGET APPROVAL') || code.startsWith('BDG');
+    return name === 'BUDGET APPROVAL FORM' || name.includes('BUDGET APPROVAL') || code.startsWith('BDG') || code.includes('BAF');
   }
 
   isCapfForm(): boolean {
@@ -2046,6 +2064,67 @@ export class ApplicationDetailsComponent implements OnInit {
     const name = (this.applicationDetails.cfgTblCustomForm?.txtFormName || this.applicationDetails.formName || '').replace(/\s+/g, ' ').toUpperCase();
     const code = (this.applicationDetails.txtFormCode || '').toUpperCase();
     return name.includes('CAPITAL ASSETS PURCHASE') || name.includes('CAPF') || code.startsWith('CAPF');
+  }
+
+  buildFooterFields(source: any): any[] {
+    if (!source) return [];
+
+    // Try multiple possible keys for dynamic footer fields
+    const dynamicFooter = source.footerFields || source.individual_pipeline_footer || source.field_footer;
+
+    if (Array.isArray(dynamicFooter) && dynamicFooter.length > 0) {
+      return dynamicFooter.map((f: any) => ({
+        label: f?.label || 'New Field',
+        users: Array.isArray(f?.users) ? f.users : []
+      }));
+    }
+
+    const fieldLabels = source.fieldLabels || {};
+
+    const preparedUsers = Array.isArray(source.preparedByUsers)
+      ? source.preparedByUsers
+      : (source.preparedBy ? [source.preparedBy] : []);
+
+    const reviewers = Array.isArray(source.reviewers) ? source.reviewers : [];
+    const recommenders = Array.isArray(source.recommenders) ? source.recommenders : [];
+
+    const approvers = Array.isArray(source.approvers)
+      ? source.approvers
+      : (source.approver ? [source.approver] : []);
+
+    const defaults: any[] = [
+      { label: fieldLabels.preparedBy || 'Prepared By', users: preparedUsers },
+      { label: fieldLabels.reviewedBy || 'Reviewed By', users: reviewers },
+      { label: fieldLabels.recommendedBy || 'Recommended By', users: recommenders },
+      { label: fieldLabels.approvedBy || 'Approved By', users: approvers }
+    ];
+
+    const dynamic: any[] = Array.isArray(source.dynamicUserFields)
+      ? source.dynamicUserFields.map((f: any) => ({
+        label: f?.label || 'New Field',
+        users: Array.isArray(f?.selectedUsers) ? f.selectedUsers : []
+      }))
+      : [];
+
+    const combined = [...defaults, ...dynamic];
+
+    // For Budget Approval, always show standard stages if we are in BA view,
+    // otherwise filter out empty stages for generic forms.
+    if (this.isBudgetApprovalForm()) {
+      return combined;
+    }
+
+    return combined.filter(f => f.users && f.users.length > 0);
+  }
+
+  getFooterColSpan(field: any): number {
+    if (!field || !Array.isArray(field.users)) return 1;
+    return Math.max(field.users.length, 1);
+  }
+
+  getFooterSlots(field: any): any[] {
+    if (!field || !Array.isArray(field.users) || field.users.length === 0) return [null];
+    return field.users;
   }
 
   formatUserForSignature(selectedUsers: any[], index: number): string {

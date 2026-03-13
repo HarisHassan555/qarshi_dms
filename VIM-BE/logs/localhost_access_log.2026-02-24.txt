@@ -883,6 +883,7 @@
 0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:34:28 +0500] "GET /velocity/getSignature?userId=3 HTTP/1.1" 200 4550
 0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:34:28 +0500] "GET /velocity/getSignature?userId=9 HTTP/1.1" 200 2247
 0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:34:28 +0500] "GET /velocity/getSignature?userId=146 HTTP/1.1" 200 2044
+<<<<<<< Updated upstream
 0:0:0:0:0:0:0:1 - - [24/Feb/2026:09:02:17 +0500] "OPTIONS /velocity/allSubMenuRole?roleId=1&userId=145 HTTP/1.1" 200 -
 0:0:0:0:0:0:0:1 - - [24/Feb/2026:09:02:17 +0500] "OPTIONS /velocity/getAllCustomForms HTTP/1.1" 200 -
 0:0:0:0:0:0:0:1 - - [24/Feb/2026:09:02:17 +0500] "OPTIONS /velocity/allSubMenuRole?roleId=1&userId=145 HTTP/1.1" 200 -
@@ -1290,3 +1291,23 @@
 0:0:0:0:0:0:0:1 - - [24/Feb/2026:12:09:41 +0500] "OPTIONS /velocity/allMenu HTTP/1.1" 200 -
 0:0:0:0:0:0:0:1 - - [24/Feb/2026:12:09:41 +0500] "GET /velocity/allMenu HTTP/1.1" 200 29460
 127.0.0.1 - - [24/Feb/2026:12:09:41 +0500] "GET /velocity/assets/images/qarshi-logo.png HTTP/1.1" 200 3957
+=======
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:35:50 +0500] "GET /velocity/getAllDepartments HTTP/1.1" 200 9706
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:35:50 +0500] "GET /velocity/getAllCustomForms HTTP/1.1" 200 19449
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:35:50 +0500] "GET /velocity/getApplicationById?applicationId=99 HTTP/1.1" 200 1191407
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:35:50 +0500] "GET /velocity/allSubMenuRole?roleId=1&userId=145 HTTP/1.1" 200 58760
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:35:50 +0500] "GET /velocity/allMenu HTTP/1.1" 200 29460
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:35:51 +0500] "GET /velocity/getSignature?userId=3 HTTP/1.1" 200 4550
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:35:51 +0500] "GET /velocity/getSignature?userId=9 HTTP/1.1" 200 2247
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:35:51 +0500] "GET /velocity/getSignature?userId=2 HTTP/1.1" 200 9663
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:35:51 +0500] "GET /velocity/getSignature?userId=146 HTTP/1.1" 200 2044
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:36:31 +0500] "GET /velocity/getAllDepartments HTTP/1.1" 200 9706
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:36:31 +0500] "GET /velocity/getAllCustomForms HTTP/1.1" 200 19449
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:36:31 +0500] "GET /velocity/getApplicationById?applicationId=99 HTTP/1.1" 200 1191407
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:36:31 +0500] "GET /velocity/allSubMenuRole?roleId=1&userId=145 HTTP/1.1" 200 58760
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:36:31 +0500] "GET /velocity/allMenu HTTP/1.1" 200 29460
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:36:32 +0500] "GET /velocity/getSignature?userId=9 HTTP/1.1" 200 2247
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:36:32 +0500] "GET /velocity/getSignature?userId=146 HTTP/1.1" 200 2044
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:36:32 +0500] "GET /velocity/getSignature?userId=2 HTTP/1.1" 200 9663
+0:0:0:0:0:0:0:1 - - [24/Feb/2026:08:36:32 +0500] "GET /velocity/getSignature?userId=3 HTTP/1.1" 200 4550
+>>>>>>> Stashed changes

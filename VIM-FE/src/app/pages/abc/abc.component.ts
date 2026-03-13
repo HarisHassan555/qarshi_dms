@@ -28,18 +28,24 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         signatureUrl: string;
         signatureUrls?: string[];
         approvedDateText: string;
+        displayEntries?: Array<{
+            nameText: string;
+            designationText: string;
+            approvedDateText: string;
+            signatureUrl: string;
+        }>;
     }> = [];
 
     private readonly fallbackSignatureSlots: Array<{
         label: string;
         keywords: string[];
     }> = [
-        { label: 'User Deptt. (HoD)', keywords: ['user dept', 'hod'] },
-        { label: 'Technical Expert', keywords: ['technical', 'expert'] },
-        { label: 'Procurement', keywords: ['procurement'] },
-        { label: 'Finance', keywords: ['finance'] },
-        { label: 'Core Team HTR. / CCT HO', keywords: ['core team', 'htr', 'cct', 'ho'] },
-    ];
+            { label: 'User Deptt. (HoD)', keywords: ['user dept', 'hod'] },
+            { label: 'Technical Expert', keywords: ['technical', 'expert'] },
+            { label: 'Procurement', keywords: ['procurement'] },
+            { label: 'Finance', keywords: ['finance'] },
+            { label: 'Core Team HTR. / CCT HO', keywords: ['core team', 'htr', 'cct', 'ho'] },
+        ];
 
     private approvalHistory: any[] = [];
 
@@ -224,72 +230,77 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
                 '';
             return designation;
         };
+
         this.approvalHistory = this.parseApprovalHistory();
         const pipelines = this.getPipelineData();
-        const staticLabels = this.fallbackSignatureSlots.map(s => s.label);
         console.log('[CAPF FE][abc] approvalHistoryCount=', this.approvalHistory.length, 'pipelineCount=', pipelines.length, 'appId=', this.application?.serApplicationId);
-        if (pipelines.length > 0) {
-            this.signatureSlots = pipelines.slice(0, staticLabels.length).map((pipeline: any, index: number) => {
-                const order = pipeline.intApprovalOrder || (index + 1);
-                const departmentId = pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId || pipeline.departmentId;
-                const entries = this.getApprovalEntriesForPipeline(order, departmentId);
-                const entry = entries[0] || null;
-                const nameText = getNameText(entry);
-                const designationText = getDesignationText(entry);
-                const departmentText = staticLabels[index] || `Department ${order}`;
-                const approvedDate = entry?.approvedDate;
-                const hasSignature = !!entry?.signaturePath;
-                const signatureUrls = entries
-                    .filter((e: any) => !!e?.signaturePath)
-                    .map((e: any) => e?.approvedBy || e?.approverUserId || e?.userId)
-                    .filter((id: any) => !!id)
-                    .map((id: any) => `${urls.API_URL}getSignature?userId=${id}`)
-                    .slice(0, 2);
-                console.log('[CAPF FE][abc][slot-pipeline]', {
-                    slot: index + 1,
-                    order,
-                    departmentId,
-                    entriesFound: entries.length,
-                    entryLevels: entries.map((e: any) => e?.level || e?.intApprovalOrder),
-                    approvedBy: entries.map((e: any) => e?.approvedBy || e?.approverUserId || e?.userId),
-                    hasSignatureCount: signatureUrls.length
-                });
-                return {
-                    nameText,
-                    designationText,
-                    departmentText,
-                    order,
-                    departmentId,
-                    signatureUrl: signatureUrls[0] || '',
-                    signatureUrls,
-                    approvedDateText: hasSignature ? this.formatApprovalDate(approvedDate) : ''
-                };
-            });
-            return;
-        }
 
-        this.signatureSlots = this.fallbackSignatureSlots.map((slot, index) => {
-            const entry = this.getApprovalEntryForSlot(slot);
+        // ALWAYS show at least the 5 slots required for the physical form, but expand for longer workflows (e.g., stage 6+)
+        const totalSlotsCount = Math.max(pipelines.length, this.fallbackSignatureSlots.length);
+        const usedEntryKeys = new Set<string>();
+
+        this.signatureSlots = Array.from({ length: totalSlotsCount }).map((_, index) => {
+            const pipeline = pipelines[index] || null;
+            const slot = this.fallbackSignatureSlots[index] || null;
+
+            const order = pipeline?.intApprovalOrder || (index + 1);
+            const departmentId = pipeline?.hrTblDepartment?.serDepartmentId || pipeline?.serDepartmentId || pipeline?.departmentId;
+
+            // Priority matching: pipeline data first, then fallback to keywords
+            let allEntries = [];
+            if (pipeline) {
+                allEntries = this.getApprovalEntriesForPipeline(order, departmentId);
+            }
+            if (allEntries.length === 0 && slot) {
+                allEntries = this.getApprovalEntriesForSlot(slot);
+            }
+
+            // Cross-slot deduplication to prevent the same signature appearing in multiple columns
+            const entries = allEntries.filter((e: any) => {
+                const userId = e?.approvedBy || e?.approverUserId || e?.userId || 'unknown';
+                const date = e?.approvedDate || 'nodate';
+                const key = `${userId}_${date}`;
+                if (usedEntryKeys.has(key)) return false;
+                usedEntryKeys.add(key);
+                return true;
+            });
+
+            const entry = entries[0] || null;
             const nameText = getNameText(entry);
             const designationText = getDesignationText(entry);
-            const departmentText = slot.label;
-            const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
+
+            // Labels: Indices 0-4 use physical form labels, Index 5+ (the "last department") uses system name
+            const pipelineDeptName = pipeline?.hrTblDepartment?.txtDepartmentName || pipeline?.departmentName;
+            const departmentText = slot ? slot.label : (pipelineDeptName || `Department ${order}`);
+
             const approvedDate = entry?.approvedDate;
             const hasSignature = !!entry?.signaturePath;
-            console.log('[CAPF FE][abc][slot-fallback]', {
-                slot: index + 1,
-                keywords: slot.keywords,
-                approvedBy: entry?.approvedBy || entry?.approverUserId || entry?.userId,
-                entrySignaturePath: entry?.signaturePath || '',
-                hasSignature
-            });
+
+            const displayEntries = entries
+                .filter((e: any) => !!e?.signaturePath)
+                .map((e: any) => {
+                    const userId = e?.approvedBy || e?.approverUserId || e?.userId;
+                    return {
+                        nameText: getNameText(e),
+                        designationText: getDesignationText(e),
+                        approvedDateText: this.formatApprovalDate(e?.approvedDate),
+                        signatureUrl: userId ? `${urls.API_URL}getSignature?userId=${userId}` : ''
+                    };
+                })
+                .slice(0, 2);
+
+            const signatureUrls = displayEntries.map(de => de.signatureUrl);
+
             return {
                 nameText,
                 designationText,
                 departmentText,
-                order: index + 1,
-                signatureUrl: userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '',
-                approvedDateText: hasSignature ? this.formatApprovalDate(approvedDate) : ''
+                order,
+                departmentId,
+                signatureUrl: signatureUrls[0] || '',
+                signatureUrls,
+                approvedDateText: hasSignature ? this.formatApprovalDate(approvedDate) : '',
+                displayEntries: displayEntries.length ? displayEntries : undefined
             };
         });
     }
@@ -413,7 +424,14 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         try {
             const dt = new Date(dateValue);
             if (isNaN(dt.getTime())) return String(dateValue);
-            return dt.toLocaleString();
+
+            const day = String(dt.getDate()).padStart(2, '0');
+            const month = String(dt.getMonth() + 1).padStart(2, '0');
+            const year = String(dt.getFullYear()).slice(-2);
+            const hours = String(dt.getHours()).padStart(2, '0');
+            const minutes = String(dt.getMinutes()).padStart(2, '0');
+
+            return `${day}.${month}.${year} ${hours}:${minutes}`;
         } catch (e) {
             return String(dateValue);
         }

@@ -1,0 +1,7 @@
+.datatable {
+    @apply mt-5;
+}
+
+.badge {
+    @apply uppercase;
+}

@@ -50,6 +50,14 @@ export class CustomFormApplicationService {
     return this.http.get(urls.API_URL + 'getApplicationsByStatus?status=' + status);
   }
 
+  getApplicationsByStatusAndUserId(status: string, userId: number) {
+    return this.http.get(urls.API_URL + `getApplicationsByStatusAndUserId?status=${status}&userId=${userId}`);
+  }
+
+  getApplicationsApprovedByUser(status: string, userId: number) {
+    return this.http.get(urls.API_URL + `getApplicationsApprovedByUser?status=${status}&userId=${userId}`);
+  }
+
   getNextApplicationCode(formId: number) {
     return this.http.get(urls.API_URL + 'getNextApplicationCode?formId=' + formId);
   }
@@ -96,5 +104,14 @@ export class CustomFormApplicationService {
       }
     });
   }
-}
 
+  assignPrCode(applicationId: number, prCode: string, userId?: number) {
+    return this.http.post(urls.API_URL + 'assignPrCode', null, {
+      params: {
+        applicationId: applicationId as any,
+        prCode: prCode,
+        userId: userId ?? ''
+      }
+    });
+  }
+}

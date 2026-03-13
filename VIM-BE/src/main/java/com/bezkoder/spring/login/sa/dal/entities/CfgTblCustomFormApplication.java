@@ -3,90 +3,95 @@ package com.bezkoder.spring.login.sa.dal.entities;
 import java.io.Serializable;
 import javax.persistence.*;
 import java.sql.Timestamp;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 /**
  * The persistent class for the cfg_tbl_custom_form_application database table.
  */
 @Entity
-@Table(name="cfg_tbl_custom_form_application")
-@NamedQuery(name="CfgTblCustomFormApplication.findAll", query="SELECT c FROM CfgTblCustomFormApplication c")
+@Table(name = "cfg_tbl_custom_form_application")
+@NamedQuery(name = "CfgTblCustomFormApplication.findAll", query = "SELECT c FROM CfgTblCustomFormApplication c")
 public class CfgTblCustomFormApplication implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @Id
-    @GeneratedValue(strategy=GenerationType.IDENTITY)
-    @Column(name="ser_application_id")
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "ser_application_id")
     private Integer serApplicationId;
 
-    @Column(name="ser_form_id")
+    @Column(name = "ser_form_id")
     private Integer serFormId;
 
-    @Column(name="txt_form_code")
+    @Column(name = "txt_form_code")
     private String txtFormCode;
 
-    @Column(name="txt_application_data", columnDefinition = "JSON")
+    @Column(name = "txt_application_data", columnDefinition = "JSON")
     private String txtApplicationData;
 
-    @Column(name="txt_status")
+    @Column(name = "txt_status")
     private String txtStatus;
 
-    @Column(name="int_current_approval_level")
+    @Column(name = "int_current_approval_level")
     private Integer intCurrentApprovalLevel;
 
-    @Column(name="ser_submitted_by")
+    @Column(name = "ser_submitted_by")
     private Integer serSubmittedBy;
 
-    @Column(name="ser_current_approver")
+    @Column(name = "ser_current_approver")
     private Integer serCurrentApprover;
 
-    @Column(name="txt_remarks", columnDefinition = "TEXT")
+    @Column(name = "txt_remarks", columnDefinition = "TEXT")
     private String txtRemarks;
 
-    @Column(name="txt_approval_history", columnDefinition = "JSON")
+    @Column(name = "txt_approval_history", columnDefinition = "JSON")
     private String txtApprovalHistory;
 
-    @Column(name="txt_asset_code")
+    @Column(name = "txt_asset_code")
     private String txtAssetCode;
 
+    @Column(name = "txt_pr_code")
+    private String txtPrCode;
+
     @Lob
-    @Column(name="blb_pdf_data")
+    @JsonIgnore
+    @Column(name = "blb_pdf_data")
     private byte[] blbPdfData;
 
-    @Column(name="txt_pdf_name")
+    @Column(name = "txt_pdf_name")
     private String txtPdfName;
 
-    @Column(name="txt_pdf_mime")
+    @Column(name = "txt_pdf_mime")
     private String txtPdfMime;
 
-    @Column(name="bl_is_active")
+    @Column(name = "bl_is_active")
     private Boolean blIsActive;
 
-    @Column(name="bl_is_deleted")
+    @Column(name = "bl_is_deleted")
     private Boolean blIsDeleted;
 
-    @Column(name="bln_status")
+    @Column(name = "bln_status")
     private Boolean blnStatus;
 
-    @Column(name="dte_created_date")
+    @Column(name = "dte_created_date")
     private Timestamp dteCreatedDate;
 
-    @Column(name="dte_modified_date")
+    @Column(name = "dte_modified_date")
     private Timestamp dteModifiedDate;
 
-    @Column(name="ser_created_user")
+    @Column(name = "ser_created_user")
     private Integer serCreatedUser;
 
-    @Column(name="ser_modified_user")
+    @Column(name = "ser_modified_user")
     private Integer serModifiedUser;
 
     @Transient
     private Boolean deferEmail;
 
-    //bi-directional many-to-one association to CfgTblCustomForm
-    @ManyToOne(fetch=FetchType.LAZY)
-    @JoinColumn(name="ser_form_id", insertable=false, updatable=false)
-    @JsonIgnoreProperties({"cfgTblCustomFormFields", "cfgTblCustomFormApprovalPipelines"})
+    // bi-directional many-to-one association to CfgTblCustomForm
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "ser_form_id", insertable = false, updatable = false)
+    @JsonIgnoreProperties({ "cfgTblCustomFormFields", "cfgTblCustomFormApprovalPipelines" })
     private CfgTblCustomForm cfgTblCustomForm;
 
     public CfgTblCustomFormApplication() {
@@ -178,6 +183,14 @@ public class CfgTblCustomFormApplication implements Serializable {
 
     public void setTxtAssetCode(String txtAssetCode) {
         this.txtAssetCode = txtAssetCode;
+    }
+
+    public String getTxtPrCode() {
+        return txtPrCode;
+    }
+
+    public void setTxtPrCode(String txtPrCode) {
+        this.txtPrCode = txtPrCode;
     }
 
     public byte[] getBlbPdfData() {

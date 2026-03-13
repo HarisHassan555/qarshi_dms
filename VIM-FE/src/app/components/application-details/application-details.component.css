@@ -12,7 +12,8 @@
 }
 
 .xyz-paper {
-    width: 280mm;
+    width: 210mm;
+    position: relative;
     min-height: auto;
     height: auto;
     background: #ffffff;
@@ -37,6 +38,7 @@
     border: 1px solid #222 !important;
     box-shadow: none !important;
 }
+
 .pdf-capture .xyz-content-body,
 .pdf-capture .xyz-footer,
 .pdf-capture .xyz-header,
@@ -44,23 +46,28 @@
     break-inside: avoid;
     page-break-inside: avoid;
 }
+
 .pdf-capture table {
     width: 100%;
     border-collapse: collapse;
 }
+
 .pdf-capture th,
 .pdf-capture td {
     border: 1px solid #000;
     padding: 4px 6px;
     font-size: 12px;
 }
+
 .pdf-capture .xyz-company-name {
     font-weight: 700;
 }
+
 .pdf-capture .xyz-rule {
     height: 1px;
     background: #000;
 }
+
 .xyz-date-row {
     display: flex;
     justify-content: flex-end;
@@ -69,7 +76,7 @@
 
 .xyz-header {
     display: grid;
-    grid-template-columns: 90px 1fr 90px;
+    grid-template-columns: 120px 1fr 120px;
     align-items: end;
     column-gap: 12px;
     margin-bottom: 6px;
@@ -102,7 +109,7 @@
 
 .xyz-company-name {
     font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif;
-    font-size: 30px;
+    font-size: 24px;
     font-weight: 700;
 }
 
@@ -147,7 +154,7 @@
     text-align: center;
     font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif;
     font-weight: 700;
-    font-size: 26px;
+    font-size: 20px;
     line-height: 1.25;
     margin: 6px 0 16px 0;
 }
@@ -283,8 +290,8 @@
     box-sizing: border-box !important;
 }
 
-.xyz-generic-word .ql-editor td > *,
-.xyz-generic-word .ql-editor th > * {
+.xyz-generic-word .ql-editor td>*,
+.xyz-generic-word .ql-editor th>* {
     margin: 0 !important;
     padding: 0 !important;
     line-height: 1 !important;
@@ -419,7 +426,7 @@
         min-height: auto;
         padding: 16px;
     }
-    
+
     /* Ensure ABC component wrapper also handles width properly */
     app-abc {
         display: block;
@@ -427,6 +434,7 @@
         overflow-x: auto;
     }
 }
+
 /* Div-based Table Styles for Quill Compatibility */
 .q-table {
     display: table !important;
@@ -451,8 +459,10 @@
     overflow-wrap: break-word !important;
 }
 
-.xyz-dynamic pre, .xyz-dynamic code,
-.xyz-content-body pre, .xyz-content-body code {
+.xyz-dynamic pre,
+.xyz-dynamic code,
+.xyz-content-body pre,
+.xyz-content-body code {
     white-space: pre-wrap !important;
     word-break: break-all !important;
     overflow-wrap: break-word !important;
@@ -472,7 +482,8 @@
 }
 
 /* Force break on nested spans inside dynamic content */
-.xyz-dynamic *, .xyz-content-body * {
+.xyz-dynamic *,
+.xyz-content-body * {
     word-break: break-all !important;
     word-wrap: break-word !important;
     overflow-wrap: break-word !important;
@@ -627,14 +638,12 @@
     .approval-node {
         min-width: 200px;
     }
+
     .approval-node-row .value {
         max-width: 130px;
     }
+
     .approval-arrow-line {
         width: 40px;
     }
 }
-
-
-
-

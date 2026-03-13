@@ -75,14 +75,28 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     }
 
     @Override
+    public List<CfgTblCustomFormApplication> getApplicationsApprovedByUser(String status, Integer userId) {
+        logger.debug("getApplicationsApprovedByUser() - status: " + status + ", userId: " + userId);
+        return customFormApplicationDAO.getApplicationsApprovedByUser(status, userId);
+    }
+
+    @Override
+    public List<CfgTblCustomFormApplication> getApplicationsByStatusAndUserId(String status, Integer userId) {
+        logger.debug("getApplicationsByStatusAndUserId() - status: " + status + ", userId: " + userId);
+        return customFormApplicationDAO.getApplicationsByStatusAndUserId(status, userId);
+    }
+
+    @Override
     public String getNextApplicationCode(Integer formId) {
         logger.debug("getNextApplicationCode() - formId: " + formId);
         return customFormApplicationDAO.getNextApplicationCode(formId);
     }
 
     @Override
-    public List<CfgTblCustomFormApplication> getApplicationsPendingApprovalForDepartmentHead(Integer departmentHeadUserId) {
-        logger.debug("getApplicationsPendingApprovalForDepartmentHead() - departmentHeadUserId: " + departmentHeadUserId);
+    public List<CfgTblCustomFormApplication> getApplicationsPendingApprovalForDepartmentHead(
+            Integer departmentHeadUserId) {
+        logger.debug(
+                "getApplicationsPendingApprovalForDepartmentHead() - departmentHeadUserId: " + departmentHeadUserId);
         return customFormApplicationDAO.getApplicationsPendingApprovalForDepartmentHead(departmentHeadUserId);
     }
 
@@ -99,9 +113,11 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     }
 
     @Override
-    public String approveApplication(Integer applicationId, String remarks, Integer approverUserId, String approvedVia, String approvedIp) {
+    public String approveApplication(Integer applicationId, String remarks, Integer approverUserId, String approvedVia,
+            String approvedIp) {
         logger.debug("approveApplication() - applicationId: " + applicationId + ", approverUserId: " + approverUserId);
-        return customFormApplicationDAO.approveApplication(applicationId, remarks, approverUserId, approvedVia, approvedIp);
+        return customFormApplicationDAO.approveApplication(applicationId, remarks, approverUserId, approvedVia,
+                approvedIp);
     }
 
     @Override
@@ -126,5 +142,11 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     public String assignAssetCode(Integer applicationId, String assetCode, Integer userId, String approvedIp) {
         logger.debug("assignAssetCode() - applicationId: " + applicationId + ", userId: " + userId);
         return customFormApplicationDAO.assignAssetCode(applicationId, assetCode, userId, approvedIp);
+    }
+
+    @Override
+    public String assignPrCode(Integer applicationId, String prCode, Integer userId, String approvedIp) {
+        logger.debug("assignPrCode() - applicationId: " + applicationId + ", userId: " + userId);
+        return customFormApplicationDAO.assignPrCode(applicationId, prCode, userId, approvedIp);
     }
 }
