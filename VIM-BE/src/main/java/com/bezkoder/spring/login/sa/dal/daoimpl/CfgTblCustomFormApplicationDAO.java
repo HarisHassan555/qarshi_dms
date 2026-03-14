@@ -6298,8 +6298,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     drawSignatureImage(document, content, sigPath, currentX, sigRowY, sigW, sigHeight);
                 }
                 
-                // Draw metadata even if signature image is missing, to record approval.
-                drawSignatureMetaText(content, currentX, sigW, sigRowY, entry, approvedBy, userMeta);
+                // The underlying HTML template already renders the date, name, and department text for the CAPF form.
+                // We do not need to use PDFBox to manually draw it again as it causes overlapping text issues.
+                // drawSignatureMetaText(content, currentX, sigW, sigRowY, entry, approvedBy, userMeta);
             }
         }
     }
