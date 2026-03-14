@@ -146,6 +146,12 @@ export class ApprovedApplicationsComponent implements OnInit {
         }
     }
 
+    isCeo(): boolean {
+        if (!this.currentUser) return false;
+        const role = (this.currentUser?.cfgTblRole?.txtRoleName || this.currentUser?.txtrole || '').toUpperCase();
+        return role.includes('CEO');
+    }
+
     viewApplication(app: Application) {
         this.router.navigate(['/application-details', app.serApplicationId]);
     }

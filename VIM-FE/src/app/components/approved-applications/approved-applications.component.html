@@ -22,7 +22,10 @@
 
             <!-- Status badge showing both User's Action and OVERALL application status -->
             <ng-template slot="txtStatus" let-value="data">
-                <div class="flex flex-col items-start gap-1">
+                <div *ngIf="isCeo()">
+                    <span class="badge badge-outline-success">APPROVED</span>
+                </div>
+                <div class="flex flex-col items-start gap-1" *ngIf="!isCeo()">
                     <span class="badge badge-outline-success text-xs">Me: APPROVED</span>
                     <span class="badge text-xs" [ngClass]="getStatusClass(value.txtStatus)">
                         App: {{ value.txtStatus || 'N/A' }}

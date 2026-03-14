@@ -3296,6 +3296,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             float y = pageHeight - margin;
 
             String heading = pickFirstNonEmpty(
+                    getValueByKeyContains(appData, "header"),
                     getValueByKeyContains(appData, "heading"),
                     getValueByKeyContains(appData, "title"),
                     getValueByKeyContains(appData, "subject"),
@@ -3599,6 +3600,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     private String buildBudgetBody(Map<String, Object> appData) {
         String rawHtml = pickFirstNonEmpty(
+                getValueByKey(appData, "word_editor"),
                 getValueByKey(appData, "content"),
                 getValueByKey(appData, "editorContent"),
                 getValueByKey(appData, "html"));
@@ -6460,6 +6462,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     private byte[] resolveBestPdfBytesForEmail(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
         try {
+            // ALWAYS generate fresh PDF for email preview if it is a Budget or CAPF form
+            // to ensure latest data and signatures are visible.
+            if (isBudgetApprovalForm(form) || isCapfForm(form)) {
+                Map<String, Object> appData = parseApplicationData(application);
+                return generateApplicationPdf(application, form, appData != null ? appData : new java.util.HashMap<>());
+            }
+
             if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
                 return application.getBlbPdfData();
             }
@@ -6866,8 +6875,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 Integer approvedBy = extractApprovalUserId(entry);
                 Integer level = safeInt(entry.get("level"), null);
                 // Must match userId, be an approved entry, and level >= 1 (not prepared-by)
+                // OR level -99 (CEO approval)
                 if (userId.equals(approvedBy) && isApprovedEntry(entry)
-                        && level != null && level >= 1) {
+                        && level != null && (level >= 1 || level == -99)) {
                     return true;
                 }
             }
