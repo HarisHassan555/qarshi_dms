@@ -1559,7 +1559,7 @@ export class ApplicationDetailsComponent implements OnInit {
 
     const hasInitiatorStage = sortedPipelines.some((p: any) => p.isInitiator === true);
 
-    if (!hasInitiatorStage) {
+    if (!hasInitiatorStage && this.isCapfForm()) {
       sortedPipelines.unshift({
         intApprovalOrder: -1,
         hrTblDepartment: initiatorDeptId
@@ -2400,5 +2400,139 @@ export class ApplicationDetailsComponent implements OnInit {
       this.isGeneratingPdf = false;
       return null;
     }
+  }
+
+  hasIndividualPipelineFooter(): boolean {
+    return this.getIndividualPipelineFooterFields().length > 0;
+  }
+
+  getDynamicApprovalWorkflow(): any[] {
+    const fields = this.getIndividualPipelineFooterFields();
+    const dynamicNodes: any[] = [];
+    
+    const initiatorUserId =
+      this.applicationDetails?.serSubmittedBy ||
+      this.applicationDetails?.cfgTblUser?.serUserId ||
+      this.applicationDetails?.serUserId ||
+      null;
+    const initiatorUserName =
+      this.applicationDetails?.cfgTblUser?.txtUserName ||
+      this.applicationDetails?.txtSubmittedBy ||
+      this.applicationDetails?.submittedByName ||
+      this.applicationDetails?.txtUserName ||
+      'Initiator';
+
+    if (this.isCapfForm()) {
+      dynamicNodes.push({
+        isInitiator: true,
+        title: 'Initiator',
+        user: { serUserId: initiatorUserId, txtUserName: initiatorUserName, userName: initiatorUserName, name: initiatorUserName }
+      });
+    }
+    
+    for (const section of fields) {
+      const users = this.getIndividualFooterSlots(section);
+      for (const slotUser of users) {
+        if (!slotUser) continue;
+        dynamicNodes.push({
+           isInitiator: false,
+           title: section.label || 'Approval Stage',
+           user: slotUser
+        });
+      }
+    }
+    
+    return dynamicNodes;
+  }
+
+  getDynamicStageStatus(node: any): string {
+    if (node.isInitiator) return 'APPROVED';
+    const userId = this.getUserId(node.user);
+    if (!userId || !this.approvalHistory) {
+      // Current pending level matches? For dynamic maybe not using intApprovalOrder.
+      return 'PENDING';
+    }
+    
+    const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+    if (!entry) return 'PENDING';
+    
+    const action = (entry.action || entry.status || '').toString().toUpperCase();
+    if (action === 'REJECTED') return 'REJECTED';
+    if (action === 'APPROVED' || !!entry.approvedDate) return 'APPROVED';
+    
+    return 'PENDING';
+  }
+
+  getDynamicStageApproverName(node: any): string {
+    if (node.isInitiator) return node.user.txtUserName || node.user.userName || node.user.name || 'Initiator';
+    const userId = this.getUserId(node.user);
+    if (!userId || !this.approvalHistory) return node.user.txtUserName || node.user.userName || node.user.name || '--';
+    const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+    return entry?.approverName || node.user.txtUserName || node.user.userName || node.user.name || '--';
+  }
+
+  getDynamicStageApprovedAt(node: any): string {
+    if (node.isInitiator) {
+      const d = this.applicationDetails?.dteCreatedDate || this.applicationDetails?.createdAt;
+      return d ? new Date(d).toLocaleString() : '--';
+    }
+    return this.getUserApprovalDate(node.user) || '--';
+  }
+
+  getDynamicStageRemarks(node: any): string {
+    if (node.isInitiator) return '--';
+    const userId = this.getUserId(node.user);
+    if (!userId || !this.approvalHistory) return '--';
+    const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+    return entry?.remarks || '--';
+  }
+
+  getDynamicStageApprovedVia(node: any): string {
+    if (node.isInitiator) {
+       return this.applicationDetails?.txtIpAddress ? 'IP:' + this.applicationDetails.txtIpAddress : 'SUBMISSION';
+    }
+    const userId = this.getUserId(node.user);
+    if (!userId || !this.approvalHistory) return '--';
+    const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+    return entry?.approvedVia || entry?.approvedIp || entry?.ipAddress || '--';
+  }
+
+  getDynamicStageTitle(node: any): string {
+    if (node.isInitiator) return 'Initiator';
+    return node.title || 'Approval Stage';
+  }
+
+  getDynamicStageTimeTaken(index: number, nodes: any[]): string {
+    if (index === 0) return '--';
+    const current = nodes[index];
+    const previous = nodes[index - 1];
+    
+    const currentStr = this.getDynamicStageApprovedAt(current);
+    const previousStr = this.getDynamicStageApprovedAt(previous);
+    if (currentStr === '--' || previousStr === '--') return '--';
+    
+    const currDate = new Date(currentStr);
+    const prevDate = new Date(previousStr);
+    if (isNaN(currDate.getTime()) || isNaN(prevDate.getTime())) return '--';
+    
+    const diffMs = currDate.getTime() - prevDate.getTime();
+    if (diffMs < 0) return '--';
+    
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 60) return `${diffMins} min`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) {
+      const remMins = diffMins % 60;
+      return `${diffHours}h ${remMins}m`;
+    }
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays} days`;
+  }
+
+  getDynamicPipelineProgress(): number {
+    const nodes = this.getDynamicApprovalWorkflow();
+    if (nodes.length === 0) return 0;
+    const approved = nodes.filter(n => this.getDynamicStageStatus(n) === 'APPROVED').length;
+    return Math.round((approved / nodes.length) * 100);
   }
 }

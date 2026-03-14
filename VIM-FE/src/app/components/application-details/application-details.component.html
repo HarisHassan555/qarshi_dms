@@ -599,7 +599,74 @@
 
         </div>
 
-        <ng-container *ngIf="getPipelineData() as pipelines">
+        <ng-container *ngIf="hasIndividualPipelineFooter()">
+            <div class="mb-4">
+                <div class="flex justify-between text-xs mb-1.5">
+                    <span class="font-medium text-gray-600 dark:text-gray-400">Total Progress</span>
+                    <span class="font-bold text-primary">{{ getDynamicPipelineProgress() }}%</span>
+                </div>
+                <div class="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div class="h-full bg-primary transition-all duration-1000 ease-out"
+                        [style.width.%]="getDynamicPipelineProgress()"></div>
+                </div>
+            </div>
+
+            <div class="approval-flow">
+                <ng-container *ngFor="let node of getDynamicApprovalWorkflow(); let i = index">
+                    <div class="approval-node" [ngClass]="{
+                            'is-approved': getDynamicStageStatus(node) === 'APPROVED',
+                            'is-pending': getDynamicStageStatus(node) === 'PENDING',
+                            'is-rejected': getDynamicStageStatus(node) === 'REJECTED'
+                        }">
+                        <div class="approval-node-header">
+                            <div class="approval-node-title">
+                                {{ getDynamicStageTitle(node) }}
+                            </div>
+                            <div class="approval-node-status">
+                                {{ getDynamicStageStatus(node) }}
+                            </div>
+                        </div>
+                        <div class="approval-node-body">
+                            <div class="approval-node-row">
+                                <span class="label">Approved By</span>
+                                <span class="value">
+                                    {{ getDynamicStageApproverName(node) }}
+                                </span>
+                            </div>
+                            <div class="approval-node-row">
+                                <span class="label">Action Time</span>
+                                <span class="value">
+                                    {{ getDynamicStageApprovedAt(node) }}
+                                </span>
+                            </div>
+                            <div class="approval-node-row">
+                                <span class="label">Remarks</span>
+                                <span class="value">
+                                    {{ getDynamicStageRemarks(node) }}
+                                </span>
+                            </div>
+                            <div class="approval-node-row">
+                                <span class="label">IP Address</span>
+                                <span class="value">
+                                    {{ getDynamicStageApprovedVia(node) }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div *ngIf="i < getDynamicApprovalWorkflow().length - 1" class="approval-arrow">
+                        <div class="approval-arrow-label">
+                            {{ getDynamicStageTimeTaken(i + 1, getDynamicApprovalWorkflow()) }}
+                        </div>
+                        <div class="approval-arrow-track">
+                            <div class="approval-arrow-line"></div>
+                            <div class="approval-arrow-head"></div>
+                        </div>
+                    </div>
+                </ng-container>
+            </div>
+        </ng-container>
+
+        <ng-container *ngIf="!hasIndividualPipelineFooter() && getPipelineData() as pipelines">
             <div class="mb-4">
                 <div class="flex justify-between text-xs mb-1.5">
                     <span class="font-medium text-gray-600 dark:text-gray-400">Total Progress</span>
