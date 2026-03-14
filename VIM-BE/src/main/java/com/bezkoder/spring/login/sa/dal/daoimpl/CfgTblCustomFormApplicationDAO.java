@@ -4234,11 +4234,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (usedIndexes.contains(i)) continue;
             Map<String, Object> entry = approved.get(i);
             Integer order = safeInt(entry.get("intApprovalOrder"), safeInt(entry.get("level"), null));
-            if (order != null && order >= 1 && order <= 6) {
-                mapped[order - 1].add(entry);
+            if (order != null && order >= 0 && order < 6) {
+                mapped[order].add(entry);
                 usedIndexes.add(i);
                 // Group extra signatures from same department into this slot
-                collectSameDeptEntries(mapped[order - 1], entry, approved, usedIndexes);
+                collectSameDeptEntries(mapped[order], entry, approved, usedIndexes);
             }
         }
 
@@ -4254,15 +4254,16 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 if (entryDept.isEmpty())
                     continue;
                 for (int s = 0; s < pipelineSlots.size(); s++) {
-                    if (s >= mapped.length || !mapped[s].isEmpty())
+                    int targetSlot = s + 1; // Since slot 0 is reserved for Initiator's HOD
+                    if (targetSlot >= mapped.length || !mapped[targetSlot].isEmpty())
                         continue;
                     String slotDept = normalizeDeptText(pipelineSlots.get(s));
                     if (slotDept.isEmpty())
                         continue;
                     if (entryDept.contains(slotDept) || slotDept.contains(entryDept)) {
-                        mapped[s].add(entry);
+                        mapped[targetSlot].add(entry);
                         usedIndexes.add(i);
-                        collectSameDeptEntries(mapped[s], entry, approved, usedIndexes);
+                        collectSameDeptEntries(mapped[targetSlot], entry, approved, usedIndexes);
                         break;
                     }
                 }
