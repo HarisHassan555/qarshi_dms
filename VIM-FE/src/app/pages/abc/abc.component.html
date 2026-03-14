@@ -226,7 +226,24 @@
       <div class="approved">
         <div class="who b">Approved By:</div>
         <div class="approved-sig">
+          <ng-container *ngIf="getCeoApproval() as ceo">
+            <!-- Signature ABOVE the line -->
+            <div class="ceo-sig-top" style="display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 40px; margin-bottom: 2px; width: 150px;">
+              <img *ngIf="ceo.signatureUrl" [src]="ceo.signatureUrl" class="sig-img" alt="CEO Signature" crossorigin="anonymous">
+            </div>
+          </ng-container>
+          
           <div class="appline"></div>
+          
+          <ng-container *ngIf="getCeoApproval() as ceo">
+            <!-- Metadata BELOW the line -->
+            <div class="ceo-sig-bottom" style="display: flex; flex-direction: column; align-items: center; margin-top: 2px; width: 150px;">
+              <div class="sig-time">{{ ceo.approvedDateText }}</div>
+              <div class="sig-meta">{{ ceo.nameText }}</div>
+              <div class="sig-meta">{{ ceo.designationText }}</div>
+            </div>
+          </ng-container>
+          
           <div class="who b">Chief Executive</div>
         </div>
       </div>
