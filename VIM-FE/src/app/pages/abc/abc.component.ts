@@ -243,7 +243,8 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
             const pipeline = pipelines[index] || null;
             const slot = this.fallbackSignatureSlots[index] || null;
 
-            const order = pipeline?.intApprovalOrder || (index + 1);
+            // Correct for falsy 0: if intApprovalOrder is 0 (Level 0), use 0.
+            const order = (pipeline && pipeline.intApprovalOrder !== undefined) ? pipeline.intApprovalOrder : (index + 1);
             const departmentId = pipeline?.hrTblDepartment?.serDepartmentId || pipeline?.serDepartmentId || pipeline?.departmentId;
 
             // Priority matching: pipeline data first, then fallback to keywords
@@ -287,7 +288,7 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
                         signatureUrl: userId ? `${urls.API_URL}getSignature?userId=${userId}` : ''
                     };
                 })
-                .slice(0, 2);
+                .slice(0, 3); // Allow up to 3 signatures per slot for departments with multiple heads
 
             const signatureUrls = displayEntries.map(de => de.signatureUrl);
 
@@ -320,22 +321,48 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         return [];
     }
 
-    private getApprovalEntryForSlot(slot: { keywords: string[] }): any | null {
+    private getApprovalEntryForSlot(slot: { label: string, keywords: string[] }): any | null {
         const entries = this.getApprovalEntriesForSlot(slot);
         return entries[0] || null;
     }
 
-    private getApprovalEntriesForSlot(slot: { keywords: string[] }): any[] {
+    private getApprovalEntriesForSlot(slot: { label: string, keywords: string[] }): any[] {
         if (!this.approvalHistory || this.approvalHistory.length === 0) {
             return [];
         }
 
         const keywordsLower = (slot.keywords || []).map(k => k.toLowerCase());
+        const isUserDeptSlot = slot.label.toLowerCase().includes('user dept');
+
         const byDept = this.approvalHistory.filter((e: any) => {
             const deptName = (e.departmentName || '').toString().toLowerCase();
             const roleName = (e.role || '').toString().toLowerCase();
             const combined = `${deptName} ${roleName}`.trim();
             if (!combined) return false;
+
+            // Strict matching for "User Deptt. (HoD)" to avoid claiming other department heads
+            if (isUserDeptSlot) {
+                // If this is the User Dept slot, it should only match Level 0 
+                // OR it should NOT match other specific pipeline departments like "Technical Expert"
+                const isLevelZero = e.level === 0 || e.intApprovalOrder === 0;
+                if (isLevelZero) return true;
+
+                // Also match Level 1 if it's the VERY FIRST entry in history (fallback for old data)
+                const isFirstEntry = this.approvalHistory.indexOf(e) === 0;
+                if (isFirstEntry && (e.level === 1 || e.intApprovalOrder === 1)) {
+                    // But only if it's NOT a pipeline department
+                    if (!combined.includes('technical') && !combined.includes('procurement') && !combined.includes('finance')) {
+                        return true;
+                    }
+                }
+
+                // If not level 0, only match if it contains HOD but NOT technical/procurement/finance keywords
+                return (combined.includes('hod') || combined.includes('head')) &&
+                    !combined.includes('technical') &&
+                    !combined.includes('procurement') &&
+                    !combined.includes('finance');
+            }
+
             return keywordsLower.every(k => combined.includes(k));
         });
         if (byDept.length > 0) {
@@ -402,21 +429,36 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
             return [];
         }
         const form = this.application.cfgTblCustomForm;
+        const formCode = (this.application.txtFormCode || '').toUpperCase();
+        const isCapf = formCode.startsWith('CAPF');
 
         let pipelines = form.approvalPipelines || form.cfgTblCustomFormApprovalPipelines;
         if ((!pipelines || !Array.isArray(pipelines) || pipelines.length === 0) && form.txtApprovalPipeline) {
             try {
                 pipelines = JSON.parse(form.txtApprovalPipeline);
             } catch {
-                return [];
+                pipelines = [];
             }
         }
-        if (!pipelines || !Array.isArray(pipelines) || pipelines.length === 0) {
-            return [];
+        if (!pipelines || !Array.isArray(pipelines)) {
+            pipelines = [];
         }
-        return [...pipelines].sort((a: any, b: any) =>
+
+        const sortedPipelines = [...pipelines].sort((a: any, b: any) =>
             (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0)
         );
+
+        if (isCapf) {
+            // Insert a virtual "Level 0" stage for the Initiator's HOD at the beginning
+            const virtualHodStage = {
+                intApprovalOrder: 0,
+                departmentName: 'User Deptt. (HoD)',
+                isVirtual: true
+            };
+            return [virtualHodStage, ...sortedPipelines];
+        }
+
+        return sortedPipelines;
     }
 
     private formatApprovalDate(dateValue: any): string {
@@ -435,6 +477,29 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         } catch (e) {
             return String(dateValue);
         }
+    }
+
+    public getCeoApproval(): any {
+        if (!this.approvalHistory || this.approvalHistory.length === 0) return null;
+        
+        // Find CEO approval in history
+        const ceoEntry = this.approvalHistory.find((e: any) => 
+            (e.role || '').toString().toLowerCase().includes('ceo') || 
+            (e.departmentName || '').toString().toLowerCase().includes('ceo') ||
+            (e.txtStatus || '').toString().toUpperCase() === 'CEO_APPROVED'
+        );
+
+        if (ceoEntry && ceoEntry.signaturePath) {
+            const userId = ceoEntry.approvedBy || ceoEntry.approverUserId || ceoEntry.userId;
+            return {
+                nameText: (ceoEntry.approverName || ceoEntry.userName || '').toLowerCase(),
+                designationText: ceoEntry.designation || ceoEntry.txtDesignation || 'CEO',
+                departmentName: ceoEntry.departmentName || ceoEntry.txtDepartmentName || '',
+                approvedDateText: this.formatApprovalDate(ceoEntry.approvedDate || ceoEntry.approvedAt),
+                signatureUrl: userId ? `${urls.API_URL}getSignature?userId=${userId}` : ''
+            };
+        }
+        return null;
     }
 
     populateForm() {

@@ -3126,7 +3126,7 @@ export class ApplicationsViewComponent implements OnInit {
     .approved-sig {
       display: flex;
       flex-direction: column;
-      align-items: flex-start;
+      align-items: center;
     }
 
     .approved .appline {

@@ -1086,19 +1086,36 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     new TypeReference<List<Map<String, Object>>>() {
                     });
             int currentLevel = currentLevelSafe(application);
-            if (currentLevel < 0 || currentLevel >= pipelines.size()) {
+            boolean isCapf = isCapfForm(form);
+
+            // Calculate which pipeline entry to use. CAPF Level 0 is dynamic HOD.
+            int pipelineIndex = isCapf ? currentLevel - 1 : currentLevel;
+            Map<String, Object> currentPipeline = null;
+
+            if (pipelineIndex >= 0 && pipelineIndex < pipelines.size()) {
+                currentPipeline = pipelines.get(pipelineIndex);
+            } else if (isCapf && currentLevel == 0) {
+                // Valid stage (HOD), no pipeline entry needed yet
+            } else {
                 return false;
             }
 
-            Map<String, Object> currentPipeline = pipelines.get(currentLevel);
-            if (currentPipeline == null) {
-                return false;
+            Integer departmentId = null;
+            String departmentName = null;
+
+            if (currentPipeline != null) {
+                departmentId = safeInt(currentPipeline.get("serDepartmentId"),
+                        safeInt(currentPipeline.get("departmentId"), null));
+                departmentName = resolveDepartmentName(entityManager, departmentId, currentPipeline);
             }
 
-            Integer departmentId = safeInt(currentPipeline.get("serDepartmentId"),
-                    safeInt(currentPipeline.get("departmentId"), null));
-            String departmentName = resolveDepartmentName(entityManager, departmentId, currentPipeline);
-            if (isUserDepartmentHodStage(currentPipeline, departmentName)) {
+            // For CAPF forms, the first stage ALWAYS routes to the initiator's (submitter's) HOD.
+            if (isCapf && currentLevel == 0) {
+                Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
+                if (submitterDeptId != null) {
+                    departmentId = submitterDeptId;
+                }
+            } else if (currentPipeline != null && isUserDepartmentHodStage(currentPipeline, departmentName)) {
                 Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
                 if (submitterDeptId != null) {
                     departmentId = submitterDeptId;
@@ -1396,37 +1413,50 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 }
                 departmentName = "Initial Signer";
                 log.info("Initial Signer approved application " + application.getSerApplicationId());
-            } else if (!pipelines.isEmpty() && currentLevel < pipelines.size()) {
-                currentDepartmentPipeline = pipelines.get(currentLevel);
-                if (currentDepartmentPipeline != null) {
-                    Object deptIdObj = currentDepartmentPipeline.get("serDepartmentId");
-                    Object orderObj = currentDepartmentPipeline.get("intApprovalOrder");
+            } else {
+                int pipelineIndex = isCapf ? currentLevel - 1 : currentLevel;
 
-                    if (deptIdObj != null) {
-                        departmentId = deptIdObj instanceof Integer ? (Integer) deptIdObj
-                                : Integer.parseInt(deptIdObj.toString());
-                        // Resolve department name from pipeline or DB
-                        departmentName = resolveDepartmentName(entityManager, departmentId, currentDepartmentPipeline);
+                if (isCapf && currentLevel == 0) {
+                    // Level 0 for CAPF is ALWAYS Initiator HOD
+                    Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
+                    if (submitterDeptId != null) {
+                        departmentId = submitterDeptId;
+                        departmentName = resolveDepartmentName(entityManager, departmentId, null);
+                        log.info("CAPF detected. Resolved current approval stage to initiator department ID: " + departmentId +
+                                " for application " + application.getSerApplicationId());
                     }
+                } else if (!pipelines.isEmpty() && pipelineIndex >= 0 && pipelineIndex < pipelines.size()) {
+                    currentDepartmentPipeline = pipelines.get(pipelineIndex);
+                    if (currentDepartmentPipeline != null) {
+                        Object deptIdObj = currentDepartmentPipeline.get("serDepartmentId");
+                        Object orderObj = currentDepartmentPipeline.get("intApprovalOrder");
 
-                    // Dynamic CAPF stage: "User Dept (HoD)" should authorize against submitter's
-                    // department.
-                    if (isUserDepartmentHodStage(currentDepartmentPipeline, departmentName)) {
-                        Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
-                        if (submitterDeptId != null) {
-                            departmentId = submitterDeptId;
-                            departmentName = resolveDepartmentName(entityManager, departmentId, null);
-                            log.info("Resolved current approval stage to submitter department ID: " + departmentId +
-                                    " for application " + application.getSerApplicationId());
-                        } else {
-                            log.warn("Could not resolve submitter department for User Dept (HoD) stage, application: " +
-                                    application.getSerApplicationId());
+                        if (deptIdObj != null) {
+                            departmentId = deptIdObj instanceof Integer ? (Integer) deptIdObj
+                                    : Integer.parseInt(deptIdObj.toString());
+                            // Resolve department name from pipeline or DB
+                            departmentName = resolveDepartmentName(entityManager, departmentId, currentDepartmentPipeline);
                         }
-                    }
 
-                    if (orderObj != null) {
-                        pipelineOrder = orderObj instanceof Integer ? (Integer) orderObj
-                                : Integer.parseInt(orderObj.toString());
+                        // Dynamic CAPF stage: "User Dept (HoD)" should authorize against submitter's
+                        // department.
+                        if (isUserDepartmentHodStage(currentDepartmentPipeline, departmentName)) {
+                            Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
+                            if (submitterDeptId != null) {
+                                departmentId = submitterDeptId;
+                                departmentName = resolveDepartmentName(entityManager, departmentId, null);
+                                log.info("Resolved current dynamic stage to submitter department ID: " + departmentId +
+                                        " for application " + application.getSerApplicationId());
+                            } else {
+                                log.warn("Could not resolve submitter department for User Dept (HoD) stage, application: " +
+                                        application.getSerApplicationId());
+                            }
+                        }
+
+                        if (orderObj != null) {
+                            pipelineOrder = orderObj instanceof Integer ? (Integer) orderObj
+                                    : Integer.parseInt(orderObj.toString());
+                        }
                     }
                 }
             }
@@ -1465,13 +1495,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
             boolean skipCeoHistory = shouldSkipCeoForCapf(form, departmentName, approverUser);
             if (!skipCeoHistory) {
-                // Add current approval to history (the level being approved is currentLevel + 1
-                // in terms of pipeline order)
-                // But we store the actual pipeline order (1-indexed)
+                // Add current approval to history
+                // For CAPF, Level 0 is the virtual Initiator HOD stage
+                Integer historyLevel;
+                if (isCapf && currentLevel == 0) {
+                    historyLevel = 0;
+                } else {
+                    historyLevel = pipelineOrder != null ? pipelineOrder : (currentLevel + 1);
+                }
+
                 java.util.Map<String, Object> approvalEntry = new java.util.HashMap<>();
-                approvalEntry.put("level", pipelineOrder != null ? pipelineOrder : (currentLevel + 1)); // Pipeline
-                                                                                                        // order
-                                                                                                        // (1-indexed)
+                approvalEntry.put("level", historyLevel);
                 approvalEntry.put("departmentId", departmentId);
                 approvalEntry.put("departmentName", departmentName != null ? departmentName
                         : (departmentId != null ? "Department " + departmentId : "Unknown"));
@@ -1494,8 +1528,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 approvalEntry.put("role", departmentName != null ? departmentName : "");
                 log.info(
                         "CAPF signature log [pipeline-approval-entry]: appId={}, userId={}, level={}, deptId={}, deptName={}, signaturePath={}",
-                        application.getSerApplicationId(), resolvedApproverId,
-                        (pipelineOrder != null ? pipelineOrder : (currentLevel + 1)),
+                        application.getSerApplicationId(), resolvedApproverId, historyLevel,
                         departmentId, departmentName, approverSignaturePath != null ? approverSignaturePath : "");
                 approvalHistory.add(approvalEntry);
 
@@ -1511,8 +1544,12 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
             // Enforce multi-HOD approval: if a department lists multiple HOD IDs, require
             // all to approve before advancing
-            Integer pipelineLevelIndex = pipelineOrder != null ? pipelineOrder : (currentLevel + 1); // 1-indexed in
-                                                                                                     // history
+            Integer pipelineLevelIndex;
+            if (isCapf && currentLevel == 0) {
+                pipelineLevelIndex = 0;
+            } else {
+                pipelineLevelIndex = pipelineOrder != null ? pipelineOrder : (currentLevel + 1);
+            }
             Set<Integer> requiredHods = parseDepartmentHeadIds(entityManager, departmentId);
             if (!requiredHods.isEmpty()) {
                 Set<Integer> approvedHods = getApprovedHodsForStage(approvalHistory, departmentId, pipelineLevelIndex);
@@ -1536,8 +1573,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             // Increment approval level (advance to next department)
             currentLevel++;
 
-            // Check if this is the last level
-            if (pipelines.isEmpty() || currentLevel >= pipelines.size()) {
+            // Check if this is the last level. 
+            // For CAPF, the pipeline starts at index 0 when currentLevel=1.
+            // So if currentLevel is 5 and pipelines.size is 4, we are done with pipeline.
+            boolean isLastStage;
+            if (isCapfForm(form)) {
+                isLastStage = pipelines.isEmpty() || currentLevel > pipelines.size();
+            } else {
+                isLastStage = pipelines.isEmpty() || currentLevel >= pipelines.size();
+            }
+
+            if (isLastStage) {
                 // All approvals complete -> route to CEO (if available) otherwise go straight
                 // to Finance
                 application.setIntCurrentApprovalLevel(currentLevel);
@@ -1605,19 +1651,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             Integer approvedPipelineOrder = pipelineOrder != null ? pipelineOrder : (currentLevel);
             try {
                 sendApprovalEmails(application, approvedPipelineOrder, currentLevel, pipelines);
-                if ("CEO_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
-                    sendCeoApprovalEmails(application, form);
-                }
             } catch (Exception emailEx) {
                 log.error("Error sending approval emails: " + emailEx.getMessage(), emailEx);
                 // Don't fail the approval if email fails
-            }
-            if ("ASSET_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
-                try {
-                    sendFinanceEmails(application, form);
-                } catch (Exception e) {
-                    log.warn("Finance email send failed: {}", e.getMessage());
-                }
             }
             return "Success";
         } catch (Exception e) {
@@ -1683,8 +1719,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
                             });
 
-                    if (!pipelines.isEmpty() && currentLevel < pipelines.size()) {
-                        java.util.Map<String, Object> currentPipeline = pipelines.get(currentLevel);
+                    boolean isCapf = isCapfForm(form);
+                    int pipelineIndex = isCapf ? currentLevel - 1 : currentLevel;
+
+                    if (!pipelines.isEmpty() && pipelineIndex >= 0 && pipelineIndex < pipelines.size()) {
+                        java.util.Map<String, Object> currentPipeline = pipelines.get(pipelineIndex);
                         if (currentPipeline != null) {
                             Object deptIdObj = currentPipeline.get("serDepartmentId");
                             Object orderObj = currentPipeline.get("intApprovalOrder");
@@ -1697,6 +1736,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                 pipelineOrder = orderObj instanceof Integer ? (Integer) orderObj
                                         : Integer.parseInt(orderObj.toString());
                             }
+                        }
+                    } else if (isCapf && currentLevel == 0) {
+                        // Level 0 for CAPF is ALWAYS Initiator HOD
+                        Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
+                        if (submitterDeptId != null) {
+                            departmentId = submitterDeptId;
+                            departmentName = resolveDepartmentName(entityManager, departmentId, null);
                         }
                     }
                 }
@@ -1804,12 +1850,31 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             String currentDepartmentName = null;
             Integer currentPipelineOrder = null;
 
-            if (!pipelines.isEmpty() && currentLevel > 0 && currentLevel <= pipelines.size()) {
+            boolean isCapf = isCapfForm(form);
+            if (!pipelines.isEmpty() && currentLevel > 0) {
                 // Get the department at the current level (the one sending back)
-                // currentLevel is 1-based, array index is 0-based, so index = currentLevel - 1
-                int currentLevelIndex = currentLevel - 1;
-                if (currentLevelIndex >= 0 && currentLevelIndex < pipelines.size()) {
-                    currentDepartmentPipeline = pipelines.get(currentLevelIndex);
+                int currentLevelIndex = isCapf ? currentLevel - 1 : currentLevel - 1;
+                // Wait, if isCapf is true:
+                // Level 1 is Technical Expert (Index 0). Index = 1 - 1 = 0.
+                // Level 2 is Procurement (Index 1). Index = 2 - 1 = 1.
+                // It seems the current index logic (currentLevel - 1) is ALREADY correct for CAPF
+                // because currentLevel is 1-based in this context (Level 1, Level 2, etc.)
+                // But wait, if isCapf is false, Level 0 is pipelines[0]. currentLevel would be 0.
+                // Let's re-verify the index logic for non-CAPF.
+                
+                // If non-CAPF, Stage 1 (Index 0) approves, currentLevel becomes 1.
+                // If Stage 2 (Index 1) sends back, currentLevel is 1. currentLevelIndex = 1 - 1 = 0. Correct.
+                
+                // So the index logic (currentLevel - 1) is actually correct for both if currentLevel 
+                // represents the current stage's 0-based index.
+                
+                // HOWEVER, for CAPF, currentLevel 1 is Pipeline Index 0.
+                // For non-CAPF, currentLevel 1 is Pipeline Index 1.
+                
+                int pipelineIndex = isCapf ? currentLevel - 1 : currentLevel;
+                
+                if (pipelineIndex >= 0 && pipelineIndex < pipelines.size()) {
+                    currentDepartmentPipeline = pipelines.get(pipelineIndex);
                     if (currentDepartmentPipeline != null) {
                         Object deptIdObj = currentDepartmentPipeline.get("serDepartmentId");
                         Object orderObj = currentDepartmentPipeline.get("intApprovalOrder");
@@ -1825,6 +1890,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             currentPipelineOrder = orderObj instanceof Integer ? (Integer) orderObj
                                     : Integer.parseInt(orderObj.toString());
                         }
+                    }
+                } else if (isCapf && currentLevel == 0) {
+                    // Level 0 for CAPF is ALWAYS Initiator HOD
+                    Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
+                    if (submitterDeptId != null) {
+                        currentDepartmentId = submitterDeptId;
+                        currentDepartmentName = resolveDepartmentName(entityManager, currentDepartmentId, null);
                     }
                 }
             }
@@ -2293,12 +2365,30 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             // 2. Get email of the next level department head (if there is a next level)
-            // currentLevel is 0-indexed and represents the next level to be approved
-            if (pipelines != null && !pipelines.isEmpty() && currentLevel < pipelines.size()) {
+            // For CAPF, Level 0 was HOD. Level 1 is Pipeline Index 0.
+            int nextPipelineIndex = isCapf ? currentLevel - 1 : currentLevel;
+
+            boolean isLastStage;
+            if (isCapf) {
+                isLastStage = pipelines == null || pipelines.isEmpty() || currentLevel > pipelines.size();
+            } else {
+                isLastStage = pipelines == null || pipelines.isEmpty() || currentLevel >= pipelines.size();
+            }
+
+            if (isLastStage) {
+                // If it was the last stage, send CEO/Finance emails instead of next department
+                if ("CEO_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
+                    sendCeoApprovalEmails(application, form);
+                } else if ("ASSET_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
+                    sendFinanceEmails(application, null);
+                }
+                return;
+            }
+
+            if (pipelines != null && !pipelines.isEmpty() && nextPipelineIndex >= 0 && nextPipelineIndex < pipelines.size()) {
                 try {
-                    // Get the next level pipeline (currentLevel is 0-indexed, so this is the next
-                    // level)
-                    java.util.Map<String, Object> nextLevelPipeline = pipelines.get(currentLevel);
+                    // Get the next level pipeline
+                    java.util.Map<String, Object> nextLevelPipeline = pipelines.get(nextPipelineIndex);
                     if (nextLevelPipeline != null) {
                         Object deptIdObj = nextLevelPipeline.get("serDepartmentId");
                         if (deptIdObj != null) {
@@ -2313,6 +2403,20 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             if (nextDept != null) {
                                 String nextDeptName = resolveDepartmentName(emailEntityManager, nextDeptId,
                                         nextLevelPipeline);
+
+                                // Dynamic CAPF stage: "User Dept (HoD)" in pipeline should route to
+                                // submitter's HOD
+                                if (isUserDepartmentHodStage(nextLevelPipeline, nextDeptName)) {
+                                    Integer submitterDeptId = loadUserDepartmentId(emailEntityManager,
+                                            application.getSerSubmittedBy());
+                                    if (submitterDeptId != null) {
+                                        nextDeptId = submitterDeptId;
+                                        nextDept = emailEntityManager.find(
+                                                com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class,
+                                                nextDeptId);
+                                        nextDeptName = resolveDepartmentName(emailEntityManager, nextDeptId, null);
+                                    }
+                                }
 
                                 // Collect all Head IDs
                                 java.util.List<Integer> headIds = new java.util.ArrayList<>();
@@ -2786,15 +2890,22 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             String firstDeptName = resolveDepartmentName(emailEntityManager, firstDeptId,
                                     firstLevelPipeline);
 
-                            // Dynamic CAPF stage: "User Dept (HoD)" should route to submitter's own
-                            // department head.
-                            if (isUserDepartmentHodStage(firstLevelPipeline, firstDeptName)) {
+                            // For CAPF forms, the first stage ALWAYS routes to the initiator's (submitter's) HOD.
+                            if (isCapf) {
                                 Integer submitterDeptId = loadUserDepartmentId(emailEntityManager,
                                         application.getSerSubmittedBy());
                                 if (submitterDeptId != null) {
                                     firstDeptId = submitterDeptId;
                                     firstDeptName = resolveDepartmentName(emailEntityManager, firstDeptId, null);
-                                    log.info("Resolved first CAPF stage to submitter department ID: " + firstDeptId);
+                                    log.info("CAPF detected. Resolved first stage to initiator department ID: " + firstDeptId);
+                                }
+                            } else if (isUserDepartmentHodStage(firstLevelPipeline, firstDeptName)) {
+                                Integer submitterDeptId = loadUserDepartmentId(emailEntityManager,
+                                        application.getSerSubmittedBy());
+                                if (submitterDeptId != null) {
+                                    firstDeptId = submitterDeptId;
+                                    firstDeptName = resolveDepartmentName(emailEntityManager, firstDeptId, null);
+                                    log.info("Resolved first dynamic stage to submitter department ID: " + firstDeptId);
                                 } else {
                                     log.warn("Submitter department not found for application "
                                             + application.getSerApplicationId() +
@@ -3382,6 +3493,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             float y = pageHeight - margin;
 
             String heading = pickFirstNonEmpty(
+                    getValueByKeyContains(appData, "header"),
                     getValueByKeyContains(appData, "heading"),
                     getValueByKeyContains(appData, "title"),
                     getValueByKeyContains(appData, "subject"),
@@ -3685,6 +3797,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     private String buildBudgetBody(Map<String, Object> appData) {
         String rawHtml = pickFirstNonEmpty(
+                getValueByKey(appData, "word_editor"),
                 getValueByKey(appData, "content"),
                 getValueByKey(appData, "editorContent"),
                 getValueByKey(appData, "html"));
@@ -6683,6 +6796,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     private byte[] resolveBestPdfBytesForEmail(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
         try {
+            // ALWAYS generate fresh PDF for email preview if it is a Budget or CAPF form
+            // to ensure latest data and signatures are visible.
+            if (isBudgetApprovalForm(form) || isCapfForm(form)) {
+                Map<String, Object> appData = parseApplicationData(application);
+                return generateApplicationPdf(application, form, appData != null ? appData : new java.util.HashMap<>());
+            }
+
             if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
                 return application.getBlbPdfData();
             }
@@ -7209,6 +7329,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         new com.fasterxml.jackson.core.type.TypeReference<java.util.List<java.util.Map<String, Object>>>() {
                         });
             }
+
+            // Load user details for signature, name and designation
+            CfgTblUser user = commonService.getCurrentUser(userId);
+
             java.util.Map<String, Object> entry = new java.util.HashMap<>();
             entry.put("approvedBy", userId);
             entry.put("action", action);
@@ -7216,7 +7340,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             entry.put("level", level);
             entry.put("approvedVia", approvedVia != null ? approvedVia : "SYSTEM");
             entry.put("approvedIp", approvedIp != null ? approvedIp : "");
+            entry.put("approvedDate", commonService.getCurrentTimeStamp_new().toString());
             entry.put("approvedAt", commonService.getCurrentTimeStamp_new());
+
+            if (user != null) {
+                entry.put("approverName", user.getTxtUserName());
+                entry.put("signaturePath", user.getTxtSignaturePath());
+                entry.put("designation", user.getTxtDesignation());
+                entry.put("txtDesignation", user.getTxtDesignation());
+                entry.put("txtDepartmentName", user.getTxtDepartmentName());
+            }
+
             history.add(entry);
             application.setTxtApprovalHistory(mapper.writeValueAsString(history));
         } catch (Exception e) {
@@ -7360,8 +7494,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 Integer approvedBy = extractApprovalUserId(entry);
                 Integer level = safeInt(entry.get("level"), null);
                 // Must match userId, be an approved entry, and level >= 1 (not prepared-by)
+                // OR level -99 (CEO approval)
                 if (userId.equals(approvedBy) && isApprovedEntry(entry)
-                        && level != null && level >= 1) {
+                        && level != null && (level >= 1 || level == -99)) {
                     return true;
                 }
             }

@@ -28,15 +28,13 @@ export class UserListComponent implements OnInit {
   isRoleAdmin = false;
 
   cols = [
-    // { field: '', title: 'Sr. No' },
     { field: 'txtUserName', title: 'Username' },
-    { field: 'txtCnic', title: 'CNIC' },
-    { field: 'txtContactNo', title: 'Contact Number' },
-    { field: 'cfgTblRole.txtRoleName', title: 'Role' },
-    /* { field: 'cfgTblPasswordPolicy.txtCode', title: 'Password Policy' },*/
+    { field: 'txtCnic', title: 'CNIC', width: '160px' },
+    { field: 'txtContactNo', title: 'Contact Number', width: '160px' },
+    { field: 'cfgTblRole.txtRoleName', title: 'Role', width: '120px' },
     { field: 'txtAddress', title: 'Email' },
-    { field: 'blnStatus', title: 'Status' },
-    { field: 'actions', title: 'Actions', sort: false, headerClass: 'justify-center' },
+    { field: 'blnStatus', title: 'Status', width: '100px' },
+    { field: 'actions', title: 'Actions', sort: false, headerClass: 'justify-center', width: '100px' },
   ];
 
   constructor(

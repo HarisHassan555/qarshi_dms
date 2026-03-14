@@ -533,15 +533,18 @@ export class ApplicationDetailsComponent implements OnInit {
     if (!this.applicationDetails) return false;
     if (!this.isCapfForm()) return false;
 
-    // ONLY the Procurement Department Head can see this button
+    // The user MUST come from the Pending Approvals page to see this button
+    // AND must be authorized (Procurement HOD or similar authorized role)
+    if (!this.fromPendingApprovals) return false;
+
     const isProcHod = this.isProcurementHod();
 
-    // Status check: only allow editing on PENDING applications
+    // Status check: only allow editing on PENDING or IN_PROGRESS applications
     const rawStatus = (this.applicationDetails?.txtStatus || '').toUpperCase();
-    const isPending = rawStatus === 'PENDING' || rawStatus === '' || rawStatus === 'NEW';
+    const isPending = rawStatus === 'PENDING' || rawStatus === '' || rawStatus === 'NEW' || rawStatus === 'IN_PROGRESS';
 
     // Debug log — visible in browser console
-    console.log('[canEditVendorDetails]', { isProcHod, rawStatus, isPending });
+    console.log('[canEditVendorDetails]', { isProcHod, fromPending: this.fromPendingApprovals, rawStatus, isPending });
 
     return isProcHod && isPending;
   }
