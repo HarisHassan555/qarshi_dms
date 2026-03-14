@@ -133,6 +133,13 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     }
 
     @Override
+    public String sendBackApplicationToInitiator(Integer applicationId, String remarks) {
+        logger.debug("sendBackApplicationToInitiator() - applicationId: " + applicationId);
+        return customFormApplicationDAO.sendBackApplicationToInitiator(applicationId, remarks);
+    }
+
+
+    @Override
     public String sendSubmissionEmailsForApplication(Integer applicationId) {
         logger.debug("sendSubmissionEmailsForApplication() - applicationId: " + applicationId);
         return customFormApplicationDAO.sendSubmissionEmailsForApplication(applicationId);

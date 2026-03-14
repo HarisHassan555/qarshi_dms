@@ -41,6 +41,8 @@ public interface ICustomFormApplicationService {
     String rejectApplication(Integer applicationId, String remarks);
 
     String sendBackApplication(Integer applicationId, String remarks);
+    String sendBackApplicationToInitiator(Integer applicationId, String remarks);
+
 
     String sendSubmissionEmailsForApplication(Integer applicationId);
 
