@@ -1,6 +1,7 @@
 package com.bezkoder.spring.login.controllers;
 
 import com.bezkoder.spring.login.sa.bll.services.ICustomFormApplicationService;
+import com.bezkoder.spring.login.sa.dal.dao.ICfgTblCustomFormApplicationDAO;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApplication;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
@@ -22,6 +23,9 @@ public class CustomFormApplicationController {
 
     @Autowired
     private ICustomFormApplicationService customFormApplicationService;
+    
+    @Autowired
+    private com.bezkoder.spring.login.sa.dal.dao.ICfgTblCustomFormApplicationDAO customFormApplicationDAO;
 
     @RequestMapping(value = "/getAllApplications", method = RequestMethod.GET)
     public List<CfgTblCustomFormApplication> getAllApplications(HttpServletRequest request,
@@ -535,7 +539,10 @@ public class CustomFormApplicationController {
             HttpServletResponse response) {
         logger.debug("sendBackApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
         try {
-            String status = customFormApplicationService.sendBackApplication(applicationId, "Sent back via email");
+            // Use DAO directly to pass userId for email-based send back
+            com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO dao = 
+                (com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO) customFormApplicationDAO;
+            String status = dao.sendBackApplication(applicationId, "Sent back via email", userId);
             if ("Success".equals(status)) {
                 return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Application Sent Back</title>" +
                         "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
@@ -582,7 +589,10 @@ public class CustomFormApplicationController {
             HttpServletResponse response) {
         logger.debug("sendBackToInitiatorFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
         try {
-            String status = customFormApplicationService.sendBackApplicationToInitiator(applicationId, "Sent back to initiator via email");
+            // Use DAO directly to pass userId for email-based send back
+            com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO dao = 
+                (com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO) customFormApplicationDAO;
+            String status = dao.sendBackApplicationToInitiator(applicationId, "Sent back to initiator via email", userId);
             if ("Success".equals(status)) {
                 return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Application Sent Back to Initiator</title>" +
                         "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +

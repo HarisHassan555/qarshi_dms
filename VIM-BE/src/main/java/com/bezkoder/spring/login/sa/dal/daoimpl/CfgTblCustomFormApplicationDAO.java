@@ -1762,6 +1762,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     @Override
     public String sendBackApplication(Integer applicationId, String remarks) {
+        return sendBackApplication(applicationId, remarks, null);
+    }
+    
+    public String sendBackApplication(Integer applicationId, String remarks, Integer userId) {
         EntityManager entityManager = getEntityManager();
         try {
             entityManager.getTransaction().begin();
@@ -1890,54 +1894,38 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 currentLevel--;
             }
 
-            // Remove signatures from approval history for the current level and above
-            // When sending back, the current level and all levels above need to re-approve
-            List<java.util.Map<String, Object>> updatedHistory = new java.util.ArrayList<>();
-            if (originalLevel != null && originalLevel > 0) {
+            // Keep ALL approval history entries - don't remove them, just mark entries that need re-approval
+            // The frontend will filter them out for display based on currentLevel
+            List<java.util.Map<String, Object>> updatedHistory = new java.util.ArrayList<>(approvalHistory);
+
+            // Get current user who is sending back
+            Integer currentUserId = commonService.getCurrentLoggedInUser();
+            CfgTblUser currentUser = null;
+            if (currentUserId != null) {
+                currentUser = commonService.getCurrentUser(currentUserId);
+                // Fallback to entityManager if commonService doesn't return user
+                if (currentUser == null) {
+                    currentUser = entityManager.find(CfgTblUser.class, currentUserId);
+                }
+            }
+            
+            // For individual pipeline footer forms, get the role from the sequence
+            String sendBackRole = null;
+            if (useIndividualPipelineFlow) {
                 try {
-                    for (java.util.Map<String, Object> entry : approvalHistory) {
-                        // Skip SENT_BACK entries - they are just history markers
-                        String action = entry.get("action") != null ? String.valueOf(entry.get("action")) : "";
-                        if ("SENT_BACK".equalsIgnoreCase(action) || "SENT_BACK_TO_INITIATOR".equalsIgnoreCase(action)) {
-                            updatedHistory.add(entry);
-                            continue;
-                        }
-                        
-                        Integer entryLevel = safeInt(entry.get("level"), 
-                            safeInt(entry.get("intApprovalOrder"), null));
-                        
-                        // For individual pipeline footer forms, level in history is 1-indexed (currentLevel + 1)
-                        // So if originalLevel = 3 (level 4), we want to remove entries where level >= 4
-                        // For regular pipeline forms, level might be 0-indexed
-                        if (useIndividualPipelineFlow) {
-                            // For individual pipeline footer: level in history = currentLevel + 1
-                            // originalLevel is 0-indexed, so level in history = originalLevel + 1
-                            // We want to keep entries where level < (originalLevel + 1)
-                            if (entryLevel == null || entryLevel < (originalLevel + 1)) {
-                                updatedHistory.add(entry);
-                            } else {
-                                log.info("Removing signature from approval history for level {} (individual pipeline) when sending back from level {} to {} appId={}", 
-                                    entryLevel, originalLevel, currentLevel, application.getSerApplicationId());
-                            }
-                        } else {
-                            // For regular pipeline forms, keep entries that are below the original level
-                            if (entryLevel == null || entryLevel < originalLevel) {
-                                updatedHistory.add(entry);
-                            } else {
-                                log.info("Removing signature from approval history for level {} when sending back appId={}", 
-                                    entryLevel, application.getSerApplicationId());
-                            }
+                    List<BudgetApprover> sequence = getBudgetApprovalSequence(appData, entityManager);
+                    if (originalLevel != null && originalLevel >= 0 && originalLevel < sequence.size()) {
+                        BudgetApprover currentApprover = sequence.get(originalLevel);
+                        if (currentApprover != null && currentApprover.role != null) {
+                            sendBackRole = currentApprover.role;
                         }
                     }
                 } catch (Exception e) {
-                    log.warn("Error removing signatures from approval history: " + e.getMessage(), e);
-                    updatedHistory = new java.util.ArrayList<>(approvalHistory); // Fallback to all history
+                    log.warn("Error getting role from sequence for send back: " + e.getMessage());
                 }
-            } else {
-                updatedHistory = new java.util.ArrayList<>(approvalHistory);
             }
 
-            // Add send-back action to history
+            // Add send-back action to history with proper data
             java.util.Map<String, Object> sendBackEntry = new java.util.HashMap<>();
             sendBackEntry.put("action", "SENT_BACK");
             
@@ -1945,15 +1933,38 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             int fromLevel = originalLevel != null ? originalLevel : 0;
             int toLevel = (fromLevel > 0) ? fromLevel - 1 : 0;
             
-            sendBackEntry.put("level", fromLevel); 
+            sendBackEntry.put("level", fromLevel + 1); // 1-indexed for consistency with approval entries
             sendBackEntry.put("fromLevel", fromLevel + 1); // 1-indexed for display
             sendBackEntry.put("toLevel", toLevel + 1);     // 1-indexed for display
             sendBackEntry.put("departmentId", currentDepartmentId);
-            sendBackEntry.put("departmentName", currentDepartmentName != null ? currentDepartmentName
-                    : (currentDepartmentId != null ? "Department " + currentDepartmentId : "Unknown"));
+            
+            // For individual pipeline footer forms, use role as departmentName
+            if (useIndividualPipelineFlow && sendBackRole != null) {
+                sendBackEntry.put("departmentName", sendBackRole);
+                sendBackEntry.put("role", sendBackRole);
+            } else {
+                sendBackEntry.put("departmentName", currentDepartmentName != null ? currentDepartmentName
+                        : (currentDepartmentId != null ? "Department " + currentDepartmentId : "Unknown"));
+            }
+            
             sendBackEntry.put("remarks", remarks != null ? remarks : "");
-            sendBackEntry.put("sentBackBy", commonService.getCurrentLoggedInUser());
+            sendBackEntry.put("sentBackBy", currentUserId);
             sendBackEntry.put("sentBackDate", commonService.getCurrentTimeStamp_new().toString());
+            sendBackEntry.put("approvedDate", commonService.getCurrentTimeStamp_new().toString()); // For consistency
+            
+            // Add user details like approval entries
+            if (currentUser != null) {
+                sendBackEntry.put("approvedBy", currentUserId);
+                sendBackEntry.put("approverName", currentUser.getTxtUserName());
+                sendBackEntry.put("userId", currentUserId);
+                sendBackEntry.put("txtDepartmentName", currentUser.getTxtDepartmentName() != null ? currentUser.getTxtDepartmentName() : "");
+                sendBackEntry.put("userDepartmentName", currentUser.getTxtDepartmentName() != null ? currentUser.getTxtDepartmentName() : "");
+                sendBackEntry.put("designation", currentUser.getTxtDesignation() != null ? currentUser.getTxtDesignation() : "");
+                sendBackEntry.put("txtDesignation", currentUser.getTxtDesignation() != null ? currentUser.getTxtDesignation() : "");
+            } else {
+                sendBackEntry.put("approvedBy", currentUserId);
+                sendBackEntry.put("approverName", "");
+            }
             
             log.info("Application sent back from Stage {} to Stage {} for appId={}", 
                 fromLevel + 1, toLevel + 1, application.getSerApplicationId());
@@ -2052,6 +2063,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     @Override
     public String sendBackApplicationToInitiator(Integer applicationId, String remarks) {
+        return sendBackApplicationToInitiator(applicationId, remarks, null);
+    }
+    
+    public String sendBackApplicationToInitiator(Integer applicationId, String remarks, Integer userId) {
         EntityManager entityManager = getEntityManager();
         try {
             entityManager.getTransaction().begin();
@@ -2120,35 +2135,75 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 }
             }
 
-            // Clear ALL signatures from approval history because we are going back to the first person
-            // Keep only SENT_BACK entries for history tracking
-            List<java.util.Map<String, Object>> updatedHistory = new java.util.ArrayList<>();
-            for (java.util.Map<String, Object> entry : approvalHistory) {
-                String action = entry.get("action") != null ? String.valueOf(entry.get("action")) : "";
-                // Keep only SENT_BACK entries for history
-                if ("SENT_BACK".equalsIgnoreCase(action) || "SENT_BACK_TO_INITIATOR".equalsIgnoreCase(action)) {
-                    updatedHistory.add(entry);
-                } else {
-                    log.info("Removing signature from approval history for send back to first person, level={}, appId={}", 
-                        entry.get("level"), application.getSerApplicationId());
+            // Keep ALL approval history entries - don't remove them, just mark entries that need re-approval
+            // The frontend will filter them out for display based on currentLevel
+            List<java.util.Map<String, Object>> updatedHistory = new java.util.ArrayList<>(approvalHistory);
+
+            // Get current user who is sending back - use provided userId or fallback to logged in user
+            Integer currentUserId = userId != null ? userId : commonService.getCurrentLoggedInUser();
+            CfgTblUser currentUser = null;
+            if (currentUserId != null) {
+                currentUser = commonService.getCurrentUser(currentUserId);
+                // Fallback to entityManager if commonService doesn't return user
+                if (currentUser == null) {
+                    currentUser = entityManager.find(CfgTblUser.class, currentUserId);
                 }
             }
             
-            // Add send-back action to history
+            // For individual pipeline footer forms, get the role from the sequence
+            String sendBackRole = null;
+            if (useIndividualPipelineFlow) {
+                try {
+                    List<BudgetApprover> sequence = getBudgetApprovalSequence(appData, entityManager);
+                    if (originalLevel != null && originalLevel >= 0 && originalLevel < sequence.size()) {
+                        BudgetApprover currentApprover = sequence.get(originalLevel);
+                        if (currentApprover != null && currentApprover.role != null) {
+                            sendBackRole = currentApprover.role;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("Error getting role from sequence for send back to initiator: " + e.getMessage());
+                }
+            }
+            
+            // Add send-back action to history with proper data
             java.util.Map<String, Object> sendBackEntry = new java.util.HashMap<>();
             sendBackEntry.put("action", "SENT_BACK_TO_INITIATOR");
             
             int fromLevel = originalLevel != null ? originalLevel : 0;
             
-            sendBackEntry.put("level", fromLevel); 
+            sendBackEntry.put("level", fromLevel + 1); // 1-indexed for consistency with approval entries
             sendBackEntry.put("fromLevel", fromLevel + 1); 
             sendBackEntry.put("toLevel", 1);     
             sendBackEntry.put("departmentId", currentDepartmentId);
-            sendBackEntry.put("departmentName", currentDepartmentName != null ? currentDepartmentName
-                    : (currentDepartmentId != null ? "Department " + currentDepartmentId : "Unknown"));
+            
+            // For individual pipeline footer forms, use role as departmentName
+            if (useIndividualPipelineFlow && sendBackRole != null) {
+                sendBackEntry.put("departmentName", sendBackRole);
+                sendBackEntry.put("role", sendBackRole);
+            } else {
+                sendBackEntry.put("departmentName", currentDepartmentName != null ? currentDepartmentName
+                        : (currentDepartmentId != null ? "Department " + currentDepartmentId : "Unknown"));
+            }
+            
             sendBackEntry.put("remarks", remarks != null ? remarks : "");
-            sendBackEntry.put("sentBackBy", commonService.getCurrentLoggedInUser());
+            sendBackEntry.put("sentBackBy", currentUserId);
             sendBackEntry.put("sentBackDate", commonService.getCurrentTimeStamp_new().toString());
+            sendBackEntry.put("approvedDate", commonService.getCurrentTimeStamp_new().toString()); // For consistency
+            
+            // Add user details like approval entries
+            if (currentUser != null) {
+                sendBackEntry.put("approvedBy", currentUserId);
+                sendBackEntry.put("approverName", currentUser.getTxtUserName());
+                sendBackEntry.put("userId", currentUserId);
+                sendBackEntry.put("txtDepartmentName", currentUser.getTxtDepartmentName() != null ? currentUser.getTxtDepartmentName() : "");
+                sendBackEntry.put("userDepartmentName", currentUser.getTxtDepartmentName() != null ? currentUser.getTxtDepartmentName() : "");
+                sendBackEntry.put("designation", currentUser.getTxtDesignation() != null ? currentUser.getTxtDesignation() : "");
+                sendBackEntry.put("txtDesignation", currentUser.getTxtDesignation() != null ? currentUser.getTxtDesignation() : "");
+            } else {
+                sendBackEntry.put("approvedBy", currentUserId);
+                sendBackEntry.put("approverName", "");
+            }
             
             log.info("Application sent back to first person in pipeline from Stage {} for appId={}", 
                 fromLevel + 1, application.getSerApplicationId());
@@ -6023,7 +6078,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 }
                 String action = entry.get("action") != null ? String.valueOf(entry.get("action"))
                         : entry.get("status") != null ? String.valueOf(entry.get("status")) : "";
-                String date = entry.get("approvedDate") != null ? String.valueOf(entry.get("approvedDate")) : "";
+                String date = entry.get("approvedDate") != null ? String.valueOf(entry.get("approvedDate")) 
+                        : (entry.get("sentBackDate") != null ? String.valueOf(entry.get("sentBackDate")) : "");
                 String signaturePath = entry.get("signaturePath") != null ? String.valueOf(entry.get("signaturePath"))
                         : "";
                 String approvedBy = entry.get("approvedBy") != null ? String.valueOf(entry.get("approvedBy")) : "";
