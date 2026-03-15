@@ -24,9 +24,14 @@
                     Reject
                 </button>
                 <button (click)="openSendBackModal()" class="btn btn-warning gap-2"
-                    [disabled]="isApproving || isRejecting || isSendingBack">
+                    [disabled]="isApproving || isRejecting || isSendingBack || isSendingBackToInitiator">
                     <icon-arrow-backward class="w-4 h-4" />
                     Send Back
+                </button>
+                <button (click)="openSendBackToInitiatorModal()" class="btn btn-outline-warning gap-2"
+                    [disabled]="isApproving || isRejecting || isSendingBack || isSendingBackToInitiator">
+                    <icon-arrow-backward class="w-4 h-4" />
+                    Send Back to Initiator
                 </button>
             </div>
             <div *ngIf="showAssetCodeForm()" class="flex flex-wrap items-center gap-2">
@@ -542,6 +547,47 @@
     </ng-template>
 </modal>
 
+<!-- Send Back to Initiator Modal -->
+<modal #sendBackToInitiatorModal [closeOnOutsideClick]="false" *ngIf="selectedApplicationForRemarks">
+    <ng-template #modalHeader>
+        <div>Send Back to Initiator</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="space-y-4">
+            <p class="text-sm text-gray-600 dark:text-gray-400">
+                Are you sure you want to send this application back to the initiator? This will reset the approval workflow.
+            </p>
+            <div *ngIf="applicationDetails">
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Application Code: <span class="badge badge-outline-primary">{{ applicationDetails.txtFormCode
+                        }}</span>
+                </p>
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Form Name: {{ applicationDetails.cfgTblCustomForm?.txtFormName || 'Custom Form' }}
+                </p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Remarks <span
+                        class="text-danger">*</span></label>
+                <textarea [(ngModel)]="remarksText" class="form-textarea" rows="3"
+                    placeholder="Please provide remarks for sending back this application..." required>
+                </textarea>
+            </div>
+        </div>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''"
+            class="btn btn-outline-danger" [disabled]="isSendingBackToInitiator">Cancel</button>
+        <button type="button" (click)="sendBackToInitiatorApplication()"
+            [disabled]="isSendingBackToInitiator || !remarksText || remarksText.trim() === ''"
+            class="btn btn-warning ltr:ml-4 rtl:mr-4">
+            <span *ngIf="isSendingBackToInitiator"
+                class="animate-spin border-2 border-white border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
+            {{ isSendingBackToInitiator ? 'Sending...' : 'Send Back' }}
+        </button>
+    </ng-template>
+</modal>
+
 <!-- Vendor Edit Modal -->
 <modal #vendorEditModal [closeOnOutsideClick]="false">
     <ng-template #modalHeader>
@@ -571,7 +617,7 @@
             </div>
             <div class="space-y-2">
                 <label class="text-xs font-bold uppercase tracking-wider text-gray-500">Delivery Period & Date</label>
-                <input type="date" [(ngModel)]="vendorEditForm.deliveryPeriod" class="form-input"
+                <input type="text" [(ngModel)]="vendorEditForm.deliveryPeriod" class="form-input"
                     placeholder="Enter delivery details">
             </div>
             <div class="space-y-2">

@@ -524,6 +524,47 @@ public class CustomFormApplicationController {
         }
     }
 
+    @RequestMapping(value = "/sendBackApplicationToInitiator", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> sendBackApplicationToInitiator(@RequestBody Map<String, Object> requestBody,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("sendBackApplicationToInitiator()");
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Integer applicationId = (Integer) requestBody.get("applicationId");
+            String remarks = (String) requestBody.get("remarks");
+
+            if (applicationId == null) {
+                result.put("status", "Failure");
+                result.put("message", "Application ID is required");
+                return result;
+            }
+
+            if (remarks == null || remarks.trim().isEmpty()) {
+                result.put("status", "Failure");
+                result.put("message", "Remarks are required when sending back an application to initiator");
+                return result;
+            }
+
+            String status = customFormApplicationService.sendBackApplicationToInitiator(applicationId, remarks);
+            if ("Success".equals(status)) {
+                result.put("status", "Success");
+                result.put("message", "Application sent back to initiator successfully");
+            } else {
+                result.put("status", "Failure");
+                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8)
+                        : "Failed to send back application to initiator");
+            }
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error sending back application to initiator: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return result;
+        }
+    }
+
     /**
      * GET endpoint for email-based send back (accessed via email link)
      * This allows users to send back applications directly from email
