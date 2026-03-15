@@ -14,8 +14,8 @@
 .xyz-paper {
     width: 210mm;
     position: relative;
-    min-height: auto;
-    height: auto;
+    min-height: 297mm;
+    height: 100%;
     background: #ffffff;
     color: #000000;
     font-family: "Times New Roman", Times, serif;
@@ -37,6 +37,9 @@
     padding: 10mm !important;
     border: 1px solid #222 !important;
     box-shadow: none !important;
+    overflow: visible !important; /* Prevent text cutoff */
+    overflow-x: visible !important;
+    overflow-y: visible !important;
 }
 
 .pdf-capture .xyz-content-body,
@@ -45,6 +48,9 @@
 .pdf-capture .xyz-title {
     break-inside: avoid;
     page-break-inside: avoid;
+    overflow: visible !important; /* Prevent text cutoff */
+    overflow-x: visible !important;
+    overflow-y: visible !important;
 }
 
 .pdf-capture table {
@@ -57,6 +63,9 @@
     border: 1px solid #000;
     padding: 4px 6px;
     font-size: 12px;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+    max-width: 0; /* Allow text wrapping in table cells */
 }
 
 .pdf-capture .xyz-company-name {
@@ -313,7 +322,8 @@
     box-sizing: border-box;
     overflow-wrap: break-word;
     word-wrap: break-word;
-    overflow: hidden;
+    overflow: visible; /* Changed from hidden to visible to prevent text cutoff */
+    flex: 1;
 }
 
 .xyz-dynamic table,
@@ -647,3 +657,4 @@
         width: 40px;
     }
 }
+

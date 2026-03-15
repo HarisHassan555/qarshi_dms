@@ -1125,7 +1125,8 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   isDocumentHeaderType(fieldType: string | undefined): boolean {
-    return (fieldType || '').toLowerCase().replace(/\s+/g, '_') === 'document_header';
+    const t = (fieldType || '').toLowerCase().replace(/\s+/g, '_');
+    return t === 'document_header' || t === 'header';
   }
 
   isTableType(fieldType: string | undefined): boolean {
@@ -1133,9 +1134,39 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   getGenericPreviewFields(): any[] {
-    const fields = (this.formFields || []).filter((field: any) => !this.isDocumentHeaderType(field?.type));
+    // Filter out document header types and header_heading fields
+    // Note: Footer and individual_pipeline_footer fields ARE included from formFields
+    // as they need to be in the list for the footer display logic to work
+    const fields = (this.formFields || []).filter((field: any) => {
+      if (this.isDocumentHeaderType(field?.type)) {
+        return false;
+      }
+      // Exclude fields with header_heading in the key (case-insensitive)
+      const fieldKey = (field?.key || field?.txtFieldName || '').toLowerCase();
+      if (fieldKey.includes('header_heading') || fieldKey === 'headerheading') {
+        return false;
+      }
+      // Include footer and individual_pipeline_footer fields from formFields
+      // They will be displayed separately in the footer section
+      return true;
+    });
+    
     if (fields.length > 0) {
-      return fields;
+      // Ensure only one footer field is included to prevent duplicate footer display
+      const footerFields = fields.filter((f: any) => 
+        f.type === 'footer' || this.isIndividualPipelineFooterType(f.type)
+      );
+      const nonFooterFields = fields.filter((f: any) => 
+        f.type !== 'footer' && !this.isIndividualPipelineFooterType(f.type)
+      );
+      
+      // If there are footer fields, include only the first one (prefer individual_pipeline_footer)
+      const singleFooterField = footerFields.find((f: any) => this.isIndividualPipelineFooterType(f.type)) 
+        || footerFields[0];
+      
+      return singleFooterField 
+        ? [...nonFooterFields, singleFooterField]
+        : nonFooterFields;
     }
 
     if (!this.applicationFormData || typeof this.applicationFormData !== 'object') {
@@ -1149,22 +1180,46 @@ export class ApplicationDetailsComponent implements OnInit {
       'approver',
       'heading',
       'header',
+      'header_heading',
+      'headerHeading',
+      'header_heading_label',
       'content',
       'editorContent',
-      'date',
-      'footerFields',
-      'footerfields'
+      // Note: 'word_editor' is NOT excluded - it contains the body content and should be displayed
+      'date'
+      // Note: 'footerFields' and 'individual_pipeline_footer' are NOT excluded
+      // They need to be in the list so the footer display logic can find them
+      // The template will display them in the footer section, not the body
     ]);
 
-    return Object.keys(this.applicationFormData)
-      .filter((key: string) => !excludedKeys.has(key))
+    const regularFields = Object.keys(this.applicationFormData)
+      .filter((key: string) => {
+        // Exclude exact matches
+        if (excludedKeys.has(key)) {
+          return false;
+        }
+        // Exclude footerFields key (it's an array, not a field)
+        if (key === 'footerFields' || key === 'footerfields') {
+          return false;
+        }
+        // Exclude individual_pipeline_footer key (it's handled separately via getIndividualPipelineFooterFields)
+        if (key === 'individual_pipeline_footer') {
+          return false;
+        }
+        // Exclude keys containing header_heading (case-insensitive)
+        const lowerKey = key.toLowerCase();
+        if (lowerKey.includes('header_heading') || lowerKey === 'headerheading') {
+          return false;
+        }
+        return true;
+      })
       .map((key: string) => {
         const value = this.applicationFormData[key];
         const normalizedKey = this.getFieldName(key);
         let type = 'text';
-        if (normalizedKey === 'individual_pipeline_footer') {
-          type = 'individual_pipeline_footer';
-        } else if (normalizedKey === 'footer') {
+        // Note: individual_pipeline_footer and footer types are not set here
+        // as those keys are excluded above
+        if (normalizedKey === 'footer') {
           type = 'footer';
         } else if (Array.isArray(value) && value.length > 0 && Array.isArray(value[0])) {
           type = 'table';
@@ -1187,9 +1242,33 @@ export class ApplicationDetailsComponent implements OnInit {
           required: false,
           placeholder: '',
           intFieldOrder: 0,
-          txtFieldOptions: null
+          txtFieldOptions: null,
+          key: key
         };
       });
+    
+    // Check if we need to add a footer field entry for individual pipeline footer
+    // Only add if footerFields exist in applicationFormData and no footer field is already in the list
+    const hasFooterField = regularFields.some(f => 
+      f.type === 'footer' || f.type === 'individual_pipeline_footer'
+    );
+    const hasFooterData = this.applicationFormData?.individual_pipeline_footer || this.applicationFormData?.footerFields;
+    
+    if (hasFooterData && !hasFooterField) {
+      // Add a single footer field entry so the template can find and display it
+      regularFields.push({
+        serFieldId: undefined,
+        label: 'Footer',
+        type: 'individual_pipeline_footer',
+        required: false,
+        placeholder: '',
+        intFieldOrder: 999,
+        txtFieldOptions: null,
+        key: 'individual_pipeline_footer'
+      });
+    }
+    
+    return regularFields;
   }
 
   getGenericDocumentHeading(): string {
@@ -2245,7 +2324,7 @@ export class ApplicationDetailsComponent implements OnInit {
       const paperEls = Array.from(element.querySelectorAll('.xyz-paper')) as HTMLElement[];
 
       // Also strip the element itself if it has a border/min-height
-      const savedElementStyles: { el: HTMLElement; minHeight: string; maxHeight: string; border: string; boxShadow: string; overflow: string }[] = [];
+      const savedElementStyles: { el: HTMLElement; minHeight: string; maxHeight: string; height?: string; border: string; boxShadow: string; overflow: string }[] = [];
       if (!isCapf) {
         savedElementStyles.push(
           ...[...pageEls, ...paperEls, element].map(el => {
@@ -2253,15 +2332,20 @@ export class ApplicationDetailsComponent implements OnInit {
               el,
               minHeight: el.style.minHeight,
               maxHeight: el.style.maxHeight,
+              height: el.style.height,
               border: el.style.border,
               boxShadow: el.style.boxShadow,
               overflow: el.style.overflow
             };
-            el.style.minHeight = 'auto';
+            const isPaper = el.classList.contains('xyz-paper');
+            el.style.minHeight = isPaper ? '297mm' : 'auto';
             el.style.maxHeight = 'none';
+            el.style.height = isPaper ? '100%' : 'auto';
             el.style.border = 'none';
             el.style.boxShadow = 'none';
-            el.style.overflow = 'visible';
+            el.style.overflow = 'visible'; // Ensure overflow is visible to prevent text cutoff
+            el.style.overflowX = 'visible';
+            el.style.overflowY = 'visible';
             return saved;
           })
         );
@@ -2331,25 +2415,31 @@ export class ApplicationDetailsComponent implements OnInit {
       });
       const PDF_WIDTH = 210;
       const PDF_HEIGHT = 297;
-      const marginX = 0;
-      const marginY = 0;
+      const marginX = 5; // Add margins to prevent text cutoff
+      const marginY = 5;
       const availableWidth = PDF_WIDTH - marginX * 2;
       const availableHeight = PDF_HEIGHT - marginY * 2;
+      // Ensure content fits within available space, accounting for margins
       const scaleByWidth = availableWidth / contentWidthMm;
       const scaleByHeight = availableHeight / contentHeightMm;
-      const finalScale = contentHeightMm * scaleByWidth <= availableHeight ? scaleByWidth : scaleByHeight;
+      const finalScale = Math.min(scaleByWidth, scaleByHeight, 1.0); // Don't scale up, only down
       const imgWidth = contentWidthMm * finalScale;
       const imgHeight = contentHeightMm * finalScale;
-      const xOffset = (PDF_WIDTH - imgWidth) / 2;
-      const yOffset = (PDF_HEIGHT - imgHeight) / 2;
+      // Center the image with margins
+      const xOffset = marginX + (availableWidth - imgWidth) / 2;
+      const yOffset = marginY + (availableHeight - imgHeight) / 2;
 
       const imgData = canvas.toDataURL('image/jpeg', 0.98);
       pdf.addImage(imgData, 'JPEG', xOffset, yOffset, imgWidth, imgHeight);
 
       // ── Restore styles after capture ────────────────────────────────────
-      savedElementStyles.forEach(({ el, minHeight, maxHeight, border, boxShadow, overflow }) => {
+      savedElementStyles.forEach((saved: any) => {
+        const { el, minHeight, maxHeight, height, border, boxShadow, overflow } = saved;
         el.style.minHeight = minHeight;
         el.style.maxHeight = maxHeight;
+        if (height !== undefined) {
+          el.style.height = height;
+        }
         el.style.border = border;
         el.style.boxShadow = boxShadow;
         el.style.overflow = overflow;
@@ -2409,7 +2499,7 @@ export class ApplicationDetailsComponent implements OnInit {
   getDynamicApprovalWorkflow(): any[] {
     const fields = this.getIndividualPipelineFooterFields();
     const dynamicNodes: any[] = [];
-    
+
     const initiatorUserId =
       this.applicationDetails?.serSubmittedBy ||
       this.applicationDetails?.cfgTblUser?.serUserId ||
@@ -2429,19 +2519,19 @@ export class ApplicationDetailsComponent implements OnInit {
         user: { serUserId: initiatorUserId, txtUserName: initiatorUserName, userName: initiatorUserName, name: initiatorUserName }
       });
     }
-    
+
     for (const section of fields) {
       const users = this.getIndividualFooterSlots(section);
       for (const slotUser of users) {
         if (!slotUser) continue;
         dynamicNodes.push({
-           isInitiator: false,
-           title: section.label || 'Approval Stage',
-           user: slotUser
+          isInitiator: false,
+          title: section.label || 'Approval Stage',
+          user: slotUser
         });
       }
     }
-    
+
     return dynamicNodes;
   }
 
@@ -2452,14 +2542,14 @@ export class ApplicationDetailsComponent implements OnInit {
       // Current pending level matches? For dynamic maybe not using intApprovalOrder.
       return 'PENDING';
     }
-    
+
     const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
     if (!entry) return 'PENDING';
-    
+
     const action = (entry.action || entry.status || '').toString().toUpperCase();
     if (action === 'REJECTED') return 'REJECTED';
     if (action === 'APPROVED' || !!entry.approvedDate) return 'APPROVED';
-    
+
     return 'PENDING';
   }
 
@@ -2489,7 +2579,7 @@ export class ApplicationDetailsComponent implements OnInit {
 
   getDynamicStageApprovedVia(node: any): string {
     if (node.isInitiator) {
-       return this.applicationDetails?.txtIpAddress ? 'IP:' + this.applicationDetails.txtIpAddress : 'SUBMISSION';
+      return this.applicationDetails?.txtIpAddress ? 'IP:' + this.applicationDetails.txtIpAddress : 'SUBMISSION';
     }
     const userId = this.getUserId(node.user);
     if (!userId || !this.approvalHistory) return '--';
@@ -2506,18 +2596,18 @@ export class ApplicationDetailsComponent implements OnInit {
     if (index === 0) return '--';
     const current = nodes[index];
     const previous = nodes[index - 1];
-    
+
     const currentStr = this.getDynamicStageApprovedAt(current);
     const previousStr = this.getDynamicStageApprovedAt(previous);
     if (currentStr === '--' || previousStr === '--') return '--';
-    
+
     const currDate = new Date(currentStr);
     const prevDate = new Date(previousStr);
     if (isNaN(currDate.getTime()) || isNaN(prevDate.getTime())) return '--';
-    
+
     const diffMs = currDate.getTime() - prevDate.getTime();
     if (diffMs < 0) return '--';
-    
+
     const diffMins = Math.floor(diffMs / 60000);
     if (diffMins < 60) return `${diffMins} min`;
     const diffHours = Math.floor(diffMins / 60);

@@ -599,59 +599,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 application.setTxtFormCode(application.getTxtFormCode().trim().toUpperCase(Locale.ROOT));
             }
 
-            // Auto-sign "Prepared By" for Budget Approval on submission
+            // Setup initial level for Budget Approval / Individual Pipeline on submission
             if (useIndividualPipelineFlow) {
                 try {
-                    Map<String, Object> appData = parseApplicationData(application);
-                    BudgetApprover preparedBy = getPreparedBy(appData, entityManager);
-                    if (preparedBy == null || preparedBy.userId == null) {
-                        Integer fallbackUserId = application.getSerSubmittedBy();
-                        if (fallbackUserId == null) {
-                            fallbackUserId = application.getSerCreatedUser();
-                        }
-                        if (fallbackUserId != null) {
-                            preparedBy = buildBudgetApprover(
-                                    java.util.Collections.singletonMap("serUserId", fallbackUserId), "PREPARED",
-                                    entityManager);
-                        }
-                    }
-                    List<java.util.Map<String, Object>> approvalHistory = new java.util.ArrayList<>();
-
-                    if (preparedBy != null && preparedBy.userId != null) {
-                        java.util.Map<String, Object> approvalEntry = new java.util.HashMap<>();
-                        approvalEntry.put("level", 0);
-                        approvalEntry.put("departmentId", null);
-                        approvalEntry.put("departmentName", "Prepared By");
-                        approvalEntry.put("remarks", "Auto-signed on submission");
-                        approvalEntry.put("approvedBy", preparedBy.userId);
-                        approvalEntry.put("approverName", preparedBy.name != null ? preparedBy.name : "Prepared By");
-                        approvalEntry.put("approvedDate", commonService.getCurrentTimeStamp_new().toString());
-                        approvalEntry.put("signaturePath",
-                                preparedBy.signaturePath != null ? preparedBy.signaturePath : "");
-                        approvalEntry.put("txtDepartmentName",
-                                preparedBy.department != null ? preparedBy.department : "");
-                        approvalEntry.put("userDepartmentName",
-                                preparedBy.department != null ? preparedBy.department : "");
-                        approvalEntry.put("designation", preparedBy.designation != null ? preparedBy.designation : "");
-                        approvalEntry.put("txtDesignation",
-                                preparedBy.designation != null ? preparedBy.designation : "");
-                        approvalEntry.put("approvedVia", "SYSTEM");
-                        approvalEntry.put("action", "APPROVED");
-                        approvalEntry.put("role", "PREPARED");
-                        log.info(
-                                "CAPF signature log [submission-prepared-entry]: appId={}, userId={}, level={}, role={}, signaturePath={}",
-                                application.getSerApplicationId(), preparedBy.userId, 0, "PREPARED",
-                                preparedBy.signaturePath != null ? preparedBy.signaturePath : "");
-                        approvalHistory.add(approvalEntry);
-
-                        ObjectMapper mapper = new ObjectMapper();
-                        application.setTxtApprovalHistory(mapper.writeValueAsString(approvalHistory));
-                    }
-
                     application.setIntCurrentApprovalLevel(0);
                     application.setTxtStatus("IN_PROGRESS");
                 } catch (Exception e) {
-                    log.warn("Error preparing budget approval auto-sign: " + e.getMessage(), e);
+                    log.warn("Error preparing budget approval status: " + e.getMessage(), e);
                 }
             }
 
@@ -1298,17 +1252,22 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
                 currentLevel++;
                 if (currentLevel >= sequence.size()) {
-                    Integer ceoUserId = findFirstUserIdByRole(entityManager, "CEO");
-                    if (ceoUserId != null) {
-                        application.setTxtStatus("CEO_PENDING");
-                        application.setSerCurrentApprover(ceoUserId);
+                    if (!isBudgetApproval) {
+                        application.setTxtStatus("APPROVED");
+                        application.setSerCurrentApprover(null);
                     } else {
-                        application.setTxtStatus("ASSET_PENDING");
-                        Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
-                        if (financeUserId == null) {
-                            financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
+                        Integer ceoUserId = findFirstUserIdByRole(entityManager, "CEO");
+                        if (ceoUserId != null) {
+                            application.setTxtStatus("CEO_PENDING");
+                            application.setSerCurrentApprover(ceoUserId);
+                        } else {
+                            application.setTxtStatus("ASSET_PENDING");
+                            Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
+                            if (financeUserId == null) {
+                                financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
+                            }
+                            application.setSerCurrentApprover(financeUserId);
                         }
-                        application.setSerCurrentApprover(financeUserId);
                     }
                 } else {
                     application.setTxtStatus("IN_PROGRESS");
@@ -1364,6 +1323,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 try {
                     if (currentLevel < sequence.size()) {
                         sendBudgetApprovalNextEmail(application, currentLevel);
+                    } else if (!isBudgetApproval) {
+                        sendGenericFinalApprovalEmail(application, form);
                     }
                 } catch (Exception emailEx) {
                     log.error("Error sending budget approval emails: " + emailEx.getMessage(), emailEx);
@@ -2080,10 +2041,36 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             Integer originalLevel = currentLevel;
             currentLevel = 0; 
 
-            // Clear ALL signatures from approval history because we are going back to Stage 1
+            // Parse existing approval history to preserve complete record of previous steps
             List<java.util.Map<String, Object>> updatedHistory = new java.util.ArrayList<>();
+            String existingHistoryJson = application.getTxtApprovalHistory();
+            if (existingHistoryJson != null && !existingHistoryJson.trim().isEmpty()) {
+                try {
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    updatedHistory = mapper.readValue(
+                            existingHistoryJson,
+                            new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
+                            });
+                    log.info("Preserved {} approval history entries when sending back to initiator, appId={}", 
+                        updatedHistory.size(), application.getSerApplicationId());
+                } catch (Exception e) {
+                    log.warn("Error parsing existing approval history, starting fresh: " + e.getMessage(), e);
+                    updatedHistory = new java.util.ArrayList<>();
+                }
+            }
             
-            // Add send-back action to history
+            // Get user details for the person sending back
+            Integer sentBackByUserId = commonService.getCurrentLoggedInUser();
+            CfgTblUser sentBackByUser = null;
+            if (sentBackByUserId != null) {
+                try {
+                    sentBackByUser = commonService.getCurrentUser(sentBackByUserId);
+                } catch (Exception e) {
+                    log.warn("Error getting user details for send-back: " + e.getMessage(), e);
+                }
+            }
+            
+            // Add detailed send-back action to history
             java.util.Map<String, Object> sendBackEntry = new java.util.HashMap<>();
             sendBackEntry.put("action", "SENT_BACK_TO_INITIATOR");
             
@@ -2096,26 +2083,46 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             sendBackEntry.put("departmentName", currentDepartmentName != null ? currentDepartmentName
                     : (currentDepartmentId != null ? "Department " + currentDepartmentId : "Unknown"));
             sendBackEntry.put("remarks", remarks != null ? remarks : "");
-            sendBackEntry.put("sentBackBy", commonService.getCurrentLoggedInUser());
+            sendBackEntry.put("sentBackBy", sentBackByUserId);
             sendBackEntry.put("sentBackDate", commonService.getCurrentTimeStamp_new().toString());
             
-            log.info("Application sent back to initiator from Stage {} for appId={}", 
-                fromLevel + 1, application.getSerApplicationId());
+            // Add detailed user information
+            if (sentBackByUser != null) {
+                sendBackEntry.put("approverName", sentBackByUser.getTxtUserName() != null ? sentBackByUser.getTxtUserName() : "");
+                sendBackEntry.put("txtDepartmentName", sentBackByUser.getTxtDepartmentName() != null ? sentBackByUser.getTxtDepartmentName() : "");
+                sendBackEntry.put("userDepartmentName", sentBackByUser.getTxtDepartmentName() != null ? sentBackByUser.getTxtDepartmentName() : "");
+                sendBackEntry.put("designation", sentBackByUser.getTxtDesignation() != null ? sentBackByUser.getTxtDesignation() : "");
+                sendBackEntry.put("txtDesignation", sentBackByUser.getTxtDesignation() != null ? sentBackByUser.getTxtDesignation() : "");
+            } else {
+                sendBackEntry.put("approverName", "");
+                sendBackEntry.put("txtDepartmentName", "");
+                sendBackEntry.put("userDepartmentName", "");
+                sendBackEntry.put("designation", "");
+                sendBackEntry.put("txtDesignation", "");
+            }
+            
+            log.info("Application sent back to initiator from Stage {} for appId={} by user {}", 
+                fromLevel + 1, application.getSerApplicationId(), 
+                sentBackByUser != null ? sentBackByUser.getTxtUserName() : sentBackByUserId);
             
             updatedHistory.add(sendBackEntry);
 
-            // Save updated history
+            // Save updated history with complete record
             try {
                 com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
                 String updatedHistoryJson = mapper.writeValueAsString(updatedHistory);
                 application.setTxtApprovalHistory(updatedHistoryJson);
                 
-                // Clear the PDF data so it gets regenerated
+                // Clear the PDF data so it gets regenerated with form structure but without signatures
+                // The PDF will be regenerated when accessed, showing the form with all data but no signatures
                 application.setBlbPdfData(null);
                 application.setTxtPdfName(null);
                 application.setTxtPdfMime(null);
+                
+                log.info("Cleared PDF for regeneration without signatures, preserved {} history entries, appId={}", 
+                    updatedHistory.size(), application.getSerApplicationId());
             } catch (Exception e) {
-                log.error("Error serializing approval history: " + e.getMessage());
+                log.error("Error serializing approval history: " + e.getMessage(), e);
             }
 
             application.setTxtStatus("PENDING"); 
@@ -2130,7 +2137,25 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             
             // Send email notification to Stage 1 after successful send back
             try {
-                sendBackEmailNotification(application, originalLevel, currentLevel, pipelines);
+                // Check if this is an individual pipeline flow (budget approval or dynamic footer)
+                Map<String, Object> appData = parseApplicationData(application);
+                boolean isBudgetApproval = isBudgetApprovalForm(form);
+                boolean hasDynamicFooterFlow = !extractFooterFields(appData).isEmpty();
+                boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
+                
+                if (useIndividualPipelineFlow) {
+                    // For individual pipeline flows, send email to the first person in the pipeline sequence
+                    log.info("Sending back to initiator for individual pipeline flow, appId={}", application.getSerApplicationId());
+                    sendBudgetApprovalNextEmail(application, 0);
+                } else {
+                    // For department-based pipeline flows, send notification to the first department (level 0)
+                    if (pipelines != null && !pipelines.isEmpty()) {
+                        // Send notification to the first department in the pipeline (level 0 = first department)
+                        sendBackEmailNotification(application, originalLevel, 0, pipelines);
+                    } else {
+                        log.warn("No pipelines found for send-back to initiator, appId={}", application.getSerApplicationId());
+                    }
+                }
             } catch (Exception emailEx) {
                 log.error("Error sending send-back email notification: " + emailEx.getMessage(), emailEx);
             }
@@ -2716,6 +2741,61 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (emailEntityManager.getTransaction().isActive())
                 emailEntityManager.getTransaction().rollback();
             log.warn("Failed to send final initiator email: {}", e.getMessage());
+        } finally {
+            if (emailEntityManager.isOpen()) {
+                emailEntityManager.close();
+            }
+        }
+    }
+
+    private void sendGenericFinalApprovalEmail(CfgTblCustomFormApplication application, com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form) {
+        EntityManager emailEntityManager = getEntityManager();
+        try {
+            emailEntityManager.getTransaction().begin();
+            if (application.getSerSubmittedBy() == null) {
+                emailEntityManager.getTransaction().rollback();
+                return;
+            }
+            CfgTblUser submitter = emailEntityManager.find(CfgTblUser.class, application.getSerSubmittedBy());
+            if (submitter == null || submitter.getTxtAddress() == null || submitter.getTxtAddress().trim().isEmpty()) {
+                emailEntityManager.getTransaction().rollback();
+                return;
+            }
+            String formName = form != null && form.getTxtFormName() != null ? form.getTxtFormName() : "Application";
+            String formCodeStr = application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A";
+            String subject = formName + " Fully Approved - " + formCodeStr;
+            
+            boolean isCapf = isCapfForm(form);
+            Map<String, Object> appData = parseApplicationData(application);
+            String quotationAttachmentHtml = buildQuotationAttachmentHtml(appData);
+
+            String htmlMessage = generateFinalApprovalEmailHtml(
+                    submitter.getTxtUserName() != null ? submitter.getTxtUserName() : "User",
+                    formCodeStr,
+                    formName,
+                    application.getTxtStatus(),
+                    application.getDteCreatedDate() != null ? application.getDteCreatedDate().toString() : "N/A",
+                    application.getSerApplicationId());
+            
+            if (!quotationAttachmentHtml.isEmpty()) {
+                htmlMessage += quotationAttachmentHtml;
+            }
+
+            sendEmailWithInlineFormPreview(
+                    java.util.Arrays.asList(submitter.getTxtAddress()),
+                    subject,
+                    htmlMessage,
+                    application,
+                    form,
+                    isCapf,
+                    isCapf ? "capf-inline" : "form-inline");
+            
+            emailEntityManager.getTransaction().commit();
+            log.info("Generic final initiator email sent successfully for appId={}", application.getSerApplicationId());
+        } catch (Exception e) {
+            if (emailEntityManager.getTransaction().isActive())
+                emailEntityManager.getTransaction().rollback();
+            log.warn("Failed to send generic final initiator email: {}", e.getMessage());
         } finally {
             if (emailEntityManager.isOpen()) {
                 emailEntityManager.close();
@@ -3415,8 +3495,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (isCapfForm(form)) {
                 return generateCapfPdf(application, form, appData);
             }
+            // Check for dynamic footer flow (individual pipeline footer) - use same PDF generation as budget approval
+            if (application != null && appData != null) {
+                List<Map<String, Object>> footerFields = extractFooterFields(appData);
+                if (footerFields != null && !footerFields.isEmpty()) {
+                    // Forms with dynamic footer flow should use budget approval PDF generation
+                    // to ensure the same form structure and layout as other emails
+                    return generateBudgetApprovalPdf(application, form, appData);
+                }
+            }
         } catch (Exception e) {
-            log.warn("Error generating budget approval PDF, falling back to summary: " + e.getMessage());
+            log.warn("Error generating application PDF, falling back to summary: " + e.getMessage(), e);
         }
         return generateSummaryPdf(application, form, appData);
     }
@@ -3492,11 +3581,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             float margin = 40f;
             float y = pageHeight - margin;
 
+            // Get heading - exclude header_heading field as it's a form field label, not the actual heading
             String heading = pickFirstNonEmpty(
-                    getValueByKeyContains(appData, "header"),
-                    getValueByKeyContains(appData, "heading"),
-                    getValueByKeyContains(appData, "title"),
-                    getValueByKeyContains(appData, "subject"),
+                    getValueByKeyExact(appData, "heading"),
+                    getValueByKeyExact(appData, "title"),
+                    getValueByKeyExact(appData, "subject"),
+                    getValueByKeyContainsExcluding(appData, "header", "header_heading", "headerHeading"),
+                    getValueByKeyContainsExcluding(appData, "heading", "header_heading", "headerHeading"),
                     form != null ? form.getTxtFormName() : null,
                     "Budget Approval Form");
 
@@ -3796,27 +3887,127 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     }
 
     private String buildBudgetBody(Map<String, Object> appData) {
+        // First check for word_editor/content fields (these take priority)
         String rawHtml = pickFirstNonEmpty(
-                getValueByKey(appData, "word_editor"),
-                getValueByKey(appData, "content"),
-                getValueByKey(appData, "editorContent"),
-                getValueByKey(appData, "html"));
+                getValueByKeyExact(appData, "word_editor"),
+                getValueByKeyExact(appData, "content"),
+                getValueByKeyExact(appData, "editorContent"),
+                getValueByKeyExact(appData, "html"));
         if (rawHtml != null && !rawHtml.trim().isEmpty()) {
             return htmlToPlainText(rawHtml);
         }
 
+        // If no word_editor found, build body from all fields (excluding metadata and header_heading)
         StringBuilder sb = new StringBuilder();
-        String background = getValueByKeyContains(appData, "background");
-        String proposal = getValueByKeyContains(appData, "proposal");
-        String request = getValueByKeyContains(appData, "request");
-        String finances = getValueByKeyContains(appData, "finance");
-        String note = getValueByKeyContains(appData, "note");
-
-        appendSection(sb, "Background", background);
-        appendSection(sb, "Proposal", proposal);
-        appendSection(sb, "Request", request);
-        appendSection(sb, "Finances", finances);
-        appendSection(sb, "Note", note);
+        
+        // Set of keys to exclude (form field labels and metadata)
+        java.util.Set<String> excludedKeys = new java.util.HashSet<>();
+        excludedKeys.add("header_heading");
+        excludedKeys.add("headerHeading");
+        excludedKeys.add("header_heading_label");
+        excludedKeys.add("preparedBy");
+        excludedKeys.add("reviewers");
+        excludedKeys.add("recommenders");
+        excludedKeys.add("approver");
+        excludedKeys.add("heading");
+        excludedKeys.add("header");
+        excludedKeys.add("content");
+        excludedKeys.add("editorContent");
+        excludedKeys.add("word_editor");
+        excludedKeys.add("html");
+        excludedKeys.add("date");
+        excludedKeys.add("footerFields");
+        excludedKeys.add("footerfields");
+        excludedKeys.add("individual_pipeline_footer");
+        
+        // Also exclude keys containing these patterns
+        java.util.List<String> excludePatterns = java.util.Arrays.asList(
+            "header_heading", "headerheading", "dataurl", "base64", "quotation", "feasibility"
+        );
+        
+        // Collect all field values (excluding metadata)
+        java.util.List<java.util.Map.Entry<String, Object>> fields = new java.util.ArrayList<>();
+        for (Map.Entry<String, Object> entry : appData.entrySet()) {
+            String key = entry.getKey();
+            if (key == null) continue;
+            
+            String keyLower = key.toLowerCase();
+            
+            // Skip excluded keys
+            if (excludedKeys.contains(key) || excludedKeys.contains(keyLower)) {
+                continue;
+            }
+            
+            // Skip keys matching exclude patterns
+            boolean matchesPattern = false;
+            for (String pattern : excludePatterns) {
+                if (keyLower.contains(pattern)) {
+                    matchesPattern = true;
+                    break;
+                }
+            }
+            if (matchesPattern) {
+                continue;
+            }
+            
+            // Skip complex objects (attachments, arrays, etc.)
+            Object val = entry.getValue();
+            if (val == null) continue;
+            if (val instanceof java.util.Map || val instanceof java.util.List) {
+                continue;
+            }
+            
+            // Include this field
+            fields.add(entry);
+        }
+        
+        // Build content from fields
+        for (java.util.Map.Entry<String, Object> entry : fields) {
+            String key = entry.getKey();
+            Object val = entry.getValue();
+            if (val == null) continue;
+            
+            String value = String.valueOf(val).trim();
+            if (value.isEmpty()) continue;
+            
+            // Format key as label
+            String label = key.replace("_", " ");
+            label = label.substring(0, 1).toUpperCase() + label.substring(1);
+            
+            if (sb.length() > 0) {
+                sb.append("\n\n");
+            }
+            sb.append(label).append(": ").append(value);
+        }
+        
+        // Also check for specific common fields (for backward compatibility)
+        String background = getValueByKeyContainsExcluding(appData, "background", "header_heading", "headerHeading");
+        String proposal = getValueByKeyContainsExcluding(appData, "proposal", "header_heading", "headerHeading");
+        String request = getValueByKeyContainsExcluding(appData, "request", "header_heading", "headerHeading");
+        String finances = getValueByKeyContainsExcluding(appData, "finance", "header_heading", "headerHeading");
+        String note = getValueByKeyContainsExcluding(appData, "note", "header_heading", "headerHeading");
+        
+        // Only append if not already included
+        if (background != null && !sb.toString().toLowerCase().contains("background")) {
+            if (sb.length() > 0) sb.append("\n\n");
+            sb.append("Background: ").append(background);
+        }
+        if (proposal != null && !sb.toString().toLowerCase().contains("proposal")) {
+            if (sb.length() > 0) sb.append("\n\n");
+            sb.append("Proposal: ").append(proposal);
+        }
+        if (request != null && !sb.toString().toLowerCase().contains("request")) {
+            if (sb.length() > 0) sb.append("\n\n");
+            sb.append("Request: ").append(request);
+        }
+        if (finances != null && !sb.toString().toLowerCase().contains("finance")) {
+            if (sb.length() > 0) sb.append("\n\n");
+            sb.append("Finances: ").append(finances);
+        }
+        if (note != null && !sb.toString().toLowerCase().contains("note")) {
+            if (sb.length() > 0) sb.append("\n\n");
+            sb.append("Note: ").append(note);
+        }
 
         if (sb.length() == 0) {
             sb.append("No content provided.");
@@ -3833,9 +4024,26 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     }
 
     private String htmlToPlainText(String html) {
-        String text = html.replaceAll("(?i)<br\\s*/?>", "\n");
+        if (html == null || html.trim().isEmpty()) {
+            return "";
+        }
+        // Preserve paragraph breaks
+        String text = html.replaceAll("(?i)</p>", "\n\n");
+        text = text.replaceAll("(?i)<p[^>]*>", "");
+        // Preserve line breaks
+        text = text.replaceAll("(?i)<br\\s*/?>", "\n");
+        // Preserve list items
+        text = text.replaceAll("(?i)</li>", "\n");
+        text = text.replaceAll("(?i)<li[^>]*>", "• ");
+        text = text.replaceAll("(?i)</ul>|</ol>", "\n");
+        text = text.replaceAll("(?i)<ul[^>]*>|<ol[^>]*>", "");
+        // Remove other HTML tags
         text = text.replaceAll("(?s)<[^>]*>", "");
+        // Decode HTML entities
         text = text.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">");
+        text = text.replace("&quot;", "\"").replace("&#39;", "'");
+        // Clean up multiple newlines
+        text = text.replaceAll("\\n{3,}", "\n\n");
         return text.trim();
     }
 
@@ -3861,6 +4069,36 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         return val != null ? String.valueOf(val) : null;
     }
 
+    private String getValueByKeyExact(Map<String, Object> appData, String key) {
+        if (appData == null || key == null)
+            return null;
+        Object val = appData.get(key);
+        return val != null ? String.valueOf(val) : null;
+    }
+
+    private String getValueByKeyContainsExcluding(Map<String, Object> appData, String needle, String... excludeKeys) {
+        if (appData == null || needle == null)
+            return null;
+        String n = needle.toLowerCase();
+        java.util.Set<String> excludeSet = new java.util.HashSet<>();
+        if (excludeKeys != null) {
+            for (String ex : excludeKeys) {
+                if (ex != null) {
+                    excludeSet.add(ex.toLowerCase());
+                }
+            }
+        }
+        for (Map.Entry<String, Object> entry : appData.entrySet()) {
+            String key = entry.getKey();
+            if (key != null && !excludeSet.contains(key.toLowerCase()) && key.toLowerCase().contains(n)) {
+                Object val = entry.getValue();
+                if (val != null)
+                    return String.valueOf(val);
+            }
+        }
+        return null;
+    }
+
     private String pickFirstNonEmpty(String... values) {
         if (values == null)
             return null;
@@ -3876,12 +4114,27 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         if (text == null)
             return y;
         String[] paragraphs = text.split("\\r?\\n");
+        boolean isFirstPara = true;
         for (String para : paragraphs) {
             if (para.trim().isEmpty()) {
-                y -= leading;
+                y -= leading * 0.5f; // Smaller gap for empty lines
                 continue;
             }
-            for (String line : wrapText(para, PDType1Font.TIMES_ROMAN, 12, maxWidth)) {
+            
+            // Check if this paragraph is a label (ends with ":")
+            boolean isLabel = para.trim().endsWith(":") && para.trim().length() < 100;
+            
+            if (isLabel) {
+                // Draw label in bold
+                content.setFont(PDType1Font.TIMES_BOLD, 12);
+                if (!isFirstPara) {
+                    y -= leading * 0.5f; // Extra space before label
+                }
+            } else {
+                content.setFont(PDType1Font.TIMES_ROMAN, 12);
+            }
+            
+            for (String line : wrapText(para, isLabel ? PDType1Font.TIMES_BOLD : PDType1Font.TIMES_ROMAN, 12, maxWidth)) {
                 if (y < minY) {
                     return y;
                 }
@@ -3891,7 +4144,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 content.endText();
                 y -= leading;
             }
-            y -= 2;
+            
+            if (isLabel) {
+                y -= 2; // Small gap after label
+            } else {
+                y -= 4; // More space between paragraphs
+            }
+            isFirstPara = false;
         }
         return y;
     }
@@ -3924,10 +4183,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             return;
         }
 
-        float colWidth = width / 6f;
-        float rowSig = 50f;
-        float rowHeader = 22f;
-        float rowNames = height - rowSig - rowHeader;
+        float bottomNamesHeight = 32f;
+        float middleHeaderHeight = 22f;
+        float topSigHeight = height - bottomNamesHeight - middleHeaderHeight;
+        float colWidth = width / 6f; // 6 columns: Prepared, Reviewed (2 cols), Recommended (2 cols), Approved
 
         // Borders
         content.setLineWidth(0.6f);
@@ -3938,21 +4197,21 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             content.lineTo(x + colWidth * i, y + height);
             content.stroke();
         }
-        content.moveTo(x, y + rowSig);
-        content.lineTo(x + width, y + rowSig);
+        content.moveTo(x, y + bottomNamesHeight);
+        content.lineTo(x + width, y + bottomNamesHeight);
         content.stroke();
-        content.moveTo(x, y + rowSig + rowHeader);
-        content.lineTo(x + width, y + rowSig + rowHeader);
+        content.moveTo(x, y + bottomNamesHeight + middleHeaderHeight);
+        content.lineTo(x + width, y + bottomNamesHeight + middleHeaderHeight);
         content.stroke();
 
         // Header background
         content.setNonStrokingColor(220, 220, 220);
-        content.addRect(x, y + rowSig, width, rowHeader);
+        content.addRect(x, y + bottomNamesHeight, width, middleHeaderHeight);
         content.fill();
         content.setNonStrokingColor(0, 0, 0);
 
         content.setFont(PDType1Font.HELVETICA_BOLD, 9);
-        float headerY = y + rowSig + 6;
+        float headerY = y + bottomNamesHeight + 6;
         drawCenteredHeader(content, "Prepared by:", x, colWidth, headerY);
         drawCenteredHeader(content, "Reviewed by:", x + colWidth, colWidth * 2, headerY);
         drawCenteredHeader(content, "Recommended by:", x + colWidth * 3, colWidth * 2, headerY);
@@ -3988,8 +4247,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 approverId };
         String[] roles = new String[] { "PREPARED", "REVIEWER", "REVIEWER", "RECOMMENDER", "RECOMMENDER", "APPROVER" };
         Map<Integer, String> signatureFromDb = loadUserSignaturePaths(userIds);
-        float sigRowY = y + rowSig + rowHeader + 4;
-        float sigRowHeight = rowNames - 8;
+        float sigRowY = y + bottomNamesHeight + middleHeaderHeight + 4;
+        float sigRowHeight = topSigHeight - 8;
         for (int i = 0; i < userIds.length; i++) {
             Integer uid = userIds[i];
             boolean allowFallback = "PREPARED".equalsIgnoreCase(roles[i]);
@@ -5935,10 +6194,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             return;
         }
 
-        float colWidth = width / cols;
-        float rowSig = 50f;
-        float rowHeader = 22f;
-        float rowNames = height - rowSig - rowHeader;
+        float bottomNamesHeight = 32f;
+        float middleHeaderHeight = 22f;
+        float topSigHeight = height - bottomNamesHeight - middleHeaderHeight;
+        float colWidth = width / cols; // Dynamic columns based on footer fields
 
         content.setLineWidth(0.6f);
         content.addRect(x, y, width, height);
@@ -5948,20 +6207,20 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             content.lineTo(x + colWidth * i, y + height);
             content.stroke();
         }
-        content.moveTo(x, y + rowSig);
-        content.lineTo(x + width, y + rowSig);
+        content.moveTo(x, y + bottomNamesHeight);
+        content.lineTo(x + width, y + bottomNamesHeight);
         content.stroke();
-        content.moveTo(x, y + rowSig + rowHeader);
-        content.lineTo(x + width, y + rowSig + rowHeader);
+        content.moveTo(x, y + bottomNamesHeight + middleHeaderHeight);
+        content.lineTo(x + width, y + bottomNamesHeight + middleHeaderHeight);
         content.stroke();
 
         content.setNonStrokingColor(220, 220, 220);
-        content.addRect(x, y + rowSig, width, rowHeader);
+        content.addRect(x, y + bottomNamesHeight, width, middleHeaderHeight);
         content.fill();
         content.setNonStrokingColor(0, 0, 0);
 
         content.setFont(PDType1Font.HELVETICA_BOLD, 9);
-        float headerY = y + rowSig + 6;
+        float headerY = y + bottomNamesHeight + 6;
         for (int i = 0; i < cols; i++) {
             String label = footerFields.get(i) != null && footerFields.get(i).get("label") != null
                     ? String.valueOf(footerFields.get(i).get("label"))
@@ -5981,8 +6240,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         Integer[] userIds = allUserIds.toArray(new Integer[0]);
         Map<Integer, String> signatureFromDb = loadUserSignaturePaths(userIds);
 
-        float sigRowY = y + rowSig + rowHeader + 4;
-        float sigRowHeight = rowNames - 8;
+        float sigRowY = y + bottomNamesHeight + middleHeaderHeight + 4;
+        float sigRowHeight = topSigHeight - 8;
         for (int i = 0; i < cols; i++) {
             Map<String, Object> field = footerFields.get(i);
             String role = field != null && field.get("label") != null ? String.valueOf(field.get("label")) : "APPROVER";
@@ -6686,9 +6945,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             return;
         }
         float colWidth = width / totalSlots;
-        float rowSig = 50f;
-        float rowHeader = 22f;
-        float rowNames = height - rowSig - rowHeader;
+        float bottomNamesHeight = 32f;
+        float middleHeaderHeight = 22f;
+        float topSigHeight = height - bottomNamesHeight - middleHeaderHeight;
 
         List<Map<String, Object>> approvalHistory = parseApprovalHistory(approvalHistoryJson);
         java.util.Set<Integer> allUserIds = new java.util.LinkedHashSet<>();
@@ -6702,8 +6961,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         Integer[] userIds = allUserIds.toArray(new Integer[0]);
         Map<Integer, String> signatureFromDb = loadUserSignaturePaths(userIds);
 
-        float sigRowY = y + rowSig + rowHeader + 4;
-        float sigRowHeight = rowNames - 8;
+        float sigRowY = y + bottomNamesHeight + middleHeaderHeight + 4;
+        float sigRowHeight = topSigHeight - 8;
         int slotIndex = 0;
         for (int i = 0; i < sections; i++) {
             Map<String, Object> field = footerFields.get(i);
@@ -6798,9 +7057,21 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     private byte[] resolveBestPdfBytesForEmail(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
         try {
-            // ALWAYS generate fresh PDF for email preview if it is a Budget or CAPF form
+            // ALWAYS generate fresh PDF for email preview if it is a Budget, CAPF form, or has dynamic footer flow
             // to ensure latest data and signatures are visible.
-            if (isBudgetApprovalForm(form) || isCapfForm(form)) {
+            boolean isBudgetApproval = isBudgetApprovalForm(form);
+            boolean isCapf = isCapfForm(form);
+            boolean hasDynamicFooterFlow = false;
+            if (application != null) {
+                try {
+                    Map<String, Object> appData = parseApplicationData(application);
+                    hasDynamicFooterFlow = !extractFooterFields(appData).isEmpty();
+                } catch (Exception e) {
+                    log.warn("Error checking dynamic footer flow: " + e.getMessage(), e);
+                }
+            }
+            
+            if (isBudgetApproval || isCapf || hasDynamicFooterFlow) {
                 Map<String, Object> appData = parseApplicationData(application);
                 return generateApplicationPdf(application, form, appData != null ? appData : new java.util.HashMap<>());
             }
@@ -7086,7 +7357,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     private void sendBackEmailNotification(CfgTblCustomFormApplication application, Integer oldLevelBeforeSendBack, 
             Integer newLevelAfterSendBack, 
             List<java.util.Map<String, Object>> pipelines) {
-        if (application == null || newLevelAfterSendBack == null || newLevelAfterSendBack <= 0) {
+        if (application == null || newLevelAfterSendBack == null || newLevelAfterSendBack < 0) {
             log.info("Skipping send-back email: appId={}, newLevelAfterSendBack={}", 
                 application != null ? application.getSerApplicationId() : "null", newLevelAfterSendBack);
             return;
@@ -7407,6 +7678,72 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 .append(escapeHtml(submittedDate)).append("</div></div>");
         html.append("</div>");
         html.append("<p>Your application is now pending approval. You will be notified once it is reviewed.</p>");
+        html.append("<p>Thank you for using our system.</p>");
+        html.append("</div>");
+        html.append("<div class='footer'>");
+        html.append("<p>Best Regards,<br>System Administrator</p>");
+        html.append("<p style='font-size:10px;color:#bdc3c7;'>This is an automated email. Please do not reply.</p>");
+        html.append("</div>");
+        html.append("</div></body></html>");
+
+        return html.toString();
+    }
+
+    private String generateFinalApprovalEmailHtml(String recipientName, String applicationCode,
+            String formName, String status, String submittedDate, Integer applicationId) {
+        StringBuilder html = new StringBuilder();
+        html.append(
+                "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
+        html.append("<style>");
+        html.append(
+                "body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;background-color:#f5f5f5}");
+        html.append(
+                ".email-container{background-color:#ffffff;border-radius:8px;padding:30px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}");
+        html.append(
+                ".header{background:linear-gradient(135deg,#27ae60 0%,#229954 100%);color:white;padding:20px;border-radius:8px 8px 0 0;margin:-30px -30px 20px -30px}");
+        html.append(".header h1{margin:0;font-size:24px;font-weight:600}");
+        html.append(".content{padding:20px 0}");
+        html.append(".greeting{font-size:16px;margin-bottom:20px;color:#555}");
+        html.append(
+                ".details{background-color:#f8f9fa;border-left:4px solid #27ae60;padding:15px;margin:20px 0;border-radius:4px}");
+        html.append(".detail-row{margin:10px 0;display:flex}");
+        html.append(".detail-label{font-weight:600;color:#555;min-width:150px}");
+        html.append(".detail-value{color:#333;flex:1}");
+        html.append(
+                ".footer{margin-top:30px;padding-top:20px;border-top:2px solid #ecf0f1;text-align:center;color:#95a5a6;font-size:12px}");
+        html.append("</style></head><body>");
+        String headerTitle = (applicationCode != null && !applicationCode.trim().isEmpty())
+                ? applicationCode.trim()
+                : (formName != null && !formName.trim().isEmpty() ? formName.trim() : "Application");
+        html.append("<div class='email-container'>");
+        html.append("<div class='header'><h1>").append(escapeHtml(headerTitle))
+                .append(" Fully Approved</h1></div>");
+        html.append("<div class='content'>");
+        html.append("<div class='greeting'>Dear ").append(escapeHtml(recipientName)).append(",</div>");
+        html.append("<p>Your application has been fully approved.</p>");
+        html.append("<div class='details'>");
+        html.append(
+                "<div class='detail-row'><div class='detail-label'>Application Code:</div><div class='detail-value'>")
+                .append(escapeHtml(applicationCode)).append("</div></div>");
+        html.append("<div class='detail-row'><div class='detail-label'>Form Name:</div><div class='detail-value'>")
+                .append(escapeHtml(formName)).append("</div></div>");
+        html.append("<div class='detail-row'><div class='detail-label'>Status:</div><div class='detail-value'>")
+                .append(escapeHtml(status)).append("</div></div>");
+        html.append("<div class='detail-row'><div class='detail-label'>Submitted Date:</div><div class='detail-value'>")
+                .append(escapeHtml(submittedDate)).append("</div></div>");
+        html.append("</div>");
+        
+        String frontendUrl = frontendBaseUrl != null ? frontendBaseUrl : "http://localhost:4200";
+        if (!frontendUrl.endsWith("/")) {
+            frontendUrl += "/";
+        }
+        String viewUrl = frontendUrl + "velocity/application-details/" + applicationId;
+
+        html.append("<p style='margin-top:18px;'>You can view the final approved application using the following link:</p>");
+        html.append("<table role='presentation' cellpadding='0' cellspacing='0' border='0' style='margin:0 0 12px 0;'><tr><td align='left' style='border-radius:6px' bgcolor='#2c7be5'>");
+        html.append("<a href='").append(viewUrl).append("' style='font-family:Arial,sans-serif;padding:12px 18px;display:inline-block;color:#ffffff;text-decoration:none;font-weight:600;background:#2c7be5;border-radius:6px;'>View Application</a>");
+        html.append("</td></tr></table>");
+        html.append("<p style='font-size:12px;color:#444;margin-top:4px;'>If the button does not work, copy and paste this link into your browser:<br><a href='").append(viewUrl).append("'>").append(viewUrl).append("</a></p>");
         html.append("<p>Thank you for using our system.</p>");
         html.append("</div>");
         html.append("<div class='footer'>");

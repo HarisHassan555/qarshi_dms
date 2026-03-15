@@ -215,24 +215,48 @@
 
                 <div class="xyz-title">{{ getGenericDocumentHeading() }}</div>
 
-                <div class="xyz-content-body">
+                <div class="xyz-content-body flex-1">
                     <div *ngFor="let field of getGenericPreviewFields()" class="xyz-generic-field">
-                        <div class="xyz-generic-label"
-                            *ngIf="!isWordEditorType(field.type) && !isIndividualPipelineFooterType(field.type) && field.type !== 'footer'">
-                            {{ field.label }}
-                            <span *ngIf="field.required" class="text-danger">*</span>
-                        </div>
+                        <ng-container *ngIf="field.type !== 'footer' && !isIndividualPipelineFooterType(field.type)">
+                            <div class="xyz-generic-label"
+                                *ngIf="!isWordEditorType(field.type)">
+                                {{ field.label }}
+                                <span *ngIf="field.required" class="text-danger">*</span>
+                            </div>
 
-                        <div *ngIf="!isWordEditorType(field.type) && !isTableType(field.type) && !isIndividualPipelineFooterType(field.type) && field.type !== 'footer'"
-                            class="xyz-generic-value">
-                            {{ formatFieldValue(field, getFieldValue(field)) }}
-                        </div>
+                            <div *ngIf="!isWordEditorType(field.type) && !isTableType(field.type)"
+                                class="xyz-generic-value">
+                                {{ formatFieldValue(field, getFieldValue(field)) }}
+                            </div>
 
-                        <div *ngIf="isWordEditorType(field.type)" class="xyz-generic-word">
-                            <div class="ql-editor" [innerHTML]="getWordEditorValue(field)"></div>
-                        </div>
+                            <div *ngIf="isWordEditorType(field.type)" class="xyz-generic-word">
+                                <div class="ql-editor" [innerHTML]="getWordEditorValue(field)"></div>
+                            </div>
 
-                        <div *ngIf="field.type === 'footer'" class="mt-12 pt-6">
+                            <div *ngIf="isTableType(field.type)" class="overflow-x-auto mt-2">
+                                <table class="xyz-table">
+                                    <thead>
+                                        <tr>
+                                            <th></th>
+                                            <th *ngFor="let colIndex of getTableColumns(field)">Column {{ colIndex + 1 }}
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr *ngFor="let row of getTableData(field); let rowIndex = index">
+                                            <td class="xyz-table-row-label">{{ getTableRowLabel(field, rowIndex) }}</td>
+                                            <td *ngFor="let cell of row">{{ cell || '-' }}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </ng-container>
+                    </div>
+                </div>
+
+                <div class="xyz-footer mt-auto pt-6">
+                    <ng-container *ngFor="let field of getGenericPreviewFields()">
+                        <div *ngIf="field.type === 'footer'" class="pt-6 border-t border-gray-200">
                             <div class="flex flex-wrap justify-center gap-10 py-4">
                                 <div *ngFor="let pipeline of getPipelineData(); let i = index"
                                     class="flex flex-col items-center min-w-[150px]">
@@ -259,7 +283,7 @@
                             </div>
                         </div>
 
-                        <div *ngIf="isIndividualPipelineFooterType(field.type)" class="mt-12 pt-6">
+                        <div *ngIf="isIndividualPipelineFooterType(field.type)" class="pt-6 border-t border-gray-200">
                             <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields().length > 0">
                                 <tr class="xyz-signatures-blank">
                                     <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
@@ -290,25 +314,7 @@
                                 </tr>
                             </table>
                         </div>
-
-                        <div *ngIf="isTableType(field.type)" class="overflow-x-auto">
-                            <table class="xyz-table">
-                                <thead>
-                                    <tr>
-                                        <th></th>
-                                        <th *ngFor="let colIndex of getTableColumns(field)">Column {{ colIndex + 1 }}
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr *ngFor="let row of getTableData(field); let rowIndex = index">
-                                        <td class="xyz-table-row-label">{{ getTableRowLabel(field, rowIndex) }}</td>
-                                        <td *ngFor="let cell of row">{{ cell || '-' }}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                    </ng-container>
                 </div>
             </div>
         </div>

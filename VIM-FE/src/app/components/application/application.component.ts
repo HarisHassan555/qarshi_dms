@@ -513,7 +513,8 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   isDocumentHeaderType(fieldType: string | undefined): boolean {
-    return (fieldType || '').toString().trim().toLowerCase() === 'document_header';
+    const t = (fieldType || '').toString().trim().toLowerCase();
+    return t === 'document_header' || t === 'header';
   }
 
   getDocumentHeaderControl(): FormControl | null {

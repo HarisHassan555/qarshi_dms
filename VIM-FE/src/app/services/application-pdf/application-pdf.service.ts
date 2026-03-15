@@ -798,7 +798,7 @@ export class ApplicationPdfService {
     };
     const isDocumentHeaderType = (fieldType: string): boolean => {
       const t = normalizeFieldType(fieldType);
-      return t === 'document_header';
+      return t === 'document_header' || t === 'header';
     };
     const getFieldValue = (field: any): any => {
       if (!applicationFormData || typeof applicationFormData !== 'object') return null;
@@ -1037,6 +1037,7 @@ export class ApplicationPdfService {
     .xyz-paper {
       width: 210mm;
       min-height: 297mm;
+      height: 100%;
       background:#ffffff;
       font-family: "Times New Roman", Times, serif;
       font-size: 13.5px;
@@ -1062,7 +1063,7 @@ export class ApplicationPdfService {
     .xyz-rule.thick::before { top:-2px; }
     .xyz-rule.thick::after { bottom:-2px; }
     .xyz-title { text-align:center; font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif; font-weight:700; font-size:26px; line-height:1.25; margin:6px 0 16px 0; }
-    .xyz-dynamic { margin-top:4px; }
+    .xyz-dynamic { margin-top:4px; flex: 1; }
     .xyz-section { margin-bottom:10px; }
     .xyz-section-title { font-family: "Georgia", "Times New Roman", serif; font-size:13.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; border-left:3px solid var(--accent); padding-left:8px; margin-bottom:4px; }
     .xyz-section-text { font-family: "Georgia", "Times New Roman", serif; font-size:13.5px; font-weight:400; text-align:justify; color:var(--ink); }

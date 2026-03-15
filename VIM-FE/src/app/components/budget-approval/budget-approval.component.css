@@ -9,6 +9,7 @@
 .xyz-paper {
     width: 210mm;
     min-height: 297mm;
+    height: 100%;
     background: #ffffff;
     color: #000000;
     font-family: "Times New Roman", Times, serif;
@@ -122,6 +123,7 @@
     box-sizing: border-box;
     overflow-wrap: break-word;
     word-wrap: break-word;
+    flex: 1;
 }
 
 .xyz-dynamic table {
