@@ -383,8 +383,12 @@
 
 .xyz-signatures-blank td {
     height: 56px;
-    padding: 0;
+    padding: 2px 4px;
     background: #ffffff;
+    overflow: hidden;
+    position: relative;
+    box-sizing: border-box;
+    vertical-align: middle;
 }
 
 .xyz-signatures th {
@@ -403,9 +407,33 @@
 .xyz-sig-img {
     max-height: 26px;
     max-width: 100%;
+    width: auto;
+    height: auto;
     object-fit: contain;
     display: block;
     margin: 0 auto 4px auto;
+    box-sizing: border-box;
+}
+
+.xyz-signatures-blank td .xyz-sig-img {
+    max-height: 24px !important;
+    max-width: calc(100% - 8px) !important;
+    width: auto !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 0 auto 4px auto !important;
+}
+
+.xyz-signatures-blank td > div {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 
 .xyz-sig-time {

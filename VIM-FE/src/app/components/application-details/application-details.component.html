@@ -120,7 +120,7 @@
                         <p class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
                             Form Name</p>
                         <h5 class="text-base font-bold text-[#3b3f5c] dark:text-white-light">
-                            {{ applicationDetails.cfgTblCustomForm?.txtFormName || 'Custom Form' }}
+                            {{ getHeaderFieldValue() }}
                         </h5>
                     </div>
                 </div>
@@ -264,12 +264,12 @@
                                 <tr class="xyz-signatures-blank">
                                     <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
                                         <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                            <div *ngIf="slotUser && isUserApproved(slotUser)">
-                                                <img *ngIf="getUserSignatureUrl(slotUser)"
-                                                    [src]="getUserSignatureUrl(slotUser)" class="xyz-sig-img"
+                                            <div *ngIf="slotUser && isUserApproved(slotUser, section.label)">
+                                                <img *ngIf="getUserSignatureUrl(slotUser, section.label)"
+                                                    [src]="getUserSignatureUrl(slotUser, section.label)" class="xyz-sig-img"
                                                     alt="Signature" crossorigin="anonymous">
-                                                <div class="xyz-sig-time" *ngIf="getUserApprovalDate(slotUser)">
-                                                    {{ getUserApprovalDate(slotUser) }}
+                                                <div class="xyz-sig-time" *ngIf="getUserApprovalDate(slotUser, section.label)">
+                                                    {{ getUserApprovalDate(slotUser, section.label) }}
                                                 </div>
                                             </div>
                                         </td>

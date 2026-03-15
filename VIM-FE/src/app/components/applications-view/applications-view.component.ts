@@ -2098,10 +2098,11 @@ export class ApplicationsViewComponent implements OnInit {
     .xyz-note { margin-top:6px; font-size:11.5px; color:var(--muted); }
     .xyz-signatures { width:100%; border-collapse:collapse; margin-top:14px; font-family: "Calibri", "Arial", sans-serif; font-size:12px; }
     .xyz-signatures th, .xyz-signatures td { border:1px solid var(--line); padding:6px 8px; vertical-align:top; text-align:left; }
-    .xyz-signatures-blank td { height:62px; padding:6px 8px; background:#fff; }
+    .xyz-signatures-blank td { height:56px; padding:2px 4px; background:#fff; overflow:hidden; position:relative; box-sizing:border-box; vertical-align:middle; }
     .xyz-signatures th { font-size:12.5px; font-weight:700; background:#e5e7eb; text-transform:uppercase; letter-spacing:0.3px; }
     .xyz-signatures th[colspan="2"] { text-align:center; }
-    .xyz-sig-img { max-height: 30px; max-width: 100%; object-fit: contain; display:block; margin-bottom:4px; }
+    .xyz-sig-img { max-height: 24px; max-width: 100%; width: auto; height: auto; object-fit: contain; display:block; margin:0 auto 4px auto; box-sizing:border-box; }
+    .xyz-signatures-blank td .xyz-sig-img { max-height: 24px !important; max-width: calc(100% - 8px) !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 0 auto 4px auto !important; }
     .xyz-sig-time { font-size:10px; color:var(--muted); margin-bottom:4px; }
     .xyz-footer { margin-top:auto; }
     `;

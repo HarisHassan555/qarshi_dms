@@ -762,7 +762,52 @@ export class ApplicationPdfService {
 
   private generateBudgetApprovalPdfHtml(application: any, formFields: any[], applicationFormData: any, formName: string): string {
     const { heading, contentHtml, preparedBy, reviewers, recommenders, approver, footerFields } = this.buildBudgetApprovalContent(applicationFormData);
-    const headingText = heading || formName || 'Budget Approval';
+    
+    // Extract document_header field value for heading if available
+    let headingText = heading || formName || 'Budget Approval';
+    const normalizeFieldType = (fieldType: any): string => String(fieldType || '').toLowerCase().replace(/\s+/g, '_');
+    const getFieldLabel = (field: any): string => field?.label || field?.txtFieldLabel || field?.name || field?.txtFieldName || 'Field';
+    const getFieldType = (field: any): string => normalizeFieldType(field?.type || field?.txtFieldType || field?.fieldType);
+    const isDocumentHeaderType = (fieldType: string): boolean => {
+      const t = normalizeFieldType(fieldType);
+      return t === 'document_header';
+    };
+    const slugify = (label: string): string =>
+      String(label || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+    const getFieldValue = (field: any): any => {
+      if (!applicationFormData || typeof applicationFormData !== 'object') return null;
+      const label = getFieldLabel(field);
+      const slug = slugify(label);
+      const directKeys = [
+        label,
+        slug,
+        field?.name,
+        field?.key,
+        field?.fieldName,
+        field?.txtFieldName,
+        field?.txtFieldLabel,
+        field?.txtFieldLabel ? slugify(field.txtFieldLabel) : null,
+        field?.serFieldId ? `field_${field.serFieldId}` : null
+      ].filter(Boolean);
+      for (const key of directKeys) {
+        if ((applicationFormData as any)[key] !== undefined) {
+          return (applicationFormData as any)[key];
+        }
+      }
+      return null;
+    };
+    
+    const headerField = (formFields || []).find((field: any) => isDocumentHeaderType(getFieldType(field)));
+    if (headerField) {
+      const headerValue = getFieldValue(headerField);
+      if (headerValue !== null && headerValue !== undefined && String(headerValue).trim() !== '') {
+        headingText = String(headerValue).trim();
+      }
+    }
+    
     const dateStr = application?.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleDateString() : new Date().toLocaleDateString();
     return this.generateBudgetApprovalXyzHtml(headingText, dateStr, contentHtml, application?.txtApprovalHistory, preparedBy, reviewers, recommenders, approver, footerFields || []);
   }
@@ -904,7 +949,18 @@ export class ApplicationPdfService {
     });
 
     const contentHtml = contentBlocks.join('');
-    const headingText = (formName || 'Application Form').trim();
+    
+    // Extract document_header field value for heading
+    let headingText = formName || 'Application Form';
+    const headerField = (formFields || []).find((field: any) => isDocumentHeaderType(getFieldType(field)));
+    if (headerField) {
+      const headerValue = getFieldValue(headerField);
+      if (headerValue !== null && headerValue !== undefined && String(headerValue).trim() !== '') {
+        headingText = String(headerValue).trim();
+      }
+    }
+    headingText = headingText.trim();
+    
     const dateStr = application?.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleDateString() : new Date().toLocaleDateString();
     return this.generateBudgetApprovalXyzHtml(
       headingText,
@@ -1078,11 +1134,12 @@ export class ApplicationPdfService {
     .xyz-note { margin-top:6px; font-size:11px; }
     .xyz-signatures { width:100%; border-collapse:collapse; margin-top:14px; font-family: "Calibri", "Arial", sans-serif; font-size:12px; }
     .xyz-signatures th, .xyz-signatures td { border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle; word-wrap:break-word; overflow-wrap:break-word; max-width:0; }
-    .xyz-signatures-blank td { height:56px; padding:0; background:#fff; }
+    .xyz-signatures-blank td { height:56px; padding:2px 4px; background:#fff; overflow:hidden; position:relative; box-sizing:border-box; vertical-align:middle; }
     .xyz-signatures th { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:14px; font-weight:700; background:#8f8f8f; text-align:center; text-transform:none; letter-spacing:0; }
     .xyz-signatures th[colspan="2"] { text-align:center; }
     .xyz-signatures td { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:12px; }
-    .xyz-sig-img { max-height: 26px; max-width: 100%; object-fit: contain; display:block; margin:0 auto 4px auto; }
+    .xyz-sig-img { max-height: 24px; max-width: 100%; width: auto; height: auto; object-fit: contain; display:block; margin:0 auto 4px auto; box-sizing:border-box; }
+    .xyz-signatures-blank td .xyz-sig-img { max-height: 24px !important; max-width: calc(100% - 8px) !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 0 auto 4px auto !important; }
     .xyz-sig-time { font-size:10px; color:#6b7280; margin-bottom:4px; }
     .xyz-footer { margin-top:auto; }
     .xyz-generic-field { margin-bottom:10px; }

@@ -599,60 +599,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 application.setTxtFormCode(application.getTxtFormCode().trim().toUpperCase(Locale.ROOT));
             }
 
-            // Auto-sign "Prepared By" for Budget Approval on submission
+            // Initialize approval level and status for individual pipeline flow
             if (useIndividualPipelineFlow) {
-                try {
-                    Map<String, Object> appData = parseApplicationData(application);
-                    BudgetApprover preparedBy = getPreparedBy(appData, entityManager);
-                    if (preparedBy == null || preparedBy.userId == null) {
-                        Integer fallbackUserId = application.getSerSubmittedBy();
-                        if (fallbackUserId == null) {
-                            fallbackUserId = application.getSerCreatedUser();
-                        }
-                        if (fallbackUserId != null) {
-                            preparedBy = buildBudgetApprover(
-                                    java.util.Collections.singletonMap("serUserId", fallbackUserId), "PREPARED",
-                                    entityManager);
-                        }
-                    }
-                    List<java.util.Map<String, Object>> approvalHistory = new java.util.ArrayList<>();
-
-                    if (preparedBy != null && preparedBy.userId != null) {
-                        java.util.Map<String, Object> approvalEntry = new java.util.HashMap<>();
-                        approvalEntry.put("level", 0);
-                        approvalEntry.put("departmentId", null);
-                        approvalEntry.put("departmentName", "Prepared By");
-                        approvalEntry.put("remarks", "Auto-signed on submission");
-                        approvalEntry.put("approvedBy", preparedBy.userId);
-                        approvalEntry.put("approverName", preparedBy.name != null ? preparedBy.name : "Prepared By");
-                        approvalEntry.put("approvedDate", commonService.getCurrentTimeStamp_new().toString());
-                        approvalEntry.put("signaturePath",
-                                preparedBy.signaturePath != null ? preparedBy.signaturePath : "");
-                        approvalEntry.put("txtDepartmentName",
-                                preparedBy.department != null ? preparedBy.department : "");
-                        approvalEntry.put("userDepartmentName",
-                                preparedBy.department != null ? preparedBy.department : "");
-                        approvalEntry.put("designation", preparedBy.designation != null ? preparedBy.designation : "");
-                        approvalEntry.put("txtDesignation",
-                                preparedBy.designation != null ? preparedBy.designation : "");
-                        approvalEntry.put("approvedVia", "SYSTEM");
-                        approvalEntry.put("action", "APPROVED");
-                        approvalEntry.put("role", "PREPARED");
-                        log.info(
-                                "CAPF signature log [submission-prepared-entry]: appId={}, userId={}, level={}, role={}, signaturePath={}",
-                                application.getSerApplicationId(), preparedBy.userId, 0, "PREPARED",
-                                preparedBy.signaturePath != null ? preparedBy.signaturePath : "");
-                        approvalHistory.add(approvalEntry);
-
-                        ObjectMapper mapper = new ObjectMapper();
-                        application.setTxtApprovalHistory(mapper.writeValueAsString(approvalHistory));
-                    }
-
-                    application.setIntCurrentApprovalLevel(0);
-                    application.setTxtStatus("IN_PROGRESS");
-                } catch (Exception e) {
-                    log.warn("Error preparing budget approval auto-sign: " + e.getMessage(), e);
-                }
+                application.setIntCurrentApprovalLevel(0);
+                application.setTxtStatus("IN_PROGRESS");
             }
 
             // Generate and store PDF on creation (summary)
@@ -680,6 +630,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (!deferEmail) {
                 try {
                     if (useIndividualPipelineFlow) {
+                        // Send email to first approver in sequence (everyone should get emails sequentially)
                         sendBudgetApprovalNextEmail(application, 0);
                         sendSubmissionEmails(application); // still send submitter confirmation
                     } else {
@@ -871,7 +822,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     .getResultList();
 
             // Filter using Jackson: user must have action=APPROVED at level >= 1.
-            // Level 0 is the auto-signed "Prepared By" on submission — NOT a real approval.
+            // Filter approvals to only include real approvals (level >= 1).
             ObjectMapper mapper = new ObjectMapper();
             java.util.List<CfgTblCustomFormApplication> filtered = new java.util.ArrayList<>();
             for (CfgTblCustomFormApplication app : applications) {
@@ -1245,6 +1196,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     return "Failure: You are not authorized to approve at this stage";
                 }
 
+                // All approvers must manually approve - no auto-approval
+                // This includes submitters who selected themselves in the pipeline
+
                 // Get or create approval history array
                 List<java.util.Map<String, Object>> approvalHistory = new java.util.ArrayList<>();
                 String historyJson = application.getTxtApprovalHistory();
@@ -1298,17 +1252,24 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
                 currentLevel++;
                 if (currentLevel >= sequence.size()) {
-                    Integer ceoUserId = findFirstUserIdByRole(entityManager, "CEO");
-                    if (ceoUserId != null) {
-                        application.setTxtStatus("CEO_PENDING");
-                        application.setSerCurrentApprover(ceoUserId);
+                    // For individual pipeline footer forms (not budget approval), set status to COMPLETED
+                    if (hasDynamicFooterFlow && !isBudgetApproval) {
+                        application.setTxtStatus("COMPLETED");
+                        application.setSerCurrentApprover(null);
                     } else {
-                        application.setTxtStatus("ASSET_PENDING");
-                        Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
-                        if (financeUserId == null) {
-                            financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
+                        // For budget approval forms, route to CEO/Finance as before
+                        Integer ceoUserId = findFirstUserIdByRole(entityManager, "CEO");
+                        if (ceoUserId != null) {
+                            application.setTxtStatus("CEO_PENDING");
+                            application.setSerCurrentApprover(ceoUserId);
+                        } else {
+                            application.setTxtStatus("ASSET_PENDING");
+                            Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
+                            if (financeUserId == null) {
+                                financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
+                            }
+                            application.setSerCurrentApprover(financeUserId);
                         }
-                        application.setSerCurrentApprover(financeUserId);
                     }
                 } else {
                     application.setTxtStatus("IN_PROGRESS");
@@ -1901,6 +1862,12 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 }
             }
 
+            // Check if this is an individual pipeline footer form
+            Map<String, Object> appData = parseApplicationData(application);
+            boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
+            boolean isBudgetApproval = isBudgetApprovalForm(form);
+            boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
+
             // Get or create approval history array
             List<java.util.Map<String, Object>> approvalHistory = new java.util.ArrayList<>();
             String historyJson = application.getTxtApprovalHistory();
@@ -1929,15 +1896,37 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (originalLevel != null && originalLevel > 0) {
                 try {
                     for (java.util.Map<String, Object> entry : approvalHistory) {
+                        // Skip SENT_BACK entries - they are just history markers
+                        String action = entry.get("action") != null ? String.valueOf(entry.get("action")) : "";
+                        if ("SENT_BACK".equalsIgnoreCase(action) || "SENT_BACK_TO_INITIATOR".equalsIgnoreCase(action)) {
+                            updatedHistory.add(entry);
+                            continue;
+                        }
+                        
                         Integer entryLevel = safeInt(entry.get("level"), 
                             safeInt(entry.get("intApprovalOrder"), null));
-                        // Keep entries that are below the current level (already approved levels)
-                        // This effectively removes re-approvals from higher stages
-                        if (entryLevel == null || entryLevel < originalLevel) {
-                            updatedHistory.add(entry);
+                        
+                        // For individual pipeline footer forms, level in history is 1-indexed (currentLevel + 1)
+                        // So if originalLevel = 3 (level 4), we want to remove entries where level >= 4
+                        // For regular pipeline forms, level might be 0-indexed
+                        if (useIndividualPipelineFlow) {
+                            // For individual pipeline footer: level in history = currentLevel + 1
+                            // originalLevel is 0-indexed, so level in history = originalLevel + 1
+                            // We want to keep entries where level < (originalLevel + 1)
+                            if (entryLevel == null || entryLevel < (originalLevel + 1)) {
+                                updatedHistory.add(entry);
+                            } else {
+                                log.info("Removing signature from approval history for level {} (individual pipeline) when sending back from level {} to {} appId={}", 
+                                    entryLevel, originalLevel, currentLevel, application.getSerApplicationId());
+                            }
                         } else {
-                            log.info("Removing signature from approval history for level {} when sending back appId={}", 
-                                entryLevel, application.getSerApplicationId());
+                            // For regular pipeline forms, keep entries that are below the original level
+                            if (entryLevel == null || entryLevel < originalLevel) {
+                                updatedHistory.add(entry);
+                            } else {
+                                log.info("Removing signature from approval history for level {} when sending back appId={}", 
+                                    entryLevel, application.getSerApplicationId());
+                            }
                         }
                     }
                 } catch (Exception e) {
@@ -1977,13 +1966,42 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 String updatedHistoryJson = mapper.writeValueAsString(updatedHistory);
                 application.setTxtApprovalHistory(updatedHistoryJson);
                 
-                // Clear the PDF data so it gets regenerated without the removed signatures
-                application.setBlbPdfData(null);
-                application.setTxtPdfName(null);
-                application.setTxtPdfMime(null);
-                
-                log.info("Cleared signatures and PDF for appId={} when sending back from level {} to {}", 
-                    application.getSerApplicationId(), originalLevel, currentLevel);
+                // For individual pipeline footer forms, update signatures on existing PDF instead of clearing it
+                // This preserves the formatted document layout while removing signatures
+                if (hasDynamicFooterFlow && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                    try {
+                        byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
+                                application.getBlbPdfData(),
+                                appData,
+                                updatedHistoryJson);
+                        if (signedPdf != null && signedPdf.length > 0) {
+                            application.setBlbPdfData(signedPdf);
+                            log.info("Updated signatures in PDF for appId={} when sending back from level {} to {}", 
+                                application.getSerApplicationId(), originalLevel, currentLevel);
+                        } else {
+                            // If signature update fails, clear PDF to force regeneration
+                            application.setBlbPdfData(null);
+                            application.setTxtPdfName(null);
+                            application.setTxtPdfMime(null);
+                            log.warn("Failed to update signatures in PDF, cleared PDF for appId={}", 
+                                application.getSerApplicationId());
+                        }
+                    } catch (Exception e) {
+                        log.warn("Error updating signatures in PDF during send-back: " + e.getMessage(), e);
+                        // Clear PDF if signature update fails
+                        application.setBlbPdfData(null);
+                        application.setTxtPdfName(null);
+                        application.setTxtPdfMime(null);
+                    }
+                } else {
+                    // For non-individual pipeline footer forms, clear the PDF data so it gets regenerated
+                    application.setBlbPdfData(null);
+                    application.setTxtPdfName(null);
+                    application.setTxtPdfMime(null);
+                    
+                    log.info("Cleared signatures and PDF for appId={} when sending back from level {} to {}", 
+                        application.getSerApplicationId(), originalLevel, currentLevel);
+                }
                     
             } catch (Exception e) {
                 log.error("Error serializing approval history: " + e.getMessage());
@@ -2044,16 +2062,22 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return "Failure: Application not found";
             }
 
-            Integer currentLevel = application.getIntCurrentApprovalLevel();
-            Integer currentDepartmentId = null;
-            String currentDepartmentName = null;
-
-            // Fetch the form with approval pipeline
+            // Fetch the form
             com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form = null;
             if (application.getSerFormId() != null) {
                 form = entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class,
                         application.getSerFormId());
             }
+
+            // Check if this is an individual pipeline footer form
+            Map<String, Object> appData = parseApplicationData(application);
+            boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
+            boolean isBudgetApproval = isBudgetApprovalForm(form);
+            boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
+
+            Integer currentLevel = application.getIntCurrentApprovalLevel();
+            Integer currentDepartmentId = null;
+            String currentDepartmentName = null;
 
             List<java.util.Map<String, Object>> pipelines = new java.util.ArrayList<>();
             if (form != null && form.getTxtApprovalPipeline() != null
@@ -2076,12 +2100,39 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 currentDepartmentName = resolveDepartmentName(entityManager, currentDepartmentId, currentPipeline);
             }
 
-            // Reset to 0 for send back to initiator
+            // Reset to 0 for send back to first person in pipeline
             Integer originalLevel = currentLevel;
             currentLevel = 0; 
 
-            // Clear ALL signatures from approval history because we are going back to Stage 1
+            // Get or create approval history array
+            List<java.util.Map<String, Object>> approvalHistory = new java.util.ArrayList<>();
+            String historyJson = application.getTxtApprovalHistory();
+            if (historyJson != null && !historyJson.trim().isEmpty()) {
+                try {
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    approvalHistory = mapper.readValue(
+                            historyJson,
+                            new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
+                            });
+                } catch (Exception e) {
+                    log.warn("Error parsing approval history, starting fresh: " + e.getMessage());
+                    approvalHistory = new java.util.ArrayList<>();
+                }
+            }
+
+            // Clear ALL signatures from approval history because we are going back to the first person
+            // Keep only SENT_BACK entries for history tracking
             List<java.util.Map<String, Object>> updatedHistory = new java.util.ArrayList<>();
+            for (java.util.Map<String, Object> entry : approvalHistory) {
+                String action = entry.get("action") != null ? String.valueOf(entry.get("action")) : "";
+                // Keep only SENT_BACK entries for history
+                if ("SENT_BACK".equalsIgnoreCase(action) || "SENT_BACK_TO_INITIATOR".equalsIgnoreCase(action)) {
+                    updatedHistory.add(entry);
+                } else {
+                    log.info("Removing signature from approval history for send back to first person, level={}, appId={}", 
+                        entry.get("level"), application.getSerApplicationId());
+                }
+            }
             
             // Add send-back action to history
             java.util.Map<String, Object> sendBackEntry = new java.util.HashMap<>();
@@ -2099,7 +2150,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             sendBackEntry.put("sentBackBy", commonService.getCurrentLoggedInUser());
             sendBackEntry.put("sentBackDate", commonService.getCurrentTimeStamp_new().toString());
             
-            log.info("Application sent back to initiator from Stage {} for appId={}", 
+            log.info("Application sent back to first person in pipeline from Stage {} for appId={}", 
                 fromLevel + 1, application.getSerApplicationId());
             
             updatedHistory.add(sendBackEntry);
@@ -2110,10 +2161,36 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 String updatedHistoryJson = mapper.writeValueAsString(updatedHistory);
                 application.setTxtApprovalHistory(updatedHistoryJson);
                 
-                // Clear the PDF data so it gets regenerated
-                application.setBlbPdfData(null);
-                application.setTxtPdfName(null);
-                application.setTxtPdfMime(null);
+                // For individual pipeline footer forms, update signatures on existing PDF instead of clearing it
+                if (hasDynamicFooterFlow && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                    try {
+                        byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
+                                application.getBlbPdfData(),
+                                appData,
+                                updatedHistoryJson);
+                        if (signedPdf != null && signedPdf.length > 0) {
+                            application.setBlbPdfData(signedPdf);
+                            log.info("Updated signatures in PDF for appId={} when sending back to first person from level {}", 
+                                application.getSerApplicationId(), originalLevel);
+                        } else {
+                            application.setBlbPdfData(null);
+                            application.setTxtPdfName(null);
+                            application.setTxtPdfMime(null);
+                            log.warn("Failed to update signatures in PDF, cleared PDF for appId={}", 
+                                application.getSerApplicationId());
+                        }
+                    } catch (Exception e) {
+                        log.warn("Error updating signatures in PDF during send back to first person: " + e.getMessage(), e);
+                        application.setBlbPdfData(null);
+                        application.setTxtPdfName(null);
+                        application.setTxtPdfMime(null);
+                    }
+                } else {
+                    // For non-individual pipeline footer forms, clear the PDF data so it gets regenerated
+                    application.setBlbPdfData(null);
+                    application.setTxtPdfName(null);
+                    application.setTxtPdfMime(null);
+                }
             } catch (Exception e) {
                 log.error("Error serializing approval history: " + e.getMessage());
             }
@@ -2128,9 +2205,63 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             entityManager.merge(application);
             entityManager.getTransaction().commit();
             
-            // Send email notification to Stage 1 after successful send back
+            // Send email notification to first person in pipeline after successful send back
             try {
-                sendBackEmailNotification(application, originalLevel, currentLevel, pipelines);
+                if (useIndividualPipelineFlow) {
+                    // For individual pipeline footer forms, send email to first person in sequence
+                    List<BudgetApprover> sequence = getBudgetApprovalSequence(appData, entityManager);
+                    if (!sequence.isEmpty()) {
+                        BudgetApprover firstApprover = sequence.get(0);
+                        if (firstApprover != null && firstApprover.email != null && !firstApprover.email.trim().isEmpty()) {
+                            String baseUrl = getBaseUrl();
+                            String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                                    + application.getSerApplicationId() + "&userId=" + firstApprover.userId;
+                            String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                                    + application.getSerApplicationId() + "&userId=" + firstApprover.userId;
+                            String sendBackUrl = null;
+                            String sendBackToInitiatorUrl = null;
+                            
+                            boolean isCapf = isCapfForm(form);
+                            String cid = isCapf ? "capf-inline" : "form-inline";
+                            String formName = getResolvedFormName(form);
+                            
+                            String subject = formName + " Sent Back - Requires Your Approval - " + 
+                                (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+                            
+                            String html = generateApprovalEmailHtml(
+                                firstApprover.name != null ? firstApprover.name : "User",
+                                1, // level (Stage number, 1-indexed)
+                                application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
+                                formName,
+                                "IN_PROGRESS", // status - showing it's in progress after send back
+                                application.getTxtRemarks(),
+                                true, // showActionButtons
+                                approveUrl,
+                                rejectUrl,
+                                sendBackUrl,
+                                sendBackToInitiatorUrl,
+                                application.getTxtApprovalHistory(),
+                                baseUrl
+                            );
+                            
+                            sendEmailWithInlineFormPreview(
+                                java.util.Arrays.asList(firstApprover.email),
+                                subject,
+                                html,
+                                application,
+                                form,
+                                isCapf,
+                                cid
+                            );
+                            
+                            log.info("Send-back to first person notification email sent to: {} at sequence index 0", 
+                                firstApprover.email);
+                        }
+                    }
+                } else {
+                    // For regular pipeline forms, use existing sendBackEmailNotification
+                    sendBackEmailNotification(application, originalLevel, currentLevel, pipelines);
+                }
             } catch (Exception emailEx) {
                 log.error("Error sending send-back email notification: " + emailEx.getMessage(), emailEx);
             }
@@ -3348,6 +3479,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 emailEntityManager.getTransaction().commit();
                 return;
             }
+
+            // Send email to all approvers in sequence - everyone should receive emails sequentially
+            // No pre-approval - each person must manually approve
 
             String formName = getResolvedFormName(form);
             String subject = formName + " Pending Approval - Level " + (sequenceIndex + 1) + " - " +
@@ -5300,11 +5434,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             String sigImgHtml = "";
             if (inlineSignature != null && !inlineSignature.isEmpty()) {
                 sigImgHtml = "<img src=\"" + inlineSignature
-                        + "\" style=\"max-height: 42px; display: block; margin: 0 auto;\" alt=\"Sig\" />";
+                        + "\" style=\"max-height: 24px; max-width: 100%; width: auto; height: auto; object-fit: contain; display: block; margin: 0 auto 4px auto; box-sizing: border-box;\" alt=\"Sig\" />";
             } else if (!signaturePath.trim().isEmpty() && !approvedBy.trim().isEmpty() && baseUrl != null) {
                 String sigUrl = baseUrl + "/getSignature?userId=" + approvedBy;
                 sigImgHtml = "<img src=\"" + sigUrl
-                        + "\" style=\"max-height: 42px; display: block; margin: 0 auto;\" alt=\"Sig\" />";
+                        + "\" style=\"max-height: 24px; max-width: 100%; width: auto; height: auto; object-fit: contain; display: block; margin: 0 auto 4px auto; box-sizing: border-box;\" alt=\"Sig\" />";
             }
 
             String dateStr = entry.get("approvedDate") != null ? formatApprovalDate(entry.get("approvedDate")) : "";
@@ -5780,7 +5914,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         html.append(
                 ".history th,.history td{border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top}");
         html.append(".history th{background:#f3f4f6;font-weight:600}");
-        html.append(".sig-img{max-height:36px;display:block;margin-top:4px}");
+        html.append(".sig-img{max-height:24px;max-width:100%;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto 4px auto;box-sizing:border-box}");
         html.append("</style></head><body>");
         String headerTitle = (formName != null && !formName.trim().isEmpty()) ? formName.trim() : "Application";
         html.append("<div class='email-container'>");
@@ -6798,11 +6932,70 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     private byte[] resolveBestPdfBytesForEmail(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
         try {
+            // Check if this is an individual pipeline footer form
+            Map<String, Object> appData = parseApplicationData(application);
+            boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
+            boolean isBudgetApproval = isBudgetApprovalForm(form);
+            boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
+            
             // ALWAYS generate fresh PDF for email preview if it is a Budget or CAPF form
             // to ensure latest data and signatures are visible.
-            if (isBudgetApprovalForm(form) || isCapfForm(form)) {
-                Map<String, Object> appData = parseApplicationData(application);
+            if (isBudgetApproval || isCapfForm(form)) {
                 return generateApplicationPdf(application, form, appData != null ? appData : new java.util.HashMap<>());
+            }
+
+            // For individual pipeline footer forms, use the stored PDF if available
+            // These PDFs are generated by the frontend and have the proper formatting
+            if (hasDynamicFooterFlow) {
+                if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                    // Apply updated signatures to the existing PDF
+                    try {
+                        byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
+                                application.getBlbPdfData(),
+                                appData,
+                                application.getTxtApprovalHistory());
+                        if (signedPdf != null && signedPdf.length > 0) {
+                            return signedPdf;
+                        }
+                    } catch (Exception e) {
+                        log.warn("Error applying signatures to PDF for email, using original: " + e.getMessage());
+                    }
+                    return application.getBlbPdfData();
+                }
+                
+                // If PDF doesn't exist, try to get it from database
+                CfgTblCustomFormApplication dbApp = null;
+                EntityManager em = getEntityManager();
+                try {
+                    if (application != null && application.getSerApplicationId() != null) {
+                        dbApp = em.find(CfgTblCustomFormApplication.class, application.getSerApplicationId());
+                        if (dbApp != null && dbApp.getBlbPdfData() != null && dbApp.getBlbPdfData().length > 0) {
+                            // Apply updated signatures to the database PDF
+                            try {
+                                byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
+                                        dbApp.getBlbPdfData(),
+                                        appData,
+                                        application.getTxtApprovalHistory());
+                                if (signedPdf != null && signedPdf.length > 0) {
+                                    return signedPdf;
+                                }
+                            } catch (Exception e) {
+                                log.warn("Error applying signatures to database PDF for email, using original: " + e.getMessage());
+                            }
+                            return dbApp.getBlbPdfData();
+                        }
+                    }
+                } finally {
+                    if (em.isOpen()) {
+                        em.close();
+                    }
+                }
+                
+                // If still no PDF, don't generate a summary - return null so email sends without preview
+                // The frontend should regenerate the PDF when needed
+                log.warn("No PDF available for individual pipeline footer form in email, appId={}", 
+                    application != null ? application.getSerApplicationId() : "null");
+                return null;
             }
 
             if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
@@ -6833,11 +7026,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 useForm = application.getCfgTblCustomForm();
             }
 
-            Map<String, Object> appData = null;
-            if (dbApp != null) {
-                appData = parseApplicationData(dbApp);
-            } else if (application != null) {
-                appData = parseApplicationData(application);
+            // Reuse appData if already parsed, otherwise parse from dbApp or application
+            if (appData == null) {
+                if (dbApp != null) {
+                    appData = parseApplicationData(dbApp);
+                } else if (application != null) {
+                    appData = parseApplicationData(application);
+                }
             }
             CfgTblCustomFormApplication src = dbApp != null ? dbApp : application;
             if (src != null) {
@@ -7086,27 +7281,135 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     private void sendBackEmailNotification(CfgTblCustomFormApplication application, Integer oldLevelBeforeSendBack, 
             Integer newLevelAfterSendBack, 
             List<java.util.Map<String, Object>> pipelines) {
-        if (application == null || newLevelAfterSendBack == null || newLevelAfterSendBack <= 0) {
+        if (application == null || newLevelAfterSendBack == null) {
             log.info("Skipping send-back email: appId={}, newLevelAfterSendBack={}", 
                 application != null ? application.getSerApplicationId() : "null", newLevelAfterSendBack);
             return;
         }
-        
-        if (pipelines == null || pipelines.isEmpty()) {
-            log.info("No pipelines to notify for send-back, appId={}", application.getSerApplicationId());
-            return;
-        }
-        
-        // Log for debugging
-        log.info("=== SEND BACK EMAIL DEBUG ===");
-        log.info("appId={}, newLevelAfterSendBack={}, pipelines.size={}", 
-            application.getSerApplicationId(), newLevelAfterSendBack, pipelines.size());
         
         EntityManager emailEntityManager = getEntityManager();
         try {
             // Get the form
             CfgTblCustomForm form = emailEntityManager.find(CfgTblCustomForm.class, application.getSerFormId());
             String formName = form != null ? form.getTxtFormName() : "Application";
+            
+            // Check if this is an individual pipeline footer form
+            Map<String, Object> appData = parseApplicationData(application);
+            boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
+            boolean isBudgetApproval = isBudgetApprovalForm(form);
+            boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
+            
+            // For individual pipeline footer forms, send email to the approver at the previous sequence index
+            if (useIndividualPipelineFlow && newLevelAfterSendBack >= 0) {
+                List<BudgetApprover> sequence = getBudgetApprovalSequence(appData, emailEntityManager);
+                if (newLevelAfterSendBack < sequence.size()) {
+                    BudgetApprover previousApprover = sequence.get(newLevelAfterSendBack);
+                    if (previousApprover != null && previousApprover.email != null && !previousApprover.email.trim().isEmpty()) {
+                        String baseUrl = getBaseUrl();
+                        String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                                + application.getSerApplicationId() + "&userId=" + previousApprover.userId;
+                        String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                                + application.getSerApplicationId() + "&userId=" + previousApprover.userId;
+                        String sendBackUrl = null;
+                        String sendBackToInitiatorUrl = null;
+                        
+                        boolean isCapf = isCapfForm(form);
+                        String cid = isCapf ? "capf-inline" : "form-inline";
+                        
+                        String subject = formName + " Sent Back - Requires Your Approval - " + 
+                            (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+                        
+                        String html = generateApprovalEmailHtml(
+                            previousApprover.name != null ? previousApprover.name : "User",
+                            newLevelAfterSendBack + 1, // level (Stage number, 1-indexed)
+                            application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
+                            formName,
+                            "IN_PROGRESS", // status - showing it's in progress after send back
+                            application.getTxtRemarks(),
+                            true, // showActionButtons
+                            approveUrl,
+                            rejectUrl,
+                            sendBackUrl,
+                            sendBackToInitiatorUrl,
+                            application.getTxtApprovalHistory(),
+                            baseUrl
+                        );
+                        
+                        sendEmailWithInlineFormPreview(
+                            java.util.Arrays.asList(previousApprover.email),
+                            subject,
+                            html,
+                            application,
+                            form,
+                            isCapf,
+                            cid
+                        );
+                        
+                        log.info("Send-back notification email sent to previous approver (individual pipeline): {} at sequence index {}", 
+                            previousApprover.email, newLevelAfterSendBack);
+                        
+                        // Also notify the submitter
+                        if (application.getSerSubmittedBy() != null) {
+                            try {
+                                emailEntityManager.getTransaction().begin();
+                                CfgTblUser submitter = emailEntityManager.find(CfgTblUser.class, application.getSerSubmittedBy());
+                                if (submitter != null && submitter.getTxtAddress() != null && !submitter.getTxtAddress().trim().isEmpty()) {
+                                    String submitterSubject = formName + " Requires Revision - " + 
+                                        (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+                                    
+                                    String submitterHtml = generateApprovalEmailHtml(
+                                        submitter.getTxtUserName() != null ? submitter.getTxtUserName() : "User",
+                                        (oldLevelBeforeSendBack != null ? oldLevelBeforeSendBack + 1 : 0),
+                                        application.getTxtFormCode(),
+                                        formName,
+                                        "SENT_BACK",
+                                        application.getTxtRemarks(),
+                                        false, // showActionButtons
+                                        null, null, null, null,
+                                        application.getTxtApprovalHistory(),
+                                        baseUrl
+                                    );
+                                    
+                                    sendEmailWithInlineFormPreview(
+                                        java.util.Arrays.asList(submitter.getTxtAddress()),
+                                        submitterSubject,
+                                        submitterHtml,
+                                        application,
+                                        form,
+                                        isCapf,
+                                        cid
+                                    );
+                                    log.info("Send-back notification email sent to submitter: " + submitter.getTxtAddress());
+                                }
+                                emailEntityManager.getTransaction().commit();
+                            } catch (Exception e) {
+                                if (emailEntityManager.getTransaction().isActive()) {
+                                    emailEntityManager.getTransaction().rollback();
+                                }
+                                log.warn("Failed to send send-back email to submitter: " + e.getMessage());
+                            }
+                        }
+                        
+                        return; // Exit early for individual pipeline footer forms
+                    }
+                }
+            }
+            
+            // For regular pipeline forms, use the existing department-based logic
+            if (pipelines == null || pipelines.isEmpty()) {
+                log.info("No pipelines to notify for send-back, appId={}", application.getSerApplicationId());
+                return;
+            }
+            
+            if (newLevelAfterSendBack < 0) {
+                log.info("Skipping send-back email: newLevelAfterSendBack={} is negative", newLevelAfterSendBack);
+                return;
+            }
+            
+            // Log for debugging
+            log.info("=== SEND BACK EMAIL DEBUG ===");
+            log.info("appId={}, newLevelAfterSendBack={}, pipelines.size={}", 
+                application.getSerApplicationId(), newLevelAfterSendBack, pipelines.size());
             
             // newLevelAfterSendBack is 0-based index of the new level (the level it's going back to)
             // Stage 1 = level 0, Stage 2 = level 1, etc.
@@ -7475,7 +7778,6 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     /**
      * Uses Jackson to parse txtApprovalHistory JSON and check if the given userId
      * has performed a REAL approval (action=APPROVED, level >= 1).
-     * Excludes level-0 "Prepared By" entries that are auto-added on submission.
      */
     private boolean userHasRealApprovalInHistory(CfgTblCustomFormApplication application,
             Integer userId, ObjectMapper mapper) {
