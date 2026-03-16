@@ -40,10 +40,18 @@
 /* PDF-only capture: enforce A4 sizing and consistent spacing */
 .pdf-capture .xyz-paper {
     width: 210mm !important;
-    min-height: 297mm !important;
+    min-height: 296mm !important;
+    height: auto !important;
     padding: 10mm !important;
     border: 1px solid #222 !important;
     box-shadow: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+.pdf-capture .xyz-footer {
+    margin-top: auto !important;
+    padding-top: 20px !important;
 }
 
 .pdf-capture .xyz-content-body,
@@ -197,6 +205,7 @@
     font-size: 14px;
     font-weight: 400;
     text-align: justify;
+    line-height: 1.5;
 }
 
 .xyz-list {
@@ -271,7 +280,7 @@
 
 .xyz-generic-value {
     font-size: 13px;
-    line-height: 1.4;
+    line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-word;
 }
@@ -349,6 +358,7 @@
     flex: 1 1 0;
     min-height: 0;
     display: block;
+    line-height: 1.5;
 }
 
 .xyz-dynamic table,
@@ -379,6 +389,7 @@
 .xyz-generic-word .ql-editor td p,
 .xyz-generic-word .ql-editor th p {
     margin: 0 !important;
+    line-height: 1.5 !important;
 }
 
 .xyz-dynamic thead th,

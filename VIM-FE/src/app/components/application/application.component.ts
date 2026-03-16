@@ -530,6 +530,35 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     const file = input?.files && input.files.length > 0 ? input.files[0] : null;
     const fieldName = this.getFieldName(field.label);
     if (file) {
+      // Check combined file size for all attachments in CAPF forms (max 5MB)
+      if (this.isCapfSelected()) {
+        const MAX_SIZE_MB = 5;
+        const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+        let totalSize = file.size;
+
+        // Add size of other single attachments
+        for (const otherFieldName of Object.keys(this.attachmentFiles)) {
+          if (otherFieldName === fieldName) continue;
+          totalSize += this.attachmentFiles[otherFieldName].size;
+        }
+
+        // Add size of other multi attachments
+        for (const otherFieldName of Object.keys(this.multiAttachmentFiles)) {
+          const otherFiles = this.multiAttachmentFiles[otherFieldName];
+          if (Array.isArray(otherFiles)) {
+            for (const otherFile of otherFiles) {
+              totalSize += otherFile.size;
+            }
+          }
+        }
+
+        if (totalSize > MAX_SIZE_BYTES) {
+          this.notificationService.showMessage('Attachments required 5mb', 'danger');
+          input.value = ''; // Reset the input
+          return;
+        }
+      }
+
       this.attachmentFiles[fieldName] = file;
       this.applicationForm.get(fieldName)?.setValue(file.name);
       this.buildAttachmentPayload(file).then((payload) => {
@@ -551,6 +580,40 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     const fieldName = this.getFieldName(field.label);
     
     if (files.length > 0) {
+      // Check combined file size for all attachments in CAPF forms (max 5MB)
+      if (this.isCapfSelected()) {
+        const MAX_SIZE_MB = 5;
+        const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+        let totalSize = 0;
+
+        // Sum size of all current files in this field
+        for (const file of files) {
+          totalSize += file.size;
+        }
+
+        // Add size of other single attachments
+        for (const otherFieldName of Object.keys(this.attachmentFiles)) {
+          totalSize += this.attachmentFiles[otherFieldName].size;
+        }
+
+        // Add size of other multi attachments
+        for (const otherFieldName of Object.keys(this.multiAttachmentFiles)) {
+          if (otherFieldName === fieldName) continue;
+          const otherFiles = this.multiAttachmentFiles[otherFieldName];
+          if (Array.isArray(otherFiles)) {
+            for (const file of otherFiles) {
+              totalSize += file.size;
+            }
+          }
+        }
+
+        if (totalSize > MAX_SIZE_BYTES) {
+          this.notificationService.showMessage('Attachments required 5mb', 'danger');
+          input.value = ''; // Reset the input
+          return;
+        }
+      }
+
       this.multiAttachmentFiles[fieldName] = files;
       
       const fileNames = files.map(f => f.name);
@@ -1270,6 +1333,33 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
   async onSubmit() {
     if (this.applicationForm.valid && this.selectedForm) {
+      // Check combined file size for all attachments in CAPF forms (max 5MB)
+      if (this.isCapfSelected()) {
+        const MAX_SIZE_MB = 5;
+        const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+        let totalSize = 0;
+
+        // Sum size of single attachments
+        for (const fieldName of Object.keys(this.attachmentFiles)) {
+          totalSize += this.attachmentFiles[fieldName].size;
+        }
+
+        // Sum size of multi attachments
+        for (const fieldName of Object.keys(this.multiAttachmentFiles)) {
+          const files = this.multiAttachmentFiles[fieldName];
+          if (Array.isArray(files)) {
+            for (const file of files) {
+              totalSize += file.size;
+            }
+          }
+        }
+
+        if (totalSize > MAX_SIZE_BYTES) {
+          this.notificationService.showMessage('Attachments required 5mb', 'danger');
+          return;
+        }
+      }
+
       const formData = { ...this.applicationForm.value };
 
       // Ensure attachments are captured as base64 payloads

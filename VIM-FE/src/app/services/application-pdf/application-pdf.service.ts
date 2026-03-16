@@ -1160,16 +1160,18 @@ export class ApplicationPdfService {
     .xyz-page { background:#ffffff; padding: 0; display:block; }
     .xyz-paper {
       width: 210mm;
+      min-height: 296mm;
       background:#ffffff;
       font-family: "Times New Roman", Times, serif;
       font-size: 13.5px;
-      line-height: 1.35;
+      line-height: 1.5;
       border: none;
       padding: 10mm;
       display:flex;
       flex-direction:column;
       overflow: visible;
       position: relative;
+      box-sizing: border-box;
     }
     @media screen {
       .xyz-paper {
@@ -1266,10 +1268,10 @@ export class ApplicationPdfService {
         height: auto !important;
       }
     }
-    .xyz-dynamic { margin-top:4px; }
+    .xyz-dynamic { margin-top:4px; overflow: visible; line-height: 1.5; }
     .xyz-section { margin-bottom:10px; page-break-inside: avoid; break-inside: avoid; }
     .xyz-section-title { font-family: "Georgia", "Times New Roman", serif; font-size:13.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; border-left:3px solid var(--accent); padding-left:8px; margin-bottom:4px; }
-    .xyz-section-text { font-family: "Georgia", "Times New Roman", serif; font-size:13.5px; font-weight:400; text-align:justify; color:var(--ink); }
+    .xyz-section-text { font-family: "Georgia", "Times New Roman", serif; font-size:13.5px; font-weight:400; text-align:justify; color:var(--ink); line-height: 1.5; }
     .xyz-list { margin: 4px 0 0 18px; padding: 0; }
     .xyz-list li { margin-bottom: 6px; }
     .xyz-bold { font-weight:700; }
@@ -1309,7 +1311,7 @@ export class ApplicationPdfService {
     .xyz-sig-time { font-size:10px; color:#6b7280; margin-bottom:4px; }
     .xyz-generic-field { margin-bottom:10px; }
     .xyz-generic-label { font-size:12px; font-weight:700; margin-bottom:3px; text-transform:uppercase; letter-spacing:.2px; }
-    .xyz-generic-value { font-size:13.5px; }
+    .xyz-generic-value { font-size:13.5px; line-height: 1.5; }
     .xyz-generic-word { margin:8px 0 12px 0; }
     .xyz-generic-word .ql-editor { padding:0; }
     .xyz-generic-word .ql-editor p { margin:0 0 6px 0; }
@@ -1327,7 +1329,7 @@ export class ApplicationPdfService {
     .xyz-generic-word .ql-editor td > *, .xyz-generic-word .ql-editor th > * {
       margin:0 !important;
       padding:0 !important;
-      line-height:1 !important;
+      line-height:1.5 !important;
     }
     .xyz-generic-word .ql-editor p:last-child { margin-bottom:0; }
     .xyz-generic-word .ql-align-center { text-align:center; }
@@ -1811,12 +1813,19 @@ export class ApplicationPdfService {
 
     .abc-wrapper.pdf-capture .page {
       width: 210mm !important;
-      min-height: 297mm !important;
+      min-height: 296mm !important;
       margin: 0 !important;
       padding: 10mm !important;
       border: 1px solid var(--line) !important;
       box-shadow: none !important;
       overflow: visible !important;
+      display: flex !important;
+      flex-direction: column !important;
+    }
+
+    .abc-wrapper.pdf-capture .sig-row {
+      margin-top: auto !important;
+      padding-top: 20px !important;
     }
 
     .abc-wrapper.pdf-capture .box,
@@ -2659,7 +2668,7 @@ export class ApplicationPdfService {
   <meta charset="UTF-8">
 </head>
 <body style="margin:0; padding:0; background:#fff;">
-  <div class="abc-wrapper pdf-fix">
+  <div class="abc-wrapper pdf-capture pdf-fix">
     <style>${cssStyles}</style>
     <div class="page">
       <!-- Header -->

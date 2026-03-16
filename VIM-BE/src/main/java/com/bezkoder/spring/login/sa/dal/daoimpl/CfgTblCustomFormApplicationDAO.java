@@ -1160,9 +1160,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return "Failure: Form not found";
             }
 
-            boolean isBudgetApproval = isBudgetApprovalForm(form);
             Map<String, Object> appData = parseApplicationData(application);
             boolean hasDynamicFooterFlow = !extractFooterFields(appData).isEmpty();
+            boolean isBudgetApproval = isBudgetApprovalForm(form) || hasDynamicFooterFlow;
             boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
             if (useIndividualPipelineFlow) {
                 List<BudgetApprover> sequence = getBudgetApprovalSequence(appData, entityManager);
@@ -1276,10 +1276,18 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     if (hasDynamicFooterFlow && !isBudgetApproval) {
                         application.setTxtStatus("COMPLETED");
                         application.setSerCurrentApprover(null);
+                    } else if (isBudgetApproval) {
+                        // For Budget forms, if the dynamic sequence is finished, it's fully approved.
+                        application.setTxtStatus("APPROVED");
+                        application.setSerCurrentApprover(null);
                     } else {
-                        // For budget approval forms, route to CEO/Finance as before
+                        // For other forms, route to CEO/Finance as before
                         Integer ceoUserId = findFirstUserIdByRole(entityManager, "CEO");
-                        if (ceoUserId != null) {
+                        // Check if CEO already approved as part of the pipeline to avoid unwanted routing
+                        boolean ceoAlreadyApproved = ceoUserId != null && userHasRealApprovalInHistory(application,
+                                ceoUserId, new ObjectMapper());
+
+                        if (ceoUserId != null && !ceoAlreadyApproved) {
                             application.setTxtStatus("CEO_PENDING");
                             application.setSerCurrentApprover(ceoUserId);
                         } else {
@@ -1293,7 +1301,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     }
                 } else {
                     application.setTxtStatus("IN_PROGRESS");
-                    application.setSerCurrentApprover(resolvedApproverId);
+                    // Move to next stage in sequence
+                    BudgetApprover next = sequence.get(currentLevel);
+                    application.setSerCurrentApprover(next.userId);
                 }
                 application.setIntCurrentApprovalLevel(currentLevel);
                 application.setTxtRemarks(remarks);
@@ -1568,20 +1578,34 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             if (isLastStage) {
-                // All approvals complete -> route to CEO (if available) otherwise go straight
-                // to Finance
+                // All approvals complete -> route to CEO (if available) otherwise go straight to Finance
                 application.setIntCurrentApprovalLevel(currentLevel);
-                Integer ceoUserId = findFirstUserIdByRole(entityManager, "CEO");
-                if (ceoUserId != null) {
-                    application.setTxtStatus("CEO_PENDING");
-                    application.setSerCurrentApprover(ceoUserId);
+
+                // Check for dynamic footer fields as a fallback for budget forms
+                Map<String, Object> currentAppData = parseApplicationData(application);
+                boolean hasDynamicWorkflow = !extractFooterFields(currentAppData).isEmpty();
+
+                // For Budget forms, once the pipeline is done, it's fully approved.
+                if (isBudgetApprovalForm(form) || hasDynamicWorkflow) {
+                    application.setTxtStatus("APPROVED");
+                    application.setSerCurrentApprover(null);
                 } else {
-                    application.setTxtStatus("ASSET_PENDING");
-                    Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
-                    if (financeUserId == null) {
-                        financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
+                    Integer ceoUserId = findFirstUserIdByRole(entityManager, "CEO");
+                    // Check if CEO already approved as part of the pipeline to avoid unwanted routing
+                    boolean ceoAlreadyApproved = ceoUserId != null && userHasRealApprovalInHistory(application,
+                            ceoUserId, new ObjectMapper());
+
+                    if (ceoUserId != null && !ceoAlreadyApproved) {
+                        application.setTxtStatus("CEO_PENDING");
+                        application.setSerCurrentApprover(ceoUserId);
+                    } else {
+                        application.setTxtStatus("ASSET_PENDING");
+                        Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
+                        if (financeUserId == null) {
+                            financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
+                        }
+                        application.setSerCurrentApprover(financeUserId);
                     }
-                    application.setSerCurrentApprover(financeUserId);
                 }
             } else {
                 // Move to next level
@@ -3305,7 +3329,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             return false;
         String name = form.getTxtFormName() != null ? form.getTxtFormName().toUpperCase() : "";
         String code = form.getTxtFormCode() != null ? form.getTxtFormCode().toUpperCase() : "";
-        return name.contains("BUDGET APPROVAL") || code.startsWith("BDG");
+        return name.contains("BUDGET APPROVAL") || code.startsWith("BDG") || code.startsWith("BD-") || code.startsWith("BD");
     }
 
     private boolean shouldSkipCeoForCapf(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
@@ -4357,38 +4381,47 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             List<Map<String, Object>> entries = mapped[i];
             if (entries.isEmpty()) continue;
             
-            // Only draw metadata for the first entry in slot to avoid clutter
-            Map<String, Object> entry = entries.get(0);
-            String date = formatApprovalDate(entry.get("approvedDate"));
-            if (!date.isEmpty()) {
-                content.beginText();
-                content.newLineAtOffset(x + colWidth * i + 4, baseDateY);
-                content.showText(date);
-                content.endText();
+            float slotX = x + (colWidth * i) + 4;
+            float textW = (colWidth - 6);
+            if (entries.size() > 1) {
+                textW = (textW / 2) - 2;
             }
-            
-            String name = entry.get("approverName") != null ? entry.get("approverName").toString() : "";
-            if (!name.isEmpty()) {
-                float ny = baseNameY;
-                for (String line : wrapText(name.toLowerCase(), PDType1Font.HELVETICA, 6.5f, colWidth - 6)) {
+
+            for (int k = 0; k < entries.size() && k < 2; k++) {
+                Map<String, Object> entry = entries.get(k);
+                float currentX = slotX + (k * (textW + 4));
+
+                String date = formatApprovalDate(entry.get("approvedDate"));
+                if (!date.isEmpty()) {
                     content.beginText();
-                    content.newLineAtOffset(x + colWidth * i + 4, ny);
-                    content.showText(line);
+                    content.newLineAtOffset(currentX, baseDateY);
+                    content.showText(date);
                     content.endText();
-                    ny -= 7;
                 }
-            }
-            
-            String designation = entry.get("txtDesignation") != null ? entry.get("txtDesignation").toString() 
-                               : (entry.get("designation") != null ? entry.get("designation").toString() : "");
-            if (!designation.isEmpty()) {
-                float dy = baseDesignY;
-                for (String line : wrapText(designation, PDType1Font.HELVETICA, 6.0f, colWidth - 6)) {
-                    content.beginText();
-                    content.newLineAtOffset(x + colWidth * i + 4, dy);
-                    content.showText(line);
-                    content.endText();
-                    dy -= 7;
+                
+                String name = entry.get("approverName") != null ? entry.get("approverName").toString() : "";
+                if (!name.isEmpty()) {
+                    float ny = baseNameY;
+                    for (String line : wrapText(name.toLowerCase(), PDType1Font.HELVETICA, 6.5f, textW)) {
+                        content.beginText();
+                        content.newLineAtOffset(currentX, ny);
+                        content.showText(line);
+                        content.endText();
+                        ny -= 7;
+                    }
+                }
+                
+                String designation = entry.get("txtDesignation") != null ? entry.get("txtDesignation").toString() 
+                                   : (entry.get("designation") != null ? entry.get("designation").toString() : "");
+                if (!designation.isEmpty()) {
+                    float dy = baseDesignY;
+                    for (String line : wrapText(designation, PDType1Font.HELVETICA, 6.0f, textW)) {
+                        content.beginText();
+                        content.newLineAtOffset(currentX, dy);
+                        content.showText(line);
+                        content.endText();
+                        dy -= 7;
+                    }
                 }
             }
         }
@@ -6346,13 +6379,28 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             Map<Integer, String> signatureFromDb) {
         if (users == null || users.isEmpty())
             return null;
+        
+        // Count how many of the required users have approved
+        int approvedCount = 0;
+        String firstSig = null;
+        
         for (Object userObj : users) {
             Integer uid = extractUserId(userObj);
             String sigPath = findSignatureForUser(approvalHistory, uid, role, allowFallback, signatureFromDb);
             if (sigPath != null && !sigPath.trim().isEmpty()) {
-                return sigPath;
+                approvedCount++;
+                if (firstSig == null) {
+                    firstSig = sigPath;
+                }
             }
         }
+        
+        // Only return a signature if ALL assigned users for this field have approved.
+        // This ensures the stage doesn't look "Completed" prematurely.
+        if (approvedCount > 0 && approvedCount == users.size()) {
+            return firstSig;
+        }
+        
         return null;
     }
 

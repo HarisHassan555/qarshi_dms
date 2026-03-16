@@ -91,6 +91,13 @@ export class CustomFormApplicationService {
     });
   }
 
+  sendBackApplicationToInitiator(applicationId: number, remarks: string) {
+    return this.http.post(urls.API_URL + 'sendBackApplicationToInitiator', {
+      applicationId: applicationId,
+      remarks: remarks
+    });
+  }
+
   sendSubmissionEmails(applicationId: number) {
     return this.http.post(urls.API_URL + 'sendSubmissionEmails?applicationId=' + applicationId, {});
   }

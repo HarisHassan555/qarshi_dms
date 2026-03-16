@@ -24,6 +24,7 @@ export class ApplicationDetailsComponent implements OnInit {
   forms: any[] = [];
   isLoading: boolean = true;
   approvalHistory: any[] = []; // Store approval history with remarks
+  priorApprovals: any[] = []; // Store archived approval history
   departmentNameMap: Map<number, string> = new Map();
   departmentHeadMap: Map<number, any> = new Map();
   userNameMap: Map<number, string> = new Map();
@@ -40,6 +41,7 @@ export class ApplicationDetailsComponent implements OnInit {
   isApproving: boolean = false;
   isRejecting: boolean = false;
   isSendingBack: boolean = false;
+  isSendingBackToInitiator: boolean = false;
   showFeasibilityModal: boolean = false;
   feasibilityPreviewUrl: any = null;
   private feasibilityObjectUrl: string | null = null;
@@ -881,6 +883,19 @@ export class ApplicationDetailsComponent implements OnInit {
             this.approvalHistory = [];
           }
 
+          // Parse prior approvals JSON (archived history)
+          if (data.txtPriorApprovals) {
+            try {
+              this.priorApprovals = JSON.parse(data.txtPriorApprovals);
+              console.log('Prior approvals loaded:', this.priorApprovals);
+            } catch (e) {
+              console.error('Error parsing prior approvals:', e);
+              this.priorApprovals = [];
+            }
+          } else {
+            this.priorApprovals = [];
+          }
+
           this.enrichPipelineWithDepartmentNames();
           this.applyDepartmentNamesToApprovalHistory();
 
@@ -938,7 +953,7 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   private applyDepartmentNamesToApprovalHistory() {
-    if (!this.applicationDetails || !this.approvalHistory || this.approvalHistory.length === 0) {
+    if (!this.applicationDetails) {
       return;
     }
 
@@ -964,46 +979,47 @@ export class ApplicationDetailsComponent implements OnInit {
       }
     });
 
-    let changed = false;
-    this.approvalHistory = this.approvalHistory.map((entry: any) => {
-      if (!entry) return entry;
-      if (entry.departmentName && entry.departmentName.trim() !== '') return entry;
+    const enrichList = (list: any[]) => {
+      if (!list || list.length === 0) return list;
+      return list.map((entry: any) => {
+        if (!entry) return entry;
+        if (entry.departmentName && entry.departmentName.trim() !== '') return entry;
 
-      const deptId = entry.departmentId || entry.serDepartmentId;
-      const level = entry.level || entry.intApprovalOrder;
-      let name = null as string | null;
-      let resolvedDeptId: number | undefined = deptId != null ? Number(deptId) : undefined;
+        const deptId = entry.departmentId || entry.serDepartmentId;
+        const level = entry.level || entry.intApprovalOrder;
+        let name = null as string | null;
+        let resolvedDeptId: number | undefined = deptId != null ? Number(deptId) : undefined;
 
-      if (resolvedDeptId != null) {
-        name = map.get(resolvedDeptId) || this.departmentNameMap.get(resolvedDeptId) || null;
-      }
-
-      if (!name && level != null) {
-        const byOrder = mapByOrder.get(Number(level));
-        if (byOrder?.deptName) {
-          name = byOrder.deptName;
+        if (resolvedDeptId != null) {
+          name = map.get(resolvedDeptId) || this.departmentNameMap.get(resolvedDeptId) || null;
         }
-        if (resolvedDeptId == null && byOrder?.deptId != null) {
-          resolvedDeptId = byOrder.deptId;
+
+        if (!name && level != null) {
+          const byOrder = mapByOrder.get(Number(level));
+          if (byOrder?.deptName) {
+            name = byOrder.deptName;
+          }
+          if (resolvedDeptId == null && byOrder?.deptId != null) {
+            resolvedDeptId = byOrder.deptId;
+          }
         }
-      }
 
-      if (!name) return entry;
-      changed = true;
-      return {
-        ...entry,
-        departmentId: resolvedDeptId ?? entry.departmentId,
-        departmentName: name,
-        role: entry.role || name
-      };
-    });
+        if (!name) return entry;
+        return {
+          ...entry,
+          departmentId: resolvedDeptId ?? entry.departmentId,
+          departmentName: name,
+          role: entry.role || name
+        };
+      });
+    };
 
-    if (changed) {
-      try {
-        this.applicationDetails.txtApprovalHistory = JSON.stringify(this.approvalHistory);
-      } catch {
-        // ignore serialize errors
-      }
+    if (this.approvalHistory && this.approvalHistory.length > 0) {
+      this.approvalHistory = enrichList(this.approvalHistory);
+    }
+
+    if (this.priorApprovals && this.priorApprovals.length > 0) {
+      this.priorApprovals = enrichList(this.priorApprovals);
     }
   }
 
@@ -1334,8 +1350,25 @@ export class ApplicationDetailsComponent implements OnInit {
         return 'badge-outline-danger';
       case 'IN_PROGRESS':
         return 'badge-outline-info';
+      case 'SEND_BACK_TO_INITIATOR':
+      case 'SENT_BACK':
+        return 'badge-outline-warning';
       default:
         return 'badge-outline-secondary';
+    }
+  }
+
+  getDisplayAction(action: string): string {
+    if (!action) return '-';
+    switch (action.toUpperCase()) {
+      case 'SENT_BACK_TO_INITIATOR':
+      case 'SEND_BACK_TO_INITIATOR':
+        return 'SENT BACK TO INITIATOR';
+      case 'SENT_BACK':
+      case 'SEND_BACK':
+        return 'SENT BACK';
+      default:
+        return action.replace(/_/g, ' ');
     }
   }
 
@@ -1343,7 +1376,15 @@ export class ApplicationDetailsComponent implements OnInit {
   isDepartmentApproved(pipelineOrder: number): boolean {
     if (!this.applicationDetails) return false;
     const currentLevel = this.applicationDetails.intCurrentApprovalLevel || 0;
-    return currentLevel >= pipelineOrder;
+    const status = (this.applicationDetails.txtStatus || '').toUpperCase();
+
+    // If status is SEND_BACK_TO_INITIATOR and we are at Level 0, nothing is approved yet
+    if (status === 'SEND_BACK_TO_INITIATOR' && pipelineOrder === 0) {
+      return false;
+    }
+
+    // A department is only "approved" if the workflow has moved PAST its level
+    return currentLevel > pipelineOrder;
   }
 
   // Get remarks for a specific department from approval history
@@ -1660,6 +1701,7 @@ export class ApplicationDetailsComponent implements OnInit {
   @ViewChild('approveModal') approveModal: any;
   @ViewChild('rejectModal') rejectModal: any;
   @ViewChild('sendBackModal') sendBackModal: any;
+  @ViewChild('sendBackToInitiatorModal') sendBackToInitiatorModal: any;
   @ViewChild('vendorEditModal') vendorEditModal: any;
 
   openApproveModal() {
@@ -1690,6 +1732,16 @@ export class ApplicationDetailsComponent implements OnInit {
     this.selectedApplicationForRemarks = this.applicationDetails;
     this.remarksText = '';
     this.sendBackModal.open();
+  }
+
+  openSendBackToInitiatorModal() {
+    if (!this.applicationDetails?.serApplicationId) {
+      this.notificationService.showMessage('Invalid application', 'danger');
+      return;
+    }
+    this.selectedApplicationForRemarks = this.applicationDetails;
+    this.remarksText = '';
+    this.sendBackToInitiatorModal.open();
   }
 
   async approveApplication() {
@@ -1826,6 +1878,44 @@ export class ApplicationDetailsComponent implements OnInit {
       },
       (error) => {
         this.notificationService.showMessage('Error sending back application: ' + (error.error?.message || error.message), 'danger');
+      }
+    );
+  }
+
+  sendBackToInitiatorApplication() {
+    if (!this.selectedApplicationForRemarks?.serApplicationId) {
+      this.notificationService.showMessage('Invalid application', 'danger');
+      return;
+    }
+
+    if (!this.remarksText || this.remarksText.trim() === '') {
+      this.notificationService.showMessage('Please provide remarks for sending back the application', 'danger');
+      return;
+    }
+
+    if (this.isSendingBackToInitiator) return;
+    this.isSendingBackToInitiator = true;
+    this.customFormApplicationService.sendBackApplicationToInitiator(
+      this.selectedApplicationForRemarks.serApplicationId,
+      this.remarksText
+    ).pipe(
+      finalize(() => {
+        this.isSendingBackToInitiator = false;
+      })
+    ).subscribe(
+      (response: any) => {
+        if (response && response.status === 'Success') {
+          this.notificationService.showMessage(response.message || 'Application sent back to initiator successfully', 'success');
+          this.sendBackToInitiatorModal.close();
+          this.selectedApplicationForRemarks = null;
+          this.remarksText = '';
+          this.loadApplicationDetails();
+        } else {
+          this.notificationService.showMessage(response?.message || 'Failed to send back application to initiator', 'danger');
+        }
+      },
+      (error) => {
+        this.notificationService.showMessage('Error sending back application to initiator: ' + (error.error?.message || error.message), 'danger');
       }
     );
   }
@@ -2442,11 +2532,13 @@ export class ApplicationDetailsComponent implements OnInit {
               boxShadow: el.style.boxShadow,
               overflow: el.style.overflow
             };
-            el.style.minHeight = 'auto';
+            el.style.minHeight = '296mm'; // Ensure A4 size to push footer down
             el.style.maxHeight = 'none';
             el.style.border = 'none';
             el.style.boxShadow = 'none';
             el.style.overflow = 'visible';
+            el.style.display = 'flex'; // Ensure flex for margin-top: auto
+            el.style.flexDirection = 'column';
             return saved;
           })
         );
@@ -2455,7 +2547,7 @@ export class ApplicationDetailsComponent implements OnInit {
       const captureTarget = (element.querySelector('.page') as HTMLElement) || element;
       const hadPdfCapture = element.classList.contains('pdf-capture');
       const hadPdfFix = element.classList.contains('pdf-fix');
-      if (!hadPdfCapture && !isCapf) {
+      if (!hadPdfCapture) {
         element.classList.add('pdf-capture');
       }
       if (!hadPdfFix && isCapf) {
@@ -2539,7 +2631,7 @@ export class ApplicationDetailsComponent implements OnInit {
         el.style.boxShadow = boxShadow;
         el.style.overflow = overflow;
       });
-      if (!hadPdfCapture && !isCapf) {
+      if (!hadPdfCapture) {
         element.classList.remove('pdf-capture');
       }
       if (!hadPdfFix && isCapf) {
@@ -2617,14 +2709,16 @@ export class ApplicationDetailsComponent implements OnInit {
     
     for (const section of fields) {
       const users = this.getIndividualFooterSlots(section);
-      for (const slotUser of users) {
-        if (!slotUser) continue;
-        dynamicNodes.push({
-           isInitiator: false,
-           title: section.label || 'Approval Stage',
-           user: slotUser
-        });
-      }
+      if (users.length === 0) continue;
+      
+      // If a section has multiple users, group them into a single node
+      // to avoid showing the stage as "Completed" prematurely.
+      dynamicNodes.push({
+         isInitiator: false,
+         title: section.label || 'Approval Stage',
+         users: users,
+         fieldKey: section.key
+      });
     }
     
     return dynamicNodes;
@@ -2632,20 +2726,26 @@ export class ApplicationDetailsComponent implements OnInit {
 
   getDynamicStageStatus(node: any, nodeIndex?: number): string {
     if (node.isInitiator) return 'APPROVED';
-    const userId = this.getUserId(node.user);
-    if (!userId || !this.approvalHistory) {
-      return 'PENDING';
-    }
     
+    // Support both single user and multiple users (from incoming branch)
+    const users = node.users || [node.user];
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel || 0;
     
-    // Determine the node's level in the workflow (0-indexed)
-    // If nodeIndex is provided, use it; otherwise, find it from the workflow array
+    // If nodeIndex is provided, use it for workflow level determination
     let workflowLevel: number;
     if (nodeIndex !== undefined && nodeIndex !== null) {
       workflowLevel = nodeIndex;
     } else {
+      // Try to find from sequence if available
+      const sequence = this.getBudgetApprovalSequence();
+      const nodeStartIndex = sequence.findIndex(s => s.fieldKey === node.fieldKey);
+      if (nodeStartIndex !== -1 && currentLevel >= nodeStartIndex && currentLevel < (nodeStartIndex + users.length)) {
+        return 'CURRENT';
+      }
+      // Fallback: find from workflow array
       const workflow = this.getDynamicApprovalWorkflow();
+      const firstUser = users[0];
+      const userId = this.getUserId(firstUser);
       workflowLevel = workflow.findIndex(n => 
         this.getUserId(n.user) === userId && n.title === node.title
       );
@@ -2665,50 +2765,74 @@ export class ApplicationDetailsComponent implements OnInit {
       return 'PENDING';
     }
     
-    // If this node is before the current level, check if it was approved
-    // Find approval entry for this user at this specific level
-    const entry = this.approvalHistory.find((e: any) => {
-      // Skip SENT_BACK entries
-      const action = (e.action || '').toString().toUpperCase();
-      if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') return false;
+    // Check approval states for all users (support multiple users from incoming branch)
+    const approvalStates = users.map((u: any) => {
+      const userId = this.getUserId(u);
+      if (!userId || !this.approvalHistory) return 'PENDING';
       
-      // For individual pipeline footer forms, filter out entries removed during send-back
-      // Level in history is 1-indexed, workflowLevel is 0-indexed
-      // So entryLevel should be (workflowLevel + 1) for this specific node
-      const entryLevel = e.level || e.intApprovalOrder;
-      if (entryLevel != null) {
-        // Entry level is 1-indexed, workflowLevel is 0-indexed
-        // So entryLevel should match (workflowLevel + 1) for this node
-        if (entryLevel !== (workflowLevel + 1)) {
-          return false;
+      // Find approval entry for this user at this specific level
+      const entry = this.approvalHistory.find((e: any) => {
+        // Skip SENT_BACK entries
+        const action = (e.action || '').toString().toUpperCase();
+        if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') return false;
+        
+        // For individual pipeline footer forms, filter out entries removed during send-back
+        // Level in history is 1-indexed, workflowLevel is 0-indexed
+        // So entryLevel should be (workflowLevel + 1) for this specific node
+        const entryLevel = e.level || e.intApprovalOrder;
+        if (entryLevel != null) {
+          // Entry level is 1-indexed, workflowLevel is 0-indexed
+          // So entryLevel should match (workflowLevel + 1) for this node
+          if (entryLevel !== (workflowLevel + 1)) {
+            return false;
+          }
+          // Also filter out entries that were removed during send-back
+          if (entryLevel > (currentLevel + 1)) {
+            return false;
+          }
         }
-        // Also filter out entries that were removed during send-back
-        if (entryLevel > (currentLevel + 1)) {
-          return false;
-        }
-      }
+        
+        return e.approvedBy === userId || e.userId === userId;
+      });
       
-      return e.approvedBy === userId || e.userId === userId;
+      if (!entry) return 'PENDING';
+      const action = (entry.action || entry.status || '').toString().toUpperCase();
+      if (action === 'REJECTED') return 'REJECTED';
+      if (action === 'APPROVED' || !!entry.approvedDate) return 'APPROVED';
+      return 'PENDING';
     });
     
-    // If no entry found for a level that's before current level, it's PENDING (shouldn't happen but safe)
-    if (!entry) {
-      return 'PENDING';
-    }
-    
-    const action = (entry.action || entry.status || '').toString().toUpperCase();
-    if (action === 'REJECTED') return 'REJECTED';
-    if (action === 'APPROVED' || !!entry.approvedDate) return 'APPROVED';
+    // Aggregate results from multiple users
+    if (approvalStates.some((s: string) => s === 'REJECTED')) return 'REJECTED';
+    if (approvalStates.every((s: string) => s === 'APPROVED')) return 'APPROVED';
+    if (approvalStates.some((s: string) => s === 'APPROVED')) return 'CURRENT'; // Some approved, stage is still in progress
     
     return 'PENDING';
   }
 
+  private getBudgetApprovalSequence(): any[] {
+    const fields = this.getIndividualPipelineFooterFields();
+    const seq: any[] = [];
+    for (const section of fields) {
+      const users = this.getIndividualFooterSlots(section);
+      for (const user of users) {
+        if (!user) continue;
+        seq.push({ user, fieldKey: section.key });
+      }
+    }
+    return seq;
+  }
+
   getDynamicStageApproverName(node: any): string {
     if (node.isInitiator) return node.user.txtUserName || node.user.userName || node.user.name || 'Initiator';
-    const userId = this.getUserId(node.user);
-    if (!userId || !this.approvalHistory) return node.user.txtUserName || node.user.userName || node.user.name || '--';
-    const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
-    return entry?.approverName || node.user.txtUserName || node.user.userName || node.user.name || '--';
+    const users = node.users || [node.user];
+    const names = users.map((u: any) => {
+       const userId = this.getUserId(u);
+       if (!userId || !this.approvalHistory) return u.txtUserName || u.userName || u.name || '--';
+       const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+       return entry?.approverName || u.txtUserName || u.userName || u.name || '--';
+    });
+    return names.join(', ');
   }
 
   getDynamicStageApprovedAt(node: any): string {
@@ -2716,25 +2840,35 @@ export class ApplicationDetailsComponent implements OnInit {
       const d = this.applicationDetails?.dteCreatedDate || this.applicationDetails?.createdAt;
       return d ? new Date(d).toLocaleString() : '--';
     }
-    return this.getUserApprovalDate(node.user) || '--';
+    const users = node.users || [node.user];
+    const dates = users.map((u: any) => this.getUserApprovalDate(u)).filter((d: string) => d && d !== '--');
+    return dates.length > 0 ? dates[dates.length - 1] : '--';
   }
 
   getDynamicStageRemarks(node: any): string {
     if (node.isInitiator) return '--';
-    const userId = this.getUserId(node.user);
-    if (!userId || !this.approvalHistory) return '--';
-    const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
-    return entry?.remarks || '--';
+    const users = node.users || [node.user];
+    const remarks = users.map((u: any) => {
+       const userId = this.getUserId(u);
+       if (!userId || !this.approvalHistory) return '';
+       const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+       return entry?.remarks || '';
+    }).filter((r: string) => r && r.trim() !== '');
+    return remarks.length > 0 ? remarks.join('; ') : '--';
   }
 
   getDynamicStageApprovedVia(node: any): string {
     if (node.isInitiator) {
        return this.applicationDetails?.txtIpAddress ? 'IP:' + this.applicationDetails.txtIpAddress : 'SUBMISSION';
     }
-    const userId = this.getUserId(node.user);
-    if (!userId || !this.approvalHistory) return '--';
-    const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
-    return entry?.approvedVia || entry?.approvedIp || entry?.ipAddress || '--';
+    const users = node.users || [node.user];
+    const methods = users.map((u: any) => {
+       const userId = this.getUserId(u);
+       if (!userId || !this.approvalHistory) return '';
+       const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+       return entry?.approvedVia || entry?.approvedIp || entry?.ipAddress || '';
+    }).filter((m: string) => m && m.trim() !== '');
+    return methods.length > 0 ? methods.join(', ') : '--';
   }
 
   getDynamicStageTitle(node: any): string {
