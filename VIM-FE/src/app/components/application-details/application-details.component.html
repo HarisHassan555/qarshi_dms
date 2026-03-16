@@ -729,19 +729,19 @@
             <div class="approval-flow">
                 <ng-container *ngFor="let pipeline of pipelines; let i = index">
                     <div class="approval-node" [ngClass]="{
-                            'is-approved': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'APPROVED',
-                            'is-pending': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'PENDING' || getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'CURRENT',
-                            'is-rejected': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'REJECTED'
+                            'is-approved': getStageStatus((pipeline.intApprovalOrder !== null && pipeline.intApprovalOrder !== undefined) ? pipeline.intApprovalOrder : (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'APPROVED',
+                            'is-pending': getStageStatus((pipeline.intApprovalOrder !== null && pipeline.intApprovalOrder !== undefined) ? pipeline.intApprovalOrder : (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'PENDING' || getStageStatus((pipeline.intApprovalOrder !== null && pipeline.intApprovalOrder !== undefined) ? pipeline.intApprovalOrder : (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'CURRENT',
+                            'is-rejected': getStageStatus((pipeline.intApprovalOrder !== null && pipeline.intApprovalOrder !== undefined) ? pipeline.intApprovalOrder : (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'REJECTED'
                         }">
                         <div class="approval-node-header">
                             <div class="approval-node-title">
                                 {{ getPipelineDepartmentName(pipeline, i) }}
                             </div>
                             <div class="approval-node-status">
-                                {{ getStageStatus(pipeline.intApprovalOrder || (i+1),
+                                {{ getStageStatus((pipeline.intApprovalOrder !== null && pipeline.intApprovalOrder !== undefined) ? pipeline.intApprovalOrder : (i+1),
                                 pipeline.hrTblDepartment?.serDepartmentId) === 'CURRENT'
                                 ? 'PENDING'
-                                : getStageStatus(pipeline.intApprovalOrder || (i+1),
+                                : getStageStatus((pipeline.intApprovalOrder !== null && pipeline.intApprovalOrder !== undefined) ? pipeline.intApprovalOrder : (i+1),
                                 pipeline.hrTblDepartment?.serDepartmentId) }}
                             </div>
                         </div>
@@ -749,28 +749,28 @@
                             <div class="approval-node-row">
                                 <span class="label">Approved By</span>
                                 <span class="value">
-                                    {{ getStageApproverName(pipeline.intApprovalOrder || (i+1),
+                                    {{ getStageApproverName((pipeline.intApprovalOrder !== null && pipeline.intApprovalOrder !== undefined) ? pipeline.intApprovalOrder : (i+1),
                                     pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
                                 </span>
                             </div>
                             <div class="approval-node-row">
                                 <span class="label">Action Time</span>
                                 <span class="value">
-                                    {{ getStageApprovedAt(pipeline.intApprovalOrder || (i+1),
+                                    {{ getStageApprovedAt((pipeline.intApprovalOrder !== null && pipeline.intApprovalOrder !== undefined) ? pipeline.intApprovalOrder : (i+1),
                                     pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
                                 </span>
                             </div>
                             <div class="approval-node-row">
                                 <span class="label">Remarks</span>
                                 <span class="value">
-                                    {{ getDepartmentRemarks(pipeline.intApprovalOrder || (i+1),
+                                    {{ getDepartmentRemarks((pipeline.intApprovalOrder !== null && pipeline.intApprovalOrder !== undefined) ? pipeline.intApprovalOrder : (i+1),
                                     pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
                                 </span>
                             </div>
                             <div class="approval-node-row">
                                 <span class="label">IP Address</span>
                                 <span class="value">
-                                    {{ getStageApprovedVia(pipeline.intApprovalOrder || (i+1),
+                                    {{ getStageApprovedVia((pipeline.intApprovalOrder !== null && pipeline.intApprovalOrder !== undefined) ? pipeline.intApprovalOrder : (i+1),
                                     pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
                                 </span>
                             </div>

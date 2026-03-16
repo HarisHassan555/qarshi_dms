@@ -24,6 +24,7 @@ export class ApplicationDetailsComponent implements OnInit {
   forms: any[] = [];
   isLoading: boolean = true;
   approvalHistory: any[] = []; // Store approval history with remarks
+  priorApprovals: any[] = []; // Store archived approval history
   departmentNameMap: Map<number, string> = new Map();
   departmentHeadMap: Map<number, any> = new Map();
   userNameMap: Map<number, string> = new Map();
@@ -882,6 +883,19 @@ export class ApplicationDetailsComponent implements OnInit {
             this.approvalHistory = [];
           }
 
+          // Parse prior approvals JSON (archived history)
+          if (data.txtPriorApprovals) {
+            try {
+              this.priorApprovals = JSON.parse(data.txtPriorApprovals);
+              console.log('Prior approvals loaded:', this.priorApprovals);
+            } catch (e) {
+              console.error('Error parsing prior approvals:', e);
+              this.priorApprovals = [];
+            }
+          } else {
+            this.priorApprovals = [];
+          }
+
           this.enrichPipelineWithDepartmentNames();
           this.applyDepartmentNamesToApprovalHistory();
 
@@ -939,7 +953,7 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   private applyDepartmentNamesToApprovalHistory() {
-    if (!this.applicationDetails || !this.approvalHistory || this.approvalHistory.length === 0) {
+    if (!this.applicationDetails) {
       return;
     }
 
@@ -965,46 +979,47 @@ export class ApplicationDetailsComponent implements OnInit {
       }
     });
 
-    let changed = false;
-    this.approvalHistory = this.approvalHistory.map((entry: any) => {
-      if (!entry) return entry;
-      if (entry.departmentName && entry.departmentName.trim() !== '') return entry;
+    const enrichList = (list: any[]) => {
+      if (!list || list.length === 0) return list;
+      return list.map((entry: any) => {
+        if (!entry) return entry;
+        if (entry.departmentName && entry.departmentName.trim() !== '') return entry;
 
-      const deptId = entry.departmentId || entry.serDepartmentId;
-      const level = entry.level || entry.intApprovalOrder;
-      let name = null as string | null;
-      let resolvedDeptId: number | undefined = deptId != null ? Number(deptId) : undefined;
+        const deptId = entry.departmentId || entry.serDepartmentId;
+        const level = entry.level || entry.intApprovalOrder;
+        let name = null as string | null;
+        let resolvedDeptId: number | undefined = deptId != null ? Number(deptId) : undefined;
 
-      if (resolvedDeptId != null) {
-        name = map.get(resolvedDeptId) || this.departmentNameMap.get(resolvedDeptId) || null;
-      }
-
-      if (!name && level != null) {
-        const byOrder = mapByOrder.get(Number(level));
-        if (byOrder?.deptName) {
-          name = byOrder.deptName;
+        if (resolvedDeptId != null) {
+          name = map.get(resolvedDeptId) || this.departmentNameMap.get(resolvedDeptId) || null;
         }
-        if (resolvedDeptId == null && byOrder?.deptId != null) {
-          resolvedDeptId = byOrder.deptId;
+
+        if (!name && level != null) {
+          const byOrder = mapByOrder.get(Number(level));
+          if (byOrder?.deptName) {
+            name = byOrder.deptName;
+          }
+          if (resolvedDeptId == null && byOrder?.deptId != null) {
+            resolvedDeptId = byOrder.deptId;
+          }
         }
-      }
 
-      if (!name) return entry;
-      changed = true;
-      return {
-        ...entry,
-        departmentId: resolvedDeptId ?? entry.departmentId,
-        departmentName: name,
-        role: entry.role || name
-      };
-    });
+        if (!name) return entry;
+        return {
+          ...entry,
+          departmentId: resolvedDeptId ?? entry.departmentId,
+          departmentName: name,
+          role: entry.role || name
+        };
+      });
+    };
 
-    if (changed) {
-      try {
-        this.applicationDetails.txtApprovalHistory = JSON.stringify(this.approvalHistory);
-      } catch {
-        // ignore serialize errors
-      }
+    if (this.approvalHistory && this.approvalHistory.length > 0) {
+      this.approvalHistory = enrichList(this.approvalHistory);
+    }
+
+    if (this.priorApprovals && this.priorApprovals.length > 0) {
+      this.priorApprovals = enrichList(this.priorApprovals);
     }
   }
 
@@ -1323,8 +1338,25 @@ export class ApplicationDetailsComponent implements OnInit {
         return 'badge-outline-danger';
       case 'IN_PROGRESS':
         return 'badge-outline-info';
+      case 'SEND_BACK_TO_INITIATOR':
+      case 'SENT_BACK':
+        return 'badge-outline-warning';
       default:
         return 'badge-outline-secondary';
+    }
+  }
+
+  getDisplayAction(action: string): string {
+    if (!action) return '-';
+    switch (action.toUpperCase()) {
+      case 'SENT_BACK_TO_INITIATOR':
+      case 'SEND_BACK_TO_INITIATOR':
+        return 'SENT BACK TO INITIATOR';
+      case 'SENT_BACK':
+      case 'SEND_BACK':
+        return 'SENT BACK';
+      default:
+        return action.replace(/_/g, ' ');
     }
   }
 
@@ -1332,7 +1364,15 @@ export class ApplicationDetailsComponent implements OnInit {
   isDepartmentApproved(pipelineOrder: number): boolean {
     if (!this.applicationDetails) return false;
     const currentLevel = this.applicationDetails.intCurrentApprovalLevel || 0;
-    return currentLevel >= pipelineOrder;
+    const status = (this.applicationDetails.txtStatus || '').toUpperCase();
+
+    // If status is SEND_BACK_TO_INITIATOR and we are at Level 0, nothing is approved yet
+    if (status === 'SEND_BACK_TO_INITIATOR' && pipelineOrder === 0) {
+      return false;
+    }
+
+    // A department is only "approved" if the workflow has moved PAST its level
+    return currentLevel > pipelineOrder;
   }
 
   // Get remarks for a specific department from approval history
@@ -2500,7 +2540,6 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   getDynamicStageStatus(node: any): string {
-    if (node.isInitiator) return 'APPROVED';
     
     const users = node.users || [node.user];
     const approvalStates = users.map((u: any) => {
