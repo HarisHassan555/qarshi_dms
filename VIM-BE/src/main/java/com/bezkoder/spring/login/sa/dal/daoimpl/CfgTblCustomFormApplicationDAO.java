@@ -1921,8 +1921,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             // The frontend will filter them out for display based on currentLevel
             List<java.util.Map<String, Object>> updatedHistory = new java.util.ArrayList<>(approvalHistory);
 
-            // Get current user who is sending back
-            Integer currentUserId = commonService.getCurrentLoggedInUser();
+            // Get current user who is sending back - use provided userId (from email) or fallback to logged-in user
+            Integer currentUserId = userId != null ? userId : commonService.getCurrentLoggedInUser();
             CfgTblUser currentUser = null;
             if (currentUserId != null) {
                 currentUser = commonService.getCurrentUser(currentUserId);

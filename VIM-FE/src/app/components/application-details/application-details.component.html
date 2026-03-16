@@ -220,12 +220,19 @@
                 <div class="xyz-content-body">
                     <div *ngFor="let field of getGenericPreviewFields()" class="xyz-generic-field">
                         <div class="xyz-generic-label"
-                            *ngIf="!isWordEditorType(field.type) && !isIndividualPipelineFooterType(field.type) && field.type !== 'footer'">
+                            *ngIf="!isWordEditorType(field.type)
+                                   && !isIndividualPipelineFooterType(field.type)
+                                   && field.type !== 'footer'
+                                   && !isDocumentHeaderType(field.type)">
                             {{ field.label }}
                             <span *ngIf="field.required" class="text-danger">*</span>
                         </div>
 
-                        <div *ngIf="!isWordEditorType(field.type) && !isTableType(field.type) && !isIndividualPipelineFooterType(field.type) && field.type !== 'footer'"
+                        <div *ngIf="!isWordEditorType(field.type)
+                                    && !isTableType(field.type)
+                                    && !isIndividualPipelineFooterType(field.type)
+                                    && field.type !== 'footer'
+                                    && !isDocumentHeaderType(field.type)"
                             class="xyz-generic-value">
                             {{ formatFieldValue(field, getFieldValue(field)) }}
                         </div>
