@@ -151,6 +151,29 @@ export class ApplicationPdfService {
           }
 
           element.offsetHeight;
+          // For xyz-paper elements, ensure natural height for PDF generation
+          const isXyzPaper = element.classList.contains('xyz-paper') || element.querySelector('.xyz-paper');
+          if (isXyzPaper) {
+            // Add a class to the element to trigger PDF-specific styles
+            element.classList.add('pdf-generation-mode');
+            const paperElement = (element.querySelector('.xyz-paper') as HTMLElement) || element;
+            if (paperElement) {
+              paperElement.classList.add('pdf-generation-mode');
+              paperElement.style.height = 'auto';
+              paperElement.style.maxHeight = 'none';
+              paperElement.style.minHeight = 'auto';
+              paperElement.style.overflow = 'visible';
+              paperElement.style.display = 'block';
+            }
+            const contentArea = element.querySelector('.xyz-content-area') as HTMLElement;
+            if (contentArea) {
+              contentArea.style.overflow = 'visible';
+              contentArea.style.minHeight = 'auto';
+              contentArea.style.flex = 'none';
+              contentArea.style.height = 'auto';
+            }
+          }
+
           const opt = {
             margin: [2, 5, 2, 5] as [number, number, number, number],
             filename,
@@ -170,24 +193,68 @@ export class ApplicationPdfService {
                 const clonedElement = (clonedDoc.querySelector('.abc-wrapper') || clonedDoc.querySelector('.xyz-paper') || clonedDoc.body) as HTMLElement;
                 if (clonedElement) {
                   clonedElement.offsetHeight;
+                  // Add PDF generation class
+                  clonedElement.classList.add('pdf-generation-mode');
+                  
+                  // Remove ALL height constraints for PDF generation
+                  const paperEl = clonedDoc.querySelector('.xyz-paper') as HTMLElement;
+                  if (paperEl) {
+                    paperEl.classList.add('pdf-generation-mode');
+                    paperEl.style.setProperty('height', 'auto', 'important');
+                    paperEl.style.setProperty('max-height', 'none', 'important');
+                    paperEl.style.setProperty('min-height', 'auto', 'important');
+                    paperEl.style.setProperty('overflow', 'visible', 'important');
+                    paperEl.style.setProperty('display', 'block', 'important');
+                  }
+                  const contentArea = clonedDoc.querySelector('.xyz-content-area') as HTMLElement;
+                  if (contentArea) {
+                    contentArea.style.setProperty('overflow', 'visible', 'important');
+                    contentArea.style.setProperty('min-height', 'auto', 'important');
+                    contentArea.style.setProperty('flex', 'none', 'important');
+                    contentArea.style.setProperty('height', 'auto', 'important');
+                    contentArea.style.setProperty('display', 'block', 'important');
+                  }
+                  // Remove flex from header and footer too
+                  const headerContainer = clonedDoc.querySelector('.xyz-header-container') as HTMLElement;
+                  if (headerContainer) {
+                    headerContainer.style.setProperty('flex-shrink', '0', 'important');
+                  }
+                  const footer = clonedDoc.querySelector('.xyz-footer') as HTMLElement;
+                  if (footer) {
+                    footer.style.setProperty('flex-shrink', '0', 'important');
+                    footer.style.setProperty('margin-top', 'auto', 'important');
+                  }
                 }
               }
             },
             jsPDF: {
               unit: 'mm' as const,
               format: 'a4' as const,
-              orientation: 'portrait' as const
+              orientation: 'portrait' as const,
+              compress: true
             }
           };
 
           html2pdf().set(opt).from(element).outputPdf('blob').then((pdfBlob: Blob) => {
             if (done) return;
             done = true;
+            // Remove PDF generation class
+            element.classList.remove('pdf-generation-mode');
+            const paperElement = element.querySelector('.xyz-paper') as HTMLElement;
+            if (paperElement) {
+              paperElement.classList.remove('pdf-generation-mode');
+            }
             cleanup(iframe);
             resolve(pdfBlob);
           }).catch((error: any) => {
             if (done) return;
             done = true;
+            // Remove PDF generation class on error too
+            element.classList.remove('pdf-generation-mode');
+            const paperElement = element.querySelector('.xyz-paper') as HTMLElement;
+            if (paperElement) {
+              paperElement.classList.remove('pdf-generation-mode');
+            }
             cleanup(iframe);
             reject(error);
           });
@@ -1039,10 +1106,11 @@ export class ApplicationPdfService {
       const sigUrl = getUserSignatureUrl(user);
       const sigDate = getUserApprovalDate(user);
       const approved = isUserApproved(user);
-      return `
+      const content = `
         ${approved && sigUrl ? `<img class="xyz-sig-img" src="${sigUrl}" alt="Signature" crossorigin="anonymous" />` : ''}
         ${approved && sigDate ? `<div class="xyz-sig-time">${sigDate}</div>` : ''}
       `;
+      return approved ? `<div>${content}</div>` : '';
     };
 
     const renderUserNameCell = (user: any, fallbackName?: string, fallbackRole?: string): string => {
@@ -1092,7 +1160,6 @@ export class ApplicationPdfService {
     .xyz-page { background:#ffffff; padding: 0; display:block; }
     .xyz-paper {
       width: 210mm;
-      min-height: 297mm;
       background:#ffffff;
       font-family: "Times New Roman", Times, serif;
       font-size: 13.5px;
@@ -1102,6 +1169,67 @@ export class ApplicationPdfService {
       display:flex;
       flex-direction:column;
       overflow: visible;
+      position: relative;
+    }
+    @media screen {
+      .xyz-paper {
+        height: 297mm;
+        min-height: 297mm;
+        max-height: 297mm;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+    }
+    @media print {
+      .xyz-paper {
+        height: auto !important;
+        min-height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
+      }
+    }
+    .pdf-generation-mode .xyz-paper,
+    .pdf-generation-mode.xyz-paper {
+      height: auto !important;
+      min-height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
+      display: block !important;
+    }
+    .pdf-generation-mode .xyz-header-container {
+      display: block !important;
+      position: static !important;
+      flex-shrink: 0 !important;
+    }
+    .pdf-generation-mode .xyz-content-area {
+      overflow: visible !important;
+      flex: none !important;
+      min-height: auto !important;
+      height: auto !important;
+      display: block !important;
+      width: 100% !important;
+    }
+    .pdf-generation-mode .xyz-footer {
+      display: block !important;
+      position: static !important;
+      flex-shrink: 0 !important;
+      margin-top: 14px !important;
+    }
+    .xyz-header-container {
+      flex-shrink: 0;
+      background:#ffffff;
+      padding-bottom: 6px;
+      page-break-inside: avoid;
+      break-inside: avoid;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      width: 100%;
+    }
+    @media print {
+      .xyz-header-container {
+        position: static !important;
+      }
     }
     .xyz-date-row { display:flex; justify-content:flex-end; margin-bottom:6px; }
     .xyz-date { font-size:14px; text-align:right; }
@@ -1118,30 +1246,67 @@ export class ApplicationPdfService {
     .xyz-rule.thick::before { top:-2px; }
     .xyz-rule.thick::after { bottom:-2px; }
     .xyz-title { text-align:center; font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif; font-weight:700; font-size:26px; line-height:1.25; margin:6px 0 16px 0; }
+    .xyz-content-area {
+      flex: 1 1 auto;
+      overflow: visible;
+      min-height: 0;
+    }
+    @media screen {
+      .xyz-content-area {
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+      }
+    }
+    @media print {
+      .xyz-content-area {
+        overflow: visible !important;
+        flex: none !important;
+        min-height: auto !important;
+        height: auto !important;
+      }
+    }
     .xyz-dynamic { margin-top:4px; }
-    .xyz-section { margin-bottom:10px; }
+    .xyz-section { margin-bottom:10px; page-break-inside: avoid; break-inside: avoid; }
     .xyz-section-title { font-family: "Georgia", "Times New Roman", serif; font-size:13.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; border-left:3px solid var(--accent); padding-left:8px; margin-bottom:4px; }
     .xyz-section-text { font-family: "Georgia", "Times New Roman", serif; font-size:13.5px; font-weight:400; text-align:justify; color:var(--ink); }
     .xyz-list { margin: 4px 0 0 18px; padding: 0; }
     .xyz-list li { margin-bottom: 6px; }
     .xyz-bold { font-weight:700; }
-    .xyz-table { width:100%; border-collapse:collapse; margin:10px 0; font-size:13px; }
+    .xyz-table { width:100%; border-collapse:collapse; margin:10px 0; font-size:13px; page-break-inside: avoid; break-inside: avoid; }
     .xyz-table th, .xyz-table td { border:1px solid #000; padding:2px 4px; line-height:1.15; }
     .xyz-table thead th { background:#8bc34a; text-align:center; font-weight:700; }
     .xyz-table tbody td:first-child, .xyz-table tbody td:last-child { text-align:center; }
     .xyz-col-sr { width:8%; text-align:center; }
     .xyz-col-amount { width:18%; text-align:center; }
     .xyz-note { margin-top:6px; font-size:11px; }
-    .xyz-signatures { width:100%; border-collapse:collapse; margin-top:14px; font-family: "Calibri", "Arial", sans-serif; font-size:12px; }
-    .xyz-signatures th, .xyz-signatures td { border:1px solid #000; padding:4px 6px; text-align:center; vertical-align:middle; word-wrap:break-word; overflow-wrap:break-word; max-width:0; }
-    .xyz-signatures-blank td { height:56px; padding:2px 4px; background:#fff; overflow:hidden; position:relative; box-sizing:border-box; vertical-align:middle; }
+    .xyz-footer {
+      flex-shrink: 0;
+      background:#ffffff;
+      margin-top: auto;
+      padding-top: 14px;
+      page-break-inside: avoid;
+      break-inside: avoid;
+      position: sticky;
+      bottom: 0;
+      z-index: 10;
+      width: 100%;
+    }
+    @media print {
+      .xyz-footer {
+        position: static !important;
+      }
+    }
+    .xyz-signatures { width:100%; border-collapse:collapse; font-family: "Calibri", "Arial", sans-serif; font-size:12px; table-layout:fixed; }
+    .xyz-signatures th, .xyz-signatures td { border:1px solid #000; padding:4px 6px; text-align:center !important; vertical-align:middle !important; word-wrap:break-word; overflow-wrap:break-word; max-width:0; }
+    .xyz-signatures-blank td { height:56px; padding:2px 4px; background:#fff; overflow:hidden; position:relative; box-sizing:border-box; vertical-align:middle !important; text-align:center !important; }
     .xyz-signatures th { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:14px; font-weight:700; background:#8f8f8f; text-align:center; text-transform:none; letter-spacing:0; }
     .xyz-signatures th[colspan="2"] { text-align:center; }
-    .xyz-signatures td { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:12px; }
+    .xyz-signatures td { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:12px; text-align:center !important; vertical-align:middle !important; }
     .xyz-sig-img { max-height: 24px; max-width: 100%; width: auto; height: auto; object-fit: contain; display:block; margin:0 auto 4px auto; box-sizing:border-box; }
     .xyz-signatures-blank td .xyz-sig-img { max-height: 24px !important; max-width: calc(100% - 8px) !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 0 auto 4px auto !important; }
+    .xyz-signatures-blank td > div { text-align:center; vertical-align:middle; display:inline-block; width:100%; }
     .xyz-sig-time { font-size:10px; color:#6b7280; margin-bottom:4px; }
-    .xyz-footer { margin-top:auto; }
     .xyz-generic-field { margin-bottom:10px; }
     .xyz-generic-label { font-size:12px; font-weight:700; margin-bottom:3px; text-transform:uppercase; letter-spacing:.2px; }
     .xyz-generic-value { font-size:13.5px; }
@@ -1181,19 +1346,22 @@ export class ApplicationPdfService {
     <style>${css}</style>
     <div class="xyz-page">
       <div class="xyz-paper">
-      <div class="xyz-date-row"><div class="xyz-date">Date: ${dateStr}</div></div>
-      <div class="xyz-header">
-        <div class="xyz-logo"><img src="assets/images/qarshi-logo.png" alt="Qarshi" /></div>
-        <div class="xyz-company">
-          <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
-          <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+      <div class="xyz-header-container">
+        <div class="xyz-date-row"><div class="xyz-date">Date: ${dateStr}</div></div>
+        <div class="xyz-header">
+          <div class="xyz-logo"><img src="assets/images/qarshi-logo.png" alt="Qarshi" /></div>
+          <div class="xyz-company">
+            <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
+            <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+          </div>
+          <div class="xyz-header-spacer"></div>
         </div>
-        <div class="xyz-header-spacer"></div>
+        <div class="xyz-rule thick"></div>
+        <div class="xyz-title">${headingText}</div>
       </div>
-      <div class="xyz-rule thick"></div>
-      <div class="xyz-title">${headingText}</div>
-      <div class="xyz-dynamic">${contentHtml}</div>
-
+      <div class="xyz-content-area">
+        <div class="xyz-dynamic">${contentHtml}</div>
+      </div>
       <div class="xyz-footer">
       <table class="xyz-signatures">
         ${hasDynamicFooter ? `

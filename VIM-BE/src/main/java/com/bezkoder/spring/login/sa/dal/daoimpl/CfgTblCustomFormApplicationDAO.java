@@ -1280,11 +1280,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
                 application.setSerModifiedUser(resolvedApproverId);
 
-                // Preserve UI-generated PDFs for non-budget forms so next-stage emails keep the
-                // exact same document layout/content. Only force regeneration for actual budget
-                // forms with dynamic footer, or when no PDF exists.
-                boolean hasDynamicFooterFields = !extractFooterFields(appData).isEmpty();
-                boolean shouldRegeneratePdf = (isBudgetApprovalForm(form) && hasDynamicFooterFields) ||
+                // For general forms with individual pipeline footer: DO NOT update the stored PDF
+                // The email PDF should stay independent and use the original PDF generated at submission
+                // Only update PDF for budget approval forms, or when no PDF exists
+                // isBudgetApproval and hasDynamicFooterFlow are already defined earlier in the method
+                boolean shouldRegeneratePdf = (isBudgetApproval && hasDynamicFooterFlow) ||
                         application.getBlbPdfData() == null || application.getBlbPdfData().length == 0;
                 if (shouldRegeneratePdf) {
                     try {
@@ -1299,8 +1299,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     } catch (Exception e) {
                         log.warn("Error regenerating application PDF: " + e.getMessage(), e);
                     }
-                } else if (hasDynamicFooterFields && application.getBlbPdfData() != null
+                } else if (isBudgetApproval && hasDynamicFooterFlow && application.getBlbPdfData() != null
                         && application.getBlbPdfData().length > 0) {
+                    // Only update PDF for budget approval forms, not general forms with individual pipeline footer
                     // Keep the exact existing form layout and only refresh footer signatures.
                     try {
                         byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
@@ -1318,6 +1319,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         log.warn("Error applying dynamic footer signatures to existing PDF: " + e.getMessage(), e);
                     }
                 }
+                // For general forms with individual pipeline footer (hasDynamicFooterFlow but NOT isBudgetApproval):
+                // Do nothing - preserve the original PDF so email layout stays independent
 
                 entityManager.merge(application);
                 entityManager.getTransaction().commit();
@@ -5924,89 +5927,93 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             String sendBackToInitiatorUrl,
             String approvalHistoryJson, String baseUrl) {
         StringBuilder html = new StringBuilder();
-        html.append(
-                "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
+        html.append("<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
+        // Outlook-compatible styles with fallbacks
         html.append("<style>");
-        html.append(
-                "body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;background-color:#f5f5f5}");
-        html.append(
-                ".email-container{background-color:#ffffff;border-radius:8px;padding:30px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}");
-        html.append(
-                ".header{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;padding:20px;border-radius:8px 8px 0 0;margin:-30px -30px 20px -30px}");
-        html.append(".header h1{margin:0;font-size:24px;font-weight:600}");
-        html.append(".content{padding:20px 0}");
-        html.append(".greeting{font-size:16px;margin-bottom:20px;color:#555}");
-        html.append(
-                ".details{background-color:#f8f9fa;border-left:4px solid #667eea;padding:15px;margin:20px 0;border-radius:4px}");
-        html.append(".detail-row{margin:10px 0;display:flex}");
-        html.append(".detail-label{font-weight:600;color:#555;min-width:150px}");
-        html.append(".detail-value{color:#333;flex:1}");
-        html.append(
-                ".remarks-box{background-color:#fff3cd;border-left:4px solid #ffc107;padding:15px;margin:20px 0;border-radius:4px}");
-        html.append(".button-container{margin:30px 0;text-align:center}");
-        html.append(
-                ".btn{display:inline-block;padding:12px 30px;margin:0 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;transition:all 0.3s}");
-        html.append(".btn-approve{background-color:#27ae60;color:white}");
-        html.append(
-                ".btn-approve:hover{background-color:#229954;transform:translateY(-2px);box-shadow:0 4px 8px rgba(39,174,96,0.3)}");
-        html.append(".btn-reject{background-color:#e74c3c;color:white}");
-        html.append(
-                ".btn-reject:hover{background-color:#c0392b;transform:translateY(-2px);box-shadow:0 4px 8px rgba(231,76,60,0.3)}");
-        html.append(".btn-sendback{background-color:#f39c12;color:white}");
-        html.append(
-                ".btn-sendback:hover{background-color:#d68910;transform:translateY(-2px);box-shadow:0 4px 8px rgba(243,156,18,0.3)}");
-        html.append(
-                ".footer{margin-top:30px;padding-top:20px;border-top:2px solid #ecf0f1;text-align:center;color:#95a5a6;font-size:12px}");
-        html.append(
-                ".status-badge{display:inline-block;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;text-transform:uppercase}");
-        html.append(".status-approved{background-color:#d5f4e6;color:#27ae60}");
-        html.append(".status-pending{background-color:#fef5e7;color:#f39c12}");
-        html.append(".status-rejected{background-color:#fadbd8;color:#e74c3c}");
-        html.append(".status-in-progress{background-color:#d6eaf8;color:#3498db}");
-        html.append(".history{margin-top:20px}");
-        html.append(".history h3{margin:0 0 10px 0;font-size:16px;color:#333}");
-        html.append(".history table{width:100%;border-collapse:collapse;font-size:12px}");
-        html.append(
-                ".history th,.history td{border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top}");
-        html.append(".history th{background:#f3f4f6;font-weight:600}");
-        html.append(".sig-img{max-height:24px;max-width:100%;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto 4px auto;box-sizing:border-box}");
-        html.append("</style></head><body>");
+        html.append("body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;line-height:1.6;color:#333;margin:0;padding:0;background-color:#f5f5f5}");
+        html.append("table{border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;}");
+        html.append(".email-wrapper{max-width:700px;margin:0 auto;background-color:#f5f5f5;padding:15px 10px;}");
+        html.append(".email-container{background-color:#ffffff;border-radius:8px;padding:25px 30px;box-shadow:0 2px 4px rgba(0,0,0,0.1);max-width:700px;width:100%;}");
+        html.append(".header{background-color:#667eea;color:white;padding:20px;border-radius:8px 8px 0 0;margin:-30px -30px 20px -30px;}");
+        html.append(".header h1{margin:0;font-size:24px;font-weight:600;}");
+        html.append(".content{padding:20px 0;}");
+        html.append(".greeting{font-size:16px;margin-bottom:20px;color:#555;}");
+        html.append(".details{background-color:#f8f9fa;border-left:4px solid #667eea;padding:15px;margin:20px 0;border-radius:4px;}");
+        html.append(".detail-row{margin:10px 0;}");
+        html.append(".detail-label{font-weight:600;color:#555;display:inline-block;min-width:150px;}");
+        html.append(".detail-value{color:#333;display:inline-block;}");
+        html.append(".remarks-box{background-color:#fff3cd;border-left:4px solid #ffc107;padding:15px;margin:20px 0;border-radius:4px;}");
+        html.append(".button-container{margin:30px 0;text-align:center;}");
+        html.append(".btn{display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;color:#ffffff !important;}");
+        html.append(".btn-approve{background-color:#27ae60;}");
+        html.append(".btn-reject{background-color:#e74c3c;}");
+        html.append(".btn-sendback{background-color:#f39c12;}");
+        html.append(".footer{margin-top:30px;padding-top:20px;border-top:2px solid #ecf0f1;text-align:center;color:#95a5a6;font-size:12px;}");
+        html.append(".status-badge{display:inline-block;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;text-transform:uppercase;}");
+        html.append(".status-approved{background-color:#d5f4e6;color:#27ae60;}");
+        html.append(".status-pending{background-color:#fef5e7;color:#f39c12;}");
+        html.append(".status-rejected{background-color:#fadbd8;color:#e74c3c;}");
+        html.append(".status-in-progress{background-color:#d6eaf8;color:#3498db;}");
+        html.append(".history{margin-top:20px;}");
+        html.append(".history h3{margin:0 0 10px 0;font-size:16px;color:#333;}");
+        html.append(".history table{width:100%;border-collapse:collapse;font-size:12px;}");
+        html.append(".history th,.history td{border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;}");
+        html.append(".history th{background:#f3f4f6;font-weight:600;}");
+        html.append(".sig-img{max-height:24px;max-width:100%;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto 4px auto;box-sizing:border-box;}");
+        html.append("</style>");
+        // Outlook-specific conditional styles
+        html.append("<!--[if mso]>");
+        html.append("<style type='text/css'>");
+        html.append(".email-wrapper{width:700px !important;}");
+        html.append(".email-container{width:680px !important;}");
+        html.append("</style>");
+        html.append("<![endif]-->");
+        html.append("</head><body>");
+        
         String headerTitle = (formName != null && !formName.trim().isEmpty()) ? formName.trim() : "Application";
-        html.append("<div class='email-container'>");
-        html.append("<div class='header'><h1>").append(escapeHtml(headerTitle)).append("</h1></div>");
-        html.append("<div class='content'>");
-        html.append("<div class='greeting'>Dear ").append(escapeHtml(recipientName)).append(",</div>");
+        
+        // Table-based layout for Outlook compatibility - wider to utilize more space
+        html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='background-color:#f5f5f5;'>");
+        html.append("<tr><td align='center' style='padding:15px 10px;'>");
+        html.append("<table role='presentation' width='700' cellpadding='0' cellspacing='0' border='0' class='email-container' style='background-color:#ffffff;border-radius:8px;padding:25px 30px;max-width:700px;width:100%;'>");
+        
+        // Header
+        html.append("<tr><td style='background-color:#667eea;color:#ffffff;padding:20px 30px;border-radius:8px 8px 0 0;margin:-25px -30px 20px -30px;'>");
+        html.append("<h1 style='margin:0;font-size:24px;font-weight:600;color:#ffffff;'>").append(escapeHtml(headerTitle)).append("</h1>");
+        html.append("</td></tr>");
+        
+        // Content
+        html.append("<tr><td style='padding:20px 0;'>");
+        html.append("<div style='font-size:16px;margin-bottom:20px;color:#555;'>Dear ").append(escapeHtml(recipientName)).append(",</div>");
 
         if (showActionButtons) {
-            html.append("<p>A new application is pending your approval at Level ").append(level).append(".</p>");
+            html.append("<p style='margin:0 0 15px 0;'>A new application is pending your approval at Level ").append(level).append(".</p>");
         } else {
             // Check if this is a send-back/revision case
             if ("SENT_BACK".equalsIgnoreCase(status) || "REVISION_REQUIRED".equalsIgnoreCase(status)) {
-                html.append("<p>Your application has been <strong>sent back for revision</strong> from Level ").append(level).append(".</p>");
-                html.append("<p>Please review the remarks and update your application accordingly.</p>");
+                html.append("<p style='margin:0 0 15px 0;'>Your application has been <strong>sent back for revision</strong> from Level ").append(level).append(".</p>");
+                html.append("<p style='margin:0 0 15px 0;'>Please review the remarks and update your application accordingly.</p>");
             } else {
-                html.append("<p>Your application has been approved at Level ").append(level).append(".</p>");
+                html.append("<p style='margin:0 0 15px 0;'>Your application has been approved at Level ").append(level).append(".</p>");
             }
         }
 
-        html.append("<div class='details'>");
-        html.append(
-                "<div class='detail-row'><div class='detail-label'>Application Code:</div><div class='detail-value'>")
-                .append(escapeHtml(applicationCode)).append("</div></div>");
-        html.append("<div class='detail-row'><div class='detail-label'>Form Name:</div><div class='detail-value'>")
-                .append(escapeHtml(formName)).append("</div></div>");
-        html.append("<div class='detail-row'><div class='detail-label'>Approval Level:</div><div class='detail-value'>")
-                .append(level).append("</div></div>");
+        // Details section using table for Outlook
+        html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='background-color:#f8f9fa;border-left:4px solid #667eea;padding:15px 20px;margin:20px 0;border-radius:4px;'>");
+        html.append("<tr><td style='padding:5px 0;'><span style='font-weight:600;color:#555;display:inline-block;min-width:150px;'>Application Code:</span> <span style='color:#333;'>").append(escapeHtml(applicationCode)).append("</span></td></tr>");
+        html.append("<tr><td style='padding:5px 0;'><span style='font-weight:600;color:#555;display:inline-block;min-width:150px;'>Form Name:</span> <span style='color:#333;'>").append(escapeHtml(formName)).append("</span></td></tr>");
+        html.append("<tr><td style='padding:5px 0;'><span style='font-weight:600;color:#555;display:inline-block;min-width:150px;'>Approval Level:</span> <span style='color:#333;'>").append(level).append("</span></td></tr>");
         String statusClass = status != null ? status.toLowerCase().replace("_", "-") : "pending";
-        html.append(
-                "<div class='detail-row'><div class='detail-label'>Status:</div><div class='detail-value'><span class='status-badge status-")
-                .append(statusClass).append("'>").append(escapeHtml(status != null ? status : "PENDING"))
-                .append("</span></div></div>");
+        String statusColor = statusClass.contains("approved") ? "#27ae60" : statusClass.contains("rejected") ? "#e74c3c" : statusClass.contains("pending") ? "#f39c12" : "#3498db";
+        String statusBg = statusClass.contains("approved") ? "#d5f4e6" : statusClass.contains("rejected") ? "#fadbd8" : statusClass.contains("pending") ? "#fef5e7" : "#d6eaf8";
+        html.append("<tr><td style='padding:5px 0;'><span style='font-weight:600;color:#555;display:inline-block;min-width:150px;'>Status:</span> <span style='display:inline-block;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;text-transform:uppercase;background-color:").append(statusBg).append(";color:").append(statusColor).append(";'>").append(escapeHtml(status != null ? status : "PENDING")).append("</span></td></tr>");
+        html.append("</table>");
+        
         if (remarks != null && !remarks.trim().isEmpty()) {
-            html.append("<div class='remarks-box'><strong>Remarks:</strong><br>").append(escapeHtml(remarks))
-                    .append("</div>");
+            html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='background-color:#fff3cd;border-left:4px solid #ffc107;padding:15px 20px;margin:20px 0;border-radius:4px;'>");
+            html.append("<tr><td><strong>Remarks:</strong><br>").append(escapeHtml(remarks)).append("</td></tr>");
+            html.append("</table>");
         }
-        html.append("</div>");
 
         String historyHtml = buildApprovalHistoryHtml(approvalHistoryJson, baseUrl);
         if (historyHtml != null && !historyHtml.trim().isEmpty()) {
@@ -6018,34 +6025,68 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         boolean canSendBackToInitiator = showActionButtons && sendBackToInitiatorUrl != null && level != null && level >= 2;
 
         if (showActionButtons && (canApproveReject || canSendBack || canSendBackToInitiator)) {
-            html.append("<div class='button-container'>");
+            // Button container using table for Outlook
+            html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:30px 0;'>");
+            html.append("<tr><td align='center' style='padding:10px 20px;'>");
             if (canApproveReject) {
-                html.append("<a href='").append(approveUrl).append(
-                        "' class='btn btn-approve' style='color:white;text-decoration:none;'>Approve Application</a>");
-                html.append("<a href='").append(rejectUrl).append(
-                        "' class='btn btn-reject' style='color:white;text-decoration:none;'>Reject Application</a>");
+                html.append("<!--[if mso]>");
+                html.append("<v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='").append(approveUrl).append("' style='height:44px;v-text-anchor:middle;width:180px;' arcsize='12%' strokecolor='#27ae60' fillcolor='#27ae60'>");
+                html.append("<w:anchorlock/><center style='color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:600;'>Approve Application</center>");
+                html.append("</v:roundrect>");
+                html.append("<![endif]-->");
+                html.append("<!--[if !mso]><!-- -->");
+                html.append("<a href='").append(approveUrl).append("' style='display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;background-color:#27ae60;color:#ffffff !important;'>Approve Application</a>");
+                html.append("<!--<![endif]-->");
+                
+                html.append("<!--[if mso]>");
+                html.append("<v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='").append(rejectUrl).append("' style='height:44px;v-text-anchor:middle;width:180px;' arcsize='12%' strokecolor='#e74c3c' fillcolor='#e74c3c'>");
+                html.append("<w:anchorlock/><center style='color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:600;'>Reject Application</center>");
+                html.append("</v:roundrect>");
+                html.append("<![endif]-->");
+                html.append("<!--[if !mso]><!-- -->");
+                html.append("<a href='").append(rejectUrl).append("' style='display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;background-color:#e74c3c;color:#ffffff !important;'>Reject Application</a>");
+                html.append("<!--<![endif]-->");
             }
             if (canSendBack) {
-                html.append("<a href='").append(sendBackUrl)
-                        .append("' class='btn btn-sendback' style='color:white;text-decoration:none;'>Send Back</a>");
+                html.append("<!--[if mso]>");
+                html.append("<v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='").append(sendBackUrl).append("' style='height:44px;v-text-anchor:middle;width:150px;' arcsize='12%' strokecolor='#f39c12' fillcolor='#f39c12'>");
+                html.append("<w:anchorlock/><center style='color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:600;'>Send Back</center>");
+                html.append("</v:roundrect>");
+                html.append("<![endif]-->");
+                html.append("<!--[if !mso]><!-- -->");
+                html.append("<a href='").append(sendBackUrl).append("' style='display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;background-color:#f39c12;color:#ffffff !important;'>Send Back</a>");
+                html.append("<!--<![endif]-->");
             }
             if (canSendBackToInitiator) {
-                html.append("<a href='").append(sendBackToInitiatorUrl)
-                        .append("' class='btn btn-sendback' style='color:white;text-decoration:none;background-color:#c0392b;'>Send Back to Initiator</a>");
+                html.append("<!--[if mso]>");
+                html.append("<v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='").append(sendBackToInitiatorUrl).append("' style='height:44px;v-text-anchor:middle;width:220px;' arcsize='12%' strokecolor='#c0392b' fillcolor='#c0392b'>");
+                html.append("<w:anchorlock/><center style='color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:600;'>Send Back to Initiator</center>");
+                html.append("</v:roundrect>");
+                html.append("<![endif]-->");
+                html.append("<!--[if !mso]><!-- -->");
+                html.append("<a href='").append(sendBackToInitiatorUrl).append("' style='display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;background-color:#c0392b;color:#ffffff !important;'>Send Back to Initiator</a>");
+                html.append("<!--<![endif]-->");
             }
-            html.append("</div>");
-            html.append(
-                    "<p style='text-align:center;color:#7f8c8d;font-size:12px;margin-top:20px;'>You can also review this application in the system dashboard.</p>");
+            html.append("</td></tr>");
+            html.append("</table>");
+            html.append("<p style='text-align:center;color:#7f8c8d;font-size:12px;margin-top:20px;'>You can also review this application in the system dashboard.</p>");
         } else {
-            html.append("<p>Thank you for using our system.</p>");
+            html.append("<p style='margin:15px 0;'>Thank you for using our system.</p>");
         }
 
-        html.append("</div>");
-        html.append("<div class='footer'>");
-        html.append("<p>Best Regards,<br>System Administrator</p>");
-        html.append("<p style='font-size:10px;color:#bdc3c7;'>This is an automated email. Please do not reply.</p>");
-        html.append("</div>");
-        html.append("</div></body></html>");
+        // Footer
+        html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin-top:30px;padding-top:20px;border-top:2px solid #ecf0f1;'>");
+        html.append("<tr><td align='center' style='color:#95a5a6;font-size:12px;padding:10px 0;'>");
+        html.append("<p style='margin:5px 0;'>Best Regards,<br>System Administrator</p>");
+        html.append("<p style='font-size:10px;color:#bdc3c7;margin:5px 0;'>This is an automated email. Please do not reply.</p>");
+        html.append("</td></tr>");
+        html.append("</table>");
+        
+        html.append("</td></tr>");
+        html.append("</table>");
+        html.append("</td></tr>");
+        html.append("</table>");
+        html.append("</body></html>");
 
         return html.toString();
     }
@@ -6062,11 +6103,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return "";
 
             StringBuilder sb = new StringBuilder();
-            sb.append("<div class='history'>");
-            sb.append("<h3>Prior Approvals</h3>");
-            sb.append("<table>");
+            sb.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin-top:20px;'>");
+            sb.append("<tr><td>");
+            sb.append("<h3 style='margin:0 0 10px 0;font-size:16px;color:#333;'>Prior Approvals</h3>");
+            sb.append("<table role='presentation' width='100%' cellpadding='6' cellspacing='0' border='1' style='border-collapse:collapse;font-size:12px;border:1px solid #e5e7eb;'>");
             sb.append("<thead><tr>");
-            sb.append("<th>Level</th><th>Approver</th><th>Role</th><th>Status</th><th>Date</th><th>Signature</th>");
+            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;'>Level</th>");
+            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;'>Approver</th>");
+            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;'>Role</th>");
+            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;'>Status</th>");
+            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;'>Date</th>");
+            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;'>Signature</th>");
             sb.append("</tr></thead><tbody>");
 
             for (Map<String, Object> entry : list) {
@@ -6089,25 +6136,27 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 if (!signaturePath.trim().isEmpty() && approvedBy != null && !approvedBy.trim().isEmpty()
                         && baseUrl != null) {
                     String sigUrl = baseUrl + "/getSignature?userId=" + approvedBy;
-                    sigHtml = "<img class='sig-img' src='" + sigUrl + "' alt='Signature' />";
+                    sigHtml = "<img src='" + sigUrl + "' alt='Signature' style='max-height:24px;max-width:100%;width:auto;height:auto;display:block;margin:0 auto 4px auto;box-sizing:border-box;' />";
                 } else {
                     String inlineSignature = buildInlineSignatureDataUri(signaturePath, approvedById);
                     if (inlineSignature != null && !inlineSignature.isEmpty()) {
-                        sigHtml = "<img class='sig-img' src='" + inlineSignature + "' alt='Signature' />";
+                        sigHtml = "<img src='" + inlineSignature + "' alt='Signature' style='max-height:24px;max-width:100%;width:auto;height:auto;display:block;margin:0 auto 4px auto;box-sizing:border-box;' />";
                     }
                 }
 
                 sb.append("<tr>");
-                sb.append("<td>").append(escapeHtml(level)).append("</td>");
-                sb.append("<td>").append(escapeHtml(name)).append("</td>");
-                sb.append("<td>").append(escapeHtml(role)).append("</td>");
-                sb.append("<td>").append(escapeHtml(action)).append("</td>");
-                sb.append("<td>").append(escapeHtml(date)).append("</td>");
-                sb.append("<td>").append(sigHtml).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;'>").append(escapeHtml(level)).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;'>").append(escapeHtml(name)).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;'>").append(escapeHtml(role)).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;'>").append(escapeHtml(action)).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;'>").append(escapeHtml(date)).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:center;vertical-align:middle;'>").append(sigHtml).append("</td>");
                 sb.append("</tr>");
             }
 
-            sb.append("</tbody></table></div>");
+            sb.append("</tbody></table>");
+            sb.append("</td></tr>");
+            sb.append("</table>");
             return sb.toString();
         } catch (Exception e) {
             log.warn("Error building approval history HTML: " + e.getMessage(), e);
@@ -7003,19 +7052,25 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             // For individual pipeline footer forms, use the stored PDF if available
             // These PDFs are generated by the frontend and have the proper formatting
             if (hasDynamicFooterFlow) {
+                // For general forms with individual pipeline footer: use original PDF without applying signatures
+                // This keeps the email layout independent from web approval updates
+                // For budget approval forms: apply signatures to show current approval state
                 if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
-                    // Apply updated signatures to the existing PDF
-                    try {
-                        byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
-                                application.getBlbPdfData(),
-                                appData,
-                                application.getTxtApprovalHistory());
-                        if (signedPdf != null && signedPdf.length > 0) {
-                            return signedPdf;
+                    if (isBudgetApproval) {
+                        // For budget approval forms, apply updated signatures
+                        try {
+                            byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
+                                    application.getBlbPdfData(),
+                                    appData,
+                                    application.getTxtApprovalHistory());
+                            if (signedPdf != null && signedPdf.length > 0) {
+                                return signedPdf;
+                            }
+                        } catch (Exception e) {
+                            log.warn("Error applying signatures to PDF for email, using original: " + e.getMessage());
                         }
-                    } catch (Exception e) {
-                        log.warn("Error applying signatures to PDF for email, using original: " + e.getMessage());
                     }
+                    // For general forms with individual pipeline footer, return original PDF as-is
                     return application.getBlbPdfData();
                 }
                 
@@ -7026,18 +7081,21 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     if (application != null && application.getSerApplicationId() != null) {
                         dbApp = em.find(CfgTblCustomFormApplication.class, application.getSerApplicationId());
                         if (dbApp != null && dbApp.getBlbPdfData() != null && dbApp.getBlbPdfData().length > 0) {
-                            // Apply updated signatures to the database PDF
-                            try {
-                                byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
-                                        dbApp.getBlbPdfData(),
-                                        appData,
-                                        application.getTxtApprovalHistory());
-                                if (signedPdf != null && signedPdf.length > 0) {
-                                    return signedPdf;
+                            if (isBudgetApproval) {
+                                // For budget approval forms, apply updated signatures
+                                try {
+                                    byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
+                                            dbApp.getBlbPdfData(),
+                                            appData,
+                                            application.getTxtApprovalHistory());
+                                    if (signedPdf != null && signedPdf.length > 0) {
+                                        return signedPdf;
+                                    }
+                                } catch (Exception e) {
+                                    log.warn("Error applying signatures to database PDF for email, using original: " + e.getMessage());
                                 }
-                            } catch (Exception e) {
-                                log.warn("Error applying signatures to database PDF for email, using original: " + e.getMessage());
                             }
+                            // For general forms with individual pipeline footer, return original PDF as-is
                             return dbApp.getBlbPdfData();
                         }
                     }

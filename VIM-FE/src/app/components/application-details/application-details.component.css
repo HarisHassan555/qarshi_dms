@@ -14,8 +14,9 @@
 .xyz-paper {
     width: 210mm;
     position: relative;
-    min-height: auto;
-    height: auto;
+    height: 297mm;
+    min-height: 297mm;
+    max-height: 297mm;
     background: #ffffff;
     color: #000000;
     font-family: "Times New Roman", Times, serif;
@@ -27,7 +28,13 @@
     display: flex;
     flex-direction: column;
     box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-    overflow: visible;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Ensure paper container uses full height for flex layout */
+.xyz-paper {
+    justify-content: flex-start;
 }
 
 /* PDF-only capture: enforce A4 sizing and consistent spacing */
@@ -72,6 +79,7 @@
     display: flex;
     justify-content: flex-end;
     margin-bottom: 6px;
+    flex-shrink: 0;
 }
 
 .xyz-header {
@@ -80,6 +88,7 @@
     align-items: end;
     column-gap: 12px;
     margin-bottom: 6px;
+    flex-shrink: 0;
 }
 
 .xyz-logo {
@@ -124,6 +133,7 @@
     height: 1px;
     background: #000000;
     margin: 8px 0 12px 0;
+    flex-shrink: 0;
 }
 
 .xyz-rule.thick {
@@ -157,6 +167,17 @@
     font-size: 20px;
     line-height: 1.25;
     margin: 6px 0 16px 0;
+    flex-shrink: 0;
+}
+
+/* Header container - makes entire header section sticky */
+.xyz-header-container {
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    background: #ffffff;
+    z-index: 10;
+    padding-bottom: 6px;
 }
 
 .xyz-section {
@@ -303,7 +324,18 @@
     white-space: nowrap;
 }
 
-.xyz-dynamic,
+.xyz-dynamic {
+    margin-top: 4px;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 14px;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    overflow: visible;
+}
+
 .xyz-content-body {
     margin-top: 4px;
     font-family: "Times New Roman", Times, serif;
@@ -313,7 +345,10 @@
     box-sizing: border-box;
     overflow-wrap: break-word;
     word-wrap: break-word;
-    overflow: hidden;
+    overflow: visible;
+    flex: 1 1 0;
+    min-height: 0;
+    display: block;
 }
 
 .xyz-dynamic table,
@@ -367,7 +402,26 @@
 }
 
 .xyz-footer {
+    flex-shrink: 0;
+    position: sticky;
+    bottom: 0;
+    background: #ffffff;
+    z-index: 10;
+    padding-top: 14px;
+    width: 100%;
+    box-sizing: border-box;
     margin-top: auto;
+    align-self: flex-end;
+}
+
+/* Force footer to bottom when content is short */
+.xyz-paper {
+    display: flex;
+    flex-direction: column;
+}
+
+.xyz-paper > .xyz-content-body {
+    flex-grow: 1;
 }
 
 .xyz-signatures th,

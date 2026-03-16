@@ -185,35 +185,37 @@
         <!-- Professional Paper View for Generic Forms -->
         <div *ngIf="!isBudgetApprovalForm() && !isCapfForm()" class="xyz-page-inline">
             <div id="generic-pdf-content" class="xyz-paper">
-                <div class="xyz-date-row">
-                    <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd-MMM-yyyy' }}</div>
-                </div>
+                <div class="xyz-header-container">
+                    <div class="xyz-date-row">
+                        <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd-MMM-yyyy' }}</div>
+                    </div>
 
-                <div class="xyz-header">
-                    <div class="xyz-logo">
-                        <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
-                    </div>
-                    <div class="xyz-company">
-                        <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
-                        <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
-                    </div>
-                    <div class="xyz-header-spacer"></div>
-                    <div class="flex flex-col items-end gap-2">
-                        <div *ngIf="applicationDetails?.txtAssetCode"
-                            class="px-3 py-1 border border-green-600 text-green-700 rounded-full text-xs font-semibold bg-green-50">
-                            Asset Code: {{ applicationDetails.txtAssetCode }}
+                    <div class="xyz-header">
+                        <div class="xyz-logo">
+                            <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
                         </div>
-                        <div *ngIf="applicationDetails?.txtPrCode"
-                            class="px-3 py-1 border border-blue-600 text-blue-700 rounded-full text-xs font-semibold bg-blue-50">
-                            PR Code: {{ applicationDetails.txtPrCode }}
+                        <div class="xyz-company">
+                            <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
+                            <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
                         </div>
+                        <div class="xyz-header-spacer"></div>
+                        <div class="flex flex-col items-end gap-2">
+                            <div *ngIf="applicationDetails?.txtAssetCode"
+                                class="px-3 py-1 border border-green-600 text-green-700 rounded-full text-xs font-semibold bg-green-50">
+                                Asset Code: {{ applicationDetails.txtAssetCode }}
+                            </div>
+                            <div *ngIf="applicationDetails?.txtPrCode"
+                                class="px-3 py-1 border border-blue-600 text-blue-700 rounded-full text-xs font-semibold bg-blue-50">
+                                PR Code: {{ applicationDetails.txtPrCode }}
+                            </div>
+                        </div>
+
                     </div>
 
+                    <div class="xyz-rule thick"></div>
+
+                    <div class="xyz-title">{{ getGenericDocumentHeading() }}</div>
                 </div>
-
-                <div class="xyz-rule thick"></div>
-
-                <div class="xyz-title">{{ getGenericDocumentHeading() }}</div>
 
                 <div class="xyz-content-body">
                     <div *ngFor="let field of getGenericPreviewFields()" class="xyz-generic-field">
@@ -259,38 +261,6 @@
                             </div>
                         </div>
 
-                        <div *ngIf="isIndividualPipelineFooterType(field.type)" class="mt-12 pt-6">
-                            <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields().length > 0">
-                                <tr class="xyz-signatures-blank">
-                                    <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
-                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                            <div *ngIf="slotUser && isUserApproved(slotUser, section.label)">
-                                                <img *ngIf="getUserSignatureUrl(slotUser, section.label)"
-                                                    [src]="getUserSignatureUrl(slotUser, section.label)" class="xyz-sig-img"
-                                                    alt="Signature" crossorigin="anonymous">
-                                                <div class="xyz-sig-time" *ngIf="getUserApprovalDate(slotUser, section.label)">
-                                                    {{ getUserApprovalDate(slotUser, section.label) }}
-                                                </div>
-                                            </div>
-                                        </td>
-                                    </ng-container>
-                                </tr>
-                                <tr>
-                                    <th *ngFor="let section of getIndividualPipelineFooterFields()"
-                                        [attr.colspan]="getIndividualFooterColSpan(section)">
-                                        {{ section.label || 'New Field' }}:
-                                    </th>
-                                </tr>
-                                <tr>
-                                    <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
-                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                            <div [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></div>
-                                        </td>
-                                    </ng-container>
-                                </tr>
-                            </table>
-                        </div>
-
                         <div *ngIf="isTableType(field.type)" class="overflow-x-auto">
                             <table class="xyz-table">
                                 <thead>
@@ -310,47 +280,82 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Individual Pipeline Footer - Outside content body to stay at bottom -->
+                <div class="xyz-footer" *ngIf="hasIndividualPipelineFooter()">
+                    <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields().length > 0">
+                        <tr class="xyz-signatures-blank">
+                            <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
+                                <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                    <div *ngIf="slotUser && isUserApproved(slotUser, section.label)">
+                                        <img *ngIf="getUserSignatureUrl(slotUser, section.label)"
+                                            [src]="getUserSignatureUrl(slotUser, section.label)" class="xyz-sig-img"
+                                            alt="Signature" crossorigin="anonymous">
+                                        <div class="xyz-sig-time" *ngIf="getUserApprovalDate(slotUser, section.label)">
+                                            {{ getUserApprovalDate(slotUser, section.label) }}
+                                        </div>
+                                    </div>
+                                </td>
+                            </ng-container>
+                        </tr>
+                        <tr>
+                            <th *ngFor="let section of getIndividualPipelineFooterFields()"
+                                [attr.colspan]="getIndividualFooterColSpan(section)">
+                                {{ section.label || 'New Field' }}:
+                            </th>
+                        </tr>
+                        <tr>
+                            <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
+                                <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                    <div [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></div>
+                                </td>
+                            </ng-container>
+                        </tr>
+                    </table>
+                </div>
             </div>
         </div>
 
         <!-- Professional Paper View for Budget Approval Forms -->
         <div *ngIf="isBudgetApprovalForm()" class="xyz-page-inline">
             <div id="budget-pdf-content" class="xyz-paper">
-                <div class="xyz-date-row">
-                    <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd/MM/yyyy' }}</div>
+                <div class="xyz-header-container">
+                    <div class="xyz-date-row">
+                        <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd/MM/yyyy' }}</div>
+                    </div>
+
+                    <div class="xyz-header">
+                        <!-- Left (Logo) -->
+                        <div class="xyz-logo">
+                            <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
+                        </div>
+
+                        <!-- Center (Company) -->
+                        <div class="xyz-company">
+                            <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
+                            <div class="xyz-company-address">
+                                15-G, Jam-e-Shirin Boulevard, Gulberg-III, Lahore
+                            </div>
+                        </div>
+
+                        <!-- Right (Codes) -->
+                        <div class="flex flex-col items-end gap-1">
+                            <div *ngIf="applicationDetails?.txtAssetCode"
+                                class="px-2 py-0.5 border border-green-600 text-green-700 rounded-full text-[10px] font-semibold bg-green-50">
+                                Asset Code: {{ applicationDetails.txtAssetCode }}
+                            </div>
+
+                            <div *ngIf="applicationDetails?.txtPrCode"
+                                class="px-2 py-0.5 border border-blue-600 text-blue-700 rounded-full text-[10px] font-semibold bg-blue-50">
+                                PR Code: {{ applicationDetails.txtPrCode }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="xyz-rule thick"></div>
+
+                    <div class="xyz-title">{{ formHeading }}</div>
                 </div>
-
-                <div class="xyz-header">
-                    <!-- Left (Logo) -->
-                    <div class="xyz-logo">
-                        <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
-                    </div>
-
-                    <!-- Center (Company) -->
-                    <div class="xyz-company">
-                        <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
-                        <div class="xyz-company-address">
-                            15-G, Jam-e-Shirin Boulevard, Gulberg-III, Lahore
-                        </div>
-                    </div>
-
-                    <!-- Right (Codes) -->
-                    <div class="flex flex-col items-end gap-1">
-                        <div *ngIf="applicationDetails?.txtAssetCode"
-                            class="px-2 py-0.5 border border-green-600 text-green-700 rounded-full text-[10px] font-semibold bg-green-50">
-                            Asset Code: {{ applicationDetails.txtAssetCode }}
-                        </div>
-
-                        <div *ngIf="applicationDetails?.txtPrCode"
-                            class="px-2 py-0.5 border border-blue-600 text-blue-700 rounded-full text-[10px] font-semibold bg-blue-50">
-                            PR Code: {{ applicationDetails.txtPrCode }}
-                        </div>
-                    </div>
-                </div>
-
-                <div class="xyz-rule thick"></div>
-
-                <div class="xyz-title">{{ formHeading }}</div>
 
                 <div class="xyz-content-body">
                     <div [innerHTML]="safeContent || '<i>(No content found in application data)</i>'"></div>
