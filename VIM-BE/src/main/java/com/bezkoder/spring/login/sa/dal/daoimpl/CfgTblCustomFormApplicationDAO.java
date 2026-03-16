@@ -1246,6 +1246,26 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     ObjectMapper mapper = new ObjectMapper();
                     String updatedHistoryJson = mapper.writeValueAsString(approvalHistory);
                     application.setTxtApprovalHistory(updatedHistoryJson);
+                    
+                    // Also add to txtPriorApprovals to preserve approval logs permanently
+                    List<java.util.Map<String, Object>> priorApprovals = new java.util.ArrayList<>();
+                    String priorApprovalsJson = application.getTxtPriorApprovals();
+                    if (priorApprovalsJson != null && !priorApprovalsJson.trim().isEmpty()) {
+                        try {
+                            priorApprovals = mapper.readValue(
+                                    priorApprovalsJson,
+                                    new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
+                                    });
+                        } catch (Exception e) {
+                            log.warn("Error parsing prior approvals, starting fresh: " + e.getMessage());
+                            priorApprovals = new java.util.ArrayList<>();
+                        }
+                    }
+                    // Add a copy of the approval entry to prior approvals (preserve permanently)
+                    java.util.Map<String, Object> priorEntry = new java.util.HashMap<>(approvalEntry);
+                    priorApprovals.add(priorEntry);
+                    String updatedPriorApprovalsJson = mapper.writeValueAsString(priorApprovals);
+                    application.setTxtPriorApprovals(updatedPriorApprovalsJson);
                 } catch (Exception e) {
                     log.error("Error serializing approval history: " + e.getMessage());
                 }
@@ -1299,9 +1319,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     } catch (Exception e) {
                         log.warn("Error regenerating application PDF: " + e.getMessage(), e);
                     }
-                } else if (isBudgetApproval && hasDynamicFooterFlow && application.getBlbPdfData() != null
+                } else if (hasDynamicFooterFlow && application.getBlbPdfData() != null
                         && application.getBlbPdfData().length > 0) {
-                    // Only update PDF for budget approval forms, not general forms with individual pipeline footer
+                    // Update PDF for both budget approval forms and general forms with individual pipeline footer
                     // Keep the exact existing form layout and only refresh footer signatures.
                     try {
                         byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
@@ -1314,13 +1334,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                     : "application";
                             application.setTxtPdfName(buildPdfFileName(form, code));
                             application.setTxtPdfMime("application/pdf");
+                            log.info("Updated PDF signatures for appId={}, isBudgetApproval={}", 
+                                application.getSerApplicationId(), isBudgetApproval);
                         }
                     } catch (Exception e) {
                         log.warn("Error applying dynamic footer signatures to existing PDF: " + e.getMessage(), e);
                     }
                 }
-                // For general forms with individual pipeline footer (hasDynamicFooterFlow but NOT isBudgetApproval):
-                // Do nothing - preserve the original PDF so email layout stays independent
 
                 entityManager.merge(application);
                 entityManager.getTransaction().commit();
@@ -1980,6 +2000,26 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 String updatedHistoryJson = mapper.writeValueAsString(updatedHistory);
                 application.setTxtApprovalHistory(updatedHistoryJson);
                 
+                // Add send-back entry to txtPriorApprovals to preserve the log permanently
+                List<java.util.Map<String, Object>> priorApprovals = new java.util.ArrayList<>();
+                String priorApprovalsJson = application.getTxtPriorApprovals();
+                if (priorApprovalsJson != null && !priorApprovalsJson.trim().isEmpty()) {
+                    try {
+                        priorApprovals = mapper.readValue(
+                                priorApprovalsJson,
+                                new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
+                                });
+                    } catch (Exception e) {
+                        log.warn("Error parsing prior approvals, starting fresh: " + e.getMessage());
+                        priorApprovals = new java.util.ArrayList<>();
+                    }
+                }
+                // Add a copy of the send-back entry to prior approvals (preserve permanently)
+                java.util.Map<String, Object> priorSendBackEntry = new java.util.HashMap<>(sendBackEntry);
+                priorApprovals.add(priorSendBackEntry);
+                String updatedPriorApprovalsJson = mapper.writeValueAsString(priorApprovals);
+                application.setTxtPriorApprovals(updatedPriorApprovalsJson);
+                
                 // For individual pipeline footer forms, update signatures on existing PDF instead of clearing it
                 // This preserves the formatted document layout while removing signatures
                 if (hasDynamicFooterFlow && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
@@ -2219,6 +2259,26 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 String updatedHistoryJson = mapper.writeValueAsString(updatedHistory);
                 application.setTxtApprovalHistory(updatedHistoryJson);
                 
+                // Add send-back entry to txtPriorApprovals to preserve the log permanently
+                List<java.util.Map<String, Object>> priorApprovals = new java.util.ArrayList<>();
+                String priorApprovalsJson = application.getTxtPriorApprovals();
+                if (priorApprovalsJson != null && !priorApprovalsJson.trim().isEmpty()) {
+                    try {
+                        priorApprovals = mapper.readValue(
+                                priorApprovalsJson,
+                                new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
+                                });
+                    } catch (Exception e) {
+                        log.warn("Error parsing prior approvals, starting fresh: " + e.getMessage());
+                        priorApprovals = new java.util.ArrayList<>();
+                    }
+                }
+                // Add a copy of the send-back entry to prior approvals (preserve permanently)
+                java.util.Map<String, Object> priorSendBackEntry = new java.util.HashMap<>(sendBackEntry);
+                priorApprovals.add(priorSendBackEntry);
+                String updatedPriorApprovalsJson = mapper.writeValueAsString(priorApprovals);
+                application.setTxtPriorApprovals(updatedPriorApprovalsJson);
+                
                 // For individual pipeline footer forms, update signatures on existing PDF instead of clearing it
                 if (hasDynamicFooterFlow && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
                     try {
@@ -2298,7 +2358,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                 rejectUrl,
                                 sendBackUrl,
                                 sendBackToInitiatorUrl,
-                                application.getTxtApprovalHistory(),
+                                application.getTxtPriorApprovals() != null && !application.getTxtPriorApprovals().trim().isEmpty() 
+                                    ? application.getTxtPriorApprovals() 
+                                    : application.getTxtApprovalHistory(),
                                 baseUrl
                             );
                             
@@ -2535,7 +2597,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                 null,
                                 null,
                                 null,
-                                application.getTxtApprovalHistory(),
+                                application.getTxtPriorApprovals() != null && !application.getTxtPriorApprovals().trim().isEmpty() 
+                                    ? application.getTxtPriorApprovals() 
+                                    : application.getTxtApprovalHistory(),
                                 getBaseUrl());
 
                         sendEmailWithInlineFormPreview(
@@ -2686,7 +2750,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                                     rejectUrl,
                                                     sendBackUrl,
                                                     sendBackToInitiatorUrl,
-                                                    application.getTxtApprovalHistory(),
+                                                    application.getTxtPriorApprovals() != null && !application.getTxtPriorApprovals().trim().isEmpty() 
+                                                        ? application.getTxtPriorApprovals() 
+                                                        : application.getTxtApprovalHistory(),
                                                     getBaseUrl());
 
                                             sendEmailWithInlineFormPreview(
@@ -2768,7 +2834,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     rejectUrl,
                     sendBackUrl,
                     sendBackToInitiatorUrl,
-                    application.getTxtApprovalHistory(),
+                    application.getTxtPriorApprovals() != null && !application.getTxtPriorApprovals().trim().isEmpty() 
+                        ? application.getTxtPriorApprovals() 
+                        : application.getTxtApprovalHistory(),
                     getBaseUrl());
 
             if (isCapfForm(form)) {
@@ -3573,7 +3641,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     rejectUrl,
                     sendBackUrl,
                     sendBackToInitiatorUrl,
-                    application.getTxtApprovalHistory(),
+                    application.getTxtPriorApprovals() != null && !application.getTxtPriorApprovals().trim().isEmpty() 
+                        ? application.getTxtPriorApprovals() 
+                        : application.getTxtApprovalHistory(),
                     getBaseUrl());
 
             sendEmailWithInlineFormPreview(
@@ -7051,51 +7121,23 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
             // For individual pipeline footer forms, use the stored PDF if available
             // These PDFs are generated by the frontend and have the proper formatting
+            // The PDF is now updated with signatures in approveApplication, so we can use it directly
             if (hasDynamicFooterFlow) {
-                // For general forms with individual pipeline footer: use original PDF without applying signatures
-                // This keeps the email layout independent from web approval updates
-                // For budget approval forms: apply signatures to show current approval state
                 if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
-                    if (isBudgetApproval) {
-                        // For budget approval forms, apply updated signatures
-                        try {
-                            byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
-                                    application.getBlbPdfData(),
-                                    appData,
-                                    application.getTxtApprovalHistory());
-                            if (signedPdf != null && signedPdf.length > 0) {
-                                return signedPdf;
-                            }
-                        } catch (Exception e) {
-                            log.warn("Error applying signatures to PDF for email, using original: " + e.getMessage());
-                        }
-                    }
-                    // For general forms with individual pipeline footer, return original PDF as-is
+                    // The stored PDF already has updated signatures from approveApplication
+                    // Return it directly for both budget approval and general forms
                     return application.getBlbPdfData();
                 }
                 
-                // If PDF doesn't exist, try to get it from database
+                // If PDF doesn't exist in application object, try to get it from database
                 CfgTblCustomFormApplication dbApp = null;
                 EntityManager em = getEntityManager();
                 try {
                     if (application != null && application.getSerApplicationId() != null) {
                         dbApp = em.find(CfgTblCustomFormApplication.class, application.getSerApplicationId());
                         if (dbApp != null && dbApp.getBlbPdfData() != null && dbApp.getBlbPdfData().length > 0) {
-                            if (isBudgetApproval) {
-                                // For budget approval forms, apply updated signatures
-                                try {
-                                    byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
-                                            dbApp.getBlbPdfData(),
-                                            appData,
-                                            application.getTxtApprovalHistory());
-                                    if (signedPdf != null && signedPdf.length > 0) {
-                                        return signedPdf;
-                                    }
-                                } catch (Exception e) {
-                                    log.warn("Error applying signatures to database PDF for email, using original: " + e.getMessage());
-                                }
-                            }
-                            // For general forms with individual pipeline footer, return original PDF as-is
+                            // The stored PDF in database already has updated signatures
+                            // Return it directly for both budget approval and general forms
                             return dbApp.getBlbPdfData();
                         }
                     }

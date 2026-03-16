@@ -47,6 +47,9 @@ public class CfgTblCustomFormApplication implements Serializable {
     @Column(name = "txt_approval_history", columnDefinition = "JSON")
     private String txtApprovalHistory;
 
+    @Column(name = "txt_prior_approvals", columnDefinition = "JSON")
+    private String txtPriorApprovals;
+
     @Column(name = "txt_asset_code")
     private String txtAssetCode;
 
@@ -175,6 +178,14 @@ public class CfgTblCustomFormApplication implements Serializable {
 
     public void setTxtApprovalHistory(String txtApprovalHistory) {
         this.txtApprovalHistory = txtApprovalHistory;
+    }
+
+    public String getTxtPriorApprovals() {
+        return txtPriorApprovals;
+    }
+
+    public void setTxtPriorApprovals(String txtPriorApprovals) {
+        this.txtPriorApprovals = txtPriorApprovals;
     }
 
     public String getTxtAssetCode() {

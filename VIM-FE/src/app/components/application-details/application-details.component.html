@@ -619,16 +619,16 @@
             <div class="approval-flow">
                 <ng-container *ngFor="let node of getDynamicApprovalWorkflow(); let i = index">
                     <div class="approval-node" [ngClass]="{
-                            'is-approved': getDynamicStageStatus(node) === 'APPROVED',
-                            'is-pending': getDynamicStageStatus(node) === 'PENDING',
-                            'is-rejected': getDynamicStageStatus(node) === 'REJECTED'
+                            'is-approved': getDynamicStageStatus(node, i) === 'APPROVED',
+                            'is-pending': getDynamicStageStatus(node, i) === 'PENDING',
+                            'is-rejected': getDynamicStageStatus(node, i) === 'REJECTED'
                         }">
                         <div class="approval-node-header">
                             <div class="approval-node-title">
                                 {{ getDynamicStageTitle(node) }}
                             </div>
                             <div class="approval-node-status">
-                                {{ getDynamicStageStatus(node) }}
+                                {{ getDynamicStageStatus(node, i) }}
                             </div>
                         </div>
                         <div class="approval-node-body">

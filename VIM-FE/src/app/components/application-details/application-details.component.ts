@@ -2630,30 +2630,71 @@ export class ApplicationDetailsComponent implements OnInit {
     return dynamicNodes;
   }
 
-  getDynamicStageStatus(node: any): string {
+  getDynamicStageStatus(node: any, nodeIndex?: number): string {
     if (node.isInitiator) return 'APPROVED';
     const userId = this.getUserId(node.user);
     if (!userId || !this.approvalHistory) {
-      // Current pending level matches? For dynamic maybe not using intApprovalOrder.
       return 'PENDING';
     }
     
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel || 0;
     
+    // Determine the node's level in the workflow (0-indexed)
+    // If nodeIndex is provided, use it; otherwise, find it from the workflow array
+    let workflowLevel: number;
+    if (nodeIndex !== undefined && nodeIndex !== null) {
+      workflowLevel = nodeIndex;
+    } else {
+      const workflow = this.getDynamicApprovalWorkflow();
+      workflowLevel = workflow.findIndex(n => 
+        this.getUserId(n.user) === userId && n.title === node.title
+      );
+      if (workflowLevel === -1) {
+        return 'PENDING';
+      }
+    }
+    
+    // If this node is at the current pending level, it should be PENDING
+    // (even if there's an old approval entry, because send-back requires re-approval)
+    if (workflowLevel === currentLevel) {
+      return 'PENDING';
+    }
+    
+    // If this node is after the current level, it's PENDING (future level)
+    if (workflowLevel > currentLevel) {
+      return 'PENDING';
+    }
+    
+    // If this node is before the current level, check if it was approved
+    // Find approval entry for this user at this specific level
     const entry = this.approvalHistory.find((e: any) => {
       // Skip SENT_BACK entries
       const action = (e.action || '').toString().toUpperCase();
       if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') return false;
       
       // For individual pipeline footer forms, filter out entries removed during send-back
-      // Level in history is 1-indexed (currentLevel + 1), so entries with level > currentLevel were removed
+      // Level in history is 1-indexed, workflowLevel is 0-indexed
+      // So entryLevel should be (workflowLevel + 1) for this specific node
       const entryLevel = e.level || e.intApprovalOrder;
-      if (entryLevel != null && entryLevel > (currentLevel + 1)) return false;
+      if (entryLevel != null) {
+        // Entry level is 1-indexed, workflowLevel is 0-indexed
+        // So entryLevel should match (workflowLevel + 1) for this node
+        if (entryLevel !== (workflowLevel + 1)) {
+          return false;
+        }
+        // Also filter out entries that were removed during send-back
+        if (entryLevel > (currentLevel + 1)) {
+          return false;
+        }
+      }
       
       return e.approvedBy === userId || e.userId === userId;
     });
     
-    if (!entry) return 'PENDING';
+    // If no entry found for a level that's before current level, it's PENDING (shouldn't happen but safe)
+    if (!entry) {
+      return 'PENDING';
+    }
     
     const action = (entry.action || entry.status || '').toString().toUpperCase();
     if (action === 'REJECTED') return 'REJECTED';
