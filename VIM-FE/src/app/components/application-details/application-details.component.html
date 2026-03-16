@@ -789,12 +789,12 @@
 <div *ngIf="showQuotationModal" class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
     (click)="closeQuotationModal()">
     <div class="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"></div>
-    <div class="relative w-full max-w-6xl max-h-[90vh] flex flex-col rounded-xl shadow-2xl
+    <div class="relative w-full max-w-6xl h-[95vh] flex flex-col rounded-xl shadow-2xl
                 bg-white dark:bg-[#0e1726] border border-gray-100 dark:border-[#1b2e4b] overflow-hidden"
         (click)="$event.stopPropagation()">
 
         <!-- Modal Header -->
-        <div class="flex items-center justify-between px-6 py-5 border-b border-gray-100 dark:border-[#1b2e4b]">
+        <div class="flex items-center justify-between px-6 py-5 border-b border-gray-100 dark:border-[#1b2e4b] flex-shrink-0">
             <div class="flex items-center gap-3">
                 <div class="p-2 bg-info/10 rounded text-info">
                     <icon-clipboard-text class="w-5 h-5" />
@@ -817,7 +817,7 @@
         </div>
 
         <!-- Modal Body -->
-        <div class="flex flex-1 overflow-hidden">
+        <div class="flex flex-1 overflow-hidden min-h-0">
             <!-- Left Sidebar: File List -->
             <div
                 class="w-64 border-r border-gray-100 dark:border-[#1b2e4b] overflow-y-auto bg-gray-50/50 dark:bg-gray-800/20 p-4 space-y-2">
@@ -865,11 +865,11 @@
                     </div>
 
                     <div
-                        class="flex-1 flex items-center justify-center bg-white dark:bg-[#1b2e4b] rounded-lg shadow-sm border border-gray-100 dark:border-[#1b2e4b] overflow-hidden">
+                        class="flex-1 flex items-center justify-center bg-white dark:bg-[#1b2e4b] rounded-lg shadow-sm border border-gray-100 dark:border-[#1b2e4b] overflow-hidden min-h-0">
                         <img *ngIf="isQuotationImage(selectedQuotation)" [src]="currentQuotationPreviewUrl"
                             class="max-w-full max-h-full object-contain" />
                         <iframe *ngIf="!isQuotationImage(selectedQuotation)" [src]="currentQuotationPreviewUrl"
-                            class="w-full h-full border-none"></iframe>
+                            class="w-full h-full border-none min-h-0"></iframe>
                     </div>
                 </ng-container>
             </div>
