@@ -748,13 +748,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return "Failure: Application not found";
             }
 
-            if (application.getBlbPdfDataInitial() == null || application.getBlbPdfDataInitial().length == 0) {
-                application.setBlbPdfDataInitial(pdfData);
-            }
-            byte[] oldCurrent = application.getBlbPdfData();
-            if (oldCurrent != null && oldCurrent.length > 0) {
-                application.setBlbPdfDataPrevious(oldCurrent);
-            }
+            application.setBlbPdfForStage(0, pdfData);
             application.setBlbPdfData(pdfData);
             application.setTxtPdfName(pdfName != null && !pdfName.trim().isEmpty() ? pdfName : "application.pdf");
             application.setTxtPdfMime(pdfMime != null && !pdfMime.trim().isEmpty() ? pdfMime : "application/pdf");
@@ -1319,9 +1313,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         if (pdfBytes != null && pdfBytes.length > 0) {
                             String code = application.getTxtFormCode() != null ? application.getTxtFormCode()
                                     : "application";
-                            if (application.getBlbPdfDataInitial() == null || application.getBlbPdfDataInitial().length == 0) {
-                                application.setBlbPdfDataInitial(pdfBytes);
-                            }
+                            application.setBlbPdfForStage(0, pdfBytes);
                             application.setBlbPdfData(pdfBytes);
                             application.setTxtPdfName(buildPdfFileName(form, code));
                             application.setTxtPdfMime("application/pdf");
@@ -1333,6 +1325,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         && application.getBlbPdfData().length > 0) {
                     // Update PDF for both budget approval forms and general forms with individual pipeline footer
                     // Only draw the newly added signature to avoid duplicates (e.g. when mixing email + portal approvals).
+                    // Save one PDF per stage: after this approval we are at currentLevel, so save to that stage.
                     try {
                         byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
                                 application.getBlbPdfData(),
@@ -1340,10 +1333,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                 application.getTxtApprovalHistory(),
                                 true);
                         if (signedPdf != null && signedPdf.length > 0) {
-                            byte[] cur = application.getBlbPdfData();
-                            if (cur != null && cur.length > 0) {
-                                application.setBlbPdfDataPrevious(cur);
-                            }
+                            application.setBlbPdfForStage(currentLevel, signedPdf);
                             application.setBlbPdfData(signedPdf);
                             String code = application.getTxtFormCode() != null ? application.getTxtFormCode()
                                     : "application";
@@ -1627,9 +1617,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         if (pdfBytes != null && pdfBytes.length > 0) {
                             String code = application.getTxtFormCode() != null ? application.getTxtFormCode()
                                     : "application";
-                            if (application.getBlbPdfDataInitial() == null || application.getBlbPdfDataInitial().length == 0) {
-                                application.setBlbPdfDataInitial(pdfBytes);
-                            }
+                            application.setBlbPdfForStage(0, pdfBytes);
                             application.setBlbPdfData(pdfBytes);
                             application.setTxtPdfName(buildPdfFileName(form, code));
                             application.setTxtPdfMime("application/pdf");
@@ -2086,13 +2074,14 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 }
 
                 // This preserves the formatted document layout while removing signatures.
-                // On send-back to a level: use previous PDF so we get "one before current" output.
+                // On send-back to a level: restore the PDF stored for that stage (one PDF per stage).
                 if (hasDynamicFooterFlow && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
-                    byte[] previousPdf = application.getBlbPdfDataPrevious();
-                    if (previousPdf != null && previousPdf.length > 0) {
-                        application.setBlbPdfData(previousPdf);
-                        log.info("Restored PDF to previous version for appId={} when sending back from level {} to {}",
-                                application.getSerApplicationId(), originalLevel, currentLevel);
+                    int targetLevel = (currentLevel != null ? currentLevel : 0);
+                    byte[] stagePdf = application.getBlbPdfForStage(targetLevel);
+                    if (stagePdf != null && stagePdf.length > 0) {
+                        application.setBlbPdfData(stagePdf);
+                        log.info("Restored PDF for stage {} for appId={} when sending back from level {} to {}",
+                                targetLevel, application.getSerApplicationId(), originalLevel, currentLevel);
                     } else {
                     try {
                         byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
@@ -2351,35 +2340,38 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 String updatedPriorApprovalsJson = mapper.writeValueAsString(priorApprovals);
                 application.setTxtPriorApprovals(updatedPriorApprovalsJson);
                 
-                // For send-back to initiator: restore the very first PDF so we get the "first one".
-                if (hasDynamicFooterFlow && application.getBlbPdfDataInitial() != null && application.getBlbPdfDataInitial().length > 0) {
-                    application.setBlbPdfData(application.getBlbPdfDataInitial());
-                    application.setTxtPdfName(application.getTxtPdfName());
-                    application.setTxtPdfMime(application.getTxtPdfMime() != null ? application.getTxtPdfMime() : "application/pdf");
-                    log.info("Restored PDF to initial version for appId={} when sending back to initiator from level {}",
-                            application.getSerApplicationId(), originalLevel);
-                } else if (hasDynamicFooterFlow && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
-                    try {
-                        byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
-                                application.getBlbPdfData(),
-                                appData,
-                                updatedHistoryJson);
-                        if (signedPdf != null && signedPdf.length > 0) {
-                            application.setBlbPdfData(signedPdf);
-                            log.info("Updated signatures in PDF for appId={} when sending back to first person from level {}", 
+                // For send-back to initiator: restore the PDF for stage 0 (one PDF per stage).
+                if (hasDynamicFooterFlow) {
+                    byte[] stage0Pdf = application.getBlbPdfForStage(0);
+                    if (stage0Pdf != null && stage0Pdf.length > 0) {
+                        application.setBlbPdfData(stage0Pdf);
+                        application.setTxtPdfName(application.getTxtPdfName());
+                        application.setTxtPdfMime(application.getTxtPdfMime() != null ? application.getTxtPdfMime() : "application/pdf");
+                        log.info("Restored PDF to stage 0 for appId={} when sending back to initiator from level {}",
                                 application.getSerApplicationId(), originalLevel);
-                        } else {
+                    } else if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                        try {
+                            byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
+                                    application.getBlbPdfData(),
+                                    appData,
+                                    updatedHistoryJson);
+                            if (signedPdf != null && signedPdf.length > 0) {
+                                application.setBlbPdfData(signedPdf);
+                                log.info("Updated signatures in PDF for appId={} when sending back to first person from level {}",
+                                        application.getSerApplicationId(), originalLevel);
+                            } else {
+                                application.setBlbPdfData(null);
+                                application.setTxtPdfName(null);
+                                application.setTxtPdfMime(null);
+                                log.warn("Failed to update signatures in PDF, cleared PDF for appId={}",
+                                        application.getSerApplicationId());
+                            }
+                        } catch (Exception e) {
+                            log.warn("Error updating signatures in PDF during send back to first person: " + e.getMessage(), e);
                             application.setBlbPdfData(null);
                             application.setTxtPdfName(null);
                             application.setTxtPdfMime(null);
-                            log.warn("Failed to update signatures in PDF, cleared PDF for appId={}", 
-                                application.getSerApplicationId());
                         }
-                    } catch (Exception e) {
-                        log.warn("Error updating signatures in PDF during send back to first person: " + e.getMessage(), e);
-                        application.setBlbPdfData(null);
-                        application.setTxtPdfName(null);
-                        application.setTxtPdfMime(null);
                     }
                 } else {
                     // For non-individual pipeline footer forms, clear the PDF data so it gets regenerated
@@ -7024,12 +7016,12 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     loadApprovalPipeline(form));
             if (signedPdf != null && signedPdf.length > 0) {
                 String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
-                byte[] cur = application.getBlbPdfData();
-                if (cur != null && cur.length > 0) {
-                    application.setBlbPdfDataPrevious(cur);
+                if (application.getBlbPdfForStage(0) == null || application.getBlbPdfForStage(0).length == 0) {
+                    application.setBlbPdfForStage(0, basePdf);
                 }
-                if (application.getBlbPdfDataInitial() == null || application.getBlbPdfDataInitial().length == 0) {
-                    application.setBlbPdfDataInitial(basePdf);
+                Integer capfLevel = application.getIntCurrentApprovalLevel();
+                if (capfLevel != null && capfLevel >= 0) {
+                    application.setBlbPdfForStage(capfLevel, signedPdf);
                 }
                 application.setBlbPdfData(signedPdf);
                 application.setTxtPdfName(buildPdfFileName(form, code));

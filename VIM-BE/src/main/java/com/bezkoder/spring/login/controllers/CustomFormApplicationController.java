@@ -591,7 +591,7 @@ public class CustomFormApplicationController {
                         +
                         ".success{color:#f39c12;font-size:24px;margin-bottom:20px}" +
                         ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                        "<div class='container'><div class='success'>â†© Application Sent Back</div>" +
+                        "<div class='container'><div class='success'>✓ Application Sent Back</div>" +
                         "<div class='message'>The application has been sent back. You can close this window.</div></div></body></html>";
             } else {
                 return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Send Back Failed</title>" +
@@ -641,7 +641,7 @@ public class CustomFormApplicationController {
                         +
                         ".success{color:#f39c12;font-size:24px;margin-bottom:20px}" +
                         ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                        "<div class='container'><div class='success'>â†© Application Sent Back to Initiator</div>" +
+                        "<div class='container'><div class='success'>✓ Application Sent Back to Initiator</div>" +
                         "<div class='message'>The application has been sent back to the initiator. You can close this window.</div></div></body></html>";
             } else {
                 return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Send Back Failed</title>" +

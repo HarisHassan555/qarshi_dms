@@ -63,13 +63,44 @@ public class CfgTblCustomFormApplication implements Serializable {
 
     @Lob
     @JsonIgnore
-    @Column(name = "blb_pdf_data_initial")
-    private byte[] blbPdfDataInitial;
-
+    @Column(name = "blb_pdf_stage_0")
+    private byte[] blbPdfStage0;
     @Lob
     @JsonIgnore
-    @Column(name = "blb_pdf_data_previous")
-    private byte[] blbPdfDataPrevious;
+    @Column(name = "blb_pdf_stage_1")
+    private byte[] blbPdfStage1;
+    @Lob
+    @JsonIgnore
+    @Column(name = "blb_pdf_stage_2")
+    private byte[] blbPdfStage2;
+    @Lob
+    @JsonIgnore
+    @Column(name = "blb_pdf_stage_3")
+    private byte[] blbPdfStage3;
+    @Lob
+    @JsonIgnore
+    @Column(name = "blb_pdf_stage_4")
+    private byte[] blbPdfStage4;
+    @Lob
+    @JsonIgnore
+    @Column(name = "blb_pdf_stage_5")
+    private byte[] blbPdfStage5;
+    @Lob
+    @JsonIgnore
+    @Column(name = "blb_pdf_stage_6")
+    private byte[] blbPdfStage6;
+    @Lob
+    @JsonIgnore
+    @Column(name = "blb_pdf_stage_7")
+    private byte[] blbPdfStage7;
+    @Lob
+    @JsonIgnore
+    @Column(name = "blb_pdf_stage_8")
+    private byte[] blbPdfStage8;
+    @Lob
+    @JsonIgnore
+    @Column(name = "blb_pdf_stage_9")
+    private byte[] blbPdfStage9;
 
     @Column(name = "txt_pdf_name")
     private String txtPdfName;
@@ -222,21 +253,61 @@ public class CfgTblCustomFormApplication implements Serializable {
         this.blbPdfData = blbPdfData;
     }
 
-    public byte[] getBlbPdfDataInitial() {
-        return blbPdfDataInitial;
+    private static final int MAX_PDF_STAGES = 10;
+
+    public byte[] getBlbPdfForStage(int stage) {
+        if (stage < 0 || stage >= MAX_PDF_STAGES) return null;
+        switch (stage) {
+            case 0: return blbPdfStage0;
+            case 1: return blbPdfStage1;
+            case 2: return blbPdfStage2;
+            case 3: return blbPdfStage3;
+            case 4: return blbPdfStage4;
+            case 5: return blbPdfStage5;
+            case 6: return blbPdfStage6;
+            case 7: return blbPdfStage7;
+            case 8: return blbPdfStage8;
+            case 9: return blbPdfStage9;
+            default: return null;
+        }
     }
 
-    public void setBlbPdfDataInitial(byte[] blbPdfDataInitial) {
-        this.blbPdfDataInitial = blbPdfDataInitial;
+    public void setBlbPdfForStage(int stage, byte[] data) {
+        if (stage < 0 || stage >= MAX_PDF_STAGES) return;
+        switch (stage) {
+            case 0: blbPdfStage0 = data; break;
+            case 1: blbPdfStage1 = data; break;
+            case 2: blbPdfStage2 = data; break;
+            case 3: blbPdfStage3 = data; break;
+            case 4: blbPdfStage4 = data; break;
+            case 5: blbPdfStage5 = data; break;
+            case 6: blbPdfStage6 = data; break;
+            case 7: blbPdfStage7 = data; break;
+            case 8: blbPdfStage8 = data; break;
+            case 9: blbPdfStage9 = data; break;
+        }
     }
 
-    public byte[] getBlbPdfDataPrevious() {
-        return blbPdfDataPrevious;
-    }
-
-    public void setBlbPdfDataPrevious(byte[] blbPdfDataPrevious) {
-        this.blbPdfDataPrevious = blbPdfDataPrevious;
-    }
+    public byte[] getBlbPdfStage0() { return blbPdfStage0; }
+    public void setBlbPdfStage0(byte[] v) { blbPdfStage0 = v; }
+    public byte[] getBlbPdfStage1() { return blbPdfStage1; }
+    public void setBlbPdfStage1(byte[] v) { blbPdfStage1 = v; }
+    public byte[] getBlbPdfStage2() { return blbPdfStage2; }
+    public void setBlbPdfStage2(byte[] v) { blbPdfStage2 = v; }
+    public byte[] getBlbPdfStage3() { return blbPdfStage3; }
+    public void setBlbPdfStage3(byte[] v) { blbPdfStage3 = v; }
+    public byte[] getBlbPdfStage4() { return blbPdfStage4; }
+    public void setBlbPdfStage4(byte[] v) { blbPdfStage4 = v; }
+    public byte[] getBlbPdfStage5() { return blbPdfStage5; }
+    public void setBlbPdfStage5(byte[] v) { blbPdfStage5 = v; }
+    public byte[] getBlbPdfStage6() { return blbPdfStage6; }
+    public void setBlbPdfStage6(byte[] v) { blbPdfStage6 = v; }
+    public byte[] getBlbPdfStage7() { return blbPdfStage7; }
+    public void setBlbPdfStage7(byte[] v) { blbPdfStage7 = v; }
+    public byte[] getBlbPdfStage8() { return blbPdfStage8; }
+    public void setBlbPdfStage8(byte[] v) { blbPdfStage8 = v; }
+    public byte[] getBlbPdfStage9() { return blbPdfStage9; }
+    public void setBlbPdfStage9(byte[] v) { blbPdfStage9 = v; }
 
     public String getTxtPdfName() {
         return txtPdfName;
