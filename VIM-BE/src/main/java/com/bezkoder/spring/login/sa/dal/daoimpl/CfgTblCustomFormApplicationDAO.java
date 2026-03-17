@@ -2495,7 +2495,6 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
             boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
             Map<String, Object> appData = parseApplicationData(application);
-            String quotationAttachmentHtml = buildQuotationAttachmentHtml(appData);
 
             entityManager.getTransaction().commit();
 
@@ -3080,7 +3079,6 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     application.getTxtFormCode() != null ? application.getTxtFormCode() : "null");
 
             Map<String, Object> appData = parseApplicationData(application);
-            String quotationAttachmentHtml = buildQuotationAttachmentHtml(appData);
 
             boolean isBudgetApproval = isBudgetApprovalForm(form);
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
@@ -3122,9 +3120,6 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                 application.getTxtStatus(),
                                 application.getDteCreatedDate() != null ? application.getDteCreatedDate().toString()
                                         : "N/A");
-                        if (!quotationAttachmentHtml.isEmpty()) {
-                            submitterHtmlMessage += quotationAttachmentHtml;
-                        }
 
                         sendEmailWithInlineFormPreview(
                                 java.util.Arrays.asList(submittedByUser.getTxtAddress()),
@@ -3182,10 +3177,6 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                         null, // No send back to initiator for first level
                                         application.getTxtApprovalHistory(),
                                         getBaseUrl());
-                                if (!quotationAttachmentHtml.isEmpty()) {
-                                    signerHtml += quotationAttachmentHtml;
-                                }
-
                                 String cid = "capf-inline";
                                 byte[] imageBytes = buildCapfPreviewPng(application, form);
                                 if (imageBytes != null && imageBytes.length > 0) {
@@ -3788,6 +3779,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     if (keyLower.contains("dataurl") || keyLower.contains("base64")) {
                         continue;
                     }
+                }
+                if (isAttachmentValue(valObj)) {
+                    continue;
                 }
                 String val = formatPdfValue(valObj);
                 y = writeLine(content, y, "  " + key + ": " + val);
@@ -5447,13 +5441,31 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         return y - 14;
     }
 
+    private boolean isAttachmentValue(Object valObj) {
+        if (valObj == null) return false;
+        if (valObj instanceof Map) {
+            Map<?, ?> map = (Map<?, ?>) valObj;
+            return map.containsKey("dataUrl") || map.containsKey("base64") || map.containsKey("fileBase64") || map.containsKey("fileData");
+        }
+        if (valObj instanceof List) {
+            List<?> list = (List<?>) valObj;
+            if (list.isEmpty()) return false;
+            Object first = list.get(0);
+            return first instanceof Map && isAttachmentValue(first);
+        }
+        String s = valObj.toString();
+        return s.contains("base64") || s.contains("dataUrl") || s.trim().startsWith("data:");
+    }
+
     private String formatPdfValue(Object valObj) {
         if (valObj == null)
             return "";
+        if (isAttachmentValue(valObj))
+            return "[Attachment]";
         if (valObj instanceof Map) {
             Map<?, ?> map = (Map<?, ?>) valObj;
             if (map.containsKey("dataUrl") || map.containsKey("base64")) {
-                return "[attachment]";
+                return "[Attachment]";
             }
             return map.toString();
         }
@@ -7465,63 +7477,62 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         if (appData == null) return emailAttachments;
 
         for (Map.Entry<String, Object> entry : appData.entrySet()) {
-            String key = entry.getKey() != null ? entry.getKey().toLowerCase() : "";
-            if (key.contains("quotation") || key.contains("feasibility")) {
-                Object val = entry.getValue();
-                if (val instanceof List<?>) {
-                    List<?> attachments = (List<?>) val;
-                    int i = 1;
-                    for (Object att : attachments) {
-                        try {
-                            if (att instanceof Map<?, ?>) {
-                                Map<?, ?> m = (Map<?, ?>) att;
-                                String name = stringFirst(m.get("fileName"), m.get("name"), m.get("originalName"), m.get("filename"), m.get("title"));
-                                String mimeHint = stringFirst(m.get("mimeType"), m.get("type"));
-                                
-                                String base64 = stringFirst(m.get("base64"), m.get("data"), m.get("content"), m.get("fileBase64"), m.get("fileData"));
-                                
-                                if (base64 == null) {
-                                    Object dataUrlObj = m.get("dataUrl");
-                                    if (dataUrlObj instanceof String && ((String) dataUrlObj).startsWith("data:")) {
-                                        base64 = (String) dataUrlObj;
-                                    }
-                                }
-                                
-                                if (name == null || name.trim().isEmpty()) {
-                                    name = "attachment_" + i;
-                                }
-                                
-                                if (base64 != null) {
-                                    if (base64.startsWith("data:")) {
-                                        int commaIndex = base64.indexOf(',');
-                                        if (commaIndex != -1) {
-                                            if (mimeHint == null || mimeHint.isEmpty()) {
-                                                int semiIndex = base64.indexOf(';');
-                                                if (semiIndex != -1 && semiIndex > 5) {
-                                                    mimeHint = base64.substring(5, semiIndex);
-                                                }
-                                            }
-                                            base64 = base64.substring(commaIndex + 1);
-                                        }
-                                    }
-                                    
-                                    try {
-                                        byte[] bytes = java.util.Base64.getDecoder().decode(base64);
-                                        emailAttachments.add(new com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService.EmailAttachment(bytes, name, mimeHint != null && !mimeHint.isEmpty() ? mimeHint : "application/octet-stream"));
-                                    } catch (IllegalArgumentException ex) {
-                                        log.warn("Invalid base64 string for attachment: {}", name);
-                                    }
-                                }
-                            }
-                        } catch(Exception e) {
-                            log.warn("Failed to extract attachment from appData: {}", e.getMessage());
-                        }
-                        i++;
-                    }
+            Object val = entry.getValue();
+            if (val instanceof List<?>) {
+                List<?> attachments = (List<?>) val;
+                int i = 1;
+                for (Object att : attachments) {
+                    addSingleAttachment(att, entry.getKey(), i, emailAttachments);
+                    i++;
                 }
+            } else if (val instanceof Map<?, ?> && isAttachmentValue(val)) {
+                addSingleAttachment(val, entry.getKey(), 1, emailAttachments);
             }
         }
         return emailAttachments;
+    }
+
+    private void addSingleAttachment(Object att, String fieldKey, int index,
+            List<com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService.EmailAttachment> emailAttachments) {
+        try {
+            if (att instanceof Map<?, ?>) {
+                Map<?, ?> m = (Map<?, ?>) att;
+                String name = stringFirst(m.get("fileName"), m.get("name"), m.get("originalName"), m.get("filename"), m.get("title"));
+                String mimeHint = stringFirst(m.get("mimeType"), m.get("type"));
+                String base64 = stringFirst(m.get("base64"), m.get("data"), m.get("content"), m.get("fileBase64"), m.get("fileData"));
+                if (base64 == null) {
+                    Object dataUrlObj = m.get("dataUrl");
+                    if (dataUrlObj instanceof String && ((String) dataUrlObj).startsWith("data:")) {
+                        base64 = (String) dataUrlObj;
+                    }
+                }
+                if (name == null || name.trim().isEmpty()) {
+                    name = (fieldKey != null ? fieldKey + "_" : "attachment_") + index;
+                }
+                if (base64 != null) {
+                    if (base64.startsWith("data:")) {
+                        int commaIndex = base64.indexOf(',');
+                        if (commaIndex != -1) {
+                            if (mimeHint == null || mimeHint.isEmpty()) {
+                                int semiIndex = base64.indexOf(';');
+                                if (semiIndex != -1 && semiIndex > 5) {
+                                    mimeHint = base64.substring(5, semiIndex);
+                                }
+                            }
+                            base64 = base64.substring(commaIndex + 1);
+                        }
+                    }
+                    try {
+                        byte[] bytes = java.util.Base64.getDecoder().decode(base64);
+                        emailAttachments.add(new com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService.EmailAttachment(bytes, name, mimeHint != null && !mimeHint.isEmpty() ? mimeHint : "application/octet-stream"));
+                    } catch (IllegalArgumentException ex) {
+                        log.warn("Invalid base64 string for attachment: {}", name);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to extract attachment from appData: {}", e.getMessage());
+        }
     }
 
     private void sendEmailWithInlineFormPreview(List<String> recipients, String subject, String html,
@@ -7534,7 +7545,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             String cid = cidBase + "-" + appIdPart + "-" + System.currentTimeMillis();
 
             List<com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService.EmailAttachment> attachments = new java.util.ArrayList<>();
-            if (isCapf && application != null) {
+            if (application != null) {
                 try {
                     Map<String, Object> appData = parseApplicationData(application);
                     attachments = extractEmailAttachmentsFromAppData(appData);
@@ -7564,13 +7575,23 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 if (imageBytes != null && imageBytes.length > 0) {
                     String formTitle = getResolvedFormName(form) + " Form";
                     String htmlWithImage = appendInlinePdfImage(html, cid, formTitle);
-                    emailService.sendHtmlEmailWithInlineImage(recipients, subject, htmlWithImage, imageBytes,
-                            "image/png",
-                            cid);
+                    if (attachments.isEmpty()) {
+                        emailService.sendHtmlEmailWithInlineImage(recipients, subject, htmlWithImage, imageBytes,
+                                "image/png",
+                                cid);
+                    } else {
+                        emailService.sendHtmlEmailWithInlineImageAndAttachments(recipients, subject, htmlWithImage, imageBytes,
+                                "image/png",
+                                cid, attachments);
+                    }
                     return;
                 }
             }
-            emailService.sendHtmlEmail(recipients, subject, html);
+            if (!attachments.isEmpty()) {
+                emailService.sendHtmlEmailWithAttachments(recipients, subject, html, attachments);
+            } else {
+                emailService.sendHtmlEmail(recipients, subject, html);
+            }
         } catch (Exception e) {
             log.warn("Inline preview email failed, fallback to HTML only: {}", e.getMessage());
             emailService.sendHtmlEmail(recipients, subject, html);

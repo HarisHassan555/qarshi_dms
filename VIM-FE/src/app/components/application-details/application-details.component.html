@@ -52,10 +52,10 @@
                     <icon-file class="w-4 h-4" />
                     View Feasibility Report
                 </button>
-                <button *ngIf="showQuotationAttachmentsButton()" (click)="openQuotationAttachmentsModal()"
+                <button *ngIf="hasAnyFormAttachments()" (click)="openFormAttachmentsModal()"
                     class="btn btn-outline-info gap-2">
                     <icon-clipboard-text class="w-4 h-4" />
-                    View Quotation Attachments
+                    View Attachments
                 </button>
                 <button *ngIf="canEditVendorDetails()" (click)="startEditingVendor()"
                     class="btn btn-outline-primary gap-2">
@@ -224,7 +224,7 @@
                 </div>
 
                 <div class="xyz-content-body">
-                    <div *ngFor="let field of getGenericPreviewFields()" class="xyz-generic-field">
+                    <div *ngFor="let field of getBodyPreviewFields()" class="xyz-generic-field">
                         <div class="xyz-generic-label"
                             *ngIf="!isWordEditorType(field.type)
                                    && !isIndividualPipelineFooterType(field.type)
@@ -855,7 +855,7 @@
                     <icon-clipboard-text class="w-5 h-5" />
                 </div>
                 <div>
-                    <div class="text-lg font-bold text-gray-900 dark:text-white">Quotation Attachments</div>
+                    <div class="text-lg font-bold text-gray-900 dark:text-white">Attachments</div>
                     <div class="text-xs text-gray-500">{{ quotationAttachments.length }} file(s) attached</div>
                 </div>
             </div>
@@ -884,7 +884,7 @@
                         <icon-gallery *ngIf="isQuotationImage(att)" class="w-5 h-5" />
                     </div>
                     <div class="flex-1 min-w-0">
-                        <p class="text-xs font-bold truncate">{{ att.fileName || att.name || 'Quotation ' + (i+1) }}</p>
+                        <p class="text-xs font-bold truncate">{{ att._fieldLabel ? (att._fieldLabel + ' – ' + (att.fileName || att.name || 'File ' + (i+1))) : (att.fileName || att.name || 'File ' + (i+1)) }}</p>
                         <p class="text-[10px] opacity-70 uppercase">{{ att.mimeType || att.type || 'File' }}</p>
                     </div>
                 </div>

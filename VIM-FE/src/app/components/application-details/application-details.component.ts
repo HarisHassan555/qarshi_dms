@@ -368,6 +368,43 @@ export class ApplicationDetailsComponent implements OnInit {
     return [];
   }
 
+  /** All form attachment fields (attachment + multi_attachment) for view/download on application-details only */
+  getFormAttachmentsForView(): { fieldLabel: string; files: any[] }[] {
+    const out: { fieldLabel: string; files: any[] }[] = [];
+    const fields = this.getGenericPreviewFields() || [];
+    for (const field of fields) {
+      if (!this.isAttachmentType(field.type) && !this.isMultiAttachmentType(field.type)) continue;
+      const value = this.getFieldValue(field);
+      const files: any[] = Array.isArray(value) ? value : (value != null && typeof value === 'object' ? [value] : []);
+      const valid = files.filter((f: any) => f && (f.fileName || f.base64 || f.dataUrl || f.data || f.content));
+      if (valid.length > 0) {
+        out.push({ fieldLabel: field.label || 'Attachment', files: valid });
+      }
+    }
+    return out;
+  }
+
+  hasAnyFormAttachments(): boolean {
+    return this.getFormAttachmentsForView().some((g) => g.files.length > 0);
+  }
+
+  openFormAttachmentsModal() {
+    const groups = this.getFormAttachmentsForView();
+    const flat: any[] = [];
+    for (const g of groups) {
+      for (const file of g.files) {
+        flat.push({ ...file, _fieldLabel: g.fieldLabel });
+      }
+    }
+    if (flat.length === 0) {
+      this.notificationService.showMessage('No attachments available', 'info');
+      return;
+    }
+    this.quotationAttachments = flat;
+    this.showQuotationModal = true;
+    this.previewQuotation(flat[0]);
+  }
+
   openQuotationAttachmentsModal() {
     this.quotationAttachments = this.getQuotationAttachmentsValue();
     if (this.quotationAttachments.length === 0) {
@@ -1143,6 +1180,22 @@ export class ApplicationDetailsComponent implements OnInit {
     return (fieldType || '').toLowerCase().replace(/\s+/g, '_') === 'table';
   }
 
+  isAttachmentType(fieldType: string | undefined): boolean {
+    const t = (fieldType || '').toLowerCase().replace(/\s+/g, '_');
+    return t === 'attachment' || t === 'file';
+  }
+
+  isMultiAttachmentType(fieldType: string | undefined): boolean {
+    return (fieldType || '').toLowerCase().replace(/\s+/g, '_') === 'multi_attachment';
+  }
+
+  /** Form body: exclude attachment fields so they only appear in the Attachments section for view/download */
+  getBodyPreviewFields(): any[] {
+    return (this.getGenericPreviewFields() || []).filter(
+      (f: any) => !this.isAttachmentType(f?.type) && !this.isMultiAttachmentType(f?.type)
+    );
+  }
+
   getGenericPreviewFields(): any[] {
     const fields = (this.formFields || []).filter((field: any) => !this.isDocumentHeaderType(field?.type));
     if (fields.length > 0) {
@@ -1183,6 +1236,8 @@ export class ApplicationDetailsComponent implements OnInit {
           type = 'checkbox';
         } else if (typeof value === 'string' && value.includes('<') && value.includes('>')) {
           type = 'word_editor';
+        } else if (Array.isArray(value) && value.length > 0 && value.every((v: any) => typeof v === 'object' && v && (v.fileName || v.base64 || v.dataUrl))) {
+          type = 'multi_attachment';
         } else if (typeof value === 'object' && value && (value.fileName || value.mimeType || value.dataUrl || value.base64)) {
           type = 'attachment';
         }
@@ -1350,135 +1405,56 @@ export class ApplicationDetailsComponent implements OnInit {
     }
   }
 
-  // Check if a department in the pipeline has been approved
+  // Check if a department in the pipeline has been approved (and still valid after send-back)
+  // pipelineOrder is 1-indexed; currentLevel is 0-indexed. Show approved only for pipelineOrder <= currentLevel.
   isDepartmentApproved(pipelineOrder: number): boolean {
     if (!this.applicationDetails) return false;
-    const currentLevel = this.applicationDetails.intCurrentApprovalLevel || 0;
+    const currentLevel = this.applicationDetails.intCurrentApprovalLevel ?? 0;
     return currentLevel >= pipelineOrder;
   }
 
-  // Get remarks for a specific department from approval history
+  // Get remarks for a specific department from approval history (uses latest approval entry)
   getDepartmentRemarks(pipelineOrder: number, departmentId?: number): string {
     if (!this.isDepartmentApproved(pipelineOrder)) {
       return '';
     }
-
-    // Find the approval history entry for this department/level
-    if (this.approvalHistory && this.approvalHistory.length > 0) {
-      // Try to find by both level and departmentId for accuracy
-      let historyEntry = null;
-
-      if (departmentId) {
-        // First try exact match by both level and departmentId
-        historyEntry = this.approvalHistory.find((entry: any) =>
-          entry.level === pipelineOrder && entry.departmentId === departmentId
-        );
-      }
-
-      // If not found, try by level only
-      if (!historyEntry) {
-        historyEntry = this.approvalHistory.find((entry: any) =>
-          entry.level === pipelineOrder
-        );
-      }
-
-      // If still not found and departmentId is provided, try by departmentId only
-      if (!historyEntry && departmentId) {
-        historyEntry = this.approvalHistory.find((entry: any) =>
-          entry.departmentId === departmentId
-        );
-      }
-
-      if (historyEntry && historyEntry.remarks) {
-        return historyEntry.remarks;
-      }
+    const historyEntry = this.getStageHistoryEntry(pipelineOrder, departmentId);
+    if (historyEntry && historyEntry.remarks) {
+      return historyEntry.remarks;
     }
-
-    // Fallback: if this is the current level, show current remarks
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel || 0;
     if (pipelineOrder === currentLevel && this.applicationDetails?.txtRemarks) {
       return this.applicationDetails.txtRemarks;
     }
-
     return 'Approved';
   }
 
-  // Get approval date for a department
+  // Get approval date for a department (uses latest approval entry)
   getDepartmentApprovalDate(pipelineOrder: number, departmentId?: number): string {
     if (!this.isDepartmentApproved(pipelineOrder)) {
       return '';
     }
-
-    if (this.approvalHistory && this.approvalHistory.length > 0) {
-      // Try to find by both level and departmentId for accuracy
-      let historyEntry = null;
-
-      if (departmentId) {
-        // First try exact match by both level and departmentId
-        historyEntry = this.approvalHistory.find((entry: any) =>
-          entry.level === pipelineOrder && entry.departmentId === departmentId
-        );
-      }
-
-      // If not found, try by level only
-      if (!historyEntry) {
-        historyEntry = this.approvalHistory.find((entry: any) =>
-          entry.level === pipelineOrder
-        );
-      }
-
-      // If still not found and departmentId is provided, try by departmentId only
-      if (!historyEntry && departmentId) {
-        historyEntry = this.approvalHistory.find((entry: any) =>
-          entry.departmentId === departmentId
-        );
-      }
-
-      if (historyEntry && historyEntry.approvedDate) {
-        try {
-          const date = new Date(historyEntry.approvedDate);
-          return date.toLocaleString();
-        } catch (e) {
-          return historyEntry.approvedDate;
-        }
+    const historyEntry = this.getStageHistoryEntry(pipelineOrder, departmentId);
+    if (historyEntry && historyEntry.approvedDate) {
+      try {
+        const date = new Date(historyEntry.approvedDate);
+        return date.toLocaleString();
+      } catch (e) {
+        return historyEntry.approvedDate;
       }
     }
-
     return '';
   }
 
-  // Get signature for a department
+  // Get signature for a department (uses latest approval entry)
   getDepartmentSignature(pipelineOrder: number, departmentId?: number): string {
     if (!this.isDepartmentApproved(pipelineOrder)) {
       return '';
     }
-
-    if (this.approvalHistory && this.approvalHistory.length > 0) {
-      let historyEntry = null;
-
-      if (departmentId) {
-        historyEntry = this.approvalHistory.find((entry: any) =>
-          entry.level === pipelineOrder && entry.departmentId === departmentId
-        );
-      }
-
-      if (!historyEntry) {
-        historyEntry = this.approvalHistory.find((entry: any) =>
-          entry.level === pipelineOrder
-        );
-      }
-
-      if (!historyEntry && departmentId) {
-        historyEntry = this.approvalHistory.find((entry: any) =>
-          entry.departmentId === departmentId
-        );
-      }
-
-      if (historyEntry && historyEntry.signature) {
-        return historyEntry.signature;
-      }
+    const historyEntry = this.getStageHistoryEntry(pipelineOrder, departmentId);
+    if (historyEntry && historyEntry.signature) {
+      return historyEntry.signature;
     }
-
     return '';
   }
 
@@ -1878,61 +1854,49 @@ export class ApplicationDetailsComponent implements OnInit {
     );
   }
 
+  /** Get approvedDate as timestamp for sorting (earliest first) */
+  private getApprovalEntryTime(e: any): number {
+    const d = e?.approvedDate;
+    if (!d) return 0;
+    if (typeof d === 'number') return d;
+    const t = new Date(d).getTime();
+    return isNaN(t) ? 0 : t;
+  }
+
   // Get history entry for a given pipeline stage (by order/level)
+  // When there are multiple approvals at the same level (e.g. re-approval after send-back), return the latest one so we show the most recent signature and timestamp
   getStageHistoryEntry(pipelineOrder: number, departmentId?: number): any {
     if (!this.approvalHistory || this.approvalHistory.length === 0) return null;
 
-    // Check if this is an individual pipeline footer form
     const hasIndividualPipelineFooter = this.getIndividualPipelineFooterFields().length > 0;
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel || 0;
 
-    let entry = null;
+    const matches = (pred: (e: any) => boolean): any[] => {
+      return this.approvalHistory!.filter((e: any) => {
+        const action = (e.action || '').toString().toUpperCase();
+        if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') return false;
+        if (hasIndividualPipelineFooter) {
+          const entryLevel = e.level || e.intApprovalOrder;
+          if (entryLevel != null && entryLevel > currentLevel) return false;
+        }
+        return pred(e);
+      });
+    };
+
+    let candidates: any[] = [];
     if (departmentId) {
-      entry = this.approvalHistory.find((e: any) => {
-        // Skip SENT_BACK entries
-        const action = (e.action || '').toString().toUpperCase();
-        if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') return false;
-        
-        // For individual pipeline footer forms, filter out entries removed during send-back
-        if (hasIndividualPipelineFooter) {
-          const entryLevel = e.level || e.intApprovalOrder;
-          if (entryLevel != null && entryLevel > (currentLevel + 1)) return false;
-        }
-        
-        return e.level === pipelineOrder && e.departmentId === departmentId;
-      });
+      candidates = matches((e) => e.level === pipelineOrder && e.departmentId === departmentId);
     }
-    if (!entry) {
-      entry = this.approvalHistory.find((e: any) => {
-        // Skip SENT_BACK entries
-        const action = (e.action || '').toString().toUpperCase();
-        if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') return false;
-        
-        // For individual pipeline footer forms, filter out entries removed during send-back
-        if (hasIndividualPipelineFooter) {
-          const entryLevel = e.level || e.intApprovalOrder;
-          if (entryLevel != null && entryLevel > (currentLevel + 1)) return false;
-        }
-        
-        return e.level === pipelineOrder;
-      });
+    if (candidates.length === 0) {
+      candidates = matches((e) => e.level === pipelineOrder);
     }
-    if (!entry && departmentId) {
-      entry = this.approvalHistory.find((e: any) => {
-        // Skip SENT_BACK entries
-        const action = (e.action || '').toString().toUpperCase();
-        if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') return false;
-        
-        // For individual pipeline footer forms, filter out entries removed during send-back
-        if (hasIndividualPipelineFooter) {
-          const entryLevel = e.level || e.intApprovalOrder;
-          if (entryLevel != null && entryLevel > (currentLevel + 1)) return false;
-        }
-        
-        return e.departmentId === departmentId;
-      });
+    if (candidates.length === 0 && departmentId) {
+      candidates = matches((e) => e.departmentId === departmentId);
     }
-    return entry || null;
+    if (candidates.length === 0) return null;
+    // Sort by approvedDate descending and return the latest approval
+    candidates.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+    return candidates[0];
   }
 
   // Get stage status: APPROVED, REJECTED, CURRENT (pending at this level), PENDING
@@ -2266,56 +2230,40 @@ export class ApplicationDetailsComponent implements OnInit {
     return user.serUserId || user.userId || user.id || null;
   }
 
+  /** Get the latest approval entry for a user/role so re-approvals show the most recent signature and timestamp */
+  private getLatestApprovalEntryForUser(userId: number, role?: string): any {
+    if (!this.approvalHistory || this.approvalHistory.length === 0) return null;
+    const hasIndividualPipelineFooter = this.getIndividualPipelineFooterFields().length > 0;
+    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel || 0;
+    const candidates = this.approvalHistory.filter((e: any) => {
+      const action = (e.action || '').toString().toUpperCase();
+      if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') return false;
+      if (hasIndividualPipelineFooter) {
+        const entryLevel = e.level || e.intApprovalOrder;
+        if (entryLevel != null && entryLevel > currentLevel) return false;
+      }
+      const entryUserId = e.approvedBy || e.userId;
+      if (entryUserId !== userId) return false;
+      if (role) {
+        const entryRole = (e.role || '').toString().trim();
+        if (entryRole.toUpperCase() === 'PREPARED' && role.toUpperCase() !== 'PREPARED') return false;
+        if (entryRole && role && entryRole.toUpperCase() !== role.toUpperCase()) return false;
+      } else {
+        const entryRole = (e.role || '').toString().trim().toUpperCase();
+        if (entryRole === 'PREPARED') return false;
+      }
+      return true;
+    });
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+    return candidates[0];
+  }
+
   getUserSignatureUrl(user: any, role?: string): string {
     const userId = this.getUserId(user);
     if (!userId) return '';
     if (!this.approvalHistory || this.approvalHistory.length === 0) return '';
-    
-    // Check if this is an individual pipeline footer form
-    const hasIndividualPipelineFooter = this.getIndividualPipelineFooterFields().length > 0;
-    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel || 0;
-    
-    // Find approval entry for this user with matching role
-    const entry = this.approvalHistory.find((e: any) => {
-      // Skip SENT_BACK entries - they are just history markers, not approvals
-      const action = (e.action || '').toString().toUpperCase();
-      if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') {
-        return false;
-      }
-      
-      // For individual pipeline footer forms, filter out entries that were removed during send-back
-      // Level in history is 1-indexed (currentLevel + 1), so entries with level > currentLevel were removed
-      if (hasIndividualPipelineFooter) {
-        const entryLevel = e.level || e.intApprovalOrder;
-        if (entryLevel != null && entryLevel > (currentLevel + 1)) {
-          return false; // This entry was removed during send-back
-        }
-      }
-      
-      const entryUserId = e.approvedBy || e.userId;
-      if (entryUserId !== userId) return false;
-      
-      // If role is specified, it must match (exclude "PREPARED" role for approval sequence)
-      if (role) {
-        const entryRole = (e.role || '').toString().trim();
-        // Only match if role matches, and exclude "PREPARED" role for approval sequence checks
-        if (entryRole.toUpperCase() === 'PREPARED' && role.toUpperCase() !== 'PREPARED') {
-          return false; // Skip "PREPARED" entries when checking approval sequence
-        }
-        if (entryRole && role && entryRole.toUpperCase() !== role.toUpperCase()) {
-          return false; // Role doesn't match
-        }
-      } else {
-        // If no role specified, exclude "PREPARED" entries to avoid false positives
-        const entryRole = (e.role || '').toString().trim().toUpperCase();
-        if (entryRole === 'PREPARED') {
-          return false; // Skip "PREPARED" entries when no role specified
-        }
-      }
-      
-      return true;
-    });
-    
+    const entry = this.getLatestApprovalEntryForUser(userId, role);
     if (!entry || !entry.signaturePath) return '';
     return `${urls.API_URL}getSignature?userId=${userId}`;
   }
@@ -2323,52 +2271,7 @@ export class ApplicationDetailsComponent implements OnInit {
   isUserApproved(user: any, role?: string): boolean {
     const userId = this.getUserId(user);
     if (!userId || !this.approvalHistory || this.approvalHistory.length === 0) return false;
-    
-    // Check if this is an individual pipeline footer form
-    const hasIndividualPipelineFooter = this.getIndividualPipelineFooterFields().length > 0;
-    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel || 0;
-    
-    // Find approval entry for this user
-    let entry = this.approvalHistory.find((e: any) => {
-      // Skip SENT_BACK entries - they are just history markers, not approvals
-      const action = (e.action || '').toString().toUpperCase();
-      if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') {
-        return false;
-      }
-      
-      // For individual pipeline footer forms, filter out entries that were removed during send-back
-      // Level in history is 1-indexed (currentLevel + 1), so entries with level > currentLevel were removed
-      if (hasIndividualPipelineFooter) {
-        const entryLevel = e.level || e.intApprovalOrder;
-        if (entryLevel != null && entryLevel > (currentLevel + 1)) {
-          return false; // This entry was removed during send-back
-        }
-      }
-      
-      const entryUserId = e.approvedBy || e.userId;
-      if (entryUserId !== userId) return false;
-      
-      // If role is specified, it must match (exclude "PREPARED" role for approval sequence)
-      if (role) {
-        const entryRole = (e.role || '').toString().trim();
-        // Only match if role matches, and exclude "PREPARED" role for approval sequence checks
-        if (entryRole.toUpperCase() === 'PREPARED' && role.toUpperCase() !== 'PREPARED') {
-          return false; // Skip "PREPARED" entries when checking approval sequence
-        }
-        if (entryRole && role && entryRole.toUpperCase() !== role.toUpperCase()) {
-          return false; // Role doesn't match
-        }
-      } else {
-        // If no role specified, exclude "PREPARED" entries to avoid false positives
-        const entryRole = (e.role || '').toString().trim().toUpperCase();
-        if (entryRole === 'PREPARED') {
-          return false; // Skip "PREPARED" entries when no role specified
-        }
-      }
-      
-      return true;
-    });
-    
+    const entry = this.getLatestApprovalEntryForUser(userId, role);
     if (!entry) return false;
     if (!entry.signaturePath) return false;
     const action = (entry.action || entry.status || '').toString().toUpperCase();
@@ -2380,52 +2283,7 @@ export class ApplicationDetailsComponent implements OnInit {
   getUserApprovalDate(user: any, role?: string): string {
     const userId = this.getUserId(user);
     if (!userId || !this.approvalHistory || this.approvalHistory.length === 0) return '';
-    
-    // Check if this is an individual pipeline footer form
-    const hasIndividualPipelineFooter = this.getIndividualPipelineFooterFields().length > 0;
-    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel || 0;
-    
-    // Find approval entry for this user with matching role
-    const entry = this.approvalHistory.find((e: any) => {
-      // Skip SENT_BACK entries - they are just history markers, not approvals
-      const action = (e.action || '').toString().toUpperCase();
-      if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') {
-        return false;
-      }
-      
-      // For individual pipeline footer forms, filter out entries that were removed during send-back
-      // Level in history is 1-indexed (currentLevel + 1), so entries with level > currentLevel were removed
-      if (hasIndividualPipelineFooter) {
-        const entryLevel = e.level || e.intApprovalOrder;
-        if (entryLevel != null && entryLevel > (currentLevel + 1)) {
-          return false; // This entry was removed during send-back
-        }
-      }
-      
-      const entryUserId = e.approvedBy || e.userId;
-      if (entryUserId !== userId) return false;
-      
-      // If role is specified, it must match (exclude "PREPARED" role for approval sequence)
-      if (role) {
-        const entryRole = (e.role || '').toString().trim();
-        // Only match if role matches, and exclude "PREPARED" role for approval sequence checks
-        if (entryRole.toUpperCase() === 'PREPARED' && role.toUpperCase() !== 'PREPARED') {
-          return false; // Skip "PREPARED" entries when checking approval sequence
-        }
-        if (entryRole && role && entryRole.toUpperCase() !== role.toUpperCase()) {
-          return false; // Role doesn't match
-        }
-      } else {
-        // If no role specified, exclude "PREPARED" entries to avoid false positives
-        const entryRole = (e.role || '').toString().trim().toUpperCase();
-        if (entryRole === 'PREPARED') {
-          return false; // Skip "PREPARED" entries when no role specified
-        }
-      }
-      
-      return true;
-    });
-    
+    const entry = this.getLatestApprovalEntryForUser(userId, role);
     if (!entry || !entry.approvedDate) return '';
     try {
       const dt = new Date(entry.approvedDate);
@@ -2731,7 +2589,7 @@ export class ApplicationDetailsComponent implements OnInit {
           return false;
         }
         // Also filter out entries that were removed during send-back
-        if (entryLevel > (currentLevel + 1)) {
+        if (entryLevel > currentLevel) {
           return false;
         }
       }

@@ -134,6 +134,67 @@ public class EmailService {
         }
     }
 
+    /**
+     * Send HTML email with multiple attachments (no inline preview).
+     */
+    public void sendHtmlEmailWithAttachments(List<String> recipients, String subject, String htmlContent,
+                                             List<EmailAttachment> attachments) {
+        String username = sanitizeCredential(properties.getProperty("mail.smtp.username"));
+        String password = sanitizeCredential(properties.getProperty("mail.smtp.password"));
+        if (username == null || password == null) {
+            log.error("HTML email with attachments not sent: missing SMTP username/password");
+            return;
+        }
+        if (recipients == null || recipients.isEmpty()) {
+            log.error("HTML email with attachments not sent: recipient list is empty");
+            return;
+        }
+
+        Session session = Session.getInstance(properties,
+                new javax.mail.Authenticator() {
+                    protected PasswordAuthentication getPasswordAuthentication() {
+                        return new PasswordAuthentication(username, password);
+                    }
+                });
+
+        try {
+            Message message = new MimeMessage(session);
+            message.setFrom(new InternetAddress(username));
+            log.info("Sending HTML email with {} attachment(s) subject='{}' to {} recipient(s)",
+                    attachments != null ? attachments.size() : 0, subject, recipients.size());
+            for (String recipient : recipients) {
+                message.addRecipient(Message.RecipientType.TO, new InternetAddress(recipient));
+            }
+            message.setSubject(subject);
+
+            MimeBodyPart messageBodyPart = new MimeBodyPart();
+            messageBodyPart.setContent(htmlContent, "text/html; charset=utf-8");
+
+            Multipart multipart = new MimeMultipart("mixed");
+            multipart.addBodyPart(messageBodyPart);
+
+            if (attachments != null) {
+                for (EmailAttachment att : attachments) {
+                    if (att.getBytes() != null && att.getBytes().length > 0) {
+                        String mime = att.getMimeType() != null ? att.getMimeType() : "application/octet-stream";
+                        String name = att.getName() != null ? att.getName() : "attachment";
+                        DataSource dataSource = new ByteArrayDataSource(att.getBytes(), mime);
+                        MimeBodyPart attachmentPart = new MimeBodyPart();
+                        attachmentPart.setDataHandler(new DataHandler(dataSource));
+                        attachmentPart.setFileName(name);
+                        multipart.addBodyPart(attachmentPart);
+                    }
+                }
+            }
+
+            message.setContent(multipart);
+            Transport.send(message);
+            log.info("HTML emails with attachments sent successfully!");
+        } catch (MessagingException e) {
+            log.error("Failed to send HTML email with attachments", e);
+        }
+    }
+
     public void sendHtmlEmailWithAttachment(List<String> recipients, String subject, String htmlContent,
                                             byte[] attachmentBytes, String attachmentName, String attachmentMime) {
         String username = sanitizeCredential(properties.getProperty("mail.smtp.username"));

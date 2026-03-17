@@ -426,6 +426,10 @@ export class ApplicationPdfService {
       const normalizedType = (fieldType || '').toLowerCase().replace(/\s+/g, '_');
       return normalizedType === 'word_editor' || normalizedType === 'wordeditor' || normalizedType === 'rich_text' || normalizedType === 'richtext';
     };
+    const isAttachmentFieldType = (fieldType: string | undefined): boolean => {
+      const t = (fieldType || '').toLowerCase().replace(/\s+/g, '_');
+      return t === 'attachment' || t === 'file' || t === 'multi_attachment';
+    };
 
     const getFieldValue = (field: any): any => {
       const fieldName = field.label.toLowerCase()
@@ -765,7 +769,7 @@ export class ApplicationPdfService {
     ` : ''}
   </div>
 
-  ${formFields.length > 0 ? `
+  ${formFields.filter((f: any) => !isAttachmentFieldType(f.type)).length > 0 ? `
   <div class="section">
     <h2 class="section-title">Form Data</h2>
     <table class="data-table">
@@ -776,7 +780,7 @@ export class ApplicationPdfService {
         </tr>
       </thead>
       <tbody>
-        ${formFields.map(field => `
+        ${formFields.filter((f: any) => !isAttachmentFieldType(f.type)).map((field: any) => `
           <tr>
             <td><strong>${escapeHtml(field.label)}${field.required ? ' <span style="color: #e74c3c;">*</span>' : ''}</strong></td>
             <td>${getFieldDisplayHtml(field)}</td>
@@ -912,6 +916,10 @@ export class ApplicationPdfService {
       const t = normalizeFieldType(fieldType);
       return t === 'document_header';
     };
+    const isAttachmentFieldType = (fieldType: string): boolean => {
+      const t = normalizeFieldType(fieldType);
+      return t === 'attachment' || t === 'file' || t === 'multi_attachment';
+    };
     const getFieldValue = (field: any): any => {
       if (!applicationFormData || typeof applicationFormData !== 'object') return null;
       const label = getFieldLabel(field);
@@ -964,7 +972,7 @@ export class ApplicationPdfService {
       const fieldType = getFieldType(field);
       const label = getFieldLabel(field);
 
-      if (isDocumentHeaderType(fieldType) || fieldType === 'footer') {
+      if (isDocumentHeaderType(fieldType) || fieldType === 'footer' || isAttachmentFieldType(fieldType)) {
         return;
       }
 
