@@ -14,19 +14,25 @@
         <div class="flex w-full flex-col items-end gap-2 sm:w-auto">
             <div class="flex flex-wrap gap-2 justify-end" *ngIf="showApprovalActions()">
                 <button (click)="openApproveModal()" class="btn btn-success gap-2"
-                    [disabled]="isApproving || isRejecting || isSendingBack">
+                    [disabled]="isApproving || isRejecting || isSendingBack || isSendingBackToInitiator">
                     <icon-circle-check class="w-4 h-4" />
                     Approve
                 </button>
                 <button (click)="openRejectModal()" class="btn btn-danger gap-2"
-                    [disabled]="isApproving || isRejecting || isSendingBack">
+                    [disabled]="isApproving || isRejecting || isSendingBack || isSendingBackToInitiator">
                     <icon-x class="w-4 h-4" />
                     Reject
                 </button>
                 <button (click)="openSendBackModal()" class="btn btn-warning gap-2"
-                    [disabled]="isApproving || isRejecting || isSendingBack">
+                    [disabled]="isApproving || isRejecting || isSendingBack || isSendingBackToInitiator">
                     <icon-arrow-backward class="w-4 h-4" />
                     Send Back
+                </button>
+                <button *ngIf="showSendBackToInitiatorButton()" (click)="openSendBackToInitiatorModal()"
+                    class="btn btn-outline-danger gap-2"
+                    [disabled]="isApproving || isRejecting || isSendingBack || isSendingBackToInitiator">
+                    <icon-arrow-backward class="w-4 h-4" />
+                    Send Back to Initiator
                 </button>
             </div>
             <div *ngIf="showAssetCodeForm()" class="flex flex-wrap items-center gap-2">
@@ -550,6 +556,48 @@
             <span *ngIf="isSendingBack"
                 class="animate-spin border-2 border-white border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
             {{ isSendingBack ? 'Sending...' : 'Send Back' }}
+        </button>
+    </ng-template>
+</modal>
+
+<!-- Send Back to Initiator Modal -->
+<modal #sendBackToInitiatorModal [closeOnOutsideClick]="false" *ngIf="selectedApplicationForRemarks">
+    <ng-template #modalHeader>
+        <div>Send Back to Initiator</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="space-y-4">
+            <p class="text-sm text-gray-600 dark:text-gray-400">
+                Are you sure you want to send this application all the way back to the initiator for resubmission? This will reset the approval workflow to the first stage.
+            </p>
+            <div *ngIf="applicationDetails">
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Application Code: <span class="badge badge-outline-primary">{{ applicationDetails.txtFormCode }}</span>
+                </p>
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Form Name: {{ applicationDetails.cfgTblCustomForm?.txtFormName || 'Custom Form' }}
+                </p>
+                <p class="text-sm font-medium dark:text-white-light mb-2">
+                    Current Approval Level: <span class="badge badge-outline-info">Level {{ applicationDetails.intCurrentApprovalLevel || 0 }}</span>
+                </p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Remarks <span class="text-danger">*</span></label>
+                <textarea [(ngModel)]="remarksText" class="form-textarea" rows="3"
+                    placeholder="Please provide remarks for sending back to initiator..." required>
+                </textarea>
+            </div>
+        </div>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''"
+            class="btn btn-outline-danger" [disabled]="isSendingBackToInitiator">Cancel</button>
+        <button type="button" (click)="sendBackToInitiator()"
+            [disabled]="isSendingBackToInitiator || !remarksText || remarksText.trim() === ''"
+            class="btn btn-danger ltr:ml-4 rtl:mr-4">
+            <span *ngIf="isSendingBackToInitiator"
+                class="animate-spin border-2 border-white border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
+            {{ isSendingBackToInitiator ? 'Sending...' : 'Send Back to Initiator' }}
         </button>
     </ng-template>
 </modal>

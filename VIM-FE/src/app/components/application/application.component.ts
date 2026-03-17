@@ -674,7 +674,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       return;
     }
     const rows = Math.max(1, Math.min(20, Number(match[1])));
-    const columns = Math.max(1, Math.min(10, Number(match[2])));
+    const columns = Math.max(1, Math.min(100, Number(match[2])));
 
     let tableHtml = '<table style="width:100%; border-collapse:collapse; border:1px solid #000; margin:10px 0; table-layout:fixed;">';
     for (let r = 0; r < rows; r++) {

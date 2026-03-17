@@ -748,6 +748,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return "Failure: Application not found";
             }
 
+            if (application.getBlbPdfDataInitial() == null || application.getBlbPdfDataInitial().length == 0) {
+                application.setBlbPdfDataInitial(pdfData);
+            }
+            byte[] oldCurrent = application.getBlbPdfData();
+            if (oldCurrent != null && oldCurrent.length > 0) {
+                application.setBlbPdfDataPrevious(oldCurrent);
+            }
             application.setBlbPdfData(pdfData);
             application.setTxtPdfName(pdfName != null && !pdfName.trim().isEmpty() ? pdfName : "application.pdf");
             application.setTxtPdfMime(pdfMime != null && !pdfMime.trim().isEmpty() ? pdfMime : "application/pdf");
@@ -1312,6 +1319,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         if (pdfBytes != null && pdfBytes.length > 0) {
                             String code = application.getTxtFormCode() != null ? application.getTxtFormCode()
                                     : "application";
+                            if (application.getBlbPdfDataInitial() == null || application.getBlbPdfDataInitial().length == 0) {
+                                application.setBlbPdfDataInitial(pdfBytes);
+                            }
                             application.setBlbPdfData(pdfBytes);
                             application.setTxtPdfName(buildPdfFileName(form, code));
                             application.setTxtPdfMime("application/pdf");
@@ -1322,13 +1332,18 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 } else if (hasDynamicFooterFlow && application.getBlbPdfData() != null
                         && application.getBlbPdfData().length > 0) {
                     // Update PDF for both budget approval forms and general forms with individual pipeline footer
-                    // Keep the exact existing form layout and only refresh footer signatures.
+                    // Only draw the newly added signature to avoid duplicates (e.g. when mixing email + portal approvals).
                     try {
                         byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
                                 application.getBlbPdfData(),
                                 appData,
-                                application.getTxtApprovalHistory());
+                                application.getTxtApprovalHistory(),
+                                true);
                         if (signedPdf != null && signedPdf.length > 0) {
+                            byte[] cur = application.getBlbPdfData();
+                            if (cur != null && cur.length > 0) {
+                                application.setBlbPdfDataPrevious(cur);
+                            }
                             application.setBlbPdfData(signedPdf);
                             String code = application.getTxtFormCode() != null ? application.getTxtFormCode()
                                     : "application";
@@ -1612,6 +1627,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         if (pdfBytes != null && pdfBytes.length > 0) {
                             String code = application.getTxtFormCode() != null ? application.getTxtFormCode()
                                     : "application";
+                            if (application.getBlbPdfDataInitial() == null || application.getBlbPdfDataInitial().length == 0) {
+                                application.setBlbPdfDataInitial(pdfBytes);
+                            }
                             application.setBlbPdfData(pdfBytes);
                             application.setTxtPdfName(buildPdfFileName(form, code));
                             application.setTxtPdfMime("application/pdf");
@@ -2019,15 +2037,68 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 priorApprovals.add(priorSendBackEntry);
                 String updatedPriorApprovalsJson = mapper.writeValueAsString(priorApprovals);
                 application.setTxtPriorApprovals(updatedPriorApprovalsJson);
-                
-                // For individual pipeline footer forms, update signatures on existing PDF instead of clearing it
-                // This preserves the formatted document layout while removing signatures
+
+                // For individual pipeline footer forms, update signatures on existing PDF instead of clearing it.
+                // IMPORTANT: for signatures we must only consider approvals up to the new level; any approvals
+                // beyond the send-back target should have their signatures removed. We still keep the full
+                // history in txtApprovalHistory / txtPriorApprovals, but we pass a filtered view to the
+                // PDF signature updater.
+                String historyForSignaturesJson = updatedHistoryJson;
+                if (hasDynamicFooterFlow) {
+                    try {
+                        @SuppressWarnings("unchecked")
+                        java.util.List<java.util.Map<String, Object>> historyForSignatures =
+                                mapper.readValue(updatedHistoryJson,
+                                        new com.fasterxml.jackson.core.type.TypeReference<java.util.List<java.util.Map<String, Object>>>() {});
+                        java.util.List<java.util.Map<String, Object>> filtered = new java.util.ArrayList<java.util.Map<String, Object>>();
+                        // After send-back, currentLevel is the level we sent back TO (they must re-approve).
+                        // Only include approval entries for levels strictly below that, so their signatures are removed.
+                        int newCurrentLevel = (currentLevel != null ? currentLevel : 0);
+                        for (java.util.Map<String, Object> h : historyForSignatures) {
+                            Object actionObj = h.get("action");
+                            String action = actionObj != null ? actionObj.toString().toUpperCase() : "";
+                            // Always keep SENT_BACK markers for log context
+                            if ("SENT_BACK".equals(action) || "SENT_BACK_TO_INITIATOR".equals(action)) {
+                                filtered.add(h);
+                                continue;
+                            }
+                            Object lvlObj = h.get("level");
+                            Integer lvl = null;
+                            if (lvlObj instanceof Integer) {
+                                lvl = (Integer) lvlObj;
+                            } else if (lvlObj != null) {
+                                try {
+                                    lvl = Integer.parseInt(lvlObj.toString());
+                                } catch (NumberFormatException ignore) {
+                                }
+                            }
+                            // Include only entries with level < newCurrentLevel (e.g. when at level 3, keep levels 1 and 2 only)
+                            if (lvl == null || lvl < newCurrentLevel) {
+                                filtered.add(h);
+                            }
+                        }
+                        historyForSignaturesJson = mapper.writeValueAsString(filtered);
+                    } catch (Exception e) {
+                        log.warn("Error building filtered history for PDF signatures during send-back, using full history. appId={}: {}",
+                                application.getSerApplicationId(), e.getMessage());
+                        historyForSignaturesJson = updatedHistoryJson;
+                    }
+                }
+
+                // This preserves the formatted document layout while removing signatures.
+                // On send-back to a level: use previous PDF so we get "one before current" output.
                 if (hasDynamicFooterFlow && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                    byte[] previousPdf = application.getBlbPdfDataPrevious();
+                    if (previousPdf != null && previousPdf.length > 0) {
+                        application.setBlbPdfData(previousPdf);
+                        log.info("Restored PDF to previous version for appId={} when sending back from level {} to {}",
+                                application.getSerApplicationId(), originalLevel, currentLevel);
+                    } else {
                     try {
                         byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
                                 application.getBlbPdfData(),
                                 appData,
-                                updatedHistoryJson);
+                                historyForSignaturesJson);
                         if (signedPdf != null && signedPdf.length > 0) {
                             application.setBlbPdfData(signedPdf);
                             log.info("Updated signatures in PDF for appId={} when sending back from level {} to {}", 
@@ -2046,6 +2117,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         application.setBlbPdfData(null);
                         application.setTxtPdfName(null);
                         application.setTxtPdfMime(null);
+                    }
                     }
                 } else {
                     // For non-individual pipeline footer forms, clear the PDF data so it gets regenerated
@@ -2279,8 +2351,14 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 String updatedPriorApprovalsJson = mapper.writeValueAsString(priorApprovals);
                 application.setTxtPriorApprovals(updatedPriorApprovalsJson);
                 
-                // For individual pipeline footer forms, update signatures on existing PDF instead of clearing it
-                if (hasDynamicFooterFlow && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                // For send-back to initiator: restore the very first PDF so we get the "first one".
+                if (hasDynamicFooterFlow && application.getBlbPdfDataInitial() != null && application.getBlbPdfDataInitial().length > 0) {
+                    application.setBlbPdfData(application.getBlbPdfDataInitial());
+                    application.setTxtPdfName(application.getTxtPdfName());
+                    application.setTxtPdfMime(application.getTxtPdfMime() != null ? application.getTxtPdfMime() : "application/pdf");
+                    log.info("Restored PDF to initial version for appId={} when sending back to initiator from level {}",
+                            application.getSerApplicationId(), originalLevel);
+                } else if (hasDynamicFooterFlow && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
                     try {
                         byte[] signedPdf = applyDynamicFooterSignaturesToPdf(
                                 application.getBlbPdfData(),
@@ -4626,6 +4704,36 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         return "";
     }
 
+    /** Format approval date with time for display below signature (e.g. 17/03/2026, 02:59:25). */
+    private String formatApprovalDateTime(Object raw) {
+        if (raw == null)
+            return "";
+        try {
+            String s = raw.toString().trim();
+            if (s.isEmpty())
+                return "";
+            java.util.Date parsed = null;
+            if (s.matches("^\\d{4}-\\d{2}-\\d{2}[T ].*")) {
+                java.text.SimpleDateFormat in = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
+                try {
+                    parsed = in.parse(s.substring(0, Math.min(19, s.length())));
+                } catch (Exception e) {
+                    in = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                    parsed = in.parse(s.substring(0, Math.min(19, s.length())));
+                }
+            } else if (s.matches("^\\d{2}/\\d{2}/\\d{4}.*")) {
+                java.text.SimpleDateFormat in = new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
+                parsed = in.parse(s.length() >= 19 ? s.substring(0, 19) : s);
+            }
+            if (parsed != null) {
+                java.text.SimpleDateFormat out = new java.text.SimpleDateFormat("dd/MM/yyyy, HH:mm:ss");
+                return out.format(parsed);
+            }
+        } catch (Exception ignored) {
+        }
+        return raw != null ? raw.toString() : "";
+    }
+
     private String extractPipelineDepartmentName(Map<String, Object> pipeline) {
         if (pipeline == null)
             return "";
@@ -4867,6 +4975,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     private void drawSignatureImage(PDDocument document, PDPageContentStream content, String signaturePath,
             float x, float y, float maxWidth, float maxHeight) {
+        drawSignatureImage(document, content, signaturePath, x, y, maxWidth, maxHeight, false, maxHeight);
+    }
+
+    /**
+     * Draw signature image. When atBottom is true, image is drawn at the bottom of the cell with capped height
+     * so it sits inside the box (for email form); otherwise centered as before.
+     */
+    private void drawSignatureImage(PDDocument document, PDPageContentStream content, String signaturePath,
+            float x, float y, float maxWidth, float maxHeight, boolean atBottom, float maxDrawHeightCap) {
         try {
             String rootPath = System.getProperty("user.home") + File.separator + ".vim_dms_uploads";
             File sigFile = resolveSignatureFile(rootPath, signaturePath);
@@ -4878,15 +4995,51 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             float imgH = img.getHeight();
             if (imgW <= 0 || imgH <= 0)
                 return;
-            float scale = Math.min(maxWidth / imgW, maxHeight / imgH);
+            float effectiveMaxH = (maxDrawHeightCap > 0 && maxDrawHeightCap < maxHeight) ? maxDrawHeightCap : maxHeight;
+            float scale = Math.min(maxWidth / imgW, effectiveMaxH / imgH);
             float drawW = imgW * scale;
             float drawH = imgH * scale;
             float drawX = x + (maxWidth - drawW) / 2f;
-            float drawY = y + (maxHeight - drawH) / 2f;
+            float drawY = atBottom ? y : (y + (maxHeight - drawH) / 2f);
             content.drawImage(img, drawX, drawY, drawW, drawH);
         } catch (Exception e) {
             log.warn("Error drawing signature image: " + e.getMessage());
         }
+    }
+
+    private void drawTimestampBelowSignature(PDPageContentStream content, float x, float y, float cellWidth, String dateTimeStr)
+            throws java.io.IOException {
+        if (dateTimeStr == null || dateTimeStr.trim().isEmpty())
+            return;
+        content.setFont(PDType1Font.HELVETICA, 7f);
+        String line = dateTimeStr.length() > 28 ? dateTimeStr.substring(0, 28) : dateTimeStr;
+        float tw = PDType1Font.HELVETICA.getStringWidth(line) / 1000 * 7f;
+        float tx = x + (cellWidth - tw) / 2f;
+        content.beginText();
+        content.newLineAtOffset(tx, y);
+        content.showText(line);
+        content.endText();
+    }
+
+    private Map<String, Object> findApprovalEntryForUser(List<Map<String, Object>> history, Integer userId, String roleExpected) {
+        if (userId == null || history == null || history.isEmpty())
+            return null;
+        for (Map<String, Object> entry : history) {
+            Object idObj = entry.get("approvedBy");
+            if (idObj == null)
+                continue;
+            Integer id = idObj instanceof Integer ? (Integer) idObj : Integer.parseInt(idObj.toString());
+            if (!id.equals(userId))
+                continue;
+            String role = entry.get("role") != null ? entry.get("role").toString() : "";
+            if (roleExpected != null && !roleExpected.equalsIgnoreCase(role))
+                continue;
+            String action = entry.get("action") != null ? entry.get("action").toString() : "";
+            if ("REJECTED".equalsIgnoreCase(action))
+                continue;
+            return entry;
+        }
+        return null;
     }
 
     private File resolveSignatureFile(String rootPath, String signaturePath) {
@@ -6685,32 +6838,6 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         content.endText();
     }
 
-    private String formatApprovalDateTime(Object raw) {
-        if (raw == null)
-            return "";
-        try {
-            String s = String.valueOf(raw).trim();
-            if (s.isEmpty())
-                return "";
-            if (s.matches("^\\d{4}-\\d{2}-\\d{2}.*")) {
-                java.text.SimpleDateFormat in = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-                java.text.SimpleDateFormat out = new java.text.SimpleDateFormat("dd/MM/yyyy, HH:mm:ss");
-                String normalized = s.length() >= 19 ? s.substring(0, 19).replace('T', ' ') : s.replace('T', ' ');
-                try {
-                    return out.format(in.parse(normalized));
-                } catch (Exception ignore) {
-                    java.text.SimpleDateFormat inDate = new java.text.SimpleDateFormat("yyyy-MM-dd");
-                    java.util.Date d = inDate.parse(s.substring(0, 10));
-                    return new java.text.SimpleDateFormat("dd/MM/yyyy").format(d);
-                }
-            }
-            if (s.matches("^\\d{2}/\\d{2}/\\d{4}.*"))
-                return s;
-        } catch (Exception ignored) {
-        }
-        return String.valueOf(raw);
-    }
-
     private Map<Integer, UserSignatureMeta> loadUserSignatureMeta(Integer[] userIds) {
         Map<Integer, UserSignatureMeta> map = new java.util.HashMap<>();
         if (userIds == null || userIds.length == 0)
@@ -6897,6 +7024,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     loadApprovalPipeline(form));
             if (signedPdf != null && signedPdf.length > 0) {
                 String code = application.getTxtFormCode() != null ? application.getTxtFormCode() : "application";
+                byte[] cur = application.getBlbPdfData();
+                if (cur != null && cur.length > 0) {
+                    application.setBlbPdfDataPrevious(cur);
+                }
+                if (application.getBlbPdfDataInitial() == null || application.getBlbPdfDataInitial().length == 0) {
+                    application.setBlbPdfDataInitial(basePdf);
+                }
                 application.setBlbPdfData(signedPdf);
                 application.setTxtPdfName(buildPdfFileName(form, code));
                 application.setTxtPdfMime("application/pdf");
@@ -6929,6 +7063,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     private byte[] applyDynamicFooterSignaturesToPdf(byte[] pdfBytes, Map<String, Object> appData,
             String approvalHistoryJson) {
+        return applyDynamicFooterSignaturesToPdf(pdfBytes, appData, approvalHistoryJson, false);
+    }
+
+    private byte[] applyDynamicFooterSignaturesToPdf(byte[] pdfBytes, Map<String, Object> appData,
+            String approvalHistoryJson, boolean onlyLastEntry) {
         if (pdfBytes == null || pdfBytes.length == 0) {
             return null;
         }
@@ -6943,7 +7082,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             PDPage firstPage = document.getPage(0);
             float pageWidth = firstPage.getMediaBox().getWidth();
             float margin = 40f;
-            float tableBottomY = 60f;
+            float tableBottomY = 20f;
             float tableHeight = 110f;
             try (PDPageContentStream content = new PDPageContentStream(
                     document,
@@ -6951,15 +7090,27 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     PDPageContentStream.AppendMode.APPEND,
                     true,
                     true)) {
-                drawDynamicFooterSignaturesOnly(
-                        content,
-                        margin,
-                        tableBottomY,
-                        pageWidth - margin * 2,
-                        tableHeight,
-                        footerFields,
-                        approvalHistoryJson,
-                        document);
+                if (onlyLastEntry) {
+                    drawDynamicFooterSignatureLastEntryOnly(
+                            content,
+                            margin,
+                            tableBottomY,
+                            pageWidth - margin * 2,
+                            tableHeight,
+                            footerFields,
+                            approvalHistoryJson,
+                            document);
+                } else {
+                    drawDynamicFooterSignaturesOnly(
+                            content,
+                            margin,
+                            tableBottomY,
+                            pageWidth - margin * 2,
+                            tableHeight,
+                            footerFields,
+                            approvalHistoryJson,
+                            document);
+                }
             }
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             document.save(baos);
@@ -7011,8 +7162,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         Integer[] userIds = allUserIds.toArray(new Integer[0]);
         Map<Integer, String> signatureFromDb = loadUserSignaturePaths(userIds);
 
+        float timestampRowHeight = 10f;
+        float sigAreaHeight = rowNames - 8 - timestampRowHeight;
         float sigRowY = y + rowSig + rowHeader + 4;
         float sigRowHeight = rowNames - 8;
+        float sigAreaY = sigRowY + timestampRowHeight;
+        float maxSigDrawHeight = 14f;
+        float timestampY = sigRowY + 2f;
         int slotIndex = 0;
         for (int i = 0; i < sections; i++) {
             Map<String, Object> field = footerFields.get(i);
@@ -7022,16 +7178,125 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 Integer uid = extractUserId(userObj);
                 String sigPath = "";
                 if (uid != null) {
-                    // Strict match by approved user and section label; no fallback to avoid
-                    // placing signatures in wrong person's slot.
                     sigPath = findSignatureForUser(approvalHistory, uid, role, false, signatureFromDb);
                 }
                 if (sigPath != null && !sigPath.trim().isEmpty()) {
                     float cellX = x + colWidth * slotIndex;
-                    drawSignatureImage(document, content, sigPath, cellX + 4, sigRowY, colWidth - 8, sigRowHeight);
+                    float cellW = colWidth - 8;
+                    drawSignatureImage(document, content, sigPath, cellX + 4, sigAreaY, cellW, sigAreaHeight, true, maxSigDrawHeight);
+                    Map<String, Object> entry = findApprovalEntryForUser(approvalHistory, uid, role);
+                    if (entry != null) {
+                        String dateTimeStr = formatApprovalDateTime(entry.get("approvedDate"));
+                        if (dateTimeStr != null && !dateTimeStr.isEmpty()) {
+                            drawTimestampBelowSignature(content, cellX + 4, timestampY, cellW, dateTimeStr);
+                        }
+                    }
                 }
                 slotIndex++;
             }
+        }
+    }
+
+    /**
+     * Draw only the most recently added approval signature in the footer, to avoid duplicates
+     * when mixing email and portal approvals (each approval only appends one signature).
+     */
+    private void drawDynamicFooterSignatureLastEntryOnly(PDPageContentStream content,
+            float x, float y, float width, float height,
+            List<Map<String, Object>> footerFields,
+            String approvalHistoryJson,
+            PDDocument document) throws java.io.IOException {
+        List<Map<String, Object>> approvalHistory = parseApprovalHistory(approvalHistoryJson);
+        if (approvalHistory == null || approvalHistory.isEmpty()) {
+            return;
+        }
+        // Find the last approval entry (skip SENT_BACK / REJECTED for "who just signed")
+        Map<String, Object> lastEntry = null;
+        for (int i = approvalHistory.size() - 1; i >= 0; i--) {
+            Map<String, Object> e = approvalHistory.get(i);
+            String action = e.get("action") != null ? e.get("action").toString() : "";
+            if ("REJECTED".equalsIgnoreCase(action) || "SENT_BACK".equalsIgnoreCase(action)
+                    || "SENT_BACK_TO_INITIATOR".equalsIgnoreCase(action)) {
+                continue;
+            }
+            lastEntry = e;
+            break;
+        }
+        if (lastEntry == null) {
+            return;
+        }
+        Integer approvedBy = extractUserId(lastEntry.get("approvedBy"));
+        String role = lastEntry.get("role") != null ? lastEntry.get("role").toString() : "";
+        if (approvedBy == null) {
+            return;
+        }
+        int sections = footerFields != null ? footerFields.size() : 0;
+        if (sections <= 0) {
+            return;
+        }
+        List<List<Object>> sectionSlots = new java.util.ArrayList<>();
+        int totalSlots = 0;
+        for (int i = 0; i < sections; i++) {
+            Map<String, Object> field = footerFields.get(i);
+            List<Object> users = extractFooterUsers(field);
+            if (users == null || users.isEmpty()) {
+                users = new java.util.ArrayList<>();
+                users.add(null);
+            }
+            sectionSlots.add(users);
+            totalSlots += users.size();
+        }
+        if (totalSlots <= 0) {
+            return;
+        }
+        int targetSlotIndex = -1;
+        int slotIndex = 0;
+        for (int i = 0; i < sections; i++) {
+            Map<String, Object> field = footerFields.get(i);
+            String sectionRole = field != null && field.get("label") != null ? String.valueOf(field.get("label")) : "";
+            List<Object> users = sectionSlots.get(i);
+            for (Object userObj : users) {
+                Integer uid = extractUserId(userObj);
+                if (approvedBy.equals(uid) && role.equalsIgnoreCase(sectionRole)) {
+                    targetSlotIndex = slotIndex;
+                    break;
+                }
+                slotIndex++;
+            }
+            if (targetSlotIndex >= 0) {
+                break;
+            }
+        }
+        if (targetSlotIndex < 0) {
+            return;
+        }
+        String sigPath = null;
+        if (lastEntry.get("signaturePath") != null && !lastEntry.get("signaturePath").toString().trim().isEmpty()) {
+            sigPath = lastEntry.get("signaturePath").toString().trim();
+        }
+        if ((sigPath == null || sigPath.isEmpty())) {
+            Map<Integer, String> signatureFromDb = loadUserSignaturePaths(new Integer[] { approvedBy });
+            sigPath = signatureFromDb != null ? signatureFromDb.get(approvedBy) : null;
+        }
+        if (sigPath == null || sigPath.trim().isEmpty()) {
+            return;
+        }
+        float colWidth = width / totalSlots;
+        float rowSig = 50f;
+        float rowHeader = 22f;
+        float rowNames = height - rowSig - rowHeader;
+        float timestampRowHeight = 10f;
+        float sigAreaHeight = rowNames - 8 - timestampRowHeight;
+        float sigRowY = y + rowSig + rowHeader + 4;
+        float sigAreaY = sigRowY + timestampRowHeight;
+        float maxSigDrawHeight = 14f;
+        float timestampY = sigRowY + 2f;
+        float cellX = x + colWidth * targetSlotIndex;
+        float cellW = colWidth - 8;
+        drawSignatureImage(document, content, sigPath, cellX + 4, sigAreaY, cellW, sigAreaHeight, true, maxSigDrawHeight);
+        String dateTimeStr = formatApprovalDateTime(lastEntry.get("approvedDate"));
+        if (dateTimeStr != null && !dateTimeStr.isEmpty()) {
+            drawTimestampBelowSignature(content, cellX + 4, timestampY, cellW, dateTimeStr);
         }
     }
 
@@ -7055,11 +7320,12 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         if (baseHtml == null || baseHtml.trim().isEmpty())
             return baseHtml;
         String cid = imageCid != null ? imageCid : "capf-inline";
-        String fragment = "<div style='margin:20px 0 0 0;text-align:center;'>" +
-                "<img src='cid:" + cid
-                + "' style='width:100%;max-width:820px;border:1px solid #222;display:block;margin:0 auto;' alt='CAPF Form' />"
-                +
-                "</div>";
+        // Table-based centering for Outlook/Gmail compatibility (div + margin auto often ignored)
+        String fragment = "<table role='presentation' align='center' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:20px 0;'>"
+                + "<tr><td align='center' style='padding:10px 0;'>"
+                + "<img src='cid:" + cid
+                + "' style='max-width:820px;width:100%;height:auto;display:block;border:1px solid #222;' alt='CAPF Form' />"
+                + "</td></tr></table>";
         String marker = "</body>";
         int idx = baseHtml.lastIndexOf(marker);
         if (idx == -1) {
@@ -7073,11 +7339,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             return baseHtml;
         String cid = imageCid != null ? imageCid : "pdf-inline";
         String alt = altText != null ? altText : "Document";
-        String fragment = "<div style='margin:20px 0 0 0;text-align:center;'>" +
-                "<img src='cid:" + cid
-                + "' style='width:100%;max-width:820px;display:block;margin:0 auto;' alt='"
-                + escapeHtml(alt) + "' />" +
-                "</div>";
+        // Table-based centering for Outlook/Gmail compatibility (div + margin auto often ignored)
+        String fragment = "<table role='presentation' align='center' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:20px 0;'>"
+                + "<tr><td align='center' style='padding:10px 0;'>"
+                + "<img src='cid:" + cid
+                + "' style='max-width:820px;width:100%;height:auto;display:block;' alt='"
+                + escapeHtml(alt) + "' />"
+                + "</td></tr></table>";
         String marker = "</body>";
         int idx = baseHtml.lastIndexOf(marker);
         if (idx == -1) {

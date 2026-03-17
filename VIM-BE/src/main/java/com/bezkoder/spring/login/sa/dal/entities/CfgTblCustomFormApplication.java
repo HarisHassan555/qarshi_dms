@@ -61,6 +61,16 @@ public class CfgTblCustomFormApplication implements Serializable {
     @Column(name = "blb_pdf_data")
     private byte[] blbPdfData;
 
+    @Lob
+    @JsonIgnore
+    @Column(name = "blb_pdf_data_initial")
+    private byte[] blbPdfDataInitial;
+
+    @Lob
+    @JsonIgnore
+    @Column(name = "blb_pdf_data_previous")
+    private byte[] blbPdfDataPrevious;
+
     @Column(name = "txt_pdf_name")
     private String txtPdfName;
 
@@ -210,6 +220,22 @@ public class CfgTblCustomFormApplication implements Serializable {
 
     public void setBlbPdfData(byte[] blbPdfData) {
         this.blbPdfData = blbPdfData;
+    }
+
+    public byte[] getBlbPdfDataInitial() {
+        return blbPdfDataInitial;
+    }
+
+    public void setBlbPdfDataInitial(byte[] blbPdfDataInitial) {
+        this.blbPdfDataInitial = blbPdfDataInitial;
+    }
+
+    public byte[] getBlbPdfDataPrevious() {
+        return blbPdfDataPrevious;
+    }
+
+    public void setBlbPdfDataPrevious(byte[] blbPdfDataPrevious) {
+        this.blbPdfDataPrevious = blbPdfDataPrevious;
     }
 
     public String getTxtPdfName() {

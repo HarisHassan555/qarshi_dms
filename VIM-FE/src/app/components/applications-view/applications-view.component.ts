@@ -727,43 +727,15 @@ export class ApplicationsViewComponent implements OnInit {
     this.sendBackModal.open();
   }
 
-  async approveApplication() {
+  approveApplication() {
     if (!this.selectedApplicationForRemarks || !this.selectedApplicationForRemarks.serApplicationId) {
       this.notificationService.showMessage('Invalid application', 'danger');
       return;
     }
 
-    if (this.isPreparingApprovalPdf) {
-      this.notificationService.showMessage('Preparing PDF, please wait...', 'warning');
-      return;
-    }
-
-    let uploadOk = false;
-    this.isPreparingApprovalPdf = true;
-    try {
-      const pdfResult = await this.generateApprovalPdfBlob(this.selectedApplicationForRemarks);
-      const uploadResponse: any = await firstValueFrom(
-        this.customFormApplicationService.updateApplicationPdf(
-          this.selectedApplicationForRemarks.serApplicationId,
-          pdfResult.blob,
-          pdfResult.filename
-        )
-      );
-      if (uploadResponse && uploadResponse.status === 'Success') {
-        uploadOk = true;
-      } else {
-        this.notificationService.showMessage(uploadResponse?.message || 'Failed to upload application PDF', 'danger');
-      }
-    } catch (e: any) {
-      console.error('Error preparing approval PDF:', e);
-      this.notificationService.showMessage('Error preparing approval PDF', 'danger');
-    } finally {
-      this.isPreparingApprovalPdf = false;
-    }
-
-    if (!uploadOk) {
-      return;
-    }
+    // Do not upload a new PDF before approving: the backend updates the stored PDF by appending
+    // only the new signature. Uploading a frontend-generated PDF here would cause duplicate
+    // signatures when mixing email and portal approvals.
 
     this.customFormApplicationService.approveApplication(
       this.selectedApplicationForRemarks.serApplicationId,

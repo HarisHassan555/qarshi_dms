@@ -40,6 +40,7 @@ export class ApplicationDetailsComponent implements OnInit {
   isApproving: boolean = false;
   isRejecting: boolean = false;
   isSendingBack: boolean = false;
+  isSendingBackToInitiator: boolean = false;
   showFeasibilityModal: boolean = false;
   feasibilityPreviewUrl: any = null;
   private feasibilityObjectUrl: string | null = null;
@@ -1115,13 +1116,23 @@ export class ApplicationDetailsComponent implements OnInit {
   getIndividualFooterUserLabel(user: any, section: any): string {
     if (!user) return '';
     const name = user.txtUserName || user.userName || user.name || '';
+    const designation = user.txtDesignation || user.designation || '';
+    const department = 
+      user.hrTblDepartment?.txtDepartmentName ||
+      user.txtDepartmentName ||
+      user.departmentName ||
+      '';
     const role =
       user.cfgTblRole?.txtRoleName ||
       user.txtRoleName ||
       user.roleName ||
       '';
+    
+    const designationLine = designation ? `<br>${designation}` : '';
+    const departmentLine = department ? `<br>${department}` : '';
     const roleLine = role ? `<br>(${role})` : '';
-    return `${name}${roleLine}`;
+    
+    return `${name}${designationLine}${departmentLine}${roleLine}`;
   }
 
   isDocumentHeaderType(fieldType: string | undefined): boolean {
@@ -1631,6 +1642,13 @@ export class ApplicationDetailsComponent implements OnInit {
     return true;
   }
 
+  /** Show "Send back to initiator" only when level >= 2 (same as in emails). */
+  showSendBackToInitiatorButton(): boolean {
+    if (!this.showApprovalActions() || !this.applicationDetails) return false;
+    const level = this.applicationDetails.intCurrentApprovalLevel ?? 0;
+    return level >= 2;
+  }
+
   private getCurrentUserId(): number | null {
     return this.currentUser?.serUserId || this.currentUser?.userId || this.currentUser?.id || null;
   }
@@ -1660,6 +1678,7 @@ export class ApplicationDetailsComponent implements OnInit {
   @ViewChild('approveModal') approveModal: any;
   @ViewChild('rejectModal') rejectModal: any;
   @ViewChild('sendBackModal') sendBackModal: any;
+  @ViewChild('sendBackToInitiatorModal') sendBackToInitiatorModal: any;
   @ViewChild('vendorEditModal') vendorEditModal: any;
 
   openApproveModal() {
@@ -1692,6 +1711,16 @@ export class ApplicationDetailsComponent implements OnInit {
     this.sendBackModal.open();
   }
 
+  openSendBackToInitiatorModal() {
+    if (!this.applicationDetails?.serApplicationId) {
+      this.notificationService.showMessage('Invalid application', 'danger');
+      return;
+    }
+    this.selectedApplicationForRemarks = this.applicationDetails;
+    this.remarksText = '';
+    this.sendBackToInitiatorModal.open();
+  }
+
   async approveApplication() {
     if (!this.selectedApplicationForRemarks?.serApplicationId) {
       this.notificationService.showMessage('Invalid application', 'danger');
@@ -1701,28 +1730,9 @@ export class ApplicationDetailsComponent implements OnInit {
     if (this.isApproving) return;
     this.isApproving = true;
 
-    try {
-      const pdfBlob = await this.generatePdf(false);
-      if (pdfBlob && this.selectedApplicationForRemarks?.serApplicationId) {
-        const filename = `application_${this.applicationDetails?.txtFormCode || this.selectedApplicationForRemarks.serApplicationId}.pdf`;
-        const pdfResponse: any = await firstValueFrom(
-          this.customFormApplicationService.updateApplicationPdf(
-            this.selectedApplicationForRemarks.serApplicationId,
-            pdfBlob,
-            filename
-          )
-        );
-        if (!pdfResponse || pdfResponse.status !== 'Success') {
-          this.notificationService.showMessage(pdfResponse?.message || 'Failed to upload latest form snapshot', 'danger');
-          this.isApproving = false;
-          return;
-        }
-      }
-    } catch (e) {
-      this.notificationService.showMessage('Failed to prepare latest form snapshot', 'danger');
-      this.isApproving = false;
-      return;
-    }
+    // Do not upload a new PDF before approving: the backend updates the stored PDF by appending
+    // only the new signature. Uploading a frontend-generated PDF here would overwrite the PDF
+    // and cause duplicate signatures when mixing email and portal approvals.
 
     this.customFormApplicationService.approveApplication(
       this.selectedApplicationForRemarks.serApplicationId,
@@ -1826,6 +1836,44 @@ export class ApplicationDetailsComponent implements OnInit {
       },
       (error) => {
         this.notificationService.showMessage('Error sending back application: ' + (error.error?.message || error.message), 'danger');
+      }
+    );
+  }
+
+  sendBackToInitiator() {
+    if (!this.selectedApplicationForRemarks?.serApplicationId) {
+      this.notificationService.showMessage('Invalid application', 'danger');
+      return;
+    }
+
+    if (!this.remarksText || this.remarksText.trim() === '') {
+      this.notificationService.showMessage('Please provide remarks for sending back the application to initiator', 'danger');
+      return;
+    }
+
+    if (this.isSendingBackToInitiator) return;
+    this.isSendingBackToInitiator = true;
+    this.customFormApplicationService.sendBackToInitiator(
+      this.selectedApplicationForRemarks.serApplicationId,
+      this.remarksText
+    ).pipe(
+      finalize(() => {
+        this.isSendingBackToInitiator = false;
+      })
+    ).subscribe(
+      (response: any) => {
+        if (response && response.status === 'Success') {
+          this.notificationService.showMessage(response.message || 'Application sent back to initiator successfully', 'success');
+          this.sendBackToInitiatorModal.close();
+          this.selectedApplicationForRemarks = null;
+          this.remarksText = '';
+          this.loadApplicationDetails();
+        } else {
+          this.notificationService.showMessage(response?.message || 'Failed to send back application to initiator', 'danger');
+        }
+      },
+      (error) => {
+        this.notificationService.showMessage('Error sending back to initiator: ' + (error.error?.message || error.message), 'danger');
       }
     );
   }
@@ -2734,7 +2782,8 @@ export class ApplicationDetailsComponent implements OnInit {
     const userId = this.getUserId(node.user);
     if (!userId || !this.approvalHistory) return '--';
     const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
-    return entry?.approvedVia || entry?.approvedIp || entry?.ipAddress || '--';
+    // Prefer actual IP fields over approvedVia (medium like email/system) so "IP Address" label shows IP
+    return entry?.approvedIp || entry?.ipAddress || entry?.ip || entry?.approvedVia || '--';
   }
 
   getDynamicStageTitle(node: any): string {

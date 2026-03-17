@@ -1067,18 +1067,36 @@ export class ApplicationPdfService {
       return user.serUserId || user.userId || user.id || null;
     };
 
-    const getUserSignatureUrl = (user: any): string => {
+    const getUserSignatureUrl = (user: any, sectionLabel?: string): string => {
       const userId = getUserId(user);
       if (!userId) return '';
-      const entry = approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+      const entry = approvalHistory.find((e: any) => {
+        const entryUserId = e.approvedBy || e.userId;
+        if (entryUserId !== userId) return false;
+        // If section label is provided, match by role (section label)
+        if (sectionLabel) {
+          const entryRole = (e.role || '').toString().trim();
+          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
+        }
+        return true;
+      });
       if (!entry || !entry.signaturePath) return '';
       return `${urls.API_URL}getSignature?userId=${userId}`;
     };
 
-    const isUserApproved = (user: any): boolean => {
+    const isUserApproved = (user: any, sectionLabel?: string): boolean => {
       const userId = getUserId(user);
       if (!userId || !approvalHistory || approvalHistory.length === 0) return false;
-      const entry = approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+      const entry = approvalHistory.find((e: any) => {
+        const entryUserId = e.approvedBy || e.userId;
+        if (entryUserId !== userId) return false;
+        // If section label is provided, match by role (section label)
+        if (sectionLabel) {
+          const entryRole = (e.role || '').toString().trim();
+          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
+        }
+        return true;
+      });
       if (!entry) return false;
       if (!entry.signaturePath) return false;
       const action = (entry.action || entry.status || '').toString().toUpperCase();
@@ -1087,10 +1105,19 @@ export class ApplicationPdfService {
       return !!entry.approvedDate;
     };
 
-    const getUserApprovalDate = (user: any): string => {
+    const getUserApprovalDate = (user: any, sectionLabel?: string): string => {
       const userId = getUserId(user);
       if (!userId || !approvalHistory || approvalHistory.length === 0) return '';
-      const entry = approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+      const entry = approvalHistory.find((e: any) => {
+        const entryUserId = e.approvedBy || e.userId;
+        if (entryUserId !== userId) return false;
+        // If section label is provided, match by role (section label)
+        if (sectionLabel) {
+          const entryRole = (e.role || '').toString().trim();
+          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
+        }
+        return true;
+      });
       if (!entry || !entry.approvedDate) return '';
       try {
         const dt = new Date(entry.approvedDate);
@@ -1101,16 +1128,16 @@ export class ApplicationPdfService {
       }
     };
 
-    const renderUserCell = (user: any): string => {
+    const renderUserCell = (user: any, sectionLabel?: string): string => {
       if (!user) return '';
-      const sigUrl = getUserSignatureUrl(user);
-      const sigDate = getUserApprovalDate(user);
-      const approved = isUserApproved(user);
+      const sigUrl = getUserSignatureUrl(user, sectionLabel);
+      const sigDate = getUserApprovalDate(user, sectionLabel);
+      const approved = isUserApproved(user, sectionLabel);
       const content = `
         ${approved && sigUrl ? `<img class="xyz-sig-img" src="${sigUrl}" alt="Signature" crossorigin="anonymous" />` : ''}
         ${approved && sigDate ? `<div class="xyz-sig-time">${sigDate}</div>` : ''}
       `;
-      return approved ? `<div>${content}</div>` : '';
+      return approved ? `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%;">${content}</div>` : '';
     };
 
     const renderUserNameCell = (user: any, fallbackName?: string, fallbackRole?: string): string => {
@@ -1129,14 +1156,15 @@ export class ApplicationPdfService {
       const users = Array.isArray(section?.users) ? section.users : [];
       return users.length > 0 ? users : [null];
     };
-    const renderFooterSignatureSlot = (user: any): string => {
-      if (!user || !isUserApproved(user)) return '';
-      return renderUserCell(user);
+    const renderFooterSignatureSlot = (user: any, sectionLabel?: string): string => {
+      if (!user || !isUserApproved(user, sectionLabel)) return '';
+      return renderUserCell(user, sectionLabel);
     };
     const renderFooterUserSlot = (user: any): string => {
       if (!user) return '&nbsp;';
       const name = user?.txtUserName || user?.userName || user?.name || '';
-      const role = user?.cfgTblRole?.txtRoleName || user?.roleName || user?.designation || '';
+      const designation = user?.txtDesignation || user?.designation || '';
+      const role = user?.cfgTblRole?.txtRoleName || user?.roleName || '';
       let dept = user?.hrTblDepartment?.txtDepartmentName || user?.departmentName || user?.txtDepartmentName || '';
       if (!dept) {
         const userId = getUserId(user);
@@ -1144,8 +1172,9 @@ export class ApplicationPdfService {
         dept = entry?.departmentName || '';
       }
       const parts = [name];
-      if (role) parts.push(`(${role})`);
+      if (designation) parts.push(designation);
       if (dept) parts.push(dept);
+      if (role) parts.push(`(${role})`);
       const safe = parts.filter((p: string) => !!p).map((p: string) => {
         const div = document.createElement('div');
         div.textContent = p;
@@ -1156,16 +1185,17 @@ export class ApplicationPdfService {
     const hasDynamicFooter = Array.isArray(footerFields) && footerFields.length > 0;
     const css = `
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 0; background:#ffffff; color:#000; }
+    body { margin: 0; padding: 0; background:#ffffff; color:#000; text-align: center; }
+    .abc-wrapper { width: 210mm; max-width: 100%; margin-left: auto; margin-right: auto; text-align: left; }
     .xyz-page { background:#ffffff; padding: 0; display:block; }
     .xyz-paper {
-      width: 210mm;
+      width: 100%;
       background:#ffffff;
       font-family: "Times New Roman", Times, serif;
       font-size: 13.5px;
       line-height: 1.35;
       border: none;
-      padding: 10mm;
+      padding: 10mm 10mm 10mm 12mm;
       display:flex;
       flex-direction:column;
       overflow: visible;
@@ -1299,14 +1329,15 @@ export class ApplicationPdfService {
     }
     .xyz-signatures { width:100%; border-collapse:collapse; font-family: "Calibri", "Arial", sans-serif; font-size:12px; table-layout:fixed; }
     .xyz-signatures th, .xyz-signatures td { border:1px solid #000; padding:4px 6px; text-align:center !important; vertical-align:middle !important; word-wrap:break-word; overflow-wrap:break-word; max-width:0; }
-    .xyz-signatures-blank td { height:56px; padding:2px 4px; background:#fff; overflow:hidden; position:relative; box-sizing:border-box; vertical-align:middle !important; text-align:center !important; }
+    .xyz-signatures-blank td { height:42px; padding:2px 4px; background:#fff; overflow:hidden; position:relative; box-sizing:border-box; vertical-align:bottom !important; text-align:center !important; }
     .xyz-signatures th { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:14px; font-weight:700; background:#8f8f8f; text-align:center; text-transform:none; letter-spacing:0; }
     .xyz-signatures th[colspan="2"] { text-align:center; }
     .xyz-signatures td { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:12px; text-align:center !important; vertical-align:middle !important; }
-    .xyz-sig-img { max-height: 24px; max-width: 100%; width: auto; height: auto; object-fit: contain; display:block; margin:0 auto 4px auto; box-sizing:border-box; }
-    .xyz-signatures-blank td .xyz-sig-img { max-height: 24px !important; max-width: calc(100% - 8px) !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 0 auto 4px auto !important; }
-    .xyz-signatures-blank td > div { text-align:center; vertical-align:middle; display:inline-block; width:100%; }
-    .xyz-sig-time { font-size:10px; color:#6b7280; margin-bottom:4px; }
+    .xyz-sig-img { max-height: 14px; max-width: 85%; width: auto; height: auto; object-fit: contain; display:block; margin:0 auto 2px auto; box-sizing:border-box; vertical-align:bottom; }
+    .xyz-signatures-blank td .xyz-sig-img { max-height: 14px !important; max-width: calc(85% - 8px) !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 0 auto 2px auto !important; vertical-align: bottom !important; }
+    .xyz-signatures-blank td > div { text-align:center; vertical-align:middle; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; width:100%; height:100%; }
+    .xyz-sig-time { font-size:7px; color:#6b7280; margin-top:1px; line-height:1.2; }
+    .xyz-signatures-blank td .xyz-sig-time { font-size: 7px !important; margin-top: 1px !important; }
     .xyz-generic-field { margin-bottom:10px; }
     .xyz-generic-label { font-size:12px; font-weight:700; margin-bottom:3px; text-transform:uppercase; letter-spacing:.2px; }
     .xyz-generic-value { font-size:13.5px; }
@@ -1367,7 +1398,7 @@ export class ApplicationPdfService {
         ${hasDynamicFooter ? `
         <tr class="xyz-signatures-blank">
           ${(footerFields || []).map((f: any) =>
-            getFooterSlots(f).map((slot: any) => `<td>${renderFooterSignatureSlot(slot)}</td>`).join('')
+            getFooterSlots(f).map((slot: any) => `<td>${renderFooterSignatureSlot(slot, f?.label)}</td>`).join('')
           ).join('')}
         </tr>
         <tr>
