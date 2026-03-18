@@ -9,6 +9,7 @@ import { NotificationService } from 'src/app/NotificationService';
 import { saveAs } from 'file-saver';
 import { urls } from 'src/app/utils/urls';
 import { firstValueFrom } from 'rxjs';
+import { finalize } from 'rxjs/operators';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
@@ -39,6 +40,7 @@ export class ApplicationsViewComponent implements OnInit {
   currentUser: any;
   isDepartmentHead: boolean = false;
   showPendingApprovals: boolean = false;
+  isLoading = false;
   selectedApplicationForRemarks: Application | null = null;
   remarksText: string = '';
 
@@ -157,11 +159,12 @@ export class ApplicationsViewComponent implements OnInit {
   loadApplications(userId?: number) {
     // If userId is provided, fetch only that user's applications
     // Otherwise, get all applications (for admin users if needed)
+    this.isLoading = true;
     const request = userId
       ? this.customFormApplicationService.getApplicationsByUserId(userId)
       : this.customFormApplicationService.getAllApplications();
 
-    request.subscribe(
+    request.pipe(finalize(() => this.isLoading = false)).subscribe(
       (data: any) => {
         if (data) {
           this.applications = data.map((app: any) => ({

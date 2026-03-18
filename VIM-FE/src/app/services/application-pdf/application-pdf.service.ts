@@ -1251,7 +1251,7 @@ export class ApplicationPdfService {
       display: block !important;
       position: static !important;
       flex-shrink: 0 !important;
-      margin-top: 14px !important;
+      margin-top: auto !important;
     }
     .xyz-header-container {
       flex-shrink: 0;
@@ -1325,9 +1325,7 @@ export class ApplicationPdfService {
       padding-top: 14px;
       page-break-inside: avoid;
       break-inside: avoid;
-      position: sticky;
-      bottom: 0;
-      z-index: 10;
+      position: static;
       width: 100%;
     }
     @media print {
@@ -1353,15 +1351,19 @@ export class ApplicationPdfService {
     .xyz-generic-word .ql-editor { padding:0; }
     .xyz-generic-word .ql-editor p { margin:0 0 6px 0; }
     .xyz-generic-word .ql-editor table { width:100%; border-collapse:collapse; table-layout:fixed; margin:4px 0; }
-    .xyz-generic-word .ql-editor table tr { height:30px !important; }
+    .xyz-generic-word .ql-editor table tr { min-height:32px; }
     .xyz-generic-word .ql-editor th, .xyz-generic-word .ql-editor td {
       border:1px solid #111;
-      padding:0 4px !important;
-      min-height:30px;
-      height:30px !important;
-      line-height:1 !important;
+      padding:4px 6px !important;
+      min-height:32px;
+      line-height:1.3 !important;
       vertical-align:middle;
       box-sizing:border-box !important;
+      word-wrap:break-word !important;
+      overflow-wrap:break-word !important;
+      word-break:break-word;
+      max-width:0;
+      white-space:normal !important;
     }
     .xyz-generic-word .ql-editor td > *, .xyz-generic-word .ql-editor th > * {
       margin:0 !important;
@@ -1987,6 +1989,17 @@ export class ApplicationPdfService {
       table-layout: fixed;
     }
 
+    table td,
+    table th {
+      word-wrap: break-word !important;
+      overflow-wrap: break-word !important;
+      word-break: break-word;
+      max-width: 0;
+      box-sizing: border-box;
+      white-space: normal !important;
+      min-height: 32px;
+    }
+
     .grid {
       width: 100%;
       table-layout: fixed;
@@ -2005,6 +2018,7 @@ export class ApplicationPdfService {
       box-sizing: border-box;
       word-wrap: break-word !important;
       overflow-wrap: break-word !important;
+      min-height: 32px;
     }
 
     .grid tr:first-child td {

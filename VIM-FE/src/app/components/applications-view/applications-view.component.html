@@ -18,7 +18,13 @@
                 </button>
             </div>
         </div>
-        <div class="datatable invoice-table" *ngIf="getDisplayedApplications().length > 0">
+        <div *ngIf="isLoading" class="px-5 py-10 text-center">
+            <div class="inline-flex items-center gap-3 text-primary">
+                <span class="loader-spinner" aria-hidden="true"></span>
+                <span>Loading applications...</span>
+            </div>
+        </div>
+        <div class="datatable invoice-table" *ngIf="!isLoading && getDisplayedApplications().length > 0">
             <ng-datatable [rows]="getDisplayedApplications()" [columns]="cols" [hasCheckbox]="false" [sortable]="true"
                 skin="whitespace-nowrap bh-table-hover"
                 firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
@@ -70,7 +76,7 @@
                 </ng-template>
             </ng-datatable>
         </div>
-        <div *ngIf="getDisplayedApplications().length === 0" class="px-5 py-8 text-center">
+        <div *ngIf="!isLoading && getDisplayedApplications().length === 0" class="px-5 py-8 text-center">
             <p class="text-gray-600 dark:text-gray-400">
                 No applications found.
             </p>

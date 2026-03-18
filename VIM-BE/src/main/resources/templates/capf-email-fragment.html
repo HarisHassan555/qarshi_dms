@@ -204,6 +204,17 @@
               table-layout: fixed;
             }
 
+            table td,
+            table th {
+              word-wrap: break-word !important;
+              overflow-wrap: break-word !important;
+              word-break: break-word;
+              max-width: 0;
+              box-sizing: border-box;
+              white-space: normal !important;
+              min-height: 32px;
+            }
+
             .grid {
               display: table !important;
               width: 100% !important;
@@ -224,6 +235,7 @@
               box-sizing: border-box;
               word-wrap: break-word !important;
               overflow-wrap: break-word !important;
+              min-height: 32px;
             }
 
             .grid tr:first-child td {

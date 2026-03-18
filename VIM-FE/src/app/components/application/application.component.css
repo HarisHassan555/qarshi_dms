@@ -255,6 +255,7 @@
     padding: 4px 6px;
     word-wrap: break-word !important;
     overflow-wrap: break-word !important;
+    min-height: 32px;
 }
 
 .xyz-dynamic thead th {

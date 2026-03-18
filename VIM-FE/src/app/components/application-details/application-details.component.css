@@ -54,6 +54,13 @@
     page-break-inside: avoid;
 }
 
+/* In multi-page PDF capture, footer must stay in-flow (no sticky) */
+.pdf-capture .xyz-footer {
+    position: static !important;
+    bottom: auto !important;
+    margin-top: auto !important;
+}
+
 .pdf-capture table {
     width: 100%;
     border-collapse: collapse;
@@ -229,6 +236,7 @@
     line-height: 1.2;
     word-wrap: break-word !important;
     overflow-wrap: break-word !important;
+    min-height: 32px;
 }
 
 .xyz-table thead th {
@@ -297,7 +305,7 @@
 }
 
 .xyz-generic-word .ql-editor table tr {
-    height: 30px !important;
+    min-height: 32px;
 }
 
 .xyz-generic-word .ql-editor th,
@@ -305,9 +313,9 @@
     border: 1px solid #000;
     padding: 0 4px !important;
     font-size: 11px;
-    line-height: 1 !important;
+    line-height: 1.2 !important;
     vertical-align: middle !important;
-    height: 30px !important;
+    min-height: 32px;
     box-sizing: border-box !important;
 }
 
@@ -370,6 +378,7 @@
     line-height: 1.15;
     word-wrap: break-word !important;
     overflow-wrap: break-word !important;
+    min-height: 32px;
 }
 
 .xyz-content-body td p,
@@ -403,10 +412,8 @@
 
 .xyz-footer {
     flex-shrink: 0;
-    position: sticky;
-    bottom: 0;
+    position: static;
     background: #ffffff;
-    z-index: 10;
     padding-top: 14px;
     width: 100%;
     box-sizing: border-box;

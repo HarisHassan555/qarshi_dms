@@ -93,10 +93,12 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   documentHeaderField: FormField | null = null;
   allUsers: any[] = [];
   store: any;
+  /** @deprecated attachment type now uses multi-select; kept for any legacy paths */
   attachmentFiles: Record<string, File> = {};
   attachmentPayloads: Record<string, { fileName: string; mimeType: string; dataUrl: string; base64: string }> = {};
   multiAttachmentFiles: Record<string, File[]> = {};
   multiAttachmentPayloads: Record<string, { fileName: string; mimeType: string; dataUrl: string; base64: string }[]> = {};
+  static readonly MAX_ATTACHMENT_TOTAL_BYTES = 5 * 1024 * 1024; // 5 MB for attachment component
   previewDate = new Date().toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -498,7 +500,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         formControls[fieldName] = tableFormArray;
       } else if (normalizedFieldType === 'individual_pipeline_footer') {
         formControls[fieldName] = [this.getInitialIndividualFooterSections(field)];
-      } else if (normalizedFieldType === 'multi_attachment') {
+      } else if (normalizedFieldType === 'multi_attachment' || normalizedFieldType === 'attachment' || normalizedFieldType === 'file') {
         formControls[fieldName] = [[], validators];
       } else {
         formControls[fieldName] = [normalizedFieldType === 'checkbox' ? false : '', validators];
@@ -525,37 +527,45 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     return control instanceof FormControl ? control : null;
   }
 
-  onAttachmentChange(field: FormField, event: Event) {
-    const input = event.target as HTMLInputElement;
-    const file = input?.files && input.files.length > 0 ? input.files[0] : null;
-    const fieldName = this.getFieldName(field.label);
-    if (file) {
-      this.attachmentFiles[fieldName] = file;
-      this.applicationForm.get(fieldName)?.setValue(file.name);
-      this.buildAttachmentPayload(file).then((payload) => {
-        this.attachmentPayloads[fieldName] = payload;
-      }).catch(() => {
-        // ignore read errors here; will be handled on submit
-      });
-    } else {
-      delete this.attachmentFiles[fieldName];
-      delete this.attachmentPayloads[fieldName];
-      this.applicationForm.get(fieldName)?.setValue('');
-    }
-    this.applicationForm.get(fieldName)?.markAsTouched();
-  }
-
-  async onMultiAttachmentChange(field: FormField, event: Event) {
+  /** Attachment/file type: multi-select with 5 MB total limit. */
+  async onAttachmentMultiChange(field: FormField, event: Event) {
     const input = event.target as HTMLInputElement;
     const files = input?.files ? Array.from(input.files) : [];
     const fieldName = this.getFieldName(field.label);
-    
+    const normalizedType = (field.type || '').toString().toLowerCase();
+    const isAttachmentOrFile = normalizedType === 'attachment' || normalizedType === 'file';
+    const maxTotalBytes = isAttachmentOrFile ? ApplicationComponent.MAX_ATTACHMENT_TOTAL_BYTES : 0;
+
+    if (files.length > 0 && maxTotalBytes > 0) {
+      const totalBytes = files.reduce((sum, f) => sum + (Number((f as File).size) || 0), 0);
+      if (totalBytes > maxTotalBytes) {
+        const control = this.applicationForm.get(fieldName);
+        if (control) {
+          control.setErrors({ maxSize: { max: maxTotalBytes, actual: totalBytes } });
+          control.setValue(this.multiAttachmentFiles[fieldName]?.map(f => f.name) || [], { emitEvent: true });
+          control.markAsTouched();
+          control.updateValueAndValidity({ emitEvent: true });
+        }
+        this.applicationForm?.updateValueAndValidity({ emitEvent: true });
+        this.notificationService.showMessage(
+          `Combined file size (${(totalBytes / (1024 * 1024)).toFixed(2)} MB) exceeds 5 MB. Please select smaller or fewer files.`,
+          'danger'
+        );
+        input.value = '';
+        return;
+      }
+      const control = this.applicationForm.get(fieldName);
+      if (control?.errors?.['maxSize']) {
+        const err = { ...control.errors };
+        delete err['maxSize'];
+        control.setErrors(Object.keys(err).length ? err : null);
+      }
+    }
+
     if (files.length > 0) {
       this.multiAttachmentFiles[fieldName] = files;
-      
       const fileNames = files.map(f => f.name);
       this.applicationForm.get(fieldName)?.setValue(fileNames);
-      
       try {
         const payloads = await Promise.all(files.map(f => this.buildAttachmentPayload(f)));
         this.multiAttachmentPayloads[fieldName] = payloads;
@@ -568,12 +578,16 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       this.applicationForm.get(fieldName)?.setValue([]);
     }
     this.applicationForm.get(fieldName)?.markAsTouched();
+    input.value = '';
+  }
+
+  async onMultiAttachmentChange(field: FormField, event: Event) {
+    await this.onAttachmentMultiChange(field, event);
   }
 
   removeMultiAttachment(field: FormField, indexToRemove: number) {
     const fieldName = this.getFieldName(field.label);
     
-    // Remove from the files array
     if (this.multiAttachmentFiles[fieldName] && this.multiAttachmentFiles[fieldName].length > indexToRemove) {
       this.multiAttachmentFiles[fieldName].splice(indexToRemove, 1);
       if (this.multiAttachmentFiles[fieldName].length === 0) {
@@ -581,7 +595,6 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       }
     }
     
-    // Remove from the payloads array
     if (this.multiAttachmentPayloads[fieldName] && this.multiAttachmentPayloads[fieldName].length > indexToRemove) {
       this.multiAttachmentPayloads[fieldName].splice(indexToRemove, 1);
       if (this.multiAttachmentPayloads[fieldName].length === 0) {
@@ -589,11 +602,23 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       }
     }
     
-    // Update the form control value
-    const currentValues = this.applicationForm.get(fieldName)?.value || [];
-    if (Array.isArray(currentValues) && currentValues.length > indexToRemove) {
+    const rawValues = this.applicationForm.get(fieldName)?.value || [];
+    const currentValues = Array.isArray(rawValues) ? [...rawValues] : [];
+    if (currentValues.length > indexToRemove) {
       currentValues.splice(indexToRemove, 1);
-      this.applicationForm.get(fieldName)?.setValue([...currentValues]);
+      this.applicationForm.get(fieldName)?.setValue(currentValues);
+    }
+
+    const normalizedType = (field.type || '').toString().toLowerCase();
+    if (normalizedType === 'attachment' || normalizedType === 'file') {
+      const remaining = this.multiAttachmentFiles[fieldName] || [];
+      const totalBytes = remaining.reduce((sum, f) => sum + (Number((f as File).size) || 0), 0);
+      const control = this.applicationForm.get(fieldName);
+      if (control?.errors && control.errors['maxSize'] && totalBytes <= ApplicationComponent.MAX_ATTACHMENT_TOTAL_BYTES) {
+        const err = { ...control.errors };
+        delete err['maxSize'];
+        control.setErrors(Object.keys(err).length ? err : null);
+      }
     }
     
     this.applicationForm.get(fieldName)?.markAsTouched();
@@ -1272,19 +1297,20 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     if (this.applicationForm.valid && this.selectedForm) {
       const formData = { ...this.applicationForm.value };
 
-      // Ensure attachments are captured as base64 payloads
-      const attachmentFieldNames = new Set<string>();
+      // Ensure multi-select attachments (attachment/file and multi_attachment) are captured as base64 payloads
+      const multiAttachmentFieldNames = new Set<string>();
       this.selectedForm.fields.forEach((field: FormField) => {
         const type = (field.type || '').toString().toLowerCase();
-        if (type === 'attachment' || type === 'file') {
-          attachmentFieldNames.add(this.getFieldName(field.label));
+        if (type === 'attachment' || type === 'file' || type === 'multi_attachment') {
+          multiAttachmentFieldNames.add(this.getFieldName(field.label));
         }
       });
-      for (const fieldName of Object.keys(this.attachmentFiles)) {
-        if (!attachmentFieldNames.has(fieldName)) continue;
-        if (!this.attachmentPayloads[fieldName]) {
+      for (const fieldName of Object.keys(this.multiAttachmentFiles)) {
+        if (!multiAttachmentFieldNames.has(fieldName)) continue;
+        const files = this.multiAttachmentFiles[fieldName];
+        if (files?.length > 0 && (!this.multiAttachmentPayloads[fieldName] || this.multiAttachmentPayloads[fieldName].length !== files.length)) {
           try {
-            this.attachmentPayloads[fieldName] = await this.buildAttachmentPayload(this.attachmentFiles[fieldName]);
+            this.multiAttachmentPayloads[fieldName] = await Promise.all(files.map(f => this.buildAttachmentPayload(f)));
           } catch {}
         }
       }
@@ -1299,15 +1325,9 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
             formData[fieldName] = tableArray.value;
           }
         }
-        if (type === 'attachment' || type === 'file') {
+        if (type === 'attachment' || type === 'file' || type === 'multi_attachment') {
           const fieldName = this.getFieldName(field.label);
-          if (this.attachmentPayloads[fieldName]) {
-            formData[fieldName] = this.attachmentPayloads[fieldName];
-          }
-        }
-        if (type === 'multi_attachment') {
-          const fieldName = this.getFieldName(field.label);
-          if (this.multiAttachmentPayloads[fieldName]) {
+          if (this.multiAttachmentPayloads[fieldName]?.length) {
             formData[fieldName] = this.multiAttachmentPayloads[fieldName];
           }
         }

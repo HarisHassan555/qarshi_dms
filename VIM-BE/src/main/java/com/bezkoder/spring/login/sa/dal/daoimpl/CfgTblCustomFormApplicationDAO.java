@@ -1347,6 +1347,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     }
                 }
 
+                // If this approval completed the entire journey (non-budget dynamic footer flow),
+                // send a dedicated completion email to the initiator after commit.
+                boolean shouldSendFinalInitiatorEmail = "COMPLETED".equalsIgnoreCase(application.getTxtStatus())
+                        || "APPROVED".equalsIgnoreCase(application.getTxtStatus());
+
                 entityManager.merge(application);
                 entityManager.getTransaction().commit();
 
@@ -1356,6 +1361,14 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     }
                 } catch (Exception emailEx) {
                     log.error("Error sending budget approval emails: " + emailEx.getMessage(), emailEx);
+                }
+
+                if (shouldSendFinalInitiatorEmail) {
+                    try {
+                        sendFinalInitiatorEmail(application);
+                    } catch (Exception e) {
+                        log.warn("Failed to send final initiator email after completion: {}", e.getMessage());
+                    }
                 }
 
                 return "Success";
@@ -1628,6 +1641,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 }
             }
 
+            // Check if this approval completed the entire journey (non-budget dynamic footer flow)
+            boolean shouldSendFinalInitiatorEmail = "COMPLETED".equalsIgnoreCase(application.getTxtStatus())
+                    || "APPROVED".equalsIgnoreCase(application.getTxtStatus());
+
             entityManager.merge(application);
             entityManager.getTransaction().commit();
 
@@ -1644,6 +1661,16 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             } catch (Exception emailEx) {
                 log.error("Error sending approval emails: " + emailEx.getMessage(), emailEx);
                 // Don't fail the approval if email fails
+            }
+
+            // If this was the final approval stage (non-budget dynamic footer flow),
+            // send a dedicated completion email to the initiator.
+            if (shouldSendFinalInitiatorEmail) {
+                try {
+                    sendFinalInitiatorEmail(application);
+                } catch (Exception e) {
+                    log.warn("Failed to send final initiator email after completion: {}", e.getMessage());
+                }
             }
             return "Success";
         } catch (Exception e) {
@@ -3007,36 +3034,45 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 emailEntityManager.getTransaction().rollback();
                 return;
             }
-            String subject = "Application Approved - " + (application.getTxtFormCode() != null
-                    ? application.getTxtFormCode()
-                    : "Application");
-            String frontendUrl = frontendBaseUrl != null ? frontendBaseUrl : "http://localhost:4200";
-            if (!frontendUrl.endsWith("/")) {
-                frontendUrl += "/";
+            CfgTblCustomForm form = application.getCfgTblCustomForm();
+            if (form == null && application.getSerFormId() != null) {
+                form = emailEntityManager.find(CfgTblCustomForm.class, application.getSerFormId());
             }
-            String prUrl = frontendUrl + "velocity/pr-code/" + application.getSerApplicationId();
-            StringBuilder html = new StringBuilder();
-            html.append("<p>Dear ").append(submitter.getTxtUserName() != null ? submitter.getTxtUserName() : "User")
-                    .append(",</p>");
-            html.append("<p>Your application has been fully approved.</p>");
-            if (application.getTxtAssetCode() != null) {
-                html.append("<p>Asset Code: <strong>").append(application.getTxtAssetCode()).append("</strong></p>");
-            }
-            if (application.getTxtPrCode() != null) {
-                html.append("<p>PR Code: <strong>").append(application.getTxtPrCode()).append("</strong></p>");
-            }
-            html.append("<p style='margin-top:18px;'>To proceed with purchasing, please assign the PR code:</p>");
-            html.append(
-                    "<table role='presentation' cellpadding='0' cellspacing='0' border='0' style='margin:0 0 12px 0;'><tr><td align='left' style='border-radius:6px' bgcolor='#2c7be5'>");
-            html.append("<a href='").append(prUrl)
-                    .append("' style='font-family:Arial,sans-serif;padding:12px 18px;display:inline-block;color:#ffffff;text-decoration:none;font-weight:600;background:#2c7be5;border-radius:6px;'>Assign / Update PR Code</a>");
-            html.append("</td></tr></table>");
-            html.append(
-                    "<p style='font-size:12px;color:#444;margin-top:4px;'>If the button does not work, copy and paste this link into your browser:<br><a href='")
-                    .append(prUrl).append("'>").append(prUrl).append("</a></p>");
+            boolean isCapf = isCapfForm(form);
+            String formName = getResolvedFormName(form);
 
-            html.append("<p>Thank you.</p>");
-            emailService.sendHtmlEmail(java.util.Arrays.asList(submitter.getTxtAddress()), subject, html.toString());
+            Integer level = currentLevelSafe(application);
+            String subject = (formName != null && !formName.trim().isEmpty() ? formName : "Application")
+                    + " Completed - "
+                    + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+
+            String historyJson = application.getTxtPriorApprovals() != null && !application.getTxtPriorApprovals().trim().isEmpty()
+                    ? application.getTxtPriorApprovals()
+                    : application.getTxtApprovalHistory();
+
+            String htmlMessage = generateApprovalEmailHtml(
+                    submitter.getTxtUserName() != null ? submitter.getTxtUserName() : "User",
+                    level,
+                    application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
+                    formName,
+                    application.getTxtStatus(),
+                    application.getTxtRemarks(),
+                    false, // no action buttons (final completion notification)
+                    null, // approveUrl
+                    null, // rejectUrl
+                    null, // sendBackUrl
+                    null, // sendBackToInitiatorUrl
+                    historyJson,
+                    getBaseUrl());
+
+            sendEmailWithInlineFormPreview(
+                    java.util.Arrays.asList(submitter.getTxtAddress()),
+                    subject,
+                    htmlMessage,
+                    application,
+                    form,
+                    isCapf,
+                    isCapf ? "capf-inline" : "form-inline");
             emailEntityManager.getTransaction().commit();
         } catch (Exception e) {
             if (emailEntityManager.getTransaction().isActive())
@@ -6183,8 +6219,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         html.append(".status-in-progress{background-color:#d6eaf8;color:#3498db;}");
         html.append(".history{margin-top:20px;}");
         html.append(".history h3{margin:0 0 10px 0;font-size:16px;color:#333;}");
-        html.append(".history table{width:100%;border-collapse:collapse;font-size:12px;}");
-        html.append(".history th,.history td{border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;}");
+        html.append(".history table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;}");
+        html.append(".history th,.history td{border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;word-wrap:break-word;overflow-wrap:break-word;word-break:break-word;max-width:0;}");
         html.append(".history th{background:#f3f4f6;font-weight:600;}");
         html.append(".sig-img{max-height:24px;max-width:100%;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto 4px auto;box-sizing:border-box;}");
         html.append("</style>");
@@ -6333,14 +6369,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             sb.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin-top:20px;'>");
             sb.append("<tr><td>");
             sb.append("<h3 style='margin:0 0 10px 0;font-size:16px;color:#333;'>Prior Approvals</h3>");
-            sb.append("<table role='presentation' width='100%' cellpadding='6' cellspacing='0' border='1' style='border-collapse:collapse;font-size:12px;border:1px solid #e5e7eb;'>");
+            sb.append("<table role='presentation' width='100%' cellpadding='6' cellspacing='0' border='1' style='border-collapse:collapse;font-size:12px;border:1px solid #e5e7eb;table-layout:fixed;'>");
             sb.append("<thead><tr>");
-            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;'>Level</th>");
-            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;'>Approver</th>");
-            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;'>Role</th>");
-            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;'>Status</th>");
-            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;'>Date</th>");
-            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;'>Signature</th>");
+            String thWrap = "word-wrap:break-word;overflow-wrap:break-word;word-break:break-word;max-width:0;";
+            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Level</th>");
+            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Approver</th>");
+            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Role</th>");
+            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Status</th>");
+            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Date</th>");
+            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Signature</th>");
             sb.append("</tr></thead><tbody>");
 
             for (Map<String, Object> entry : list) {
@@ -6371,13 +6408,14 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     }
                 }
 
+                String tdWrap = "word-wrap:break-word;overflow-wrap:break-word;word-break:break-word;max-width:0;";
                 sb.append("<tr>");
-                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;'>").append(escapeHtml(level)).append("</td>");
-                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;'>").append(escapeHtml(name)).append("</td>");
-                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;'>").append(escapeHtml(role)).append("</td>");
-                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;'>").append(escapeHtml(action)).append("</td>");
-                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;'>").append(escapeHtml(date)).append("</td>");
-                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:center;vertical-align:middle;'>").append(sigHtml).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;" + tdWrap + "'>").append(escapeHtml(level)).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;" + tdWrap + "'>").append(escapeHtml(name)).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;" + tdWrap + "'>").append(escapeHtml(role)).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;" + tdWrap + "'>").append(escapeHtml(action)).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;" + tdWrap + "'>").append(escapeHtml(date)).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:center;vertical-align:middle;" + tdWrap + "'>").append(sigHtml).append("</td>");
                 sb.append("</tr>");
             }
 
