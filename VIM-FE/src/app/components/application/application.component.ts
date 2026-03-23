@@ -57,9 +57,12 @@ interface IndividualPipelineFooterField {
 
 interface ApprovalPipeline {
   serApprovalPipelineId?: number;
-  serDepartmentId: number;
+  type?: 'department' | 'individual';
+  serDepartmentId?: number;
+  serUserId?: number;
   intApprovalOrder: number;
   hrTblDepartment?: any;
+  hrTblUser?: any;
 }
 
 interface CustomForm {
@@ -242,12 +245,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
               intFieldOrder: field.intFieldOrder || 0,
               txtFieldOptions: field.txtFieldOptions
             })).sort((a: FormField, b: FormField) => (a.intFieldOrder || 0) - (b.intFieldOrder || 0)),
-            approvalPipelines: (form.cfgTblCustomFormApprovalPipelines || []).map((pipeline: any) => ({
-              serApprovalPipelineId: pipeline.serApprovalPipelineId,
-              serDepartmentId: pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId,
-              intApprovalOrder: pipeline.intApprovalOrder || 0,
-              hrTblDepartment: pipeline.hrTblDepartment
-            })).sort((a: ApprovalPipeline, b: ApprovalPipeline) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0))
+            approvalPipelines: this.parseApprovalPipelines(form)
           }));
         }
       },
@@ -268,6 +266,63 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         console.error('Error loading users:', error);
       }
     );
+  }
+
+  /** Parse approval pipelines from txtApprovalPipeline (mixed dept+individual) or cfgTblCustomFormApprovalPipelines */
+  parseApprovalPipelines(form: any): ApprovalPipeline[] {
+    const raw = (form.txtApprovalPipeline || '').trim();
+    if (raw) {
+      try {
+        const arr = JSON.parse(raw) as any[];
+        if (Array.isArray(arr) && arr.length > 0) {
+          const mapped: ApprovalPipeline[] = [];
+          for (let idx = 0; idx < arr.length; idx++) {
+            const p = arr[idx];
+            const order = p.intApprovalOrder ?? idx;
+            if (p.type === 'individual' && (p.serUserId != null || p.userId != null)) {
+              const uid = p.serUserId ?? p.userId;
+              const user = p.hrTblUser || this.allUsers?.find((u: any) => u.serUserId === uid);
+              mapped.push({
+                type: 'individual',
+                serUserId: uid,
+                intApprovalOrder: order,
+                hrTblUser: user || (p.txtUserName ? { serUserId: uid, txtUserName: p.txtUserName } : undefined)
+              });
+            } else {
+              const deptId = p.serDepartmentId ?? p.departmentId;
+              if (deptId != null) {
+                const deptName = p.txtDepartmentName ?? p.hrTblDepartment?.txtDepartmentName;
+                mapped.push({
+                  type: 'department',
+                  serDepartmentId: deptId,
+                  intApprovalOrder: order,
+                  hrTblDepartment: p.hrTblDepartment || (deptName ? { serDepartmentId: deptId, txtDepartmentName: deptName } : undefined)
+                });
+              }
+            }
+          }
+          return mapped.sort((a, b) => (a.intApprovalOrder ?? 0) - (b.intApprovalOrder ?? 0));
+        }
+      } catch (e) {
+        console.warn('parseApprovalPipelines: invalid txtApprovalPipeline', e);
+      }
+    }
+    return (form.cfgTblCustomFormApprovalPipelines || []).map((pipeline: any) => ({
+      serApprovalPipelineId: pipeline.serApprovalPipelineId,
+      type: 'department' as const,
+      serDepartmentId: pipeline.hrTblDepartment?.serDepartmentId ?? pipeline.serDepartmentId,
+      intApprovalOrder: pipeline.intApprovalOrder ?? 0,
+      hrTblDepartment: pipeline.hrTblDepartment
+    })).sort((a: ApprovalPipeline, b: ApprovalPipeline) => (a.intApprovalOrder ?? 0) - (b.intApprovalOrder ?? 0));
+  }
+
+  /** Display name for a pipeline entry (department or individual) */
+  getPipelineDisplayName(pipeline: ApprovalPipeline): string {
+    if (pipeline.type === 'individual') {
+      const u = pipeline.hrTblUser || this.allUsers?.find((x: any) => x.serUserId === pipeline.serUserId);
+      return u?.txtUserName ?? (pipeline.serUserId ? 'User #' + pipeline.serUserId : 'Individual');
+    }
+    return pipeline.hrTblDepartment?.txtDepartmentName ?? (pipeline.serDepartmentId ? 'Department ' + pipeline.serDepartmentId : 'Department');
   }
 
   onFormSelect(event: Event) {
@@ -1021,10 +1076,9 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
     wrapper.querySelectorAll('td,th').forEach((cell: Element) => {
       const el = cell as HTMLElement;
-      el.style.height = '30px';
-      el.style.minHeight = '30px';
-      el.style.padding = '0 4px';
-      el.style.lineHeight = '1';
+      el.style.minHeight = '32px';
+      el.style.padding = '6px 6px';
+      el.style.lineHeight = '1.35';
       el.style.verticalAlign = 'middle';
 
       while (el.firstChild && el.firstChild.nodeType === Node.TEXT_NODE && !(el.firstChild.textContent || '').trim()) {
@@ -1043,14 +1097,13 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       const plainText = (el.textContent || '').replace(/\u00a0/g, '').trim();
       const hasMedia = !!el.querySelector('img,svg,canvas');
       if (!plainText && !hasMedia && el.children.length === 0) {
-        el.innerHTML = '&nbsp;';
+        el.innerHTML = '<span style="display:block;min-height:1.35em;line-height:1.35;">&nbsp;</span>';
       }
     });
 
     wrapper.querySelectorAll('tr').forEach((row: Element) => {
       const rowEl = row as HTMLElement;
-      rowEl.style.height = '30px';
-      rowEl.style.minHeight = '30px';
+      rowEl.style.minHeight = '32px';
     });
 
     return wrapper.innerHTML;

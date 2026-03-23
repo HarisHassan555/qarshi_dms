@@ -229,9 +229,12 @@
                     </div>
 
                     <div *ngIf="showApprovalPipeline" class="space-y-4">
-                        <!-- Add Department to Pipeline -->
-                        <div class="flex gap-2">
-                            <select id="departmentSelect" class="form-select flex-1">
+                        <p class="text-xs text-gray-500 dark:text-gray-400">
+                            Add departments (HOD approves) or individuals (specific users). Mix both as needed.
+                        </p>
+                        <!-- Add Department or Individual to Pipeline -->
+                        <div class="flex flex-wrap gap-2">
+                            <select id="departmentSelect" class="form-select flex-1 min-w-[180px]">
                                 <option value="0">-- Select Department --</option>
                                 <option *ngFor="let dept of departments" [value]="dept.serDepartmentId">
                                     {{ dept.txtDepartmentName }}
@@ -241,6 +244,23 @@
                                 <icon-plus class="w-4 h-4" />
                                 Add Department
                             </button>
+                            <ng-select class="flex-1 min-w-[180px]" [items]="allUsers" bindLabel="txtUserName"
+                                [(ngModel)]="selectedIndividualForPipeline" [clearable]="true"
+                                placeholder="-- Select Individual --" [ngModelOptions]="{standalone: true}">
+                                <ng-template ng-label-tmp let-item="item">
+                                    {{ item?.txtUserName || item?.userName || item?.name }}
+                                </ng-template>
+                                <ng-template ng-option-tmp let-item="item">
+                                    {{ item?.txtUserName || item?.userName || item?.name }}
+                                    <span class="text-xs text-gray-500" *ngIf="item?.cfgTblRole?.txtRoleName">
+                                        ({{ item.cfgTblRole.txtRoleName }})
+                                    </span>
+                                </ng-template>
+                            </ng-select>
+                            <button type="button" (click)="addApprovalPipelineIndividual()" class="btn btn-outline-primary">
+                                <icon-plus class="w-4 h-4" />
+                                Add Individual
+                            </button>
                         </div>
 
                         <!-- Approval Pipeline List -->
@@ -249,7 +269,10 @@
                                  class="flex items-center gap-2 p-3 border border-[#e0e6ed] dark:border-[#1b2e4b] rounded-md bg-gray-50 dark:bg-[#1b2e4b]">
                                 <div class="flex items-center gap-2 flex-1">
                                     <span class="font-semibold text-sm w-8">{{ i + 1 }}.</span>
-                                    <span class="flex-1">{{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' + pipeline.serDepartmentId }}</span>
+                                    <span class="flex-1">{{ getPipelineDisplayName(pipeline) }}</span>
+                                    <span class="text-xs px-2 py-0.5 rounded" [ngClass]="pipeline.type === 'department' ? 'bg-blue-100 dark:bg-blue-900' : 'bg-green-100 dark:bg-green-900'">
+                                        {{ pipeline.type === 'department' ? 'Dept' : 'Individual' }}
+                                    </span>
                                 </div>
                                 <div class="flex items-center gap-2">
                                     <button type="button" 
@@ -277,7 +300,7 @@
                         </div>
 
                         <div *ngIf="approvalPipelines.length === 0" class="text-center py-4 text-gray-500 text-sm">
-                            <p>No departments added to approval pipeline. Add departments to define the approval order.</p>
+                            <p>No entries in approval pipeline. Add departments or individuals to define the approval order.</p>
                         </div>
                     </div>
                 </div>

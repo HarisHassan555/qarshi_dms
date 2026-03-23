@@ -959,7 +959,7 @@ export class ApplicationPdfService {
         const text = (cell.textContent || '').replace(/\u00a0/g, ' ').trim();
         const hasNode = !!cell.querySelector('img, table, ul, ol, div, p, span');
         if (!text && !hasNode) {
-          cell.innerHTML = '&nbsp;';
+          cell.innerHTML = '<span style="display:block;min-height:1.35em;line-height:1.35;">&nbsp;</span>';
         }
       });
       return wrapper.innerHTML;
@@ -1335,7 +1335,8 @@ export class ApplicationPdfService {
     }
     .xyz-signatures { width:100%; border-collapse:collapse; font-family: "Calibri", "Arial", sans-serif; font-size:12px; table-layout:fixed; }
     .xyz-signatures th, .xyz-signatures td { border:1px solid #000; padding:4px 6px; text-align:center !important; vertical-align:middle !important; word-wrap:break-word; overflow-wrap:break-word; max-width:0; }
-    .xyz-signatures-blank td { height:42px; padding:2px 4px; background:#fff; overflow:hidden; position:relative; box-sizing:border-box; vertical-align:bottom !important; text-align:center !important; }
+    .xyz-signatures-blank td { height:88px; min-height:88px; padding:8px 4px 12px 4px; background:#fff; overflow:hidden; position:relative; box-sizing:border-box; vertical-align:top !important; text-align:center !important; border-bottom:1px solid #000; }
+    .xyz-signatures tr:nth-child(2) th { padding-top:36px; padding-bottom:8px; }
     .xyz-signatures th { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:14px; font-weight:700; background:#8f8f8f; text-align:center; text-transform:none; letter-spacing:0; }
     .xyz-signatures th[colspan="2"] { text-align:center; }
     .xyz-signatures td { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:12px; text-align:center !important; vertical-align:middle !important; }
@@ -1354,9 +1355,9 @@ export class ApplicationPdfService {
     .xyz-generic-word .ql-editor table tr { min-height:32px; }
     .xyz-generic-word .ql-editor th, .xyz-generic-word .ql-editor td {
       border:1px solid #111;
-      padding:4px 6px !important;
-      min-height:32px;
-      line-height:1.3 !important;
+      padding:6px 6px !important;
+      min-height:32px !important;
+      line-height:1.35 !important;
       vertical-align:middle;
       box-sizing:border-box !important;
       word-wrap:break-word !important;

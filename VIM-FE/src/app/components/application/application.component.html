@@ -313,7 +313,7 @@
                                             </div>
                                             <div class="w-full border-t border-gray-400 dark:border-gray-500 mb-1"></div>
                                             <div class="text-xs font-bold text-center uppercase tracking-wider dark:text-white-light">
-                                                {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' + pipeline.serDepartmentId }}
+                                                {{ getPipelineDisplayName(pipeline) }}
                                             </div>
                                         </div>
                                     </div>
@@ -439,8 +439,7 @@
                                     <div
                                         class="px-4 py-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#1b2e4b] rounded min-w-[120px] text-center">
                                         <p class="text-sm font-medium dark:text-white-light">
-                                            {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' +
-                                            pipeline.serDepartmentId }}
+                                            {{ getPipelineDisplayName(pipeline) }}
                                         </p>
                                     </div>
 
@@ -601,7 +600,7 @@
                                                     </div>
                                                     <div class="w-full border-t border-gray-300 mb-1"></div>
                                                     <div class="text-[10px] font-bold text-center uppercase tracking-wider text-gray-700">
-                                                        {{ pipeline.hrTblDepartment?.txtDepartmentName || 'Department ' + pipeline.serDepartmentId }}
+                                                        {{ getPipelineDisplayName(pipeline) }}
                                                     </div>
                                                 </div>
                                             </div>

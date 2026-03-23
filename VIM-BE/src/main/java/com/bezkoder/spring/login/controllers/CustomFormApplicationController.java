@@ -600,7 +600,7 @@ public class CustomFormApplicationController {
                         +
                         ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
                         ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                        "<div class='container'><div class='error'>âœ— Send Back Failed</div>" +
+                        "<div class='container'><div class='error'>Send Back Failed</div>" +
                         "<div class='message'>"
                         + (status != null && status.startsWith("Failure:") ? status.substring(8)
                                 : "Failed to send back application")
@@ -615,7 +615,7 @@ public class CustomFormApplicationController {
                     +
                     ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
                     ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                    "<div class='container'><div class='error'>âœ— Error</div>" +
+                    "<div class='container'><div class='error'>Error</div>" +
                     "<div class='message'>An error occurred: " + ex.getMessage() + "</div></div></body></html>";
         }
     }
@@ -650,7 +650,7 @@ public class CustomFormApplicationController {
                         +
                         ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
                         ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                        "<div class='container'><div class='error'>âœ— Send Back Failed</div>" +
+                        "<div class='container'><div class='error'>Send Back Failed</div>" +
                         "<div class='message'>"
                         + (status != null && status.startsWith("Failure:") ? status.substring(8)
                                 : "Failed to send back application to initiator")
@@ -665,7 +665,7 @@ public class CustomFormApplicationController {
                     +
                     ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
                     ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                    "<div class='container'><div class='error'>âœ— Error</div>" +
+                    "<div class='container'><div class='error'>Error</div>" +
                     "<div class='message'>An error occurred: " + ex.getMessage() + "</div></div></body></html>";
         }
     }

@@ -98,10 +98,14 @@ public class CustomFormController {
                 pipelinesObj = requestBody.get("approvalPipelines"); // Try alias
             }
             
+            // Extract txtApprovalPipeline if sent (supports mixed department + individual pipeline)
+            Object txtPipelineObj = requestBody.get("txtApprovalPipeline");
+            requestBody.remove("txtApprovalPipeline");
+
             // Remove from request body to avoid deserialization issues
             requestBody.remove("cfgTblCustomFormApprovalPipelines");
             requestBody.remove("approvalPipelines");
-            
+
             // Convert to CfgTblCustomForm using ObjectMapper
             com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
             CfgTblCustomForm customForm = objectMapper.convertValue(requestBody, CfgTblCustomForm.class);
@@ -143,7 +147,13 @@ public class CustomFormController {
                 customForm.setCfgTblCustomFormApprovalPipelines(pipelineEntities);
                 logger.debug("Manually extracted " + pipelineEntities.size() + " approval pipelines");
             }
-            
+
+            // If frontend sent txtApprovalPipeline (mixed department + individual), use it directly
+            if (txtPipelineObj != null && txtPipelineObj instanceof String && !((String) txtPipelineObj).trim().isEmpty()) {
+                customForm.setTxtApprovalPipeline((String) txtPipelineObj);
+                logger.debug("Using txtApprovalPipeline from request (supports mixed pipeline)");
+            }
+
             String status = customFormService.updateCustomForm(customForm);
             if ("Success".equals(status)) {
                 result.put("status", "Success");

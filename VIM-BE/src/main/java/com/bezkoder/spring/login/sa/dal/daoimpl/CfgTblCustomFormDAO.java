@@ -312,40 +312,41 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
                 }
             }
 
-            // Convert approval pipelines to JSON array
-            if (customForm.getCfgTblCustomFormApprovalPipelines() != null && !customForm.getCfgTblCustomFormApprovalPipelines().isEmpty()) {
-                java.util.List<java.util.Map<String, Object>> pipelineArray = new java.util.ArrayList<>();
-                
-                for (com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline pipeline : customForm.getCfgTblCustomFormApprovalPipelines()) {
-                    // Extract department ID
-                    Integer deptId = null;
-                    if (pipeline.getSerDepartmentId() != null) {
-                        deptId = pipeline.getSerDepartmentId();
-                    } else if (pipeline.getHrTblDepartment() != null && pipeline.getHrTblDepartment().getSerDepartmentId() != null) {
-                        deptId = pipeline.getHrTblDepartment().getSerDepartmentId();
+            // Use txtApprovalPipeline from payload if already set (supports mixed department + individual).
+            // Otherwise build from cfgTblCustomFormApprovalPipelines entities.
+            if (customForm.getTxtApprovalPipeline() == null || customForm.getTxtApprovalPipeline().trim().isEmpty()) {
+                if (customForm.getCfgTblCustomFormApprovalPipelines() != null && !customForm.getCfgTblCustomFormApprovalPipelines().isEmpty()) {
+                    java.util.List<java.util.Map<String, Object>> pipelineArray = new java.util.ArrayList<>();
+
+                    for (com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline pipeline : customForm.getCfgTblCustomFormApprovalPipelines()) {
+                        Integer deptId = null;
+                        if (pipeline.getSerDepartmentId() != null) {
+                            deptId = pipeline.getSerDepartmentId();
+                        } else if (pipeline.getHrTblDepartment() != null && pipeline.getHrTblDepartment().getSerDepartmentId() != null) {
+                            deptId = pipeline.getHrTblDepartment().getSerDepartmentId();
+                        }
+
+                        if (deptId != null) {
+                            java.util.Map<String, Object> pipelineData = new java.util.HashMap<>();
+                            pipelineData.put("type", "department");
+                            pipelineData.put("serDepartmentId", deptId);
+                            pipelineData.put("intApprovalOrder", pipeline.getIntApprovalOrder() != null ? pipeline.getIntApprovalOrder() : 0);
+                            pipelineArray.add(pipelineData);
+                        } else {
+                            log.warn("No department ID provided for pipeline, skipping");
+                        }
                     }
-                    
-                    if (deptId != null) {
-                        // Create a simple map for JSON storage (no IDs, just array data)
-                        java.util.Map<String, Object> pipelineData = new java.util.HashMap<>();
-                        pipelineData.put("serDepartmentId", deptId);
-                        pipelineData.put("intApprovalOrder", pipeline.getIntApprovalOrder() != null ? pipeline.getIntApprovalOrder() : 0);
-                        pipelineArray.add(pipelineData);
-                    } else {
-                        log.warn("No department ID provided for pipeline, skipping");
+
+                    try {
+                        String jsonPipeline = objectMapper.writeValueAsString(pipelineArray);
+                        customForm.setTxtApprovalPipeline(jsonPipeline);
+                    } catch (Exception e) {
+                        log.error("Error converting approval pipeline to JSON: " + e.getMessage(), e);
+                        customForm.setTxtApprovalPipeline(null);
                     }
-                }
-                
-                // Convert to JSON string and store
-                try {
-                    String jsonPipeline = objectMapper.writeValueAsString(pipelineArray);
-                    customForm.setTxtApprovalPipeline(jsonPipeline);
-                } catch (Exception e) {
-                    log.error("Error converting approval pipeline to JSON: " + e.getMessage(), e);
+                } else {
                     customForm.setTxtApprovalPipeline(null);
                 }
-            } else {
-                customForm.setTxtApprovalPipeline(null);
             }
 
             entityManager.persist(customForm);
@@ -450,26 +451,25 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
                 }
             }
 
-            // Convert approval pipelines to JSON array
-            // Log for debugging
-            log.info("Update form ID " + customForm.getSerFormId() + " - Approval pipelines check: " + 
-                    (customForm.getCfgTblCustomFormApprovalPipelines() != null ? 
-                     "not null, size: " + customForm.getCfgTblCustomFormApprovalPipelines().size() : "null"));
-            if (customForm.getCfgTblCustomFormApprovalPipelines() != null && !customForm.getCfgTblCustomFormApprovalPipelines().isEmpty()) {
+            // Use txtApprovalPipeline from request if already set (supports mixed department + individual).
+            // Otherwise build from cfgTblCustomFormApprovalPipelines entities.
+            if (customForm.getTxtApprovalPipeline() != null && !customForm.getTxtApprovalPipeline().trim().isEmpty()) {
+                existingForm.setTxtApprovalPipeline(customForm.getTxtApprovalPipeline());
+                log.info("Using txtApprovalPipeline from request (mixed pipeline support)");
+            } else if (customForm.getCfgTblCustomFormApprovalPipelines() != null && !customForm.getCfgTblCustomFormApprovalPipelines().isEmpty()) {
                 java.util.List<java.util.Map<String, Object>> pipelineArray = new java.util.ArrayList<>();
-                
+
                 for (com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline pipeline : customForm.getCfgTblCustomFormApprovalPipelines()) {
-                    // Extract department ID
                     Integer deptId = null;
                     if (pipeline.getSerDepartmentId() != null) {
                         deptId = pipeline.getSerDepartmentId();
                     } else if (pipeline.getHrTblDepartment() != null && pipeline.getHrTblDepartment().getSerDepartmentId() != null) {
                         deptId = pipeline.getHrTblDepartment().getSerDepartmentId();
                     }
-                    
+
                     if (deptId != null) {
-                        // Create a simple map for JSON storage (no IDs, just array data)
                         java.util.Map<String, Object> pipelineData = new java.util.HashMap<>();
+                        pipelineData.put("type", "department");
                         pipelineData.put("serDepartmentId", deptId);
                         pipelineData.put("intApprovalOrder", pipeline.getIntApprovalOrder() != null ? pipeline.getIntApprovalOrder() : 0);
                         pipelineArray.add(pipelineData);
@@ -477,8 +477,7 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
                         log.warn("No department ID provided for pipeline, skipping");
                     }
                 }
-                
-                // Convert to JSON string and store
+
                 try {
                     String jsonPipeline = objectMapper.writeValueAsString(pipelineArray);
                     existingForm.setTxtApprovalPipeline(jsonPipeline);

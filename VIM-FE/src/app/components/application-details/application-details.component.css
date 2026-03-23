@@ -4,11 +4,27 @@
     background: transparent;
     padding: 0;
     display: flex;
-    justify-content: center;
-    align-items: flex-start;
+    flex-direction: column;
+    align-items: center;
     margin-top: 20px;
     width: 100%;
     overflow-x: auto;
+    gap: 0;
+}
+
+/* Single scroll for the whole stack of pages (parent scrollable, pages not) */
+.xyz-pages-scroll {
+    max-height: 80vh;
+    overflow-y: auto;
+    padding-bottom: 8px;
+}
+
+/* Multi-page: each page is a separate A4 card, slightly separated */
+.xyz-paper-page {
+    margin-bottom: 12mm;
+}
+.xyz-paper-page:last-child {
+    margin-bottom: 0;
 }
 
 .xyz-paper {
@@ -28,8 +44,8 @@
     display: flex;
     flex-direction: column;
     box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-    overflow: auto;
-    -webkit-overflow-scrolling: touch;
+    /* Page cards do not scroll; parent .xyz-pages-scroll is the only scroll */
+    overflow: hidden;
 }
 
 /* Ensure paper container uses full height for flex layout */
@@ -54,11 +70,9 @@
     page-break-inside: avoid;
 }
 
-/* In multi-page PDF capture, footer must stay in-flow (no sticky) */
+/* PDF capture: footer already in-flow */
 .pdf-capture .xyz-footer {
     position: static !important;
-    bottom: auto !important;
-    margin-top: auto !important;
 }
 
 .pdf-capture table {
@@ -177,13 +191,11 @@
     flex-shrink: 0;
 }
 
-/* Header container - makes entire header section sticky */
+/* Header: fixed at top of each page as part of content (no sticky/float) */
 .xyz-header-container {
     flex-shrink: 0;
-    position: sticky;
-    top: 0;
+    position: static;
     background: #ffffff;
-    z-index: 10;
     padding-bottom: 6px;
 }
 
@@ -311,12 +323,13 @@
 .xyz-generic-word .ql-editor th,
 .xyz-generic-word .ql-editor td {
     border: 1px solid #000;
-    padding: 0 4px !important;
+    padding: 6px 6px !important;
     font-size: 11px;
-    line-height: 1.2 !important;
+    line-height: 1.35 !important;
     vertical-align: middle !important;
-    min-height: 32px;
+    min-height: 32px !important;
     box-sizing: border-box !important;
+    overflow: visible;
 }
 
 .xyz-generic-word .ql-editor td>*,
@@ -410,6 +423,7 @@
     table-layout: fixed;
 }
 
+/* Footer default: in-flow */
 .xyz-footer {
     flex-shrink: 0;
     position: static;
@@ -417,18 +431,34 @@
     padding-top: 14px;
     width: 100%;
     box-sizing: border-box;
-    margin-top: auto;
-    align-self: flex-end;
 }
 
-/* Force footer to bottom when content is short */
 .xyz-paper {
     display: flex;
     flex-direction: column;
 }
 
+/* Default: content does not grow to fill page */
 .xyz-paper > .xyz-content-body {
-    flex-grow: 1;
+    flex-grow: 0;
+}
+
+/* Last page: fixed A4 height, content fills middle, footer fixed at bottom */
+.xyz-paper.xyz-last-page {
+    display: flex;
+    flex-direction: column;
+    min-height: 297mm;
+    height: 297mm;
+    max-height: 297mm;
+}
+.xyz-paper.xyz-last-page > .xyz-content-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+}
+.xyz-paper.xyz-last-page > .xyz-footer {
+    flex-shrink: 0;
+    margin-top: auto;
 }
 
 .xyz-signatures th,
@@ -443,13 +473,15 @@
 }
 
 .xyz-signatures-blank td {
-    height: 56px;
-    padding: 2px 4px;
+    height: 88px;
+    min-height: 88px;
+    padding: 8px 4px 10px 4px;
     background: #ffffff;
     overflow: hidden;
     position: relative;
     box-sizing: border-box;
-    vertical-align: middle;
+    vertical-align: top;
+    border-bottom: 1px solid #000;
 }
 
 .xyz-signatures th {
@@ -458,6 +490,9 @@
     font-weight: 700;
     background: #8f8f8f;
     text-align: center;
+    padding-top: 36px;
+    padding-bottom: 8px;
+    border-top: none;
 }
 
 .xyz-signatures td {
@@ -602,6 +637,13 @@
     box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
 }
 
+/* If a stage shows multiple approvers (side-by-side mini boxes),
+   give the parent card more width so content fits nicely. */
+.approval-node:has(.approval-multi-approvers) {
+    min-width: 320px;
+    max-width: 420px;
+}
+
 .approval-node.is-approved {
     border-color: #22c55e;
     background: #f0fdf4;
@@ -685,6 +727,23 @@
     text-overflow: ellipsis;
 }
 
+/* When multiple approvers are shown side-by-side, let the value area expand so both boxes fit horizontally */
+.approval-node-row .value:has(.approval-multi-approvers) {
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: clip;
+    text-align: left;
+}
+
+.approval-multi-approvers {
+    width: 100%;
+}
+
+.approval-multi-approvers > div {
+    min-width: 0;
+}
+
 .approval-arrow {
     min-width: 90px;
     display: flex;
@@ -732,7 +791,17 @@
         max-width: 130px;
     }
 
+    .approval-node-row .value:has(.approval-multi-approvers) {
+        max-width: 100%;
+        min-width: 0;
+    }
+
     .approval-arrow-line {
         width: 40px;
+    }
+
+    .approval-node:has(.approval-multi-approvers) {
+        min-width: 260px;
+        max-width: 420px;
     }
 }

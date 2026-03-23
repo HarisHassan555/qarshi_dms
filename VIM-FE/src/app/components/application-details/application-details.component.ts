@@ -1,4 +1,4 @@
-import { Component, OnInit, ViewChild } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit, ViewChild } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
@@ -9,7 +9,7 @@ import { NotificationService } from 'src/app/NotificationService';
 import { UserService } from 'src/app/services/user/user.service';
 import { AbcComponent } from '../../pages/abc/abc.component';
 import { urls } from 'src/app/utils/urls';
-import { finalize, firstValueFrom } from 'rxjs';
+import { finalize, firstValueFrom, forkJoin } from 'rxjs';
 
 @Component({
   selector: 'app-application-details',
@@ -64,6 +64,14 @@ export class ApplicationDetailsComponent implements OnInit {
   assetCodeInput: string = '';
   isSavingAssetCode: boolean = false;
 
+  prCodeInput: string = '';
+  isSavingPrCode: boolean = false;
+
+  /** For generic form: body fields split into pages (each page ≈ A4). */
+  genericPages: any[][] = [];
+  /** For budget approval form: HTML content split into pages. */
+  budgetPages: SafeHtml[] = [];
+
   hasFeasibilityReport(): boolean {
     const report = this.applicationFormData?.feasibility_report_attached
       ?? this.applicationFormData?.feasibility_attached_report;
@@ -90,6 +98,18 @@ export class ApplicationDetailsComponent implements OnInit {
     return this.applicationDetails?.txtStatus === 'ASSET_PENDING' && this.isFinance();
   }
 
+  showPrCodeForm(): boolean {
+    if (!this.applicationDetails) return false;
+    if (!this.isCapfForm()) return false;
+    const status = (this.applicationDetails?.txtStatus || '').toString().toUpperCase();
+    const hasAsset = !!(this.applicationDetails?.txtAssetCode && String(this.applicationDetails.txtAssetCode).trim());
+    const hasPr = !!(this.applicationDetails?.txtPrCode && String(this.applicationDetails.txtPrCode).trim());
+    if (status !== 'APPROVED') return false;
+    if (!hasAsset || hasPr) return false;
+    // Business: PR code assignment is typically done by Procurement HOD.
+    return this.isProcurementHod();
+  }
+
   saveAssetCode() {
     if (!this.applicationId || !this.assetCodeInput.trim()) {
       this.notificationService.showMessage('Asset code is required', 'danger');
@@ -106,6 +126,26 @@ export class ApplicationDetailsComponent implements OnInit {
         },
         () => {
           this.notificationService.showMessage('Failed to save asset code', 'danger');
+        }
+      );
+  }
+
+  savePrCode() {
+    if (!this.applicationId || !this.prCodeInput.trim()) {
+      this.notificationService.showMessage('PR code is required', 'danger');
+      return;
+    }
+    this.isSavingPrCode = true;
+    this.customFormApplicationService
+      .assignPrCode(this.applicationId, this.prCodeInput.trim(), this.currentUser?.serUserId)
+      .pipe(finalize(() => (this.isSavingPrCode = false)))
+      .subscribe(
+        () => {
+          this.notificationService.showMessage('PR code saved successfully', 'success');
+          this.loadApplicationDetails();
+        },
+        () => {
+          this.notificationService.showMessage('Failed to save PR code', 'danger');
         }
       );
   }
@@ -724,7 +764,8 @@ export class ApplicationDetailsComponent implements OnInit {
     private userService: UserService,
     private notificationService: NotificationService,
     private sanitizer: DomSanitizer,
-    private http: HttpClient
+    private http: HttpClient,
+    private cdr: ChangeDetectorRef
   ) { }
 
   ngOnInit() {
@@ -736,14 +777,36 @@ export class ApplicationDetailsComponent implements OnInit {
         console.error('Error parsing user data:', e);
       }
     }
-    // Get application ID from route
+    // Get application ID from route - load forms & departments first so CAPF detection has form data
     this.route.paramMap.subscribe(params => {
       const idParam = params.get('id');
       this.applicationId = idParam ? parseInt(idParam, 10) : null;
       if (this.applicationId && !isNaN(this.applicationId)) {
-        this.loadForms();
-        this.loadDepartments();
-        this.loadApplicationDetails();
+        forkJoin({
+          forms: this.customFormService.getAll(),
+          departments: this.departmentService.getAll()
+        }).subscribe(
+          ({ forms, departments }) => {
+            if (Array.isArray(forms)) this.forms = forms;
+            if (Array.isArray(departments)) {
+              const map = new Map<number, string>();
+              const headMap = new Map<number, number>();
+              departments.forEach((d: any) => {
+                const id = d?.serDepartmentId;
+                const name = d?.txtDepartmentName;
+                if (id != null && name) map.set(Number(id), String(name));
+                const headId = d?.serDepartmentHeadId;
+                if (id != null && headId != null) headMap.set(Number(id), headId);
+              });
+              this.departmentNameMap = map;
+              this.departmentHeadMap = headMap;
+            }
+            this.loadApplicationDetails();
+          },
+          () => {
+            this.loadApplicationDetails();
+          }
+        );
       } else {
         this.notificationService.showMessage('Invalid application ID', 'danger');
         this.router.navigate(['/applicationsview']);
@@ -834,6 +897,18 @@ export class ApplicationDetailsComponent implements OnInit {
         if (data) {
           this.applicationDetails = data;
 
+          // If cfgTblCustomForm is null (lazy-load issue or API omission), fetch and attach it so isCapfForm() works
+          if (!data.cfgTblCustomForm && data.serFormId) {
+            this.customFormService.getById(data.serFormId).subscribe(
+              (formData: any) => {
+                if (formData) {
+                  this.applicationDetails = { ...this.applicationDetails, cfgTblCustomForm: formData };
+                  this.cdr.detectChanges();
+                }
+              }
+            );
+          }
+
           // Debug: Log pipeline data
           if (data.cfgTblCustomForm) {
             console.log('Form data:', data.cfgTblCustomForm);
@@ -899,6 +974,7 @@ export class ApplicationDetailsComponent implements OnInit {
               (typeof rawData === 'string' && !rawData.startsWith('{') ? rawData : '') || '';
 
             this.safeContent = this.sanitizer.bypassSecurityTrustHtml(content);
+            this.buildBudgetPages(String(content || ''));
             this.preparedBy = this.applicationFormData.preparedBy || this.applicationDetails.cfgTblUser;
             this.reviewers = this.applicationFormData.reviewers || [];
             this.recommenders = this.applicationFormData.recommenders || [];
@@ -921,6 +997,30 @@ export class ApplicationDetailsComponent implements OnInit {
 
           this.enrichPipelineWithDepartmentNames();
           this.applyDepartmentNamesToApprovalHistory();
+          this.buildGenericPages();
+
+          // If formFields is empty (e.g. cfgTblCustomFormFields stripped by backend or forms not loaded yet),
+          // fetch the form by ID to ensure CAPF and other form previews have the field structure
+          if (this.formFields.length === 0 && data.serFormId) {
+            this.customFormService.getById(data.serFormId).subscribe(
+              (formData: any) => {
+                if (formData && formData.cfgTblCustomFormFields && formData.cfgTblCustomFormFields.length > 0) {
+                  this.formFields = formData.cfgTblCustomFormFields
+                    .map((field: any) => ({
+                      serFieldId: field.serFieldId,
+                      label: field.txtFieldLabel,
+                      type: field.txtFieldType,
+                      required: field.blIsRequired || false,
+                      placeholder: field.txtPlaceholder || '',
+                      intFieldOrder: field.intFieldOrder || 0,
+                      txtFieldOptions: field.txtFieldOptions
+                    }))
+                    .sort((a: any, b: any) => (a.intFieldOrder || 0) - (b.intFieldOrder || 0));
+                  this.cdr.detectChanges();
+                }
+              }
+            );
+          }
 
           this.isLoading = false;
         } else {
@@ -1128,6 +1228,10 @@ export class ApplicationDetailsComponent implements OnInit {
     return normalizedType === 'word_editor' || normalizedType === 'wordeditor' || normalizedType === 'rich_text' || normalizedType === 'richtext';
   }
 
+  private isWordEditorChunkType(fieldType: string | undefined): boolean {
+    return (fieldType || '').toLowerCase().replace(/\s+/g, '_') === 'word_editor_chunk';
+  }
+
   isIndividualPipelineFooterType(fieldType: string | undefined): boolean {
     return (fieldType || '').toLowerCase().replace(/\s+/g, '_') === 'individual_pipeline_footer';
   }
@@ -1141,13 +1245,89 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   getIndividualFooterColSpan(section: any): number {
-    const users = Array.isArray(section?.users) ? section.users : [];
-    return Math.max(users.length, 1);
+    const slots = this.getIndividualFooterSlots(section);
+    return Math.max(slots.length === 1 && slots[0] === null ? 1 : slots.length, 1);
   }
 
+  /**
+   * Slots for signature row: use same logic as other forms (department pipeline).
+   * Other forms use getStageHistoryEntry(level) → single latest entry per stage, and
+   * getPipelineCardsForDisplay() → one card per (stage, unique approverId). So we:
+   * 1) Resolve this section to pipeline level (section index + 1 or section.order).
+   * 2) Get the single latest entry for this level via getStageHistoryEntry(level).
+   * 3) If multiple approvers at same level (e.g. Technical Expert), get unique approver IDs
+   *    and for each the latest via getStageHeadHistoryEntry (same as getPipelineCardsForDisplay).
+   * Result: exactly one slot per approver at this stage, each showing the latest signature only.
+   */
   getIndividualFooterSlots(section: any): any[] {
+    const sections = this.getIndividualPipelineFooterFields();
+    const sectionIndex = sections.findIndex((s: any) => s === section);
+    let level: number;
+    if (Number(section?.order) > 0) {
+      level = Number(section.order);
+    } else if (sectionIndex >= 0) {
+      level = this.isCapfForm() && sectionIndex === 0 ? 0 : sectionIndex + 1;
+    } else {
+      level = 1;
+    }
+
+    if (!this.approvalHistory || this.approvalHistory.length === 0) {
+      return this.dedupedSectionUsers(section);
+    }
+
+    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+    const matches = this.approvalHistory.filter((e: any) => {
+      const action = (e.action || '').toString().toUpperCase();
+      if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') return false;
+      const entryLevel = e.level ?? e.intApprovalOrder;
+      if (entryLevel == null) return false;
+      if (Number(entryLevel) !== level) return false;
+      if (Number(entryLevel) > currentLevel) return false;
+      return action === 'APPROVED' || !!(e.approvedDate);
+    });
+
+    if (matches.length === 0) return this.dedupedSectionUsers(section);
+
+    matches.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+    const seen = new Set<number>();
+    const slots: any[] = [];
+    for (const e of matches) {
+      const uid = e.approvedBy ?? e.userId;
+      const n = uid != null ? Number(uid) : NaN;
+      if (isNaN(n) || seen.has(n)) continue;
+      seen.add(n);
+      slots.push({
+        serUserId: n,
+        userId: n,
+        id: n,
+        approvedBy: n,
+        txtUserName: e.approverName ?? e.userName,
+        userName: e.approverName ?? e.userName,
+        name: e.approverName ?? e.userName,
+        departmentName: e.departmentName ?? e.userDepartmentName,
+        txtDesignation: e.txtDesignation ?? e.designation,
+        designation: e.txtDesignation ?? e.designation,
+      });
+    }
+    if (slots.length > 0) return slots;
+    return this.dedupedSectionUsers(section);
+  }
+
+  /** Dedupe section.users by userId (used when no approval history for this stage). */
+  private dedupedSectionUsers(section: any): any[] {
     const users = Array.isArray(section?.users) ? section.users : [];
-    return users.length > 0 ? users : [null];
+    if (users.length === 0) return [null];
+    const seen = new Set<number>();
+    const deduped: any[] = [];
+    for (const u of users) {
+      if (!u) continue;
+      const uid = u.serUserId ?? u.userId ?? u.id ?? u.approvedBy;
+      const n = uid != null ? Number(uid) : NaN;
+      if (!isNaN(n) && seen.has(n)) continue;
+      if (!isNaN(n)) seen.add(n);
+      deduped.push(u);
+    }
+    return deduped.length > 0 ? deduped : [null];
   }
 
   getIndividualFooterUserLabel(user: any, section: any): string {
@@ -1192,8 +1372,254 @@ export class ApplicationDetailsComponent implements OnInit {
   /** Form body: exclude attachment fields so they only appear in the Attachments section for view/download */
   getBodyPreviewFields(): any[] {
     return (this.getGenericPreviewFields() || []).filter(
-      (f: any) => !this.isAttachmentType(f?.type) && !this.isMultiAttachmentType(f?.type)
+      (f: any) =>
+        !this.isAttachmentType(f?.type) &&
+        !this.isMultiAttachmentType(f?.type) &&
+        // Footer fields are rendered once at the end (last page only)
+        (String(f?.type || '').toLowerCase().replace(/\s+/g, '_') !== 'footer') &&
+        !this.isIndividualPipelineFooterType(f?.type)
     );
+  }
+
+  /** Split body fields into pages for generic form (each page ~A4). Header on every page, footer only on last. */
+  buildGenericPages(): void {
+    const allFields = this.getBodyPreviewFields() || [];
+    const pages: any[][] = [];
+    // Approximate A4 by text length (not field count)
+    const MAX_CHARS_PER_PAGE = 1800;
+    let current: any[] = [];
+    let currentChars = 0;
+    for (const rawField of allFields) {
+      const expandedFields = this.expandWordEditorFieldIntoChunks(rawField);
+      for (const field of expandedFields) {
+        const fieldText = this.getFieldTextLength(field);
+        // Start new page if adding this field would exceed limit and current isn't empty
+        if (current.length > 0 && currentChars + fieldText > MAX_CHARS_PER_PAGE) {
+          pages.push([...current]);
+          current = [];
+          currentChars = 0;
+        }
+        current.push(field);
+        currentChars += fieldText;
+      }
+    }
+    if (current.length) pages.push([...current]);
+    this.genericPages = pages.length > 0 ? pages : (allFields.length > 0 ? [[...allFields]] : [[]]);
+    this.cdr.markForCheck();
+  }
+
+  private stripHtmlToText(html: string): string {
+    if (!html) return '';
+    return html
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private getFieldTextLength(field: any): number {
+    if (!field) return 0;
+    const labelLen = String(field.label || '').trim().length;
+    try {
+      if (this.isWordEditorType(field.type) || this.isWordEditorChunkType(field.type)) {
+        const html = String(this.getWordEditorHtml(field) || '');
+        return labelLen + this.stripHtmlToText(html).length;
+      }
+      const rawValue = this.getFieldValue(field);
+      const formatted = this.formatFieldValue(field, rawValue);
+      return labelLen + String(formatted ?? '').length;
+    } catch {
+      const rawValue = this.getFieldValue(field);
+      return labelLen + String(rawValue ?? '').length;
+    }
+  }
+
+  private getWordEditorHtml(field: any): string {
+    if (field && typeof field === 'object' && typeof field._chunkHtml === 'string') {
+      return field._chunkHtml;
+    }
+    const value = this.getFieldValue(field);
+    return this.normalizeWordEditorHtmlForDisplay(String(value ?? ''));
+  }
+
+  getWordEditorValue(field: any): SafeHtml {
+    const html = this.getWordEditorHtml(field);
+    if (!html) {
+      return this.sanitizer.bypassSecurityTrustHtml('<span>-</span>');
+    }
+    return this.sanitizer.bypassSecurityTrustHtml(html);
+  }
+
+  private expandWordEditorFieldIntoChunks(field: any): any[] {
+    if (!field || !this.isWordEditorType(field.type)) return [field];
+    const html = this.getWordEditorHtml(field);
+    if (!html) return [field];
+
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+
+    // Preserve top-level wrapper styles/classes if the editor content is wrapped
+    // in a single container element.
+    const container =
+      wrapper.children.length === 1 && wrapper.firstElementChild
+        ? (wrapper.firstElementChild as HTMLElement)
+        : wrapper;
+
+    const styleNodes = Array.from(container.querySelectorAll('style'));
+    const preservedStyleHtml = styleNodes.map(s => s.outerHTML).join('');
+    styleNodes.forEach(s => s.remove());
+
+    const wrapperTag = container !== wrapper ? container.tagName.toLowerCase() : '';
+    const wrapperAttr = container !== wrapper ? this.serializeElementAttributes(container) : '';
+    const wrapOpen = wrapperTag ? `<${wrapperTag}${wrapperAttr}>` : '';
+    const wrapClose = wrapperTag ? `</${wrapperTag}>` : '';
+
+    const blocks = Array.from(container.childNodes).filter(n => {
+      if (n.nodeType === Node.TEXT_NODE) return (n.textContent || '').trim().length > 0;
+      if (n.nodeType !== Node.ELEMENT_NODE) return false;
+      const tag = (n as Element).tagName.toLowerCase();
+      return tag === 'p' || tag === 'div' || tag === 'table' || tag === 'ul' || tag === 'ol' || tag.startsWith('h');
+    });
+
+    if (blocks.length <= 1) return [field];
+
+    const MAX_CHARS_PER_CHUNK = 900;
+    const chunks: string[] = [];
+    let currentHtml = '';
+    let currentChars = 0;
+
+    for (const node of blocks) {
+      const nodeHtml =
+        node.nodeType === Node.TEXT_NODE
+          ? `<p>${this.escapeHtml((node.textContent || '').trim())}</p>`
+          : (node as Element).outerHTML;
+      const nodeTextLen = this.stripHtmlToText(nodeHtml).length;
+
+      if (currentChars > 0 && currentChars + nodeTextLen > MAX_CHARS_PER_CHUNK) {
+        chunks.push(currentHtml);
+        currentHtml = '';
+        currentChars = 0;
+      }
+
+      currentHtml += nodeHtml;
+      currentChars += nodeTextLen;
+    }
+
+    if (currentChars > 0) chunks.push(currentHtml);
+
+    return chunks.map((chunkHtml, idx) => ({
+      ...field,
+      type: 'word_editor_chunk',
+      // Keep original wrapper styling + embedded styles on each chunk,
+      // so formatting doesn't disappear after pagination.
+      _chunkHtml: `${preservedStyleHtml}${wrapOpen}${chunkHtml}${wrapClose}`,
+      _hideLabel: idx > 0
+    }));
+  }
+
+  private serializeElementAttributes(el: HTMLElement): string {
+    if (!el || !el.attributes) return '';
+    const parts: string[] = [];
+    for (let i = 0; i < el.attributes.length; i++) {
+      const attr = el.attributes.item(i);
+      if (!attr) continue;
+      // Skip id to avoid duplicate ids across chunks/pages
+      if (attr.name.toLowerCase() === 'id') continue;
+      parts.push(` ${attr.name}="${this.escapeHtml(attr.value)}"`);
+    }
+    return parts.join('');
+  }
+
+  /** Split budget approval HTML into pages by approximate text length. */
+  buildBudgetPages(contentHtml: string): void {
+    const raw = String(contentHtml || '').trim();
+    if (!raw) {
+      this.budgetPages = [this.sanitizer.bypassSecurityTrustHtml('<i>(No content found in application data)</i>')];
+      return;
+    }
+
+    // Budget forms are mostly rich HTML; preserve styling by chunking HTML blocks
+    // (do not convert to plain text + <br>, which destroys formatting).
+    const MAX_CHARS_PER_PAGE = 2400;
+    const chunks = this.splitHtmlIntoChunksPreserveWrapper(raw, MAX_CHARS_PER_PAGE);
+    const nonEmpty = chunks.map(c => c.trim()).filter(Boolean);
+    this.budgetPages = (nonEmpty.length ? nonEmpty : [raw]).map(h => this.sanitizer.bypassSecurityTrustHtml(h));
+  }
+
+  private splitHtmlIntoChunksPreserveWrapper(html: string, maxChars: number): string[] {
+    const normalized = this.normalizeWordEditorHtmlForDisplay(String(html || ''));
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = normalized;
+
+    // If content is wrapped in a single container, preserve it (classes/styles)
+    const container =
+      wrapper.children.length === 1 && wrapper.firstElementChild
+        ? (wrapper.firstElementChild as HTMLElement)
+        : wrapper;
+
+    const styleNodes = Array.from(container.querySelectorAll('style'));
+    const preservedStyleHtml = styleNodes.map(s => s.outerHTML).join('');
+    styleNodes.forEach(s => s.remove());
+
+    const wrapperTag = container !== wrapper ? container.tagName.toLowerCase() : '';
+    const wrapperAttr = container !== wrapper ? this.serializeElementAttributes(container) : '';
+    const wrapOpen = wrapperTag ? `<${wrapperTag}${wrapperAttr}>` : '';
+    const wrapClose = wrapperTag ? `</${wrapperTag}>` : '';
+
+    const blocks = Array.from(container.childNodes).filter(n => {
+      if (n.nodeType === Node.TEXT_NODE) return (n.textContent || '').trim().length > 0;
+      if (n.nodeType !== Node.ELEMENT_NODE) return false;
+      const tag = (n as Element).tagName.toLowerCase();
+      return tag === 'p' || tag === 'div' || tag === 'table' || tag === 'ul' || tag === 'ol' || tag.startsWith('h');
+    });
+
+    // If we can't split meaningfully, return as-is (but keep styles)
+    if (blocks.length <= 1) {
+      return [`${preservedStyleHtml}${wrapOpen}${container.innerHTML}${wrapClose}`];
+    }
+
+    const chunks: string[] = [];
+    let currentHtml = '';
+    let currentChars = 0;
+
+    for (const node of blocks) {
+      const nodeHtml =
+        node.nodeType === Node.TEXT_NODE
+          ? `<p>${this.escapeHtml((node.textContent || '').trim())}</p>`
+          : (node as Element).outerHTML;
+      const nodeTextLen = this.stripHtmlToText(nodeHtml).length;
+
+      if (currentChars > 0 && currentChars + nodeTextLen > maxChars) {
+        chunks.push(`${preservedStyleHtml}${wrapOpen}${currentHtml}${wrapClose}`);
+        currentHtml = '';
+        currentChars = 0;
+      }
+
+      currentHtml += nodeHtml;
+      currentChars += nodeTextLen;
+    }
+
+    if (currentChars > 0) {
+      chunks.push(`${preservedStyleHtml}${wrapOpen}${currentHtml}${wrapClose}`);
+    }
+
+    return chunks;
+  }
+
+  private escapeHtml(value: string): string {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   getGenericPreviewFields(): any[] {
@@ -1282,14 +1708,6 @@ export class ApplicationDetailsComponent implements OnInit {
     return this.applicationDetails?.cfgTblCustomForm?.txtFormName || 'Custom Form';
   }
 
-  getWordEditorValue(field: any): SafeHtml {
-    const value = this.getFieldValue(field);
-    if (value === null || value === undefined || value === '') {
-      return this.sanitizer.bypassSecurityTrustHtml('<span>-</span>');
-    }
-    return this.sanitizer.bypassSecurityTrustHtml(this.normalizeWordEditorHtmlForDisplay(String(value)));
-  }
-
   private normalizeWordEditorHtmlForDisplay(html: string): string {
     if (!html) return '';
     const wrapper = document.createElement('div');
@@ -1308,10 +1726,9 @@ export class ApplicationDetailsComponent implements OnInit {
 
     wrapper.querySelectorAll('td,th').forEach((cell: Element) => {
       const el = cell as HTMLElement;
-      el.style.height = '30px';
-      el.style.minHeight = '30px';
-      el.style.padding = '0 4px';
-      el.style.lineHeight = '1';
+      el.style.minHeight = '32px';
+      el.style.padding = '6px 6px';
+      el.style.lineHeight = '1.35';
       el.style.verticalAlign = 'middle';
 
       while (el.firstChild && el.firstChild.nodeType === Node.TEXT_NODE && !(el.firstChild.textContent || '').trim()) {
@@ -1330,7 +1747,7 @@ export class ApplicationDetailsComponent implements OnInit {
       const plainText = (el.textContent || '').replace(/\u00a0/g, '').trim();
       const hasMedia = !!el.querySelector('img,svg,canvas');
       if (!plainText && !hasMedia && el.children.length === 0) {
-        el.innerHTML = '&nbsp;';
+        el.innerHTML = '<span style="display:block;min-height:1.35em;line-height:1.35;">&nbsp;</span>';
       }
     });
 
@@ -1409,8 +1826,183 @@ export class ApplicationDetailsComponent implements OnInit {
   // pipelineOrder is 1-indexed; currentLevel is 0-indexed. Show approved only for pipelineOrder <= currentLevel.
   isDepartmentApproved(pipelineOrder: number): boolean {
     if (!this.applicationDetails) return false;
+    // CAPF virtual initiator stage uses negative pipelineOrder (e.g. -1).
+    // Never treat it as automatically approved; backend/signature must exist.
+    if (pipelineOrder < 0) return false;
     const currentLevel = this.applicationDetails.intCurrentApprovalLevel ?? 0;
-    return currentLevel >= pipelineOrder;
+    // Only treat a stage as fully approved after the workflow advances past it.
+    // This prevents a stage from turning green when only one of multiple HODs
+    // has approved but the pipeline hasn't advanced yet.
+    return currentLevel > pipelineOrder;
+  }
+
+  // When a department has multiple heads/HOD approvers, show them separately in the UI.
+  // `departmentHeadMap` stores the departmentId -> headIds mapping (can be a comma-separated string).
+  getDepartmentHeadIds(departmentId?: number): number[] {
+    if (departmentId == null) return [];
+    if (!this.departmentHeadMap || this.departmentHeadMap.size === 0) return [];
+
+    const raw = this.departmentHeadMap.get(Number(departmentId));
+    if (raw == null) return [];
+
+    const parseOne = (v: any): number | null => {
+      const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+      return !isNaN(n) && n > 0 ? n : null;
+    };
+
+    if (typeof raw === 'number') return [raw].filter(n => n > 0);
+
+    if (Array.isArray(raw)) {
+      return Array.from(new Set(raw.map(parseOne).filter((n): n is number => n != null)));
+    }
+
+    const asString = String(raw);
+    if (!asString.trim()) return [];
+    return Array.from(new Set(
+      asString.split(',').map(s => parseOne(s.trim())).filter((n): n is number => n != null)
+    ));
+  }
+
+  // For a given stage+department, return all distinct approvers/users we can find:
+  // 1) from departmentHeadMap (if configured)
+  // 2) from approvalHistory (so even non-HOD users within the same department show up)
+  getDepartmentStageApproverIds(pipelineOrder: number, departmentId?: number): number[] {
+    if (departmentId == null) return [];
+    if (!this.applicationDetails) return [];
+
+    const ids = new Set<number>();
+
+    for (const id of this.getDepartmentHeadIds(departmentId)) {
+      ids.add(Number(id));
+    }
+
+    const parseId = (v: any): number | null => {
+      const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+      return !isNaN(n) && n > 0 ? n : null;
+    };
+
+    if (this.approvalHistory && this.approvalHistory.length > 0) {
+      // CAPF level↔pipelineOrder mapping can drift by a couple steps (virtual initiator,
+      // re-approval after send-back, etc.). Use a wider tolerance so we still list
+      // all approvers that belong to "this stage".
+      // Important: keep this tolerance tight to avoid pulling approvals from
+      // other repeated steps (e.g. Finance approved at step 1 showing as approved at step 4).
+      const allowedLevels = [
+        pipelineOrder,
+        pipelineOrder - 1, pipelineOrder + 1,
+        pipelineOrder - 2, pipelineOrder + 2
+      ];
+
+      for (const e of this.approvalHistory) {
+        if (!e) continue;
+        const action = (e.action || e.status || '').toString().toUpperCase();
+        if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') continue;
+
+        const entryLevel = e.level ?? e.intApprovalOrder;
+        if (entryLevel == null) continue;
+        const lvl = Number(entryLevel);
+        if (!allowedLevels.includes(lvl)) continue;
+
+        const entryDeptId = e.departmentId;
+        if (entryDeptId == null || Number(entryDeptId) !== Number(departmentId)) continue;
+
+        const approver = e.approvedBy ?? e.userId ?? e.userApproverId;
+        const approverId = parseId(approver);
+        if (approverId != null) ids.add(approverId);
+      }
+    }
+
+    return Array.from(ids).filter((n) => !isNaN(n) && n > 0);
+  }
+
+  getDepartmentHeadStatus(pipelineOrder: number, departmentId: number | undefined, headId: number): string {
+    if (!departmentId) return '';
+    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+    const isVirtualInitiatorStage = pipelineOrder < 0;
+
+    const entry = this.getStageHeadHistoryEntry(pipelineOrder, departmentId, headId);
+    const entryAction = (entry?.action || entry?.status || '').toString().toUpperCase();
+    const hasApproved = entryAction === 'APPROVED';
+    const hasRejected = entryAction === 'REJECTED';
+
+    if (hasRejected) return 'REJECTED';
+
+    if (hasApproved) {
+      // Virtual initiator stage: rely on history (it isn't a real pipeline step).
+      if (isVirtualInitiatorStage) return 'APPROVED';
+      // Real stages: only show approved when the workflow has advanced past it.
+      if (pipelineOrder < currentLevel) return 'APPROVED';
+      if (pipelineOrder === currentLevel) return 'CURRENT';
+      return 'PENDING';
+    }
+
+    // No approved entry yet.
+    if (!isVirtualInitiatorStage && pipelineOrder === currentLevel) return 'CURRENT';
+    return 'PENDING';
+  }
+
+  getDepartmentApproverApprovalDate(pipelineOrder: number, departmentId: number | undefined, approverId: number): string {
+    if (!departmentId) return '';
+    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+    const isVirtualInitiatorStage = pipelineOrder < 0;
+    if (!isVirtualInitiatorStage && pipelineOrder > currentLevel) return '';
+    const entry = this.getStageHeadHistoryEntry(pipelineOrder, departmentId, approverId);
+    if (!entry?.approvedDate) return '';
+    try {
+      const date = new Date(entry.approvedDate);
+      return date.toLocaleString();
+    } catch {
+      return entry.approvedDate;
+    }
+  }
+
+  getDepartmentApproverRemarks(pipelineOrder: number, departmentId: number | undefined, approverId: number): string {
+    if (!departmentId) return '';
+    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+    const isVirtualInitiatorStage = pipelineOrder < 0;
+    if (!isVirtualInitiatorStage && pipelineOrder > currentLevel) return '';
+    const entry = this.getStageHeadHistoryEntry(pipelineOrder, departmentId, approverId);
+    return entry?.remarks ? String(entry.remarks) : '';
+  }
+
+  getUserNameById(userId?: number): string {
+    if (!userId || !this.userNameMap) return '';
+    return (this.userNameMap.get(Number(userId)) as string) || '';
+  }
+
+  // Latest approval entry for a specific head at a specific stage.
+  private getStageHeadHistoryEntry(pipelineOrder: number, departmentId: number, headId: number): any {
+    if (!this.approvalHistory || this.approvalHistory.length === 0) return null;
+
+    const candidates = this.approvalHistory.filter((e: any) => {
+      const action = (e.action || '').toString().toUpperCase();
+      if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') return false;
+
+      const entryLevel = e.level ?? e.intApprovalOrder;
+      if (entryLevel == null) return false;
+      const lvl = Number(entryLevel);
+      // Keep tolerant matching tight to avoid pulling approvals from other repeated steps.
+      const allowedLevels = [
+        pipelineOrder,
+        pipelineOrder - 1, pipelineOrder + 1,
+        pipelineOrder - 2, pipelineOrder + 2
+      ];
+      if (!allowedLevels.includes(lvl)) {
+        return false;
+      }
+
+      if (e.departmentId == null || Number(e.departmentId) !== Number(departmentId)) return false;
+
+      const entryApprover = (e.approvedBy ?? e.userId ?? e.userApproverId);
+      if (entryApprover == null) return false;
+      if (Number(entryApprover) !== Number(headId)) return false;
+
+      return action === 'APPROVED' || action === 'REJECTED' || action === (e.status || '').toString().toUpperCase();
+    });
+
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+    return candidates[0];
   }
 
   // Get remarks for a specific department from approval history (uses latest approval entry)
@@ -1426,7 +2018,8 @@ export class ApplicationDetailsComponent implements OnInit {
     if (pipelineOrder === currentLevel && this.applicationDetails?.txtRemarks) {
       return this.applicationDetails.txtRemarks;
     }
-    return 'Approved';
+    // Avoid misleading default text; if no remarks exist, show empty.
+    return '';
   }
 
   // Get approval date for a department (uses latest approval entry)
@@ -1472,14 +2065,19 @@ export class ApplicationDetailsComponent implements OnInit {
 
     console.log('Found pipelines:', pipelines);
 
-    if ((!pipelines || !Array.isArray(pipelines) || pipelines.length === 0) && form.txtApprovalPipeline) {
+    if (form.txtApprovalPipeline && form.txtApprovalPipeline.trim()) {
       try {
-        pipelines = JSON.parse(form.txtApprovalPipeline);
-        console.log('Parsed pipelines from JSON:', pipelines);
+        const parsed = JSON.parse(form.txtApprovalPipeline);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          pipelines = parsed;
+          console.log('Parsed pipelines from txtApprovalPipeline (mixed dept+individual):', pipelines);
+        }
       } catch (e) {
         console.error('Error parsing approval pipeline JSON:', e);
-        return [];
       }
+    }
+    if (!pipelines || !Array.isArray(pipelines) || pipelines.length === 0) {
+      pipelines = form.approvalPipelines || form.cfgTblCustomFormApprovalPipelines;
     }
 
     if (!pipelines || !Array.isArray(pipelines) || pipelines.length === 0) {
@@ -1489,6 +2087,10 @@ export class ApplicationDetailsComponent implements OnInit {
 
     const normalized = [...pipelines].filter((p: any) => {
       if (!p) return false;
+      if (p.type === 'individual') {
+        const uid = p.serUserId ?? p.userId ?? p.hrTblUser?.serUserId;
+        return uid != null;
+      }
       const deptId = p.hrTblDepartment?.serDepartmentId || p.serDepartmentId || p.departmentId;
       const deptName =
         p.hrTblDepartment?.txtDepartmentName ||
@@ -1496,11 +2098,9 @@ export class ApplicationDetailsComponent implements OnInit {
         p.txtDepartmentName;
       if (deptName && String(deptName).trim() !== '') return true;
       if (deptId == null) return false;
-      // If departments list is loaded, only keep valid departments
       if (this.departmentNameMap && this.departmentNameMap.size > 0) {
         return this.departmentNameMap.has(Number(deptId));
       }
-      // Otherwise keep and let enrichment resolve later
       return true;
     });
 
@@ -1574,7 +2174,10 @@ export class ApplicationDetailsComponent implements OnInit {
       const hasInitiatorHistory = this.approvalHistory?.some(
         (e: any) => Number(e.level) === 0
       );
-      if (!hasInitiatorHistory) {
+      const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+      // Do NOT auto-mark initiator as approved unless backend has actually advanced the workflow.
+      // Otherwise the first stage appears "APPROVED" even before initiator HOD approval.
+      if (!hasInitiatorHistory && currentLevel > 0) {
         const entry: any = {
           level: 0,
           departmentId: initiatorDeptId,
@@ -1592,6 +2195,246 @@ export class ApplicationDetailsComponent implements OnInit {
     }
 
     return sortedPipelines;
+  }
+
+  getPipelineDepartmentId(pipeline: any): number | undefined {
+    const v =
+      pipeline?.hrTblDepartment?.serDepartmentId ??
+      pipeline?.serDepartmentId ??
+      pipeline?.departmentId ??
+      pipeline?.hrTblDepartment?.serDepartmentHeadId ??
+      pipeline?.intDepartmentId;
+    const n = typeof v === 'number' ? v : v != null ? parseInt(String(v), 10) : NaN;
+    return !isNaN(n) && n > 0 ? n : undefined;
+  }
+
+  /** One entry per "card" in the workflow. Multi-approver stages (e.g. Technical Expert with Haris + user 1) get one card per approver. */
+  getPipelineCardsForDisplay(): Array<{ pipeline: any; pipelineIndex: number; approverId: number | null; approverIndex: number; totalApproversInStage: number }> {
+    const pipelines = this.getPipelineData();
+    if (!pipelines || pipelines.length === 0) return [];
+    const cards: Array<{ pipeline: any; pipelineIndex: number; approverId: number | null; approverIndex: number; totalApproversInStage: number }> = [];
+    for (let i = 0; i < pipelines.length; i++) {
+      const pipeline = pipelines[i];
+      const order = pipeline?.intApprovalOrder ?? (i + 1);
+      const deptId = this.getPipelineDepartmentId(pipeline);
+      const approverIds = this.getDepartmentStageApproverIds(order, deptId ?? undefined);
+      const total = approverIds.length || 1;
+      if (approverIds.length <= 1) {
+        cards.push({ pipeline, pipelineIndex: i, approverId: approverIds[0] ?? null, approverIndex: 0, totalApproversInStage: total });
+      } else {
+        approverIds.forEach((approverId, j) => {
+          cards.push({ pipeline, pipelineIndex: i, approverId, approverIndex: j, totalApproversInStage: total });
+        });
+      }
+    }
+
+    // CAPF: append final "extra" stages after departmental pipeline.
+    if (this.isCapfForm()) {
+      const baseIndex = pipelines.length;
+      cards.push({ pipeline: { type: 'capf_ceo' }, pipelineIndex: baseIndex, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
+      cards.push({ pipeline: { type: 'capf_asset_code' }, pipelineIndex: baseIndex + 1, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
+      cards.push({ pipeline: { type: 'capf_pr_code' }, pipelineIndex: baseIndex + 2, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
+    }
+
+    return cards;
+  }
+
+  getPipelineCardTitle(card: { pipeline: any; pipelineIndex: number; approverId: number | null; totalApproversInStage: number }): string {
+    if (this.isCapfExtraPipeline(card.pipeline)) {
+      return this.getCapfExtraStageTitle(card.pipeline?.type);
+    }
+    const baseName = this.getPipelineDepartmentName(card.pipeline, card.pipelineIndex);
+    if (card.totalApproversInStage > 1 && card.approverId != null) {
+      return baseName + ' - ' + (this.getUserNameById(card.approverId) || ('User ' + card.approverId));
+    }
+    return baseName;
+  }
+
+  getPipelineCardStatus(card: { pipeline: any; pipelineIndex: number; approverId: number | null }): string {
+    if (this.isCapfExtraPipeline(card.pipeline)) {
+      return this.getCapfExtraStageStatus(card.pipeline?.type);
+    }
+    const order = card.pipeline?.intApprovalOrder ?? (card.pipelineIndex + 1);
+    const deptId = this.getPipelineDepartmentId(card.pipeline);
+    if (card.approverId == null) {
+      return this.getStageStatus(order, deptId ?? undefined);
+    }
+    return this.getDepartmentHeadStatus(order, deptId ?? undefined, card.approverId);
+  }
+
+  isCapfExtraPipeline(pipeline: any): boolean {
+    const t = (pipeline?.type || '').toString().toLowerCase();
+    return t === 'capf_ceo' || t === 'capf_asset_code' || t === 'capf_pr_code';
+  }
+
+  getCapfExtraStageTitle(type: string | undefined): string {
+    const t = (type || '').toString().toLowerCase();
+    if (t === 'capf_ceo') return 'CEO Approval';
+    if (t === 'capf_asset_code') return 'Asset Code Assign';
+    if (t === 'capf_pr_code') return 'PR';
+    return 'CAPF';
+  }
+
+  private findApprovalHistoryEntry(predicate: (e: any) => boolean): any | null {
+    if (!this.approvalHistory || this.approvalHistory.length === 0) return null;
+    const sorted = [...this.approvalHistory].sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+    for (const e of sorted) {
+      if (e && predicate(e)) return e;
+    }
+    return null;
+  }
+
+  getCapfExtraStageStatus(type: string | undefined): string {
+    const t = (type || '').toString().toLowerCase();
+    const status = (this.applicationDetails?.txtStatus || '').toString().toUpperCase();
+    const hasAsset = !!(this.applicationDetails?.txtAssetCode && String(this.applicationDetails.txtAssetCode).trim());
+    const hasPr = !!(this.applicationDetails?.txtPrCode && String(this.applicationDetails.txtPrCode).trim());
+
+    if (t === 'capf_ceo') {
+      if (status === 'CEO_PENDING') return 'CURRENT';
+      const ceoApproved = !!this.findApprovalHistoryEntry((e: any) => {
+        const action = (e.action || e.status || '').toString().toUpperCase();
+        const desig = (e.designation || e.txtDesignation || e.departmentName || '').toString().toUpperCase();
+        return action === 'APPROVED' && desig.includes('CEO');
+      });
+      if (ceoApproved || status === 'ASSET_PENDING' || status === 'APPROVED') return 'APPROVED';
+      return 'PENDING';
+    }
+
+    if (t === 'capf_asset_code') {
+      if (status === 'ASSET_PENDING') return 'CURRENT';
+      if (hasAsset && status === 'APPROVED') return 'APPROVED';
+      // If CEO is not done yet, keep this pending.
+      return 'PENDING';
+    }
+
+    if (t === 'capf_pr_code') {
+      // PR is after asset code and final approval.
+      if (hasPr) return 'APPROVED';
+      if (hasAsset && status === 'APPROVED') return 'CURRENT';
+      return 'PENDING';
+    }
+
+    return 'PENDING';
+  }
+
+  getCapfExtraStageApprovedBy(type: string | undefined): string {
+    const t = (type || '').toString().toLowerCase();
+    if (t === 'capf_ceo') {
+      const e = this.findApprovalHistoryEntry((x: any) => {
+        const action = (x.action || x.status || '').toString().toUpperCase();
+        const desig = (x.designation || x.txtDesignation || x.departmentName || '').toString().toUpperCase();
+        return action === 'APPROVED' && desig.includes('CEO');
+      });
+      return e?.approverName || e?.approvedByName || this.getUserNameById(e?.approvedBy) || '--';
+    }
+    if (t === 'capf_asset_code') {
+      const e = this.findApprovalHistoryEntry((x: any) => {
+        const action = (x.action || x.status || '').toString().toUpperCase();
+        const desig = (x.designation || x.txtDesignation || x.departmentName || '').toString().toUpperCase();
+        return action === 'APPROVED' && desig.includes('FINANCE');
+      });
+      return e?.approverName || this.getUserNameById(e?.approvedBy) || '--';
+    }
+    if (t === 'capf_pr_code') {
+      const e = this.findApprovalHistoryEntry((x: any) => (x.action || x.status || '').toString().toUpperCase() === 'PR_CODE_ASSIGNED');
+      return e?.approverName || this.getUserNameById(e?.approvedBy) || '--';
+    }
+    return '--';
+  }
+
+  getCapfExtraStageApprovedAt(type: string | undefined): string {
+    const t = (type || '').toString().toLowerCase();
+    const match = (x: any) => {
+      if (t === 'capf_ceo') {
+        const action = (x.action || x.status || '').toString().toUpperCase();
+        const desig = (x.designation || x.txtDesignation || x.departmentName || '').toString().toUpperCase();
+        return action === 'APPROVED' && desig.includes('CEO');
+      }
+      if (t === 'capf_asset_code') {
+        const action = (x.action || x.status || '').toString().toUpperCase();
+        const desig = (x.designation || x.txtDesignation || x.departmentName || '').toString().toUpperCase();
+        return action === 'APPROVED' && desig.includes('FINANCE');
+      }
+      if (t === 'capf_pr_code') {
+        return (x.action || x.status || '').toString().toUpperCase() === 'PR_CODE_ASSIGNED';
+      }
+      return false;
+    };
+    const e = this.findApprovalHistoryEntry(match);
+    if (!e?.approvedDate) return '';
+    try {
+      return new Date(e.approvedDate).toLocaleString();
+    } catch {
+      return e.approvedDate;
+    }
+  }
+
+  getCapfExtraStageRemarks(type: string | undefined): string {
+    const t = (type || '').toString().toLowerCase();
+    const e = this.findApprovalHistoryEntry((x: any) => {
+      const action = (x.action || x.status || '').toString().toUpperCase();
+      const desig = (x.designation || x.txtDesignation || x.departmentName || '').toString().toUpperCase();
+      if (t === 'capf_ceo') return action === 'APPROVED' && desig.includes('CEO');
+      if (t === 'capf_asset_code') return action === 'APPROVED' && desig.includes('FINANCE');
+      if (t === 'capf_pr_code') return action === 'PR_CODE_ASSIGNED';
+      return false;
+    });
+    return e?.remarks ? String(e.remarks) : '';
+  }
+
+  getCapfExtraStageApprovedVia(type: string | undefined): string {
+    const t = (type || '').toString().toLowerCase();
+    const e = this.findApprovalHistoryEntry((x: any) => {
+      const action = (x.action || x.status || '').toString().toUpperCase();
+      const desig = (x.designation || x.txtDesignation || x.departmentName || '').toString().toUpperCase();
+      if (t === 'capf_ceo') return action === 'APPROVED' && desig.includes('CEO');
+      if (t === 'capf_asset_code') return action === 'APPROVED' && desig.includes('FINANCE');
+      if (t === 'capf_pr_code') return action === 'PR_CODE_ASSIGNED';
+      return false;
+    });
+    return (e?.approvedIp ?? e?.approvedVia ?? '') || '';
+  }
+
+  getDepartmentApproverIp(pipelineOrder: number, departmentId: number | undefined, approverId: number): string {
+    if (!departmentId) return '';
+    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+    const isVirtualInitiatorStage = pipelineOrder < 0;
+    if (!isVirtualInitiatorStage && pipelineOrder > currentLevel) return '';
+    const entry = this.getStageHeadHistoryEntry(pipelineOrder, departmentId, approverId);
+    return (entry?.approvedIp ?? entry?.approvedVia ?? '') || '';
+  }
+
+  getCardTimeTaken(cardIndex: number, cards: Array<{ pipeline: any; pipelineIndex: number; approverId: number | null }>): string {
+    if (!cards || cardIndex <= 0 || cardIndex >= cards.length) return '';
+    const prev = cards[cardIndex - 1];
+    const curr = cards[cardIndex];
+    const orderPrev = prev.pipeline?.intApprovalOrder ?? (prev.pipelineIndex + 1);
+    const orderCurr = curr.pipeline?.intApprovalOrder ?? (curr.pipelineIndex + 1);
+    const deptPrev = this.getPipelineDepartmentId(prev.pipeline);
+    const deptCurr = this.getPipelineDepartmentId(curr.pipeline);
+    if (deptPrev == null || deptCurr == null) return '';
+    const datePrev = prev.approverId != null
+      ? (this.getStageHeadHistoryEntry(orderPrev, deptPrev, prev.approverId)?.approvedDate)
+      : (this.getStageHistoryEntry(orderPrev, deptPrev)?.approvedDate);
+    const dateCurr = curr.approverId != null
+      ? (this.getStageHeadHistoryEntry(orderCurr, deptCurr, curr.approverId)?.approvedDate)
+      : (this.getStageHistoryEntry(orderCurr, deptCurr)?.approvedDate);
+    if (!datePrev || !dateCurr) return '';
+    try {
+      const t1 = new Date(datePrev).getTime();
+      const t2 = new Date(dateCurr).getTime();
+      if (isNaN(t1) || isNaN(t2)) return '';
+      const diffMs = t2 - t1;
+      const mins = Math.floor(diffMs / 60000);
+      const hours = Math.floor(mins / 60);
+      const days = Math.floor(hours / 24);
+      if (days > 0) return `${days}d ${hours % 24}h`;
+      if (hours > 0) return `${hours}h ${mins % 60}m`;
+      return `${mins}m`;
+    } catch {
+      return '';
+    }
   }
 
   goBack() {
@@ -1614,8 +2457,57 @@ export class ApplicationDetailsComponent implements OnInit {
 
   showApprovalActions(): boolean {
     if (!this.fromPendingApprovals || !this.applicationDetails) return false;
-    // Always show action buttons from Pending Approvals view
+    if (!this.isCurrentUserApproverForCurrentLevel()) return false;
     return true;
+  }
+
+  /** Returns true only if the current user is the approver for the current level (prevents Level 2 acting on behalf of Level 3) */
+  private isCurrentUserApproverForCurrentLevel(): boolean {
+    const userId = this.getCurrentUserId();
+    if (!userId) return false;
+    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+    if (currentLevel < 0) return false;
+
+    const fields = this.getIndividualPipelineFooterFields();
+    if (fields && fields.length > 0) {
+      const sequence: number[] = [];
+      for (const section of fields) {
+        const key = (section?.key || '').toString().toLowerCase();
+        if (key === 'prepared_by') continue;
+        const users = this.getIndividualFooterSlots(section);
+        for (const u of users) {
+          if (!u) continue;
+          const uid = u.serUserId ?? u.userId ?? u.id;
+          if (uid != null) sequence.push(Number(uid));
+        }
+      }
+      if (currentLevel >= sequence.length) return false;
+      return sequence[currentLevel] === Number(userId);
+    }
+
+    const pipelines = this.getPipelineData();
+    if (pipelines && pipelines.length > 0) {
+      // CAPF note:
+      // `getPipelineData()` prepends an "Initiator" stage (intApprovalOrder = -1) for CAPF so indices shift by +1.
+      // Therefore, when that initiator stage exists, CAPF currentLevel maps directly to pipeline index.
+      // For safety (older data / other screens), fallback to the legacy mapping when initiator stage is not present.
+      let pipelineIndex = currentLevel;
+      if (this.isCapfForm()) {
+        const hasPrependedInitiator = (pipelines[0]?.intApprovalOrder === -1);
+        pipelineIndex = hasPrependedInitiator ? currentLevel : (currentLevel - 1);
+      }
+      if (pipelineIndex < 0 || pipelineIndex >= pipelines.length) return false;
+      const pipeline = pipelines[pipelineIndex];
+      if (pipeline?.type === 'individual') {
+        const uid = pipeline.serUserId ?? pipeline.userId ?? pipeline.hrTblUser?.serUserId;
+        return uid != null && Number(uid) === Number(userId);
+      }
+      const deptId = pipeline?.hrTblDepartment?.serDepartmentId ?? pipeline?.serDepartmentId ?? pipeline?.departmentId;
+      if (deptId == null) return false;
+      const headId = this.departmentHeadMap.get(Number(deptId));
+      return headId != null && Number(headId) === Number(userId);
+    }
+    return false;
   }
 
   /** Show "Send back to initiator" only when level >= 2 (same as in emails). */
@@ -1636,7 +2528,7 @@ export class ApplicationDetailsComponent implements OnInit {
       const actorId = e.approvedBy || e.approverUserId || e.userId;
       if (Number(actorId) !== Number(userId)) return false;
       const action = (e.action || e.status || '').toString().toUpperCase();
-      return ['APPROVED', 'REJECTED', 'SEND_BACK', 'SENT_BACK', 'SENTBACK'].includes(action) || !!e.approvedDate;
+      return ['APPROVED', 'REJECTED', 'SEND_BACK', 'SENT_BACK', 'SENTBACK', 'SENT_BACK_TO_INITIATOR'].includes(action) || !!e.approvedDate;
     });
   }
 
@@ -1647,9 +2539,57 @@ export class ApplicationDetailsComponent implements OnInit {
     return this.approvalHistory.some((e: any) => {
       if (Number(e.level) !== Number(currentLevel)) return false;
       const action = (e.action || e.status || '').toString().toUpperCase();
-      return ['APPROVED', 'REJECTED', 'SEND_BACK', 'SENT_BACK', 'SENTBACK'].includes(action) || !!e.approvedDate;
+      return ['APPROVED', 'REJECTED', 'SEND_BACK', 'SENT_BACK', 'SENTBACK', 'SENT_BACK_TO_INITIATOR'].includes(action) || !!e.approvedDate;
     });
   }
+
+  /** Reset time: when did a higher level last send the app down to us? (SENT_BACK/SENT_BACK_TO_INITIATOR from level > currentLevel) */
+  private getCurrentRoundResetTime(): number {
+    if (!this.approvalHistory || this.approvalHistory.length === 0) return 0;
+    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+    const terminalActions = ['SENT_BACK', 'SENTBACK', 'SENT_BACK_TO_INITIATOR'];
+    const sorted = [...this.approvalHistory].sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+    for (const e of sorted) {
+      const action = (e.action || e.status || '').toString().toUpperCase();
+      const entryLevel = Number(e.level ?? e.intApprovalOrder ?? 0);
+      if (terminalActions.includes(action) && entryLevel > currentLevel) {
+        return this.getApprovalEntryTime(e);
+      }
+    }
+    return 0;
+  }
+
+  /** True if the current level has already been acted upon in this round (after any send-back from higher level). */
+  private isCurrentLevelHandledThisRound(): boolean {
+    if (!this.approvalHistory || this.approvalHistory.length === 0) return false;
+    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+    if (!currentLevel) return false;
+    const resetTime = this.getCurrentRoundResetTime();
+    const terminalActions = ['APPROVED', 'REJECTED', 'SEND_BACK', 'SENT_BACK', 'SENTBACK', 'SENT_BACK_TO_INITIATOR'];
+    return this.approvalHistory.some((e: any) => {
+      if (Number(e.level) !== Number(currentLevel)) return false;
+      const action = (e.action || e.status || '').toString().toUpperCase();
+      const isTerminal = terminalActions.includes(action) || !!e.approvedDate;
+      if (!isTerminal) return false;
+      return this.getApprovalEntryTime(e) >= resetTime;
+    });
+  }
+
+  /** Returns true when the application has already been approved, rejected, sent back, or sent back to initiator. */
+  private isApplicationAlreadyActedUpon(): boolean {
+    if (!this.applicationDetails) return false;
+    const status = (this.applicationDetails.txtStatus || '').toUpperCase();
+    if (status === 'APPROVED' || status === 'REJECTED') return true;
+    if (this.isCurrentLevelHandledThisRound()) return true;
+    if (this.approvalHistory && this.approvalHistory.length > 0) {
+      const sorted = [...this.approvalHistory].sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+      const lastAction = (sorted[0]?.action || sorted[0]?.status || '').toString().toUpperCase();
+      if (lastAction === 'SENT_BACK_TO_INITIATOR') return true;
+    }
+    return false;
+  }
+
+  private readonly NOT_AUTHORIZED_MSG = 'You are not authorized to perform this action';
 
   @ViewChild('approveModal') approveModal: any;
   @ViewChild('rejectModal') rejectModal: any;
@@ -1662,6 +2602,10 @@ export class ApplicationDetailsComponent implements OnInit {
       this.notificationService.showMessage('Invalid application', 'danger');
       return;
     }
+    if (this.isApplicationAlreadyActedUpon()) {
+      this.notificationService.showMessage(this.NOT_AUTHORIZED_MSG, 'danger');
+      return;
+    }
     this.selectedApplicationForRemarks = this.applicationDetails;
     this.remarksText = '';
     this.approveModal.open();
@@ -1670,6 +2614,10 @@ export class ApplicationDetailsComponent implements OnInit {
   openRejectModal() {
     if (!this.applicationDetails?.serApplicationId) {
       this.notificationService.showMessage('Invalid application', 'danger');
+      return;
+    }
+    if (this.isApplicationAlreadyActedUpon()) {
+      this.notificationService.showMessage(this.NOT_AUTHORIZED_MSG, 'danger');
       return;
     }
     this.selectedApplicationForRemarks = this.applicationDetails;
@@ -1682,6 +2630,10 @@ export class ApplicationDetailsComponent implements OnInit {
       this.notificationService.showMessage('Invalid application', 'danger');
       return;
     }
+    if (this.isApplicationAlreadyActedUpon()) {
+      this.notificationService.showMessage(this.NOT_AUTHORIZED_MSG, 'danger');
+      return;
+    }
     this.selectedApplicationForRemarks = this.applicationDetails;
     this.remarksText = '';
     this.sendBackModal.open();
@@ -1692,6 +2644,10 @@ export class ApplicationDetailsComponent implements OnInit {
       this.notificationService.showMessage('Invalid application', 'danger');
       return;
     }
+    if (this.isApplicationAlreadyActedUpon()) {
+      this.notificationService.showMessage(this.NOT_AUTHORIZED_MSG, 'danger');
+      return;
+    }
     this.selectedApplicationForRemarks = this.applicationDetails;
     this.remarksText = '';
     this.sendBackToInitiatorModal.open();
@@ -1700,6 +2656,11 @@ export class ApplicationDetailsComponent implements OnInit {
   async approveApplication() {
     if (!this.selectedApplicationForRemarks?.serApplicationId) {
       this.notificationService.showMessage('Invalid application', 'danger');
+      return;
+    }
+    if (this.isApplicationAlreadyActedUpon()) {
+      this.notificationService.showMessage(this.NOT_AUTHORIZED_MSG, 'danger');
+      this.approveModal.close();
       return;
     }
 
@@ -1724,13 +2685,19 @@ export class ApplicationDetailsComponent implements OnInit {
           this.approveModal.close();
           this.selectedApplicationForRemarks = null;
           this.remarksText = '';
+          this.applyOptimisticAction('APPROVED');
           this.loadApplicationDetails();
         } else {
           this.notificationService.showMessage(response?.message || 'Failed to approve application', 'danger');
         }
       },
       (error) => {
-        this.notificationService.showMessage('Error approving application: ' + (error.error?.message || error.message), 'danger');
+        const msg = (error.error?.message || error.message || '').toString().toLowerCase();
+        if (msg.includes('not authorized') || msg.includes('already approved') || msg.includes('already acted') || error.status === 403) {
+          this.notificationService.showMessage(this.NOT_AUTHORIZED_MSG, 'danger');
+        } else {
+          this.notificationService.showMessage('Error approving application: ' + (error.error?.message || error.message), 'danger');
+        }
       }
     );
   }
@@ -1738,6 +2705,11 @@ export class ApplicationDetailsComponent implements OnInit {
   rejectApplication() {
     if (!this.selectedApplicationForRemarks?.serApplicationId) {
       this.notificationService.showMessage('Invalid application', 'danger');
+      return;
+    }
+    if (this.isApplicationAlreadyActedUpon()) {
+      this.notificationService.showMessage(this.NOT_AUTHORIZED_MSG, 'danger');
+      this.rejectModal.close();
       return;
     }
 
@@ -1762,13 +2734,19 @@ export class ApplicationDetailsComponent implements OnInit {
           this.rejectModal.close();
           this.selectedApplicationForRemarks = null;
           this.remarksText = '';
+          this.applyOptimisticAction('REJECTED');
           this.loadApplicationDetails();
         } else {
           this.notificationService.showMessage(response?.message || 'Failed to reject application', 'danger');
         }
       },
       (error) => {
-        this.notificationService.showMessage('Error rejecting application: ' + (error.error?.message || error.message), 'danger');
+        const msg = (error.error?.message || error.message || '').toString().toLowerCase();
+        if (msg.includes('not authorized') || msg.includes('already rejected') || msg.includes('already acted') || error.status === 403) {
+          this.notificationService.showMessage(this.NOT_AUTHORIZED_MSG, 'danger');
+        } else {
+          this.notificationService.showMessage('Error rejecting application: ' + (error.error?.message || error.message), 'danger');
+        }
       }
     );
   }
@@ -1776,6 +2754,11 @@ export class ApplicationDetailsComponent implements OnInit {
   sendBackApplication() {
     if (!this.selectedApplicationForRemarks?.serApplicationId) {
       this.notificationService.showMessage('Invalid application', 'danger');
+      return;
+    }
+    if (this.isApplicationAlreadyActedUpon()) {
+      this.notificationService.showMessage(this.NOT_AUTHORIZED_MSG, 'danger');
+      this.sendBackModal.close();
       return;
     }
 
@@ -1805,13 +2788,19 @@ export class ApplicationDetailsComponent implements OnInit {
           this.sendBackModal.close();
           this.selectedApplicationForRemarks = null;
           this.remarksText = '';
+          this.applyOptimisticAction('SENT_BACK');
           this.loadApplicationDetails();
         } else {
           this.notificationService.showMessage(response?.message || 'Failed to send back application', 'danger');
         }
       },
       (error) => {
-        this.notificationService.showMessage('Error sending back application: ' + (error.error?.message || error.message), 'danger');
+        const msg = (error.error?.message || error.message || '').toString().toLowerCase();
+        if (msg.includes('not authorized') || msg.includes('already acted') || error.status === 403) {
+          this.notificationService.showMessage(this.NOT_AUTHORIZED_MSG, 'danger');
+        } else {
+          this.notificationService.showMessage('Error sending back application: ' + (error.error?.message || error.message), 'danger');
+        }
       }
     );
   }
@@ -1819,6 +2808,11 @@ export class ApplicationDetailsComponent implements OnInit {
   sendBackToInitiator() {
     if (!this.selectedApplicationForRemarks?.serApplicationId) {
       this.notificationService.showMessage('Invalid application', 'danger');
+      return;
+    }
+    if (this.isApplicationAlreadyActedUpon()) {
+      this.notificationService.showMessage(this.NOT_AUTHORIZED_MSG, 'danger');
+      this.sendBackToInitiatorModal.close();
       return;
     }
 
@@ -1843,15 +2837,41 @@ export class ApplicationDetailsComponent implements OnInit {
           this.sendBackToInitiatorModal.close();
           this.selectedApplicationForRemarks = null;
           this.remarksText = '';
+          this.applyOptimisticAction('SENT_BACK_TO_INITIATOR');
           this.loadApplicationDetails();
         } else {
           this.notificationService.showMessage(response?.message || 'Failed to send back application to initiator', 'danger');
         }
       },
       (error) => {
-        this.notificationService.showMessage('Error sending back to initiator: ' + (error.error?.message || error.message), 'danger');
+        const msg = (error.error?.message || error.message || '').toString().toLowerCase();
+        if (msg.includes('not authorized') || msg.includes('already acted') || error.status === 403) {
+          this.notificationService.showMessage(this.NOT_AUTHORIZED_MSG, 'danger');
+        } else {
+          this.notificationService.showMessage('Error sending back to initiator: ' + (error.error?.message || error.message), 'danger');
+        }
       }
     );
+  }
+
+  /** Optimistically update local state immediately after a successful action so rapid re-clicks are blocked before loadApplicationDetails completes */
+  private applyOptimisticAction(action: string): void {
+    if (!this.applicationDetails) return;
+    const now = new Date().toISOString();
+    if (action === 'APPROVED' || action === 'REJECTED') {
+      this.applicationDetails = { ...this.applicationDetails, txtStatus: action };
+      return;
+    }
+    const userId = this.getCurrentUserId();
+    const currentLevel = this.applicationDetails.intCurrentApprovalLevel ?? 0;
+    const newEntry: any = {
+      action,
+      level: currentLevel,
+      approvedDate: now,
+      approvedBy: userId,
+      approverName: this.currentUser?.txtUserName || this.currentUser?.userName || this.currentUser?.name || '',
+    };
+    this.approvalHistory = [...(this.approvalHistory || []), newEntry];
   }
 
   /** Get approvedDate as timestamp for sorting (earliest first) */
@@ -1890,7 +2910,10 @@ export class ApplicationDetailsComponent implements OnInit {
     if (candidates.length === 0) {
       candidates = matches((e) => e.level === pipelineOrder);
     }
-    if (candidates.length === 0 && departmentId) {
+    if (candidates.length === 0 && departmentId && pipelineOrder < 0) {
+      // Virtual CAPF initiator stage may be represented by a different "level" in stored history.
+      // For real (non-negative) stages, avoid department-only fallback because it can mark
+      // a later stage as approved using another stage's history.
       candidates = matches((e) => e.departmentId === departmentId);
     }
     if (candidates.length === 0) return null;
@@ -1904,13 +2927,25 @@ export class ApplicationDetailsComponent implements OnInit {
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel || 0;
     const overallStatus = (this.applicationDetails?.txtStatus || '').toUpperCase();
     const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
+    const isVirtualInitiatorStage = pipelineOrder < 0;
 
     if (entry) {
       const action = (entry.action || entry.status || '').toUpperCase();
       if (action === 'REJECTED') return 'REJECTED';
-      if (action === 'APPROVED' || pipelineOrder < currentLevel) return 'APPROVED';
+      if (action === 'APPROVED') {
+        // Virtual CAPF initiator stage uses negative pipelineOrder.
+        // If backend history says it is approved, show it as approved.
+        if (isVirtualInitiatorStage) return 'APPROVED';
+        // A stage becomes fully approved only after workflow advances past it.
+        // If the stage is the current active level, some approver might have signed
+        // but the department is not complete yet.
+        if (!isVirtualInitiatorStage && pipelineOrder < currentLevel) return 'APPROVED';
+        if (!isVirtualInitiatorStage && pipelineOrder === currentLevel) return 'CURRENT';
+        // For virtual initiator (negative order), fall through to pending/current logic
+      }
+      // If there is any other entry type, treat it as current/pending based on level.
     }
-    if (pipelineOrder < currentLevel) return 'APPROVED';
+    if (!isVirtualInitiatorStage && pipelineOrder < currentLevel) return 'APPROVED';
     if (pipelineOrder === currentLevel) {
       return overallStatus === 'REJECTED' ? 'REJECTED' : 'CURRENT';
     }
@@ -1920,14 +2955,22 @@ export class ApplicationDetailsComponent implements OnInit {
   getPipelineDepartmentName(pipeline: any, index: number): string {
     const order = pipeline?.intApprovalOrder || (index + 1);
 
-    // For Budget Approval, show the individual's name as the box title
     if (this.isBudgetApprovalForm()) {
       const personName = this.getCapfUserNameForStage(order);
       if (personName) return personName;
     }
 
-    // For other forms (including CAPF), show the Department Name as requested
-    if (!pipeline) return `Department ${index + 1}`;
+    if (!pipeline) return `Stage ${index + 1}`;
+    if (pipeline.type === 'individual') {
+      const name = pipeline.hrTblUser?.txtUserName || pipeline.txtUserName || pipeline.userName;
+      if (name) return name;
+      const uid = pipeline.serUserId ?? pipeline.userId ?? pipeline.hrTblUser?.serUserId;
+      if (uid && this.userNameMap.has(Number(uid))) return this.userNameMap.get(Number(uid)) as string;
+      const entry = this.getStageHistoryEntry(order, undefined);
+      if (entry?.departmentName) return entry.departmentName;
+      return uid ? `User #${uid}` : `Individual ${index + 1}`;
+    }
+
     const directName =
       pipeline.hrTblDepartment?.txtDepartmentName ||
       pipeline.departmentName ||
@@ -2126,9 +3169,23 @@ export class ApplicationDetailsComponent implements OnInit {
 
   isCapfForm(): boolean {
     if (!this.applicationDetails) return false;
+    // Primary: txtFormCode like "CAPF-0083" is the most reliable signal (shown in Application Information)
+    const appCode = (this.applicationDetails.txtFormCode || '').toUpperCase();
+    if (appCode.includes('CAPF')) return true;
+    // Backend-provided flag
+    if (this.applicationDetails.isCapfForm === true) return true;
+    // Fallback: form name or form's code from cfgTblCustomForm
     const name = (this.applicationDetails.cfgTblCustomForm?.txtFormName || this.applicationDetails.formName || '').replace(/\s+/g, ' ').toUpperCase();
-    const code = (this.applicationDetails.txtFormCode || '').toUpperCase();
-    return name.includes('CAPITAL ASSETS PURCHASE') || name.includes('CAPF') || code.startsWith('CAPF');
+    const code = (this.applicationDetails.cfgTblCustomForm?.txtFormCode || '').toUpperCase();
+    if (name.includes('CAPITAL ASSETS PURCHASE') || name.includes('CAPF') || code.includes('CAPF')) return true;
+    const formId = this.applicationDetails.serFormId;
+    if (formId && this.forms?.length) {
+      const form = this.forms.find((f: any) => f.serFormId === formId);
+      const formName = (form?.txtFormName || form?.cfgTblCustomForm?.txtFormName || '').replace(/\s+/g, ' ').toUpperCase();
+      const formCode = (form?.txtFormCode || form?.cfgTblCustomForm?.txtFormCode || '').toUpperCase();
+      if (formName.includes('CAPITAL ASSETS PURCHASE') || formName.includes('CAPF') || formCode.includes('CAPF')) return true;
+    }
+    return false;
   }
 
   buildFooterFields(source: any): any[] {
@@ -2187,9 +3244,20 @@ export class ApplicationDetailsComponent implements OnInit {
     return Math.max(field.users.length, 1);
   }
 
+  /** One slot per user per field; deduplicate by userId so send-back + re-approval shows only the latest signature. */
   getFooterSlots(field: any): any[] {
     if (!field || !Array.isArray(field.users) || field.users.length === 0) return [null];
-    return field.users;
+    const seen = new Set<number>();
+    const deduped: any[] = [];
+    for (const u of field.users) {
+      if (!u) continue;
+      const uid = u.serUserId ?? u.userId ?? u.id;
+      const n = uid != null ? Number(uid) : NaN;
+      if (!isNaN(n) && seen.has(n)) continue;
+      if (!isNaN(n)) seen.add(n);
+      deduped.push(u);
+    }
+    return deduped.length > 0 ? deduped : [null];
   }
 
   formatUserForSignature(selectedUsers: any[], index: number): string {
@@ -2208,7 +3276,7 @@ export class ApplicationDetailsComponent implements OnInit {
     if (directDept) return directDept;
     const userId = this.getUserId(user);
     if (!userId || !this.approvalHistory || this.approvalHistory.length === 0) return '';
-    const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+    const entry = this.getLatestApprovalEntryForUser(userId);
     return entry?.departmentName || '';
   }
 
@@ -2227,7 +3295,10 @@ export class ApplicationDetailsComponent implements OnInit {
 
   getUserId(user: any): number | null {
     if (!user) return null;
-    return user.serUserId || user.userId || user.id || null;
+    const v = user.serUserId ?? user.userId ?? user.id ?? user.approvedBy;
+    if (v == null) return null;
+    const n = Number(v);
+    return isNaN(n) ? null : n;
   }
 
   /** Get the latest approval entry for a user/role so re-approvals show the most recent signature and timestamp */
@@ -2572,30 +3643,19 @@ export class ApplicationDetailsComponent implements OnInit {
     }
     
     // If this node is before the current level, check if it was approved
-    // Find approval entry for this user at this specific level
-    const entry = this.approvalHistory.find((e: any) => {
-      // Skip SENT_BACK entries
+    // Use latest approval entry for this user at this level (so re-approval after send-back shows latest only)
+    const candidates = (this.approvalHistory || []).filter((e: any) => {
       const action = (e.action || '').toString().toUpperCase();
       if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') return false;
-      
-      // For individual pipeline footer forms, filter out entries removed during send-back
-      // Level in history is 1-indexed, workflowLevel is 0-indexed
-      // So entryLevel should be (workflowLevel + 1) for this specific node
       const entryLevel = e.level || e.intApprovalOrder;
       if (entryLevel != null) {
-        // Entry level is 1-indexed, workflowLevel is 0-indexed
-        // So entryLevel should match (workflowLevel + 1) for this node
-        if (entryLevel !== (workflowLevel + 1)) {
-          return false;
-        }
-        // Also filter out entries that were removed during send-back
-        if (entryLevel > currentLevel) {
-          return false;
-        }
+        if (entryLevel !== (workflowLevel + 1)) return false;
+        if (entryLevel > currentLevel) return false;
       }
-      
       return e.approvedBy === userId || e.userId === userId;
     });
+    candidates.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+    const entry = candidates.length > 0 ? candidates[0] : null;
     
     // If no entry found for a level that's before current level, it's PENDING (shouldn't happen but safe)
     if (!entry) {
@@ -2613,7 +3673,7 @@ export class ApplicationDetailsComponent implements OnInit {
     if (node.isInitiator) return node.user.txtUserName || node.user.userName || node.user.name || 'Initiator';
     const userId = this.getUserId(node.user);
     if (!userId || !this.approvalHistory) return node.user.txtUserName || node.user.userName || node.user.name || '--';
-    const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+    const entry = this.getLatestApprovalEntryForUser(userId);
     return entry?.approverName || node.user.txtUserName || node.user.userName || node.user.name || '--';
   }
 
@@ -2629,7 +3689,7 @@ export class ApplicationDetailsComponent implements OnInit {
     if (node.isInitiator) return '--';
     const userId = this.getUserId(node.user);
     if (!userId || !this.approvalHistory) return '--';
-    const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+    const entry = this.getLatestApprovalEntryForUser(userId);
     return entry?.remarks || '--';
   }
 
@@ -2639,7 +3699,7 @@ export class ApplicationDetailsComponent implements OnInit {
     }
     const userId = this.getUserId(node.user);
     if (!userId || !this.approvalHistory) return '--';
-    const entry = this.approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+    const entry = this.getLatestApprovalEntryForUser(userId);
     // Prefer actual IP fields over approvedVia (medium like email/system) so "IP Address" label shows IP
     return entry?.approvedIp || entry?.ipAddress || entry?.ip || entry?.approvedVia || '--';
   }

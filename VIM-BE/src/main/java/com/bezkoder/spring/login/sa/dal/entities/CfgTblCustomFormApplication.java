@@ -135,10 +135,28 @@ public class CfgTblCustomFormApplication implements Serializable {
     // bi-directional many-to-one association to CfgTblCustomForm
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "ser_form_id", insertable = false, updatable = false)
-    @JsonIgnoreProperties({ "cfgTblCustomFormFields", "cfgTblCustomFormApprovalPipelines" })
+    @JsonIgnoreProperties({ "cfgTblCustomFormApprovalPipelines" })
     private CfgTblCustomForm cfgTblCustomForm;
 
     public CfgTblCustomFormApplication() {
+    }
+
+    /**
+     * Computed flag for JSON API - tells frontend this is a CAPF form so the correct preview is shown.
+     * Matches backend isCapfForm logic in CfgTblCustomFormApplicationDAO.
+     */
+    public Boolean getIsCapfForm() {
+        if (cfgTblCustomForm != null) {
+            String name = cfgTblCustomForm.getTxtFormName();
+            if (name != null) {
+                String lower = name.toLowerCase();
+                if (lower.contains("capf") || lower.contains("capital assets purchase")) return true;
+            }
+            String code = cfgTblCustomForm.getTxtFormCode();
+            if (code != null && code.toLowerCase().contains("capf")) return true;
+        }
+        if (txtFormCode != null && txtFormCode.toLowerCase().contains("capf")) return true;
+        return false;
     }
 
     public Integer getSerApplicationId() {

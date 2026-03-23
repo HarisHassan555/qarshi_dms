@@ -49,6 +49,90 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
 
     private approvalHistory: any[] = [];
 
+    /** Hide signatures for current stage and all next stages (workflow-in-progress). */
+    private shouldHideStageSignatures(stageOrder: number): boolean {
+        // Only apply to embedded preview (application-details) where application is passed in.
+        if (!this.application) return false;
+        const status = (this.application?.txtStatus || '').toString().toUpperCase();
+        // If fully approved/rejected, show all historical signatures.
+        if (status === 'APPROVED' || status === 'REJECTED') return false;
+
+        const currentLevelRaw = this.application?.intCurrentApprovalLevel;
+        if (currentLevelRaw === undefined || currentLevelRaw === null) return false;
+        const currentLevel = Number(currentLevelRaw);
+        if (isNaN(currentLevel)) return false;
+
+        // CAPF: `getPipelineData()` inserts virtual stage order=0 and other stages are 1..N.
+        // In this app, intCurrentApprovalLevel is treated as 0-indexed stage pointer.
+        // Rule requested: hide current department + all next → hide stageOrder >= currentLevel.
+        return stageOrder >= currentLevel;
+    }
+
+    private getApprovalEntryTime(entry: any): number {
+        if (!entry) return 0;
+        const dateVal =
+            entry.sentBackDate ||
+            entry.approvedDate ||
+            entry.approvedAt ||
+            entry.actionDate ||
+            entry.createdAt ||
+            entry.dteCreatedDate;
+        if (!dateVal) return 0;
+
+        const normalize = (v: any): string => {
+            const s = String(v).trim();
+            if (!s) return '';
+            // Common backend formats:
+            // - "2026-03-19 12:34:56.0" (java.sql.Timestamp#toString)
+            // - "2026-03-19 12:34:56.123"
+            // - ISO "2026-03-19T12:34:56.123Z"
+            let out = s;
+            if (out.includes(' ') && !out.includes('T')) {
+                out = out.replace(' ', 'T');
+            }
+            // Strip trailing ".0" produced by Timestamp#toString
+            out = out.replace(/\.0$/, '');
+            return out;
+        };
+
+        try {
+            const isoLike = normalize(dateVal);
+            if (!isoLike) return 0;
+            const t = new Date(isoLike).getTime();
+            return isNaN(t) ? 0 : t;
+        } catch {
+            return 0;
+        }
+    }
+
+    /**
+     * When a higher level sends an application back, lower level signatures must be cleared in the UI.
+     * We keep the history but ignore approvals for the *target stage* that occurred before the latest send-back.
+     *
+     * Example: Level 5 sends back to Level 4 → ignore old Level 4 approvals before that send-back time.
+     * IMPORTANT: Do NOT clear earlier stages (levels 1-3) — only the stage being re-approved.
+     */
+    private getStageResetTime(stageOrder: number): number {
+        if (!this.approvalHistory || this.approvalHistory.length === 0) return 0;
+        // CAPF virtual stage (0) is not a real approval step in history send-back targets.
+        if (stageOrder <= 0) return 0;
+        const terminalActions = ['SENT_BACK', 'SENTBACK', 'SEND_BACK', 'SENT_BACK_TO_INITIATOR'];
+        let reset = 0;
+        for (const e of this.approvalHistory) {
+            if (!e) continue;
+            const action = (e.action || e.status || '').toString().toUpperCase();
+            if (!terminalActions.includes(action)) continue;
+            // Backend includes 1-indexed fromLevel/toLevel in SENT_BACK markers.
+            // Only reset the stage that was sent back to.
+            const toLevel = Number(e.toLevel ?? e.to ?? e.targetLevel ?? -1);
+            if (isNaN(toLevel) || toLevel <= 0) continue;
+            if (toLevel !== stageOrder) continue;
+            const t = this.getApprovalEntryTime(e);
+            if (t > reset) reset = t;
+        }
+        return reset;
+    }
+
     // Session storage key for persistence across page refresh/new tabs
     private readonly SESSION_KEY = 'abc_form_state';
     private navigationState: any = null;
@@ -334,6 +418,7 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         const keywordsLower = (slot.keywords || []).map(k => k.toLowerCase());
         const isUserDeptSlot = slot.label.toLowerCase().includes('user dept');
 
+        // Slot-based matching can display a "level" column. Apply reset filtering by level when possible.
         const byDept = this.approvalHistory.filter((e: any) => {
             const deptName = (e.departmentName || '').toString().toLowerCase();
             const roleName = (e.role || '').toString().toLowerCase();
@@ -366,7 +451,24 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
             return keywordsLower.every(k => combined.includes(k));
         });
         if (byDept.length > 0) {
-            return byDept;
+            const lvlGuess = byDept[0]?.level ?? byDept[0]?.intApprovalOrder;
+            const stageOrder = lvlGuess != null && !isNaN(Number(lvlGuess)) ? Number(lvlGuess) : 0;
+            if (this.shouldHideStageSignatures(stageOrder)) return [];
+            const resetTime = this.getStageResetTime(stageOrder);
+            const filtered = resetTime > 0 ? byDept.filter((e: any) => this.getApprovalEntryTime(e) >= resetTime) : byDept;
+
+            // Keep only the latest entry per approver (re-approvals create duplicates).
+            const latestByApprover = new Map<string, any>();
+            for (const e of filtered) {
+                const approverId = e?.approvedBy ?? e?.approverUserId ?? e?.userId ?? '';
+                const key = String(approverId);
+                const t = this.getApprovalEntryTime(e);
+                const prev = latestByApprover.get(key);
+                if (!prev || t >= this.getApprovalEntryTime(prev)) {
+                    latestByApprover.set(key, e);
+                }
+            }
+            return Array.from(latestByApprover.values()).sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
         }
 
         return [];
@@ -382,6 +484,8 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
             return [];
         }
 
+        if (this.shouldHideStageSignatures(order)) return [];
+        const resetTime = this.getStageResetTime(order);
         let entries: any[] = [];
         if (departmentId) {
             entries = this.approvalHistory.filter((e: any) =>
@@ -403,6 +507,13 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
                 (e.departmentName || '').toString().toLowerCase() === nameLower
             );
         }
+
+        // If a higher level has sent the application back after these approvals,
+        // ignore earlier approvals so signatures are cleared for re-approval.
+        if (resetTime > 0) {
+            entries = entries.filter((e: any) => this.getApprovalEntryTime(e) >= resetTime);
+        }
+
         const dedupMap = new Map<string, any>();
         entries.forEach((e: any) => {
             const approverId = e?.approvedBy || e?.approverUserId || e?.userId || '';
@@ -411,7 +522,20 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
                 dedupMap.set(key, e);
             }
         });
-        const uniqueEntries = Array.from(dedupMap.values());
+        let uniqueEntries = Array.from(dedupMap.values());
+
+        // Keep only the latest entry per approver (re-approvals create duplicates).
+        const latestByApprover = new Map<string, any>();
+        for (const e of uniqueEntries) {
+            const approverId = e?.approvedBy || e?.approverUserId || e?.userId || '';
+            const key = String(approverId);
+            const t = this.getApprovalEntryTime(e);
+            const prev = latestByApprover.get(key);
+            if (!prev || t >= this.getApprovalEntryTime(prev)) {
+                latestByApprover.set(key, e);
+            }
+        }
+        uniqueEntries = Array.from(latestByApprover.values()).sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
         console.log('[CAPF FE][abc] getApprovalEntryForPipeline', {
             order,
             departmentId,

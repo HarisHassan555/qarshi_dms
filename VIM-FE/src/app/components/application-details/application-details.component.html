@@ -45,6 +45,16 @@
                     Assign Asset Code
                 </button>
             </div>
+            <div *ngIf="showPrCodeForm()" class="flex flex-wrap items-center gap-2">
+                <input type="text" class="form-input w-52" placeholder="PR Code" [(ngModel)]="prCodeInput"
+                    [disabled]="isSavingPrCode">
+                <button class="btn btn-outline-primary gap-2" (click)="savePrCode()" [disabled]="isSavingPrCode">
+                    <span *ngIf="isSavingPrCode"
+                        class="animate-spin border-2 border-primary border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
+                    <icon-save class="w-4 h-4" *ngIf="!isSavingPrCode" />
+                    Assign PR
+                </button>
+            </div>
             <div class="flex flex-wrap gap-2 justify-end">
 
                 <button *ngIf="showFeasibilityReportButton()" (click)="openFeasibilityReport()"
@@ -89,6 +99,18 @@
 
     <!-- Application Details -->
     <div *ngIf="!isLoading && applicationDetails" class="space-y-6">
+        <!-- CAPF Form Preview - show FIRST so it's visible above the fold -->
+        <div *ngIf="isCapfForm()" class="mb-8">
+            <h6 class="mb-4 text-lg font-bold text-[#3b3f5c] dark:text-white-light flex items-center gap-2">
+                <icon-clipboard-text class="w-6 h-6 text-primary" />
+                Form Preview
+            </h6>
+            <div class="border border-[#e0e6ed] dark:border-[#1b2e4b] rounded-lg overflow-auto bg-white dark:bg-[#1b2e4b] p-6">
+                <app-abc id="capf-pdf-content" [formData]="applicationFormData" [formFields]="formFields"
+                    [application]="applicationDetails" [isEmbedded]="true"></app-abc>
+            </div>
+        </div>
+
         <!-- Application Information -->
         <!-- Enhanced Application Information -->
         <!-- Application Information (Square Cards, No Shadow) -->
@@ -188,9 +210,12 @@
         </div>
 
 
-        <!-- Professional Paper View for Generic Forms -->
-        <div *ngIf="!isBudgetApprovalForm() && !isCapfForm()" class="xyz-page-inline">
-            <div id="generic-pdf-content" class="xyz-paper">
+        <!-- Professional Paper View for Generic Forms (multi-page: header on each, footer on last) -->
+        <div *ngIf="!isBudgetApprovalForm() && !isCapfForm()" id="generic-pdf-content">
+            <div class="xyz-page-inline xyz-pages-scroll">
+                <div *ngFor="let pageFields of genericPages; let last = last"
+                    class="xyz-paper xyz-paper-page"
+                    [class.xyz-last-page]="last">
                 <div class="xyz-header-container">
                     <div class="xyz-date-row">
                         <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd-MMM-yyyy' }}</div>
@@ -215,7 +240,6 @@
                                 PR Code: {{ applicationDetails.txtPrCode }}
                             </div>
                         </div>
-
                     </div>
 
                     <div class="xyz-rule thick"></div>
@@ -224,9 +248,10 @@
                 </div>
 
                 <div class="xyz-content-body">
-                    <div *ngFor="let field of getBodyPreviewFields()" class="xyz-generic-field">
+                    <div *ngFor="let field of pageFields" class="xyz-generic-field">
                         <div class="xyz-generic-label"
                             *ngIf="!isWordEditorType(field.type)
+                                   && !field?._hideLabel
                                    && !isIndividualPipelineFooterType(field.type)
                                    && field.type !== 'footer'
                                    && !isDocumentHeaderType(field.type)">
@@ -243,35 +268,8 @@
                             {{ formatFieldValue(field, getFieldValue(field)) }}
                         </div>
 
-                        <div *ngIf="isWordEditorType(field.type)" class="xyz-generic-word">
+                        <div *ngIf="isWordEditorType(field.type) || field.type === 'word_editor_chunk'" class="xyz-generic-word">
                             <div class="ql-editor" [innerHTML]="getWordEditorValue(field)"></div>
-                        </div>
-
-                        <div *ngIf="field.type === 'footer'" class="mt-12 pt-6">
-                            <div class="flex flex-wrap justify-center gap-10 py-4">
-                                <div *ngFor="let pipeline of getPipelineData(); let i = index"
-                                    class="flex flex-col items-center min-w-[150px]">
-                                    <div class="w-full h-16 flex flex-col items-center justify-end mb-1 relative">
-                                        <!-- Signature Image -->
-                                        <img *ngIf="getDepartmentSignature(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId)"
-                                            [src]="getDepartmentSignature(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId)"
-                                            class="max-h-12 max-w-[140px] object-contain mb-1" alt="Signature">
-
-                                        <!-- Approval Date (Optional, small text) -->
-                                        <div *ngIf="getDepartmentApprovalDate(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId)"
-                                            class="text-[8px] text-gray-400 absolute bottom-0">
-                                            {{ getDepartmentApprovalDate(pipeline.intApprovalOrder || (i+1),
-                                            pipeline.hrTblDepartment?.serDepartmentId) | date:'dd-MMM-yyyy' }}
-                                        </div>
-                                    </div>
-                                    <div class="w-full border-t border-gray-400 mb-1"></div>
-                                    <div
-                                        class="text-[10px] font-bold text-center uppercase tracking-wider text-gray-800">
-                                        {{ pipeline.hrTblDepartment?.txtDepartmentName || pipeline.departmentName ||
-                                        'Department ' + pipeline.serDepartmentId }}
-                                    </div>
-                                </div>
-                            </div>
                         </div>
 
                         <div *ngIf="isTableType(field.type)" class="overflow-x-auto">
@@ -294,8 +292,8 @@
                     </div>
                 </div>
 
-                <!-- Individual Pipeline Footer - Outside content body to stay at bottom -->
-                <div class="xyz-footer" *ngIf="hasIndividualPipelineFooter()">
+                <!-- Footer only on the last page -->
+                <div class="xyz-footer" *ngIf="last && hasIndividualPipelineFooter()">
                     <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields().length > 0">
                         <tr class="xyz-signatures-blank">
                             <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
@@ -329,9 +327,12 @@
             </div>
         </div>
 
-        <!-- Professional Paper View for Budget Approval Forms -->
-        <div *ngIf="isBudgetApprovalForm()" class="xyz-page-inline">
-            <div id="budget-pdf-content" class="xyz-paper">
+        <!-- Professional Paper View for Budget Approval Forms (multi-page) -->
+        <div *ngIf="isBudgetApprovalForm()" id="budget-pdf-content">
+            <div class="xyz-page-inline xyz-pages-scroll">
+                <div *ngFor="let page of budgetPages; let last = last"
+                    class="xyz-paper xyz-paper-page"
+                    [class.xyz-last-page]="last">
                 <div class="xyz-header-container">
                     <div class="xyz-date-row">
                         <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd/MM/yyyy' }}</div>
@@ -371,10 +372,10 @@
                 </div>
 
                 <div class="xyz-content-body">
-                    <div [innerHTML]="safeContent || '<i>(No content found in application data)</i>'"></div>
+                    <div [innerHTML]="page || '<i>(No content found in application data)</i>'"></div>
                 </div>
 
-                <div class="xyz-footer">
+                <div class="xyz-footer" *ngIf="last">
                     <table class="xyz-signatures">
                         <!-- Signature Images Row -->
                         <tr class="xyz-signatures-blank">
@@ -415,18 +416,6 @@
                 </div>
             </div>
         </div>
-
-        <!-- CAPF Form View (AbcComponent) -->
-        <div *ngIf="isCapfForm()" class="space-y-6">
-            <!-- Procurement Edit Section -->
-
-            <div class="flex justify-center">
-                <app-abc id="capf-pdf-content" [formData]="applicationFormData" [formFields]="formFields"
-                    [application]="applicationDetails" [isEmbedded]="true"></app-abc>
-            </div>
-        </div>
-
-
 
         <!-- No Form Fields Message -->
         <!-- <div *ngIf="formFields.length === 0 && !isLoading" class="text-center py-8 text-gray-500 dark:text-gray-400">
@@ -741,64 +730,78 @@
 
 
             <div class="approval-flow">
-                <ng-container *ngFor="let pipeline of pipelines; let i = index">
+                <ng-container *ngIf="getPipelineCardsForDisplay() as cards">
+                <ng-container *ngFor="let card of cards; let cardIndex = index">
                     <div class="approval-node" [ngClass]="{
-                            'is-approved': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'APPROVED',
-                            'is-pending': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'PENDING' || getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'CURRENT',
-                            'is-rejected': getStageStatus(pipeline.intApprovalOrder || (i+1), pipeline.hrTblDepartment?.serDepartmentId) === 'REJECTED'
+                            'is-approved': getPipelineCardStatus(card) === 'APPROVED',
+                            'is-pending': getPipelineCardStatus(card) === 'PENDING' || getPipelineCardStatus(card) === 'CURRENT',
+                            'is-rejected': getPipelineCardStatus(card) === 'REJECTED'
                         }">
                         <div class="approval-node-header">
                             <div class="approval-node-title">
-                                {{ getPipelineDepartmentName(pipeline, i) }}
+                                {{ getPipelineCardTitle(card) }}
                             </div>
                             <div class="approval-node-status">
-                                {{ getStageStatus(pipeline.intApprovalOrder || (i+1),
-                                pipeline.hrTblDepartment?.serDepartmentId) === 'CURRENT'
-                                ? 'PENDING'
-                                : getStageStatus(pipeline.intApprovalOrder || (i+1),
-                                pipeline.hrTblDepartment?.serDepartmentId) }}
+                                {{ getPipelineCardStatus(card) === 'CURRENT' ? 'PENDING' : getPipelineCardStatus(card) }}
                             </div>
                         </div>
                         <div class="approval-node-body">
                             <div class="approval-node-row">
                                 <span class="label">Approved By</span>
                                 <span class="value">
-                                    {{ getStageApproverName(pipeline.intApprovalOrder || (i+1),
-                                    pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                    <ng-container *ngIf="isCapfExtraPipeline(card.pipeline); else deptApprovedBy">
+                                        {{ getCapfExtraStageApprovedBy(card.pipeline?.type) || '--' }}
+                                    </ng-container>
+                                    <ng-template #deptApprovedBy>
+                                        {{ card.approverId != null ? (getUserNameById(card.approverId) || ('User ' + card.approverId)) : (getStageApproverName(card.pipeline.intApprovalOrder || (card.pipelineIndex+1), getPipelineDepartmentId(card.pipeline)) || '--') }}
+                                    </ng-template>
                                 </span>
                             </div>
                             <div class="approval-node-row">
                                 <span class="label">Action Time</span>
                                 <span class="value">
-                                    {{ getStageApprovedAt(pipeline.intApprovalOrder || (i+1),
-                                    pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                    <ng-container *ngIf="isCapfExtraPipeline(card.pipeline); else deptApprovedAt">
+                                        {{ getCapfExtraStageApprovedAt(card.pipeline?.type) || '--' }}
+                                    </ng-container>
+                                    <ng-template #deptApprovedAt>
+                                        {{ card.approverId != null ? (getDepartmentApproverApprovalDate(card.pipeline.intApprovalOrder ?? (card.pipelineIndex+1), getPipelineDepartmentId(card.pipeline), card.approverId) || '--') : (getStageApprovedAt(card.pipeline.intApprovalOrder || (card.pipelineIndex+1), getPipelineDepartmentId(card.pipeline)) || '--') }}
+                                    </ng-template>
                                 </span>
                             </div>
                             <div class="approval-node-row">
                                 <span class="label">Remarks</span>
                                 <span class="value">
-                                    {{ getDepartmentRemarks(pipeline.intApprovalOrder || (i+1),
-                                    pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                    <ng-container *ngIf="isCapfExtraPipeline(card.pipeline); else deptRemarks">
+                                        {{ getCapfExtraStageRemarks(card.pipeline?.type) || '--' }}
+                                    </ng-container>
+                                    <ng-template #deptRemarks>
+                                        {{ card.approverId != null ? (getDepartmentApproverRemarks(card.pipeline.intApprovalOrder ?? (card.pipelineIndex+1), getPipelineDepartmentId(card.pipeline), card.approverId) || '--') : (getDepartmentRemarks(card.pipeline.intApprovalOrder || (card.pipelineIndex+1), getPipelineDepartmentId(card.pipeline)) || '--') }}
+                                    </ng-template>
                                 </span>
                             </div>
                             <div class="approval-node-row">
                                 <span class="label">IP Address</span>
                                 <span class="value">
-                                    {{ getStageApprovedVia(pipeline.intApprovalOrder || (i+1),
-                                    pipeline.hrTblDepartment?.serDepartmentId) || '--' }}
+                                    <ng-container *ngIf="isCapfExtraPipeline(card.pipeline); else deptVia">
+                                        {{ getCapfExtraStageApprovedVia(card.pipeline?.type) || '--' }}
+                                    </ng-container>
+                                    <ng-template #deptVia>
+                                        {{ card.approverId != null ? (getDepartmentApproverIp(card.pipeline.intApprovalOrder ?? (card.pipelineIndex+1), getPipelineDepartmentId(card.pipeline), card.approverId) || '--') : (getStageApprovedVia(card.pipeline.intApprovalOrder || (card.pipelineIndex+1), getPipelineDepartmentId(card.pipeline)) || '--') }}
+                                    </ng-template>
                                 </span>
                             </div>
                         </div>
                     </div>
-                    <div *ngIf="i < pipelines.length - 1" class="approval-arrow">
+                    <div *ngIf="cardIndex < cards.length - 1" class="approval-arrow">
                         <div class="approval-arrow-label">
-                            {{ getStageTimeTaken(i + 1, pipelines) || '--' }}
+                            {{ getCardTimeTaken(cardIndex, cards) || '--' }}
                         </div>
                         <div class="approval-arrow-track">
                             <div class="approval-arrow-line"></div>
                             <div class="approval-arrow-head"></div>
                         </div>
                     </div>
+                </ng-container>
                 </ng-container>
             </div>
         </ng-container>
