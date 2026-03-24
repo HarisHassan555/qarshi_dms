@@ -27,6 +27,7 @@ export class ApplicationDetailsComponent implements OnInit {
   departmentNameMap: Map<number, string> = new Map();
   departmentHeadMap: Map<number, any> = new Map();
   userNameMap: Map<number, string> = new Map();
+  allUsers: any[] = [];
   currentUser: any = null;
 
   // PDF Generation
@@ -41,6 +42,8 @@ export class ApplicationDetailsComponent implements OnInit {
   isRejecting: boolean = false;
   isSendingBack: boolean = false;
   isSendingBackToInitiator: boolean = false;
+  isRequestingFinanceOptionalApproval: boolean = false;
+  financeOptionalSelectionUserId: number | null = null;
   showFeasibilityModal: boolean = false;
   feasibilityPreviewUrl: any = null;
   private feasibilityObjectUrl: string | null = null;
@@ -91,11 +94,155 @@ export class ApplicationDetailsComponent implements OnInit {
   isFinance(): boolean {
     if (!this.currentUser) return false;
     const role = (this.currentUser?.cfgTblRole?.txtRoleName || this.currentUser?.txtrole || '').toUpperCase();
-    return role.includes('FINANCE');
+    const deptName = (
+      this.currentUser?.hrTblDepartment?.txtDepartmentName ||
+      this.currentUser?.departmentName ||
+      this.currentUser?.txtDepartmentName ||
+      ''
+    ).toUpperCase();
+    return role.includes('FINANCE') || deptName.includes('FINANCE') || deptName.includes('ACCOUNT');
   }
 
   showAssetCodeForm(): boolean {
     return this.applicationDetails?.txtStatus === 'ASSET_PENDING' && this.isFinance();
+  }
+
+  private getFinanceOptionalApprovalState(): any {
+    const direct = this.applicationFormData?.financeOptionalApproval;
+    if (direct && typeof direct === 'object') return direct;
+
+    const nested = this.applicationFormData?.appData?.financeOptionalApproval;
+    if (nested && typeof nested === 'object') return nested;
+
+    const raw = this.applicationDetails?.txtApplicationData;
+    if (typeof raw === 'string' && raw.trim()) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed?.financeOptionalApproval && typeof parsed.financeOptionalApproval === 'object') {
+          return parsed.financeOptionalApproval;
+        }
+        if (parsed?.appData?.financeOptionalApproval && typeof parsed.appData.financeOptionalApproval === 'object') {
+          return parsed.appData.financeOptionalApproval;
+        }
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  isFinanceOptionalApprovalRequested(): boolean {
+    const state = this.getFinanceOptionalApprovalState();
+    return !!state?.requested;
+  }
+
+  isFinanceOptionalApprovalBlocking(): boolean {
+    if (!this.showFinanceOptionalApprovalButton()) return false;
+    const state = this.getFinanceOptionalApprovalState();
+    if (!state?.requested) return false;
+    return String(state?.status || '').toUpperCase() !== 'APPROVED';
+  }
+
+  getFinanceOptionalApprovalStatusText(): string {
+    const state = this.getFinanceOptionalApprovalState();
+    if (!state?.requested) return 'Not requested';
+    const selectedName = state?.selectedUserName || ('User #' + (state?.selectedUserId || ''));
+    const status = String(state?.status || '').toUpperCase();
+    if (status === 'APPROVED') return `Approved by ${selectedName}`;
+    return `Waiting for ${selectedName}`;
+  }
+
+  showFinanceOptionalApprovalButton(): boolean {
+    if (!this.showApprovalActions()) return false;
+    if (!this.isCapfForm()) return false;
+    return this.isFinance() || this.isCurrentStageFinance();
+  }
+
+  private isCurrentStageFinance(): boolean {
+    if (!this.applicationDetails) return false;
+    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+    const pipelines = this.getPipelineData();
+    if (!pipelines || pipelines.length === 0) return false;
+
+    // Keep the same level->index mapping used by authorization checks.
+    let pipelineIndex = currentLevel;
+    if (this.isCapfForm()) {
+      const hasPrependedInitiator = (pipelines[0]?.intApprovalOrder === -1);
+      pipelineIndex = hasPrependedInitiator ? currentLevel : (currentLevel - 1);
+    }
+    if (pipelineIndex < 0 || pipelineIndex >= pipelines.length) return false;
+
+    const p = pipelines[pipelineIndex];
+    const name = (
+      p?.departmentName ||
+      p?.txtDepartmentName ||
+      p?.hrTblDepartment?.txtDepartmentName ||
+      ''
+    ).toString().toUpperCase();
+    return name.includes('FINANCE') || name.includes('ACCOUNT');
+  }
+
+  getFinanceApproverCandidates(): any[] {
+    const currentId = this.getCurrentUserId();
+    return (this.allUsers || []).filter((u: any) => {
+      const id = u?.serUserId ?? u?.userId ?? u?.id;
+      const email = (u?.txtAddress || '').toString().trim();
+      if (!id || !email) return false;
+      if (currentId && Number(id) === Number(currentId)) return false;
+      return true;
+    });
+  }
+
+  openFinanceOptionalApproverModal() {
+    if (!this.applicationDetails?.serApplicationId) {
+      this.notificationService.showMessage('Invalid application', 'danger');
+      return;
+    }
+    this.financeOptionalSelectionUserId = null;
+    this.financeOptionalApproverModal.open();
+  }
+
+  closeFinanceOptionalApproverModal() {
+    this.financeOptionalSelectionUserId = null;
+    this.financeOptionalApproverModal.close();
+  }
+
+  requestFinanceOptionalApprover() {
+    if (!this.applicationDetails?.serApplicationId) {
+      this.notificationService.showMessage('Invalid application', 'danger');
+      return;
+    }
+    if (!this.financeOptionalSelectionUserId) {
+      this.notificationService.showMessage('Please select a user', 'danger');
+      return;
+    }
+    if (this.isRequestingFinanceOptionalApproval) return;
+
+    this.isRequestingFinanceOptionalApproval = true;
+    this.customFormApplicationService.requestFinanceOptionalApprover(
+      this.applicationDetails.serApplicationId,
+      this.financeOptionalSelectionUserId
+    ).pipe(
+      finalize(() => {
+        this.isRequestingFinanceOptionalApproval = false;
+      })
+    ).subscribe(
+      (response: any) => {
+        if (response?.status === 'Success') {
+          this.notificationService.showMessage(response?.message || 'Approval request email sent', 'success');
+          this.closeFinanceOptionalApproverModal();
+          this.loadApplicationDetails();
+        } else {
+          this.notificationService.showMessage(response?.message || 'Failed to request optional approval', 'danger');
+        }
+      },
+      (error) => {
+        this.notificationService.showMessage(
+          error?.error?.message || error?.message || 'Failed to request optional approval',
+          'danger'
+        );
+      }
+    );
   }
 
   showPrCodeForm(): boolean {
@@ -872,6 +1019,7 @@ export class ApplicationDetailsComponent implements OnInit {
     this.userService.getUsers().subscribe(
       (data: any) => {
         if (!Array.isArray(data)) return;
+        this.allUsers = data;
         const map = new Map<number, string>();
         data.forEach((u: any) => {
           const id = u?.serUserId ?? u?.userId ?? u?.id;
@@ -2595,6 +2743,7 @@ export class ApplicationDetailsComponent implements OnInit {
   @ViewChild('rejectModal') rejectModal: any;
   @ViewChild('sendBackModal') sendBackModal: any;
   @ViewChild('sendBackToInitiatorModal') sendBackToInitiatorModal: any;
+  @ViewChild('financeOptionalApproverModal') financeOptionalApproverModal: any;
   @ViewChild('vendorEditModal') vendorEditModal: any;
 
   openApproveModal() {

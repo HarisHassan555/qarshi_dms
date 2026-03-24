@@ -439,6 +439,134 @@ public class CustomFormApplicationController {
         }
     }
 
+    @RequestMapping(value = "/requestFinanceOptionalApprover", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> requestFinanceOptionalApprover(@RequestBody Map<String, Object> requestBody,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("requestFinanceOptionalApprover()");
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Integer applicationId = (Integer) requestBody.get("applicationId");
+            Integer selectedUserId = (Integer) requestBody.get("selectedUserId");
+            Integer financeUserId = null;
+            if (requestBody.get("financeUserId") != null) {
+                financeUserId = (Integer) requestBody.get("financeUserId");
+            }
+            String requesterIp = resolveClientIp(request);
+
+            if (applicationId == null) {
+                result.put("status", "Failure");
+                result.put("message", "Application ID is required");
+                return result;
+            }
+            if (selectedUserId == null) {
+                result.put("status", "Failure");
+                result.put("message", "Selected user is required");
+                return result;
+            }
+
+            String status = customFormApplicationService.requestFinanceOptionalApprover(
+                    applicationId, selectedUserId, financeUserId, requesterIp);
+            if ("Success".equals(status)) {
+                result.put("status", "Success");
+                result.put("message", "Optional approval request sent successfully");
+            } else {
+                result.put("status", "Failure");
+                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8)
+                        : "Failed to send optional approval request");
+            }
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error requesting finance optional approver: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return result;
+        }
+    }
+
+    @RequestMapping(value = "/approveFinanceOptionalFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
+    public String approveFinanceOptionalFromEmail(@RequestParam Integer applicationId,
+            @RequestParam Integer userId,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("approveFinanceOptionalFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
+        try {
+            String approvedIp = resolveClientIp(request);
+            String status = customFormApplicationService.approveFinanceOptionalFromEmail(applicationId, userId, approvedIp);
+            if ("Success".equals(status)) {
+                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Approval Completed</title>" +
+                        "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                        ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:560px;margin:0 auto}" +
+                        ".success{color:#27ae60;font-size:24px;margin-bottom:20px}" +
+                        ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                        "<div class='container'><div class='success'>Application Approved</div>" +
+                        "<div class='message'>Your optional approval has been recorded. Finance has been notified and can continue the process.</div></div></body></html>";
+            } else {
+                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Approval Failed</title>" +
+                        "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                        ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:560px;margin:0 auto}" +
+                        ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
+                        ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                        "<div class='container'><div class='error'>Approval Failed</div>" +
+                        "<div class='message'>"
+                        + (status != null && status.startsWith("Failure:") ? status.substring(8)
+                                : "Failed to record optional approval")
+                        + "</div></div></body></html>";
+            }
+        } catch (Exception ex) {
+            logger.error("Error in approveFinanceOptionalFromEmail: " + ex.getMessage(), ex);
+            return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Error</title>" +
+                    "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                    ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:560px;margin:0 auto}" +
+                    ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
+                    ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                    "<div class='container'><div class='error'>Error</div>" +
+                    "<div class='message'>An error occurred: " + ex.getMessage() + "</div></div></body></html>";
+        }
+    }
+
+    @RequestMapping(value = "/rejectFinanceOptionalFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
+    public String rejectFinanceOptionalFromEmail(@RequestParam Integer applicationId,
+            @RequestParam Integer userId,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("rejectFinanceOptionalFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
+        try {
+            String approvedIp = resolveClientIp(request);
+            String status = customFormApplicationService.rejectFinanceOptionalFromEmail(applicationId, userId, approvedIp);
+            if ("Success".equals(status)) {
+                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Decision Recorded</title>" +
+                        "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                        ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:560px;margin:0 auto}" +
+                        ".success{color:#e67e22;font-size:24px;margin-bottom:20px}" +
+                        ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                        "<div class='container'><div class='success'>Decision Recorded</div>" +
+                        "<div class='message'>Your optional rejection has been recorded. Finance has been notified and will decide in the actual pipeline.</div></div></body></html>";
+            } else {
+                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Decision Failed</title>" +
+                        "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                        ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:560px;margin:0 auto}" +
+                        ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
+                        ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                        "<div class='container'><div class='error'>Decision Failed</div>" +
+                        "<div class='message'>"
+                        + (status != null && status.startsWith("Failure:") ? status.substring(8)
+                                : "Failed to record optional rejection")
+                        + "</div></div></body></html>";
+            }
+        } catch (Exception ex) {
+            logger.error("Error in rejectFinanceOptionalFromEmail: " + ex.getMessage(), ex);
+            return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Error</title>" +
+                    "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
+                    ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:560px;margin:0 auto}" +
+                    ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
+                    ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
+                    "<div class='container'><div class='error'>Error</div>" +
+                    "<div class='message'>An error occurred: " + ex.getMessage() + "</div></div></body></html>";
+        }
+    }
+
     /**
      * GET endpoint for email-based rejection (accessed via email link)
      * This allows users to reject applications directly from email

@@ -2856,6 +2856,231 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
     }
 
+    @Override
+    public String requestFinanceOptionalApprover(Integer applicationId, Integer selectedUserId, Integer financeUserId,
+            String requesterIp) {
+        EntityManager entityManager = getEntityManager();
+        try {
+            entityManager.getTransaction().begin();
+            if (applicationId == null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Application ID is required";
+            }
+            if (selectedUserId == null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Selected user is required";
+            }
+
+            Integer resolvedFinanceUserId = financeUserId;
+            if (resolvedFinanceUserId == null || resolvedFinanceUserId <= 0) {
+                resolvedFinanceUserId = commonService.getCurrentLoggedInUser();
+            }
+            if (resolvedFinanceUserId == null || resolvedFinanceUserId <= 0) {
+                entityManager.getTransaction().rollback();
+                return "Failure: User not authenticated";
+            }
+
+            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+            if (application == null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Application not found";
+            }
+
+            CfgTblCustomForm form = application.getSerFormId() != null
+                    ? entityManager.find(CfgTblCustomForm.class, application.getSerFormId())
+                    : application.getCfgTblCustomForm();
+            if (form == null || !isCapfForm(form)) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Optional finance approval is only available for CAPF forms";
+            }
+
+            CfgTblUser financeUser = commonService.getCurrentUser(resolvedFinanceUserId);
+            if (financeUser == null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Finance user not found";
+            }
+
+            if (!isPendingForUserAtCurrentStage(entityManager, application, resolvedFinanceUserId, financeUser)) {
+                entityManager.getTransaction().rollback();
+                return "Failure: You are not authorized to perform this action at this stage";
+            }
+            if (!isCurrentCapfFinanceStage(entityManager, application, form, resolvedFinanceUserId)) {
+                entityManager.getTransaction().rollback();
+                return "Failure: This request can only be created at Finance stage";
+            }
+
+            CfgTblUser selectedUser = entityManager.find(CfgTblUser.class, selectedUserId);
+            if (selectedUser == null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Selected user not found";
+            }
+            String selectedEmail = selectedUser.getTxtAddress() != null ? selectedUser.getTxtAddress().trim() : "";
+            if (selectedEmail.isEmpty()) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Selected user has no email address configured";
+            }
+
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, Object> root = parseApplicationData(application);
+            Map<String, Object> appContainer = resolveApplicationDataContainer(root);
+
+            Map<String, Object> state = new java.util.HashMap<>();
+            state.put("requested", true);
+            state.put("status", "PENDING");
+            state.put("requestedAt", commonService.getCurrentTimeStamp_new().toString());
+            state.put("requestedByUserId", resolvedFinanceUserId);
+            state.put("requestedByUserName", financeUser.getTxtUserName() != null ? financeUser.getTxtUserName() : "");
+            state.put("selectedUserId", selectedUser.getSerUserId());
+            state.put("selectedUserName", selectedUser.getTxtUserName() != null ? selectedUser.getTxtUserName() : "");
+            state.put("selectedUserEmail", selectedEmail);
+            appContainer.put("financeOptionalApproval", state);
+            application.setTxtApplicationData(mapper.writeValueAsString(root));
+
+            appendHistoryMapEntry(application, buildFinanceOptionalHistoryEntry(
+                    "FINANCE_OPTIONAL_REQUESTED",
+                    resolvedFinanceUserId,
+                    financeUser.getTxtUserName(),
+                    currentLevelSafe(application),
+                    "Finance Optional",
+                    "Optional approval requested from "
+                            + (selectedUser.getTxtUserName() != null ? selectedUser.getTxtUserName() : ("User " + selectedUserId)),
+                    "SYSTEM",
+                    requesterIp,
+                    null));
+
+            application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+            application.setSerModifiedUser(resolvedFinanceUserId);
+            entityManager.merge(application);
+            entityManager.getTransaction().commit();
+
+            try {
+                sendFinanceOptionalRequestEmail(application, form, selectedUser, financeUser);
+            } catch (Exception e) {
+                log.warn("Failed to send finance optional approval request email: {}", e.getMessage());
+            }
+            return "Success";
+        } catch (Exception e) {
+            if (entityManager.getTransaction().isActive()) {
+                entityManager.getTransaction().rollback();
+            }
+            log.error("Error requesting finance optional approver: {}", e.getMessage(), e);
+            return "Failure: " + e.getMessage();
+        } finally {
+            if (entityManager.isOpen()) {
+                entityManager.close();
+            }
+        }
+    }
+
+    @Override
+    public String approveFinanceOptionalFromEmail(Integer applicationId, Integer userId, String approvedIp) {
+        return processFinanceOptionalDecisionFromEmail(applicationId, userId, approvedIp, true);
+    }
+
+    @Override
+    public String rejectFinanceOptionalFromEmail(Integer applicationId, Integer userId, String approvedIp) {
+        return processFinanceOptionalDecisionFromEmail(applicationId, userId, approvedIp, false);
+    }
+
+    private String processFinanceOptionalDecisionFromEmail(Integer applicationId, Integer userId, String approvedIp,
+            boolean approved) {
+        EntityManager entityManager = getEntityManager();
+        try {
+            entityManager.getTransaction().begin();
+            if (applicationId == null || userId == null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Application ID and user ID are required";
+            }
+
+            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+            if (application == null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Application not found";
+            }
+
+            CfgTblCustomForm form = application.getSerFormId() != null
+                    ? entityManager.find(CfgTblCustomForm.class, application.getSerFormId())
+                    : application.getCfgTblCustomForm();
+            if (form == null || !isCapfForm(form)) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Optional finance approval is only available for CAPF forms";
+            }
+
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, Object> root = parseApplicationData(application);
+            Map<String, Object> appContainer = resolveApplicationDataContainer(root);
+            Map<String, Object> state = extractFinanceOptionalApprovalState(appContainer);
+            if (state == null || !truthy(state.get("requested"))) {
+                entityManager.getTransaction().rollback();
+                return "Failure: No optional finance approval request found";
+            }
+
+            String stateStatus = safeString(state.get("status")).toUpperCase();
+            if ("APPROVED".equals(stateStatus) || "REJECTED".equals(stateStatus)) {
+                entityManager.getTransaction().commit();
+                return "Success";
+            }
+
+            Integer selectedUserId = safeInt(state.get("selectedUserId"), null);
+            if (selectedUserId == null || !selectedUserId.equals(userId)) {
+                entityManager.getTransaction().rollback();
+                return "Failure: You are not authorized for this optional approval request";
+            }
+
+            CfgTblUser selectedUser = entityManager.find(CfgTblUser.class, userId);
+            if (selectedUser == null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: User not found";
+            }
+
+            String decision = approved ? "APPROVED" : "REJECTED";
+            String timestamp = commonService.getCurrentTimeStamp_new().toString();
+            state.put("status", decision);
+            state.put("decisionAt", timestamp);
+            state.put("decisionByUserId", userId);
+            state.put("decisionByUserName", selectedUser.getTxtUserName() != null ? selectedUser.getTxtUserName() : "");
+            state.put("decisionVia", "EMAIL");
+            state.put("decisionIp", approvedIp != null ? approvedIp : "");
+            appContainer.put("financeOptionalApproval", state);
+            application.setTxtApplicationData(mapper.writeValueAsString(root));
+
+            java.util.Map<String, Object> extra = new java.util.HashMap<>();
+            extra.put("signaturePath", selectedUser.getTxtSignaturePath() != null ? selectedUser.getTxtSignaturePath() : "");
+            appendHistoryMapEntry(application, buildFinanceOptionalHistoryEntry(
+                    approved ? "FINANCE_OPTIONAL_APPROVED" : "FINANCE_OPTIONAL_REJECTED",
+                    userId,
+                    selectedUser.getTxtUserName(),
+                    currentLevelSafe(application),
+                    "Finance Optional",
+                    approved ? "Optional approval approved from email" : "Optional approval rejected from email",
+                    "EMAIL",
+                    approvedIp,
+                    extra));
+
+            application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+            application.setSerModifiedUser(userId);
+            entityManager.merge(application);
+            entityManager.getTransaction().commit();
+
+            try {
+                sendFinanceOptionalDecisionNotification(application, form, state, selectedUser, approved);
+            } catch (Exception e) {
+                log.warn("Failed to send finance optional decision notification: {}", e.getMessage());
+            }
+            return "Success";
+        } catch (Exception e) {
+            if (entityManager.getTransaction().isActive()) {
+                entityManager.getTransaction().rollback();
+            }
+            log.error("Error recording finance optional decision from email: {}", e.getMessage(), e);
+            return "Failure: " + e.getMessage();
+        } finally {
+            if (entityManager.isOpen()) {
+                entityManager.close();
+            }
+        }
+    }
+
     /**
      * Send email notifications when an application is approved
      * Sends email to:
@@ -3798,6 +4023,154 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         } catch (Exception e) {
             log.warn("Error parsing application data: " + e.getMessage());
             return new java.util.HashMap<>();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> resolveApplicationDataContainer(Map<String, Object> root) {
+        if (root == null) {
+            return new java.util.HashMap<>();
+        }
+        Object nested = root.get("appData");
+        if (nested instanceof Map) {
+            return (Map<String, Object>) nested;
+        }
+        return root;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> extractFinanceOptionalApprovalState(Map<String, Object> appContainer) {
+        if (appContainer == null)
+            return null;
+        Object state = appContainer.get("financeOptionalApproval");
+        if (state instanceof Map) {
+            return (Map<String, Object>) state;
+        }
+        return null;
+    }
+
+    private String getFinanceOptionalApprovalBlockingMessage(CfgTblCustomFormApplication application) {
+        try {
+            Map<String, Object> root = parseApplicationData(application);
+            Map<String, Object> appContainer = resolveApplicationDataContainer(root);
+            Map<String, Object> state = extractFinanceOptionalApprovalState(appContainer);
+            if (state == null || !truthy(state.get("requested"))) {
+                return null;
+            }
+            String status = safeString(state.get("status")).toUpperCase();
+            if ("APPROVED".equals(status)) {
+                return null;
+            }
+            String selectedName = safeString(state.get("selectedUserName"));
+            if (selectedName.isEmpty()) {
+                selectedName = "selected user";
+            }
+            return "Optional approval is pending from " + selectedName + ". Please wait before finance approval.";
+        } catch (Exception e) {
+            log.warn("Failed to evaluate optional finance approval gate: {}", e.getMessage());
+            return "Optional approval is pending. Please wait before finance approval.";
+        }
+    }
+
+    private boolean truthy(Object value) {
+        if (value == null)
+            return false;
+        if (value instanceof Boolean)
+            return (Boolean) value;
+        return "true".equalsIgnoreCase(String.valueOf(value).trim());
+    }
+
+    private String safeString(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private boolean isFinanceName(String value) {
+        if (value == null)
+            return false;
+        String upper = value.trim().toUpperCase();
+        return upper.contains("FINANCE") || upper.contains("ACCOUNT");
+    }
+
+    private boolean isFinanceUser(CfgTblUser user) {
+        if (user == null)
+            return false;
+        String roleName = "";
+        try {
+            roleName = user.getCfgTblRole() != null && user.getCfgTblRole().getTxtRoleName() != null
+                    ? user.getCfgTblRole().getTxtRoleName()
+                    : "";
+        } catch (Exception ignored) {
+        }
+        if (isFinanceName(roleName))
+            return true;
+        if (isFinanceName(user.getTxtDepartmentName()))
+            return true;
+        return false;
+    }
+
+    private boolean isCurrentCapfFinanceStage(EntityManager em, CfgTblCustomFormApplication application,
+            CfgTblCustomForm form, Integer actorUserId) {
+        if (application == null || form == null || !isCapfForm(form)) {
+            return false;
+        }
+
+        String status = application.getTxtStatus() != null ? application.getTxtStatus().trim().toUpperCase() : "";
+        if ("ASSET_PENDING".equals(status) || "ASSET_CODE_PENDING".equals(status)) {
+            return true;
+        }
+
+        Integer currentLevel = application.getIntCurrentApprovalLevel();
+        if (currentLevel == null || currentLevel < 0) {
+            return false;
+        }
+
+        String pipelineJson = form.getTxtApprovalPipeline();
+        if (pipelineJson == null || pipelineJson.trim().isEmpty()) {
+            return false;
+        }
+
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            List<Map<String, Object>> pipelines = mapper.readValue(
+                    pipelineJson,
+                    new TypeReference<List<Map<String, Object>>>() {
+                    });
+            int pipelineIndex = currentLevel - 1;
+            if (currentLevel == 0) {
+                Integer submitterDeptId = loadUserDepartmentId(em, application.getSerSubmittedBy());
+                String deptName = resolveDepartmentName(em, submitterDeptId, null);
+                return isFinanceName(deptName);
+            }
+            if (pipelineIndex < 0 || pipelineIndex >= pipelines.size()) {
+                return false;
+            }
+
+            Map<String, Object> currentPipeline = pipelines.get(pipelineIndex);
+            if (currentPipeline == null) {
+                return false;
+            }
+
+            if ("individual".equalsIgnoreCase(String.valueOf(currentPipeline.get("type")))) {
+                Integer requiredUserId = safeInt(currentPipeline.get("serUserId"),
+                        safeInt(currentPipeline.get("userId"), null));
+                if (requiredUserId == null) {
+                    return false;
+                }
+                if (actorUserId != null && !requiredUserId.equals(actorUserId)) {
+                    return false;
+                }
+                CfgTblUser requiredUser = em.find(CfgTblUser.class, requiredUserId);
+                return isFinanceUser(requiredUser);
+            }
+
+            Integer deptId = safeInt(currentPipeline.get("serDepartmentId"),
+                    safeInt(currentPipeline.get("departmentId"), null));
+            String deptName = resolveDepartmentName(em, deptId, currentPipeline);
+            return isFinanceName(deptName);
+        } catch (Exception e) {
+            log.warn("Unable to determine CAPF finance stage for appId={}: {}", application.getSerApplicationId(),
+                    e.getMessage());
+            return false;
         }
     }
 
@@ -6133,10 +6506,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
         }
 
-        // Slightly increase spacing only when signatures are present, to mimic signed web layout.
-        String sigRowPadding = hasAnySignedSlot ? "padding: 8px 4px;" : "padding: 6px 4px;";
-        String metaRowPadding = hasAnySignedSlot ? "padding: 8px 4px 10px 4px;" : "padding: 6px 4px;";
-        String labelRowPadding = hasAnySignedSlot ? "padding: 12px 4px 8px 4px;" : "padding: 6px 4px 8px 4px;";
+        // Keep signature block tight so signatures stay aligned near their line in email clients.
+        String sigRowPadding = hasAnySignedSlot ? "padding: 0 2px 2px 2px;" : "padding: 0 2px 2px 2px;";
+        String metaRowPadding = hasAnySignedSlot ? "padding: 2px 2px 4px 2px;" : "padding: 2px 2px 4px 2px;";
+        String labelRowPadding = hasAnySignedSlot ? "padding: 4px 2px 2px 2px;" : "padding: 4px 2px 2px 2px;";
 
         // ROW 1: Signatures
         html.append("<tr>");
@@ -6219,11 +6592,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             String sigImgHtml = "";
             if (inlineSignature != null && !inlineSignature.isEmpty()) {
                 sigImgHtml = "<img src=\"" + inlineSignature
-                        + "\" style=\"max-height: 28px; max-width: 95%; width: auto; height: auto; object-fit: contain; display: block; margin: 0 auto 4px auto; box-sizing: border-box; vertical-align: top;\" alt=\"Sig\" />";
+                        + "\" style=\"max-height: 26px; max-width: 95%; width: auto; height: auto; object-fit: contain; display: block; margin: 0 auto; box-sizing: border-box; vertical-align: top;\" alt=\"Sig\" />";
             } else if (!signaturePath.trim().isEmpty() && !approvedBy.trim().isEmpty() && baseUrl != null) {
                 String sigUrl = baseUrl + "/getSignature?userId=" + approvedBy;
                 sigImgHtml = "<img src=\"" + sigUrl
-                        + "\" style=\"max-height: 28px; max-width: 95%; width: auto; height: auto; object-fit: contain; display: block; margin: 0 auto 4px auto; box-sizing: border-box; vertical-align: top;\" alt=\"Sig\" />";
+                        + "\" style=\"max-height: 26px; max-width: 95%; width: auto; height: auto; object-fit: contain; display: block; margin: 0 auto; box-sizing: border-box; vertical-align: top;\" alt=\"Sig\" />";
             }
 
             String dateStr = entry.get("approvedDate") != null ? formatApprovalDate(entry.get("approvedDate")) : "";
@@ -6237,11 +6610,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 sigHtml.append("<td align=\"center\" width=\"50%\" style=\"vertical-align: top;\"><div style=\"display: block; text-align: center;\">").append(sigImgHtml).append("</div></td>");
 
                 metaHtml.append(
-                        "<td align=\"center\" width=\"50%\" valign=\"top\" style=\"font-size: 9px; line-height: 1.5; padding: 4px 2px;\">");
+                        "<td align=\"center\" width=\"50%\" valign=\"top\" style=\"font-size: 9px; line-height: 1.3; padding: 2px 2px;\">");
                 if (!dateStr.isEmpty())
-                    metaHtml.append("<div style=\"margin-bottom: 4px;\">").append(escapeHtml(dateStr)).append("</div>");
+                    metaHtml.append("<div style=\"margin-bottom: 2px;\">").append(escapeHtml(dateStr)).append("</div>");
                 if (!userName.isEmpty())
-                    metaHtml.append("<div style=\"font-weight: bold; margin-bottom: 4px;\">").append(escapeHtml(userName.toLowerCase()))
+                    metaHtml.append("<div style=\"font-weight: bold; margin-bottom: 2px;\">").append(escapeHtml(userName.toLowerCase()))
                             .append("</div>");
                 if (!designation.isEmpty())
                     metaHtml.append("<div>").append(escapeHtml(designation)).append("</div>");
@@ -6250,13 +6623,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 sigHtml.append(sigImgHtml);
 
                 if (!dateStr.isEmpty())
-                    metaHtml.append("<div style=\"font-size: 10px; margin-bottom: 4px; line-height: 1.5;\">").append(escapeHtml(dateStr))
+                    metaHtml.append("<div style=\"font-size: 10px; margin-bottom: 2px; line-height: 1.3;\">").append(escapeHtml(dateStr))
                             .append("</div>");
                 if (!userName.isEmpty())
-                    metaHtml.append("<div style=\"font-size: 10px; font-weight: bold; margin-bottom: 4px; line-height: 1.5;\">")
+                    metaHtml.append("<div style=\"font-size: 10px; font-weight: bold; margin-bottom: 2px; line-height: 1.3;\">")
                             .append(escapeHtml(userName.toLowerCase())).append("</div>");
                 if (!designation.isEmpty())
-                    metaHtml.append("<div style=\"font-size: 9px; line-height: 1.5;\">").append(escapeHtml(designation)).append("</div>");
+                    metaHtml.append("<div style=\"font-size: 9px; line-height: 1.2;\">").append(escapeHtml(designation)).append("</div>");
                 slot.time = dateStr;
             }
         }
@@ -6286,6 +6659,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 if (usedIndices.contains(i))
                     continue;
                 Map<String, Object> e = approvalHistory.get(i);
+                if (!isSignatureRenderableApprovalEntry(e))
+                    continue;
                 Integer dId = safeInt(e.get("departmentId"), safeInt(e.get("serDepartmentId"), null));
                 if (dId != null && dId.equals(departmentId)) {
                     addUniqueEntry(e, results, seenKeys);
@@ -6300,6 +6675,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 if (usedIndices.contains(i))
                     continue;
                 Map<String, Object> e = approvalHistory.get(i);
+                if (!isSignatureRenderableApprovalEntry(e))
+                    continue;
                 Object dep = e.get("departmentName");
                 if (dep != null && dep.toString().toLowerCase().trim().equals(nameLower)) {
                     addUniqueEntry(e, results, seenKeys);
@@ -6319,6 +6696,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 if (usedIndices.contains(i))
                     continue;
                 Map<String, Object> e = approvalHistory.get(i);
+                if (!isSignatureRenderableApprovalEntry(e))
+                    continue;
                 Integer level = safeInt(e.get("level"), null);
                 Integer intApprovalOrder = safeInt(e.get("intApprovalOrder"), null);
                 if ((level != null && level == order) || (intApprovalOrder != null && intApprovalOrder == order)) {
@@ -6338,6 +6717,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     if (usedIndices.contains(i))
                         continue;
                     Map<String, Object> e = approvalHistory.get(i);
+                    if (!isSignatureRenderableApprovalEntry(e))
+                        continue;
                     Integer eLevel = safeInt(e.get("level"), null);
                     Integer eOrder = safeInt(e.get("intApprovalOrder"), null);
                     boolean sameStage = (eLevel != null && eLevel == order) || (eOrder != null && eOrder == order);
@@ -6408,6 +6789,24 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
 
         return results;
+    }
+
+    /**
+     * Email CAPF signature slots should render only real approvals.
+     * Excludes operational log actions (e.g. FINANCE_OPTIONAL_*, SEND_BACK, PR_CODE_ASSIGNED)
+     * so signature/meta rows keep stable placement.
+     */
+    private boolean isSignatureRenderableApprovalEntry(Map<String, Object> entry) {
+        if (entry == null)
+            return false;
+        if (isApprovedEntry(entry))
+            return true;
+        String action = entry.get("action") != null ? String.valueOf(entry.get("action")).trim().toUpperCase() : "";
+        if (action.isEmpty()) {
+            // Backward compatibility: older rows might miss `action` but still be approvals.
+            return entry.get("approvedDate") != null;
+        }
+        return false;
     }
 
     /**
@@ -7260,13 +7659,16 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 candidates.add(userDeptY + 32f);
             if (thirdPartyY != null)
                 candidates.add(thirdPartyY - 48f);
+            // "Approved by" anchor has proven unstable across CAPF snapshots and can drag
+            // signature placement too low; keep it as a soft candidate with much smaller offset.
             if (approvedByY != null)
-                candidates.add(approvedByY + 76f);
+                candidates.add(approvedByY + 18f);
 
             Float anchoredSigRowY = null;
             if (!candidates.isEmpty()) {
+                // Use median candidate for balanced placement across template variants.
                 candidates.sort(Float::compare);
-                anchoredSigRowY = candidates.get(candidates.size() / 2); // median
+                anchoredSigRowY = candidates.get(candidates.size() / 2);
                 float minY = margin + 20f;
                 float maxY = pageHeight - margin - 20f;
                 if (anchoredSigRowY < minY)
@@ -7278,8 +7680,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         userDeptY, thirdPartyY, approvedByY, candidates, anchoredSigRowY);
             } else {
                 // Stored CAPF PDFs are often image-based; text anchors may be unavailable.
-                // Use stable template-relative fallback so placement stays on signature row.
-                anchoredSigRowY = pageHeight * 0.370f;
+                // Use stable template-relative fallback slightly above the original baseline.
+                anchoredSigRowY = pageHeight * 0.392f;
                 log.warn(
                         "CAPF signature log [anchor-missing]: no anchors found, using template-ratio fallback signatureRowY={}",
                         anchoredSigRowY);
@@ -7300,7 +7702,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             String approvalHistoryJson, PDDocument document, Float anchoredSigRowY,
             List<Map<String, Object>> pipelines, Map<String, Float> anchors, List<float[]> lineSegments) throws java.io.IOException {
         float colWidth = width / 6f;
-        float sigHeight = 22f;
+        float sigHeight = 20f;
         float sigRowY = anchoredSigRowY != null ? anchoredSigRowY : (y - sigHeight);
         float[] slotCenters = capfSlotCentersFromAnchors(x, width, anchors);
 
@@ -7323,7 +7725,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 break;
             }
         }
-        float signedSignatureLift = hasAnySignedSlot ? 10f : 0f;
+        // Lower signatures by ~2-3px while keeping metadata unchanged.
+        float signedSignatureLift = hasAnySignedSlot ? 6f : 0f;
 
         Integer[] approvedUserIds = new Integer[approved.size()];
         for (int i = 0; i < approved.size(); i++) {
@@ -9072,6 +9475,221 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             application.setTxtApprovalHistory(mapper.writeValueAsString(history));
         } catch (Exception e) {
             log.warn("appendHistoryEntry failed: {}", e.getMessage());
+        }
+    }
+
+    private void appendHistoryMapEntry(CfgTblCustomFormApplication application, Map<String, Object> entry) {
+        if (application == null || entry == null)
+            return;
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            List<Map<String, Object>> history = new java.util.ArrayList<>();
+            String existing = application.getTxtApprovalHistory();
+            if (existing != null && !existing.trim().isEmpty()) {
+                history = mapper.readValue(existing,
+                        new TypeReference<List<Map<String, Object>>>() {
+                        });
+            }
+            history.add(entry);
+            application.setTxtApprovalHistory(mapper.writeValueAsString(history));
+        } catch (Exception e) {
+            log.warn("appendHistoryMapEntry failed: {}", e.getMessage());
+        }
+    }
+
+    private Map<String, Object> buildFinanceOptionalHistoryEntry(String action, Integer actorUserId, String actorName,
+            Integer level, String role, String remarks, String approvedVia, String approvedIp, Map<String, Object> extra) {
+        Map<String, Object> entry = new java.util.HashMap<>();
+        entry.put("level", level != null ? level : 0);
+        entry.put("departmentId", null);
+        entry.put("departmentName", role != null ? role : "Finance Optional");
+        entry.put("remarks", remarks != null ? remarks : "");
+        entry.put("approvedBy", actorUserId);
+        entry.put("approverName", actorName != null ? actorName : "");
+        entry.put("approvedDate", commonService.getCurrentTimeStamp_new().toString());
+        entry.put("approvedVia", approvedVia != null ? approvedVia : "SYSTEM");
+        entry.put("approvedIp", approvedIp != null ? approvedIp : "");
+        entry.put("action", action != null ? action : "FINANCE_OPTIONAL");
+        entry.put("role", role != null ? role : "Finance Optional");
+        if (extra != null && !extra.isEmpty()) {
+            entry.putAll(extra);
+        }
+        return entry;
+    }
+
+    private void sendFinanceOptionalRequestEmail(CfgTblCustomFormApplication application, CfgTblCustomForm form,
+            CfgTblUser selectedUser, CfgTblUser financeUser) {
+        if (application == null || selectedUser == null)
+            return;
+        String selectedEmail = selectedUser.getTxtAddress() != null ? selectedUser.getTxtAddress().trim() : "";
+        if (selectedEmail.isEmpty())
+            return;
+
+        String baseUrl = getBaseUrl();
+        String approveUrl = baseUrl + "/approveFinanceOptionalFromEmail?applicationId="
+                + application.getSerApplicationId() + "&userId=" + selectedUser.getSerUserId();
+        String rejectUrl = baseUrl + "/rejectFinanceOptionalFromEmail?applicationId="
+                + application.getSerApplicationId() + "&userId=" + selectedUser.getSerUserId();
+
+        String appCode = application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A";
+        String formName = form != null && form.getTxtFormName() != null ? form.getTxtFormName() : "CAPF";
+        String financeName = financeUser != null && financeUser.getTxtUserName() != null
+                ? financeUser.getTxtUserName()
+                : "Finance";
+        String selectedName = selectedUser.getTxtUserName() != null ? selectedUser.getTxtUserName() : "User";
+        Integer level = currentLevelSafe(application);
+
+        String subject = formName + " Pending Optional Approval - Level " + level + " - " + appCode;
+        String remarks = "Optional approval requested by " + financeName + ".";
+
+        // Use the same email shell as normal approval emails so logs/history + rendering stay consistent.
+        String html = generateApprovalEmailHtml(
+                selectedName,
+                level,
+                appCode,
+                formName,
+                application.getTxtStatus() != null ? application.getTxtStatus() : "IN_PROGRESS",
+                remarks,
+                true, // Show only approve/reject buttons for optional decision.
+                approveUrl,
+                rejectUrl,
+                null,
+                null,
+                application.getTxtApprovalHistory(),
+                getBaseUrl());
+
+        sendEmailWithInlineFormPreview(
+                java.util.Collections.singletonList(selectedEmail),
+                subject,
+                html,
+                application,
+                form,
+                isCapfForm(form),
+                isCapfForm(form) ? "capf-inline" : "form-inline");
+    }
+
+    private void sendFinanceOptionalDecisionNotification(CfgTblCustomFormApplication application, CfgTblCustomForm form,
+            Map<String, Object> state, CfgTblUser decisionUser, boolean approved) {
+        if (application == null || decisionUser == null)
+            return;
+        EntityManager em = getEntityManager();
+        try {
+            String appCode = application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A";
+            String formName = form != null && form.getTxtFormName() != null ? form.getTxtFormName() : "CAPF";
+            String decisionUserName = decisionUser.getTxtUserName() != null ? decisionUser.getTxtUserName() : "User";
+            String detailsUrl = frontendBaseUrl + "/velocity/application-details/" + application.getSerApplicationId()
+                    + "?from=pending";
+
+            // If optional user approved, resend the full standard actionable email to Finance,
+            // same structure as normal pending-approval emails (history/logs + form + buttons).
+            if (approved) {
+                java.util.List<CfgTblUser> financeUsers = em.createQuery(
+                        "SELECT u FROM com.bezkoder.spring.login.admin.dal.entities.CfgTblUser u "
+                                + "WHERE (u.blIsDeleted = false OR u.blIsDeleted IS NULL) "
+                                + "AND UPPER(u.cfgTblRole.txtRoleName) IN ('FINANCE_HEAD','FINANCE') "
+                                + "AND u.txtAddress IS NOT NULL",
+                        CfgTblUser.class).getResultList();
+
+                // Keep unique users by id
+                java.util.Map<Integer, CfgTblUser> uniqueFinance = new java.util.LinkedHashMap<>();
+                if (financeUsers != null) {
+                    for (CfgTblUser u : financeUsers) {
+                        if (u == null || u.getSerUserId() == null)
+                            continue;
+                        uniqueFinance.put(u.getSerUserId(), u);
+                    }
+                }
+
+                Integer requestedByUserId = safeInt(state != null ? state.get("requestedByUserId") : null, null);
+                if (requestedByUserId != null && !uniqueFinance.containsKey(requestedByUserId)) {
+                    CfgTblUser requester = em.find(CfgTblUser.class, requestedByUserId);
+                    if (requester != null && requester.getTxtAddress() != null && !requester.getTxtAddress().trim().isEmpty()) {
+                        uniqueFinance.put(requester.getSerUserId(), requester);
+                    }
+                }
+
+                for (CfgTblUser financeUser : uniqueFinance.values()) {
+                    if (financeUser == null || financeUser.getTxtAddress() == null
+                            || financeUser.getTxtAddress().trim().isEmpty()) {
+                        continue;
+                    }
+
+                    Integer financeUserId = financeUser.getSerUserId();
+                    String baseUrl = getBaseUrl();
+                    String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                            + application.getSerApplicationId() + "&userId=" + financeUserId;
+                    String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                            + application.getSerApplicationId() + "&userId=" + financeUserId;
+                    String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                            + application.getSerApplicationId() + "&userId=" + financeUserId;
+                    String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                            + application.getSerApplicationId() + "&userId=" + financeUserId;
+
+                    String subject = formName + " Pending Approval - Level " + currentLevelSafe(application) + " - "
+                            + appCode;
+                    String remarks = "Optional decision by " + decisionUserName
+                            + ": Approved. Finance can now proceed independently.";
+
+                    String html = generateApprovalEmailHtml(
+                            financeUser.getTxtUserName() != null ? financeUser.getTxtUserName() : "Finance",
+                            currentLevelSafe(application),
+                            appCode,
+                            formName,
+                            application.getTxtStatus(),
+                            remarks,
+                            true,
+                            approveUrl,
+                            rejectUrl,
+                            sendBackUrl,
+                            sendBackToInitiatorUrl,
+                            application.getTxtApprovalHistory(),
+                            getBaseUrl());
+
+                    sendEmailWithInlineFormPreview(
+                            java.util.Collections.singletonList(financeUser.getTxtAddress().trim()),
+                            subject,
+                            html,
+                            application,
+                            form,
+                            isCapfForm(form),
+                            isCapfForm(form) ? "capf-inline" : "form-inline");
+                }
+                return;
+            }
+
+            // Optional reject remains informational only.
+            java.util.Set<String> recipients = new java.util.LinkedHashSet<>();
+            Integer requestedByUserId = safeInt(state != null ? state.get("requestedByUserId") : null, null);
+            if (requestedByUserId != null) {
+                CfgTblUser requester = em.find(CfgTblUser.class, requestedByUserId);
+                if (requester != null && requester.getTxtAddress() != null && !requester.getTxtAddress().trim().isEmpty()) {
+                    recipients.add(requester.getTxtAddress().trim());
+                }
+            }
+            if (recipients.isEmpty()) {
+                return;
+            }
+            String subject = "Optional approval decision received - " + appCode;
+            StringBuilder html = new StringBuilder();
+            html.append("<!DOCTYPE html><html><body style='font-family:Arial,sans-serif;'>");
+            html.append("<h3>Optional Approval Decision Recorded</h3>");
+            html.append("<p>The selected optional user has submitted a decision.</p>");
+            html.append("<p><strong>Decision:</strong> Rejected<br/>");
+            html.append("<strong>User:</strong> ").append(escapeHtml(decisionUserName)).append("<br/>");
+            html.append("<strong>Application Code:</strong> ").append(escapeHtml(appCode)).append("<br/>");
+            html.append("<strong>Form:</strong> ").append(escapeHtml(formName)).append("</p>");
+            html.append("<p>This optional decision does not change the actual pipeline. Finance will approve/reject independently in the workflow.</p>");
+            html.append("<p>You can proceed with finance action from application details:</p>");
+            html.append("<p><a href='").append(detailsUrl)
+                    .append("' style='display:inline-block;padding:10px 16px;background:#1f6feb;color:#fff;text-decoration:none;border-radius:4px;'>Open Application</a></p>");
+            html.append("</body></html>");
+            emailService.sendHtmlEmail(new java.util.ArrayList<>(recipients), subject, html.toString());
+        } catch (Exception e) {
+            log.warn("sendFinanceOptionalDecisionNotification failed: {}", e.getMessage());
+        } finally {
+            if (em.isOpen()) {
+                em.close();
+            }
         }
     }
 
