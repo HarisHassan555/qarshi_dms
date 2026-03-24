@@ -224,10 +224,10 @@
         <!-- Professional Paper View for Generic Forms (multi-page: header on each, footer on last) -->
         <div *ngIf="!isBudgetApprovalForm() && !isCapfForm()" id="generic-pdf-content">
             <div class="xyz-page-inline xyz-pages-scroll">
-                <div *ngFor="let pageFields of genericPages; let last = last"
+                <div *ngFor="let pageFields of genericPages; let last = last; let first = first"
                     class="xyz-paper xyz-paper-page"
                     [class.xyz-last-page]="last">
-                <div class="xyz-header-container">
+                <div class="xyz-header-container" *ngIf="!useIndividualFooterDocumentLayout() || first">
                     <div class="xyz-date-row">
                         <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd-MMM-yyyy' }}</div>
                     </div>
@@ -258,10 +258,11 @@
                     <div class="xyz-title">{{ getGenericDocumentHeading() }}</div>
                 </div>
 
-                <div class="xyz-content-body">
+                <div class="xyz-content-body" [class.xyz-content-centered]="useIndividualFooterDocumentLayout()">
                     <div *ngFor="let field of pageFields" class="xyz-generic-field">
                         <div class="xyz-generic-label"
                             *ngIf="!isWordEditorType(field.type)
+                                   && !isHtmlPreviewField(field)
                                    && !field?._hideLabel
                                    && !isIndividualPipelineFooterType(field.type)
                                    && field.type !== 'footer'
@@ -271,6 +272,7 @@
                         </div>
 
                         <div *ngIf="!isWordEditorType(field.type)
+                                    && !isHtmlPreviewField(field)
                                     && !isTableType(field.type)
                                     && !isIndividualPipelineFooterType(field.type)
                                     && field.type !== 'footer'
@@ -279,7 +281,7 @@
                             {{ formatFieldValue(field, getFieldValue(field)) }}
                         </div>
 
-                        <div *ngIf="isWordEditorType(field.type) || field.type === 'word_editor_chunk'" class="xyz-generic-word">
+                        <div *ngIf="isWordEditorType(field.type) || field.type === 'word_editor_chunk' || isHtmlPreviewField(field)" class="xyz-generic-word">
                             <div class="ql-editor" [innerHTML]="getWordEditorValue(field)"></div>
                         </div>
 
@@ -851,6 +853,41 @@
                 </ng-container>
             </div>
         </ng-container>
+
+        <div class="mt-6" *ngIf="getApprovalLogRows().length > 0">
+            <h4 class="text-sm font-bold text-gray-800 dark:text-white mb-3">Prior Approvals</h4>
+            <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                <table class="min-w-full text-xs">
+                    <thead class="bg-gray-100 dark:bg-gray-800">
+                        <tr>
+                            <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Level</th>
+                            <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Approver</th>
+                            <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Role</th>
+                            <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Status</th>
+                            <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Date</th>
+                            <th class="px-3 py-2 text-center font-semibold text-gray-700 dark:text-gray-200">Signature</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr *ngFor="let entry of getApprovalLogRows()"
+                            class="border-t border-gray-200 dark:border-gray-700">
+                            <td class="px-3 py-2 align-top text-gray-700 dark:text-gray-200">{{ getApprovalLogLevel(entry) }}</td>
+                            <td class="px-3 py-2 align-top text-gray-700 dark:text-gray-200">{{ getApprovalLogApprover(entry) }}</td>
+                            <td class="px-3 py-2 align-top text-gray-700 dark:text-gray-200">{{ getApprovalLogRole(entry) }}</td>
+                            <td class="px-3 py-2 align-top text-gray-700 dark:text-gray-200">{{ getApprovalLogStatus(entry) }}</td>
+                            <td class="px-3 py-2 align-top text-gray-700 dark:text-gray-200">{{ getApprovalLogDate(entry) }}</td>
+                            <td class="px-3 py-2 align-middle text-center">
+                                <img *ngIf="getApprovalLogSignatureUrl(entry)"
+                                    [src]="getApprovalLogSignatureUrl(entry)"
+                                    alt="Signature"
+                                    class="mx-auto max-h-8 object-contain" />
+                                <span *ngIf="!getApprovalLogSignatureUrl(entry)" class="text-gray-400">--</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
 

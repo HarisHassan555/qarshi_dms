@@ -8906,6 +8906,21 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 }
             }
 
+            byte[] pdfBytes = resolveBestPdfBytesForEmail(application, form);
+            int pdfPageCount = getPdfPageCount(pdfBytes);
+
+            // Rule:
+            // - Single page: send inline preview image (current behavior).
+            // - Multi page: send PDF as attachment (with other attachments), no inline preview image.
+            if (pdfBytes != null && pdfBytes.length > 0 && pdfPageCount > 1) {
+                String pdfName = buildPdfFileName(form,
+                        application != null ? application.getTxtFormCode() : null);
+                attachments.add(new com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService.EmailAttachment(
+                        pdfBytes, pdfName, "application/pdf"));
+                emailService.sendHtmlEmailWithAttachments(recipients, subject, html, attachments);
+                return;
+            }
+
             if (isCapf) {
                 byte[] imageBytes = buildCapfPreviewPng(application, form);
                 if (imageBytes != null && imageBytes.length > 0) {
@@ -8915,14 +8930,14 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                 "image/png",
                                 cid);
                     } else {
-                        emailService.sendHtmlEmailWithInlineImageAndAttachments(recipients, subject, htmlWithImage, imageBytes,
+                        emailService.sendHtmlEmailWithInlineImageAndAttachments(recipients, subject, htmlWithImage,
+                                imageBytes,
                                 "image/png",
                                 cid, attachments);
                     }
                     return;
                 }
             } else {
-                byte[] pdfBytes = resolveBestPdfBytesForEmail(application, form);
                 byte[] imageBytes = renderPdfToPng(pdfBytes);
                 if (imageBytes != null && imageBytes.length > 0) {
                     String formTitle = getResolvedFormName(form) + " Form";
@@ -8932,7 +8947,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                 "image/png",
                                 cid);
                     } else {
-                        emailService.sendHtmlEmailWithInlineImageAndAttachments(recipients, subject, htmlWithImage, imageBytes,
+                        emailService.sendHtmlEmailWithInlineImageAndAttachments(recipients, subject, htmlWithImage,
+                                imageBytes,
                                 "image/png",
                                 cid, attachments);
                     }
@@ -8947,6 +8963,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         } catch (Exception e) {
             log.warn("Inline preview email failed, fallback to HTML only: {}", e.getMessage());
             emailService.sendHtmlEmail(recipients, subject, html);
+        }
+    }
+
+    private int getPdfPageCount(byte[] pdfBytes) {
+        if (pdfBytes == null || pdfBytes.length == 0)
+            return 0;
+        try (PDDocument document = PDDocument.load(pdfBytes)) {
+            return document.getNumberOfPages();
+        } catch (Exception e) {
+            log.warn("Unable to read PDF page count for email decision: {}", e.getMessage());
+            return 0;
         }
     }
 

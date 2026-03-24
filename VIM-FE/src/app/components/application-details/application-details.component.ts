@@ -1533,27 +1533,159 @@ export class ApplicationDetailsComponent implements OnInit {
   buildGenericPages(): void {
     const allFields = this.getBodyPreviewFields() || [];
     const pages: any[][] = [];
+    const individualLayout = this.useIndividualFooterDocumentLayout();
+    const hasFooterOnLastPage = individualLayout && this.hasIndividualPipelineFooter();
     // Approximate A4 by text length (not field count)
-    const MAX_CHARS_PER_PAGE = 1800;
+    // Use larger limits so each page is filled more naturally in preview.
+    const MAX_CHARS_FIRST_PAGE = individualLayout ? 5200 : 3200;
+    const MAX_CHARS_OTHER_PAGES = individualLayout ? 6400 : 3600;
+    // Keep reserved room on the final page when signature footer is present.
+    const MAX_CHARS_LAST_PAGE = hasFooterOnLastPage ? 4200 : MAX_CHARS_OTHER_PAGES;
     let current: any[] = [];
     let currentChars = 0;
+    let pageIndex = 0;
     for (const rawField of allFields) {
       const expandedFields = this.expandWordEditorFieldIntoChunks(rawField);
       for (const field of expandedFields) {
-        const fieldText = this.getFieldTextLength(field);
-        // Start new page if adding this field would exceed limit and current isn't empty
-        if (current.length > 0 && currentChars + fieldText > MAX_CHARS_PER_PAGE) {
-          pages.push([...current]);
-          current = [];
-          currentChars = 0;
+        const queue: any[] = [field];
+        while (queue.length > 0) {
+          const part = queue.shift();
+          if (!part) continue;
+          const fieldText = this.getFieldTextLength(part);
+          const pageLimit = pageIndex === 0 ? MAX_CHARS_FIRST_PAGE : MAX_CHARS_OTHER_PAGES;
+          const remaining = pageLimit - currentChars;
+          const isSplittable =
+            this.isWordEditorType(part?.type) ||
+            this.isWordEditorChunkType(part?.type) ||
+            this.isHtmlPreviewField(part);
+
+          // Prefer splitting rich text to fill remaining space (even mid-sentence),
+          // instead of moving entire paragraph/chunk to next page.
+          if (isSplittable && fieldText > remaining && remaining > 80) {
+            const split = this.splitFieldByTextLength(part, remaining);
+            if (split) {
+              current.push(split.head);
+              currentChars += this.getFieldTextLength(split.head);
+              pages.push([...current]);
+              current = [];
+              currentChars = 0;
+              pageIndex++;
+              queue.unshift(split.tail);
+              continue;
+            }
+          }
+
+          // If this part still doesn't fit and page already has content, start next page.
+          if (current.length > 0 && currentChars + fieldText > pageLimit) {
+            pages.push([...current]);
+            current = [];
+            currentChars = 0;
+            pageIndex++;
+            queue.unshift(part);
+            continue;
+          }
+
+          // If single rich chunk is larger than empty page, force-split by page limit.
+          if (isSplittable && current.length === 0 && fieldText > pageLimit) {
+            const split = this.splitFieldByTextLength(part, pageLimit);
+            if (split) {
+              current.push(split.head);
+              currentChars += this.getFieldTextLength(split.head);
+              pages.push([...current]);
+              current = [];
+              currentChars = 0;
+              pageIndex++;
+              queue.unshift(split.tail);
+              continue;
+            }
+          }
+
+          current.push(part);
+          currentChars += fieldText;
         }
-        current.push(field);
-        currentChars += fieldText;
       }
     }
     if (current.length) pages.push([...current]);
+    if (pages.length > 0 && hasFooterOnLastPage) {
+      this.enforceGenericLastPageLimit(pages, MAX_CHARS_LAST_PAGE);
+    }
     this.genericPages = pages.length > 0 ? pages : (allFields.length > 0 ? [[...allFields]] : [[]]);
     this.cdr.markForCheck();
+  }
+
+  private splitFieldByTextLength(field: any, maxTextChars: number): { head: any; tail: any } | null {
+    if (!field || maxTextChars <= 0) return null;
+    const html = this.getWordEditorHtml(field);
+    if (!html) return null;
+    const split = this.splitHtmlAtTextLength(html, maxTextChars);
+    if (!split) return null;
+
+    const head = {
+      ...field,
+      type: 'word_editor_chunk',
+      _chunkHtml: split.headHtml
+    };
+    const tail = {
+      ...field,
+      type: 'word_editor_chunk',
+      _chunkHtml: split.tailHtml,
+      _hideLabel: true
+    };
+    if (this.getFieldTextLength(head) === 0 || this.getFieldTextLength(tail) === 0) return null;
+    return { head, tail };
+  }
+
+  private splitHtmlAtTextLength(html: string, maxTextChars: number): { headHtml: string; tailHtml: string } | null {
+    const normalized = this.normalizeWordEditorHtmlForDisplay(String(html || ''));
+    if (!normalized) return null;
+
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = normalized;
+
+    const container =
+      wrapper.children.length === 1 && wrapper.firstElementChild
+        ? (wrapper.firstElementChild as HTMLElement)
+        : wrapper;
+
+    const styleNodes = Array.from(container.querySelectorAll('style'));
+    const preservedStyleHtml = styleNodes.map((s) => s.outerHTML).join('');
+    styleNodes.forEach((s) => s.remove());
+
+    const textNodes = this.collectTextNodes(container);
+    if (textNodes.length === 0) return null;
+    const totalLen = textNodes.reduce((sum: number, n: Text) => sum + ((n.nodeValue || '').length), 0);
+    if (maxTextChars <= 0 || maxTextChars >= totalLen) return null;
+
+    const splitPos = this.locateTextPosition(textNodes, maxTextChars);
+    if (!splitPos) return null;
+
+    const headRange = document.createRange();
+    headRange.setStart(container, 0);
+    headRange.setEnd(splitPos.node, splitPos.offset);
+
+    const tailRange = document.createRange();
+    tailRange.setStart(splitPos.node, splitPos.offset);
+    tailRange.setEnd(container, container.childNodes.length);
+
+    const toHtml = (frag: DocumentFragment): string => {
+      const div = document.createElement('div');
+      div.appendChild(frag);
+      return div.innerHTML;
+    };
+
+    const headInner = toHtml(headRange.cloneContents()).trim();
+    const tailInner = toHtml(tailRange.cloneContents()).trim();
+    if (!headInner || !tailInner) return null;
+
+    const wrapperTag = container !== wrapper ? container.tagName.toLowerCase() : '';
+    const wrapperAttr = container !== wrapper ? this.serializeElementAttributes(container) : '';
+    const wrapOpen = wrapperTag ? `<${wrapperTag}${wrapperAttr}>` : '';
+    const wrapClose = wrapperTag ? `</${wrapperTag}>` : '';
+
+    return {
+      headHtml: `${preservedStyleHtml}${wrapOpen}${headInner}${wrapClose}`,
+      tailHtml: `${preservedStyleHtml}${wrapOpen}${tailInner}${wrapClose}`
+    };
   }
 
   private stripHtmlToText(html: string): string {
@@ -1576,7 +1708,7 @@ export class ApplicationDetailsComponent implements OnInit {
     if (!field) return 0;
     const labelLen = String(field.label || '').trim().length;
     try {
-      if (this.isWordEditorType(field.type) || this.isWordEditorChunkType(field.type)) {
+      if (this.isWordEditorType(field.type) || this.isWordEditorChunkType(field.type) || this.isHtmlPreviewField(field)) {
         const html = String(this.getWordEditorHtml(field) || '');
         return labelLen + this.stripHtmlToText(html).length;
       }
@@ -1594,7 +1726,8 @@ export class ApplicationDetailsComponent implements OnInit {
       return field._chunkHtml;
     }
     const value = this.getFieldValue(field);
-    return this.normalizeWordEditorHtmlForDisplay(String(value ?? ''));
+    const decoded = this.decodeHtmlEntitiesIfNeeded(String(value ?? ''));
+    return this.normalizeWordEditorHtmlForDisplay(decoded);
   }
 
   getWordEditorValue(field: any): SafeHtml {
@@ -1606,7 +1739,7 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   private expandWordEditorFieldIntoChunks(field: any): any[] {
-    if (!field || !this.isWordEditorType(field.type)) return [field];
+    if (!field || !(this.isWordEditorType(field.type) || this.isHtmlPreviewField(field))) return [field];
     const html = this.getWordEditorHtml(field);
     if (!html) return [field];
 
@@ -1636,31 +1769,27 @@ export class ApplicationDetailsComponent implements OnInit {
       return tag === 'p' || tag === 'div' || tag === 'table' || tag === 'ul' || tag === 'ol' || tag.startsWith('h');
     });
 
-    if (blocks.length <= 1) return [field];
-
-    const MAX_CHARS_PER_CHUNK = 900;
+    const MAX_CHARS_PER_CHUNK = 4200;
     const chunks: string[] = [];
     let currentHtml = '';
     let currentChars = 0;
 
     for (const node of blocks) {
-      const nodeHtml =
-        node.nodeType === Node.TEXT_NODE
-          ? `<p>${this.escapeHtml((node.textContent || '').trim())}</p>`
-          : (node as Element).outerHTML;
-      const nodeTextLen = this.stripHtmlToText(nodeHtml).length;
-
-      if (currentChars > 0 && currentChars + nodeTextLen > MAX_CHARS_PER_CHUNK) {
-        chunks.push(currentHtml);
-        currentHtml = '';
-        currentChars = 0;
+      const nodeChunks = this.splitNodeToChunkHtml(node, MAX_CHARS_PER_CHUNK);
+      for (const nodeHtml of nodeChunks) {
+        const nodeTextLen = this.stripHtmlToText(nodeHtml).length;
+        if (currentChars > 0 && currentChars + nodeTextLen > MAX_CHARS_PER_CHUNK) {
+          chunks.push(currentHtml);
+          currentHtml = '';
+          currentChars = 0;
+        }
+        currentHtml += nodeHtml;
+        currentChars += nodeTextLen;
       }
-
-      currentHtml += nodeHtml;
-      currentChars += nodeTextLen;
     }
 
     if (currentChars > 0) chunks.push(currentHtml);
+    if (chunks.length <= 1) return [field];
 
     return chunks.map((chunkHtml, idx) => ({
       ...field,
@@ -1768,6 +1897,170 @@ export class ApplicationDetailsComponent implements OnInit {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  private decodeHtmlEntitiesIfNeeded(value: string): string {
+    const raw = String(value || '');
+    if (!raw) return '';
+    // Decode only when it clearly looks HTML-encoded to avoid altering normal text.
+    if (!(raw.includes('&lt;') && raw.includes('&gt;'))) return raw;
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = raw;
+    return textarea.value || raw;
+  }
+
+  isHtmlPreviewField(field: any): boolean {
+    if (!field) return false;
+    if (this.isWordEditorType(field?.type) || this.isWordEditorChunkType(field?.type)) return true;
+    if (this.isTableType(field?.type)) return false;
+    const v = this.getFieldValue(field);
+    if (typeof v !== 'string') return false;
+    const value = this.decodeHtmlEntitiesIfNeeded(v).trim();
+    if (!value) return false;
+    // Consider as rich HTML if at least one common block/inline tag is present.
+    return /<(p|div|span|a|strong|em|ul|ol|li|h[1-6]|table|tr|td|th|br)\b[\s\S]*?>/i.test(value);
+  }
+
+  private splitNodeToChunkHtml(node: ChildNode, maxChars: number): string[] {
+    const nodeHtml =
+      node.nodeType === Node.TEXT_NODE
+        ? `<p>${this.escapeHtml((node.textContent || '').trim())}</p>`
+        : (node as Element).outerHTML;
+    const nodeTextLen = this.stripHtmlToText(nodeHtml).length;
+    if (nodeTextLen <= maxChars) return [nodeHtml];
+
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return this.splitTextIntoParagraphChunks(this.stripHtmlToText(nodeHtml), maxChars)
+        .map((piece: string) => `<p>${this.escapeHtml(piece)}</p>`);
+    }
+
+    const el = node as Element;
+    const tag = el.tagName.toLowerCase();
+    // Keep complex structural nodes unsplit to avoid malformed structure.
+    if (tag === 'table' || tag === 'ul' || tag === 'ol') return [nodeHtml];
+
+    return this.splitElementPreservingMarkup(el, maxChars);
+  }
+
+  private splitTextIntoParagraphChunks(text: string, maxChars: number): string[] {
+    const normalized = (text || '').replace(/\r\n/g, '\n').trim();
+    if (!normalized) return [];
+    if (normalized.length <= maxChars) return [normalized];
+
+    const words = normalized.split(/\s+/).filter(Boolean);
+    const out: string[] = [];
+    let current = '';
+    for (const w of words) {
+      const candidate = current ? `${current} ${w}` : w;
+      if (current && candidate.length > maxChars) {
+        out.push(current);
+        current = w;
+      } else {
+        current = candidate;
+      }
+    }
+    if (current) out.push(current);
+    return out.length > 0 ? out : [normalized];
+  }
+
+  private splitElementPreservingMarkup(el: Element, maxChars: number): string[] {
+    const totalTextLen = (el.textContent || '').length;
+    if (totalTextLen <= maxChars) return [el.outerHTML];
+
+    const textNodes = this.collectTextNodes(el);
+    if (textNodes.length === 0) return [el.outerHTML];
+
+    const chunks: string[] = [];
+    let startIndex = 0;
+
+    while (startIndex < totalTextLen) {
+      const endIndex = Math.min(startIndex + maxChars, totalTextLen);
+      const startPos = this.locateTextPosition(textNodes, startIndex);
+      const endPos = this.locateTextPosition(textNodes, endIndex);
+      if (!startPos || !endPos) break;
+
+      const range = document.createRange();
+      range.setStart(startPos.node, startPos.offset);
+      range.setEnd(endPos.node, endPos.offset);
+
+      const fragment = range.cloneContents();
+      const wrapper = document.createElement(el.tagName.toLowerCase());
+      for (let i = 0; i < el.attributes.length; i++) {
+        const attr = el.attributes.item(i);
+        if (attr) wrapper.setAttribute(attr.name, attr.value);
+      }
+      wrapper.appendChild(fragment);
+      const html = wrapper.outerHTML;
+      if (html && this.stripHtmlToText(html).trim().length > 0) {
+        chunks.push(html);
+      }
+
+      startIndex = endIndex;
+    }
+
+    return chunks.length > 0 ? chunks : [el.outerHTML];
+  }
+
+  private collectTextNodes(root: Node): Text[] {
+    const out: Text[] = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let current = walker.nextNode();
+    while (current) {
+      const t = current as Text;
+      if ((t.nodeValue || '').length > 0) out.push(t);
+      current = walker.nextNode();
+    }
+    return out;
+  }
+
+  private locateTextPosition(nodes: Text[], absoluteIndex: number): { node: Text; offset: number } | null {
+    if (!nodes || nodes.length === 0) return null;
+    if (absoluteIndex <= 0) return { node: nodes[0], offset: 0 };
+
+    let remaining = absoluteIndex;
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      const len = (node.nodeValue || '').length;
+      if (remaining <= len) {
+        return { node, offset: remaining };
+      }
+      remaining -= len;
+    }
+    const last = nodes[nodes.length - 1];
+    return { node: last, offset: (last.nodeValue || '').length };
+  }
+
+  private enforceGenericLastPageLimit(pages: any[][], maxLastChars: number): void {
+    if (!pages || pages.length === 0) return;
+    const last = pages[pages.length - 1];
+    if (!last || last.length === 0) return;
+    const currentLastChars = last.reduce((sum: number, f: any) => sum + this.getFieldTextLength(f), 0);
+    if (currentLastChars <= maxLastChars) return;
+
+    const head: any[] = [];
+    const tail: any[] = [];
+    let tailChars = 0;
+    for (let i = last.length - 1; i >= 0; i--) {
+      const field = last[i];
+      const len = this.getFieldTextLength(field);
+      if (tail.length === 0 || tailChars + len <= maxLastChars) {
+        tail.unshift(field);
+        tailChars += len;
+      } else {
+        head.unshift(field);
+      }
+    }
+    if (head.length > 0) {
+      pages.pop();
+      pages.push(head);
+      pages.push(tail);
+    }
+  }
+
+  useIndividualFooterDocumentLayout(): boolean {
+    const hasHeaderField = (this.formFields || []).some((field: any) => this.isDocumentHeaderType(field?.type));
+    const hasWordEditorField = this.getBodyPreviewFields().some((field: any) => this.isWordEditorType(field?.type));
+    return this.hasIndividualPipelineFooter() && hasHeaderField && hasWordEditorField;
   }
 
   getGenericPreviewFields(): any[] {
@@ -2116,6 +2409,57 @@ export class ApplicationDetailsComponent implements OnInit {
   getUserNameById(userId?: number): string {
     if (!userId || !this.userNameMap) return '';
     return (this.userNameMap.get(Number(userId)) as string) || '';
+  }
+
+  getApprovalLogRows(): any[] {
+    if (!Array.isArray(this.approvalHistory) || this.approvalHistory.length === 0) {
+      return [];
+    }
+    return this.approvalHistory;
+  }
+
+  getApprovalLogLevel(entry: any): string {
+    const level = entry?.level ?? entry?.intApprovalOrder;
+    return level != null && String(level).trim() !== '' ? String(level) : '--';
+  }
+
+  getApprovalLogApprover(entry: any): string {
+    if (!entry) return '--';
+    const direct =
+      entry?.approverName ||
+      entry?.approvedByName ||
+      entry?.userName;
+    if (direct && String(direct).trim() !== '') return String(direct);
+
+    const id = entry?.approvedBy ?? entry?.approverUserId ?? entry?.userId;
+    const n = id != null ? Number(id) : NaN;
+    if (!isNaN(n)) {
+      return this.getUserNameById(n) || `User ${n}`;
+    }
+    return '--';
+  }
+
+  getApprovalLogRole(entry: any): string {
+    const role = entry?.role || entry?.departmentName || entry?.txtDepartmentName;
+    return role && String(role).trim() !== '' ? String(role) : '--';
+  }
+
+  getApprovalLogStatus(entry: any): string {
+    const action = entry?.action || entry?.status;
+    return action && String(action).trim() !== '' ? String(action) : '--';
+  }
+
+  getApprovalLogDate(entry: any): string {
+    const date = entry?.approvedDate || entry?.sentBackDate;
+    return date && String(date).trim() !== '' ? String(date) : '--';
+  }
+
+  getApprovalLogSignatureUrl(entry: any): string {
+    if (!entry || !entry?.signaturePath) return '';
+    const id = entry?.approvedBy ?? entry?.approverUserId ?? entry?.userId;
+    const n = id != null ? Number(id) : NaN;
+    if (isNaN(n) || n <= 0) return '';
+    return `${urls.API_URL}getSignature?userId=${n}`;
   }
 
   // Latest approval entry for a specific head at a specific stage.
@@ -3616,46 +3960,54 @@ export class ApplicationDetailsComponent implements OnInit {
       // Small timeout so browser repaints before capture
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      const rect = captureTarget.getBoundingClientRect();
-      const contentWidthPx = rect.width || captureTarget.scrollWidth;
-      const contentHeightPx = rect.height || captureTarget.scrollHeight;
-      const pxToMm = (px: number) => (px * 25.4) / 96;
-      const contentWidthMm = pxToMm(contentWidthPx);
-      const contentHeightMm = pxToMm(contentHeightPx);
-
-      const canvas = await html2canvas(captureTarget, {
-        scale: 3,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-        width: captureTarget.scrollWidth,
-        height: captureTarget.scrollHeight,
-        windowWidth: captureTarget.scrollWidth,
-        windowHeight: captureTarget.scrollHeight
-      });
-
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
         format: 'a4',
         compress: true
       });
+      const pagesForPdf = !isCapf
+        ? (Array.from(element.querySelectorAll('.xyz-paper')) as HTMLElement[])
+        : [];
+      const targets = pagesForPdf.length > 0 ? pagesForPdf : [captureTarget];
       const PDF_WIDTH = 210;
       const PDF_HEIGHT = 297;
-      const marginX = 0;
-      const marginY = 0;
-      const availableWidth = PDF_WIDTH - marginX * 2;
-      const availableHeight = PDF_HEIGHT - marginY * 2;
-      const scaleByWidth = availableWidth / contentWidthMm;
-      const scaleByHeight = availableHeight / contentHeightMm;
-      const finalScale = contentHeightMm * scaleByWidth <= availableHeight ? scaleByWidth : scaleByHeight;
-      const imgWidth = contentWidthMm * finalScale;
-      const imgHeight = contentHeightMm * finalScale;
-      const xOffset = (PDF_WIDTH - imgWidth) / 2;
-      const yOffset = (PDF_HEIGHT - imgHeight) / 2;
+      const pxToMm = (px: number) => (px * 25.4) / 96;
 
-      const imgData = canvas.toDataURL('image/jpeg', 0.98);
-      pdf.addImage(imgData, 'JPEG', xOffset, yOffset, imgWidth, imgHeight);
+      for (let i = 0; i < targets.length; i++) {
+        const target = targets[i];
+        const rect = target.getBoundingClientRect();
+        const contentWidthPx = rect.width || target.scrollWidth;
+        const contentHeightPx = rect.height || target.scrollHeight;
+        const contentWidthMm = pxToMm(contentWidthPx);
+        const contentHeightMm = pxToMm(contentHeightPx);
+        const availableWidth = PDF_WIDTH;
+        const availableHeight = PDF_HEIGHT;
+        const scaleByWidth = availableWidth / contentWidthMm;
+        const scaleByHeight = availableHeight / contentHeightMm;
+        const finalScale = contentHeightMm * scaleByWidth <= availableHeight ? scaleByWidth : scaleByHeight;
+        const imgWidth = contentWidthMm * finalScale;
+        const imgHeight = contentHeightMm * finalScale;
+        const xOffset = (PDF_WIDTH - imgWidth) / 2;
+        const yOffset = (PDF_HEIGHT - imgHeight) / 2;
+
+        const canvas = await html2canvas(target, {
+          scale: 3,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+          width: target.scrollWidth,
+          height: target.scrollHeight,
+          windowWidth: target.scrollWidth,
+          windowHeight: target.scrollHeight
+        });
+
+        if (i > 0) {
+          pdf.addPage('a4', 'portrait');
+        }
+        const imgData = canvas.toDataURL('image/jpeg', 0.98);
+        pdf.addImage(imgData, 'JPEG', xOffset, yOffset, imgWidth, imgHeight);
+      }
 
       // ── Restore styles after capture ────────────────────────────────────
       savedElementStyles.forEach(({ el, minHeight, maxHeight, border, boxShadow, overflow }) => {

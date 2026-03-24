@@ -16,7 +16,7 @@
 .xyz-pages-scroll {
     max-height: 80vh;
     overflow-y: auto;
-    padding-bottom: 8px;
+    padding-bottom: 24px;
 }
 
 /* Multi-page: each page is a separate A4 card, slightly separated */
@@ -24,7 +24,7 @@
     margin-bottom: 12mm;
 }
 .xyz-paper-page:last-child {
-    margin-bottom: 0;
+    margin-bottom: 3mm;
 }
 
 .xyz-paper {
@@ -303,6 +303,59 @@
 
 .xyz-generic-word .ql-editor {
     padding: 0;
+    white-space: normal;
+}
+
+/* Important: content rendered via [innerHTML] does not always inherit
+   component-scoped descendant styles. Use ng-deep to ensure preview styling applies. */
+:host ::ng-deep .xyz-generic-word .ql-editor {
+    white-space: normal !important;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 13px;
+    line-height: 1.45;
+    color: #000;
+}
+
+:host ::ng-deep .xyz-generic-word .ql-editor p,
+:host ::ng-deep .xyz-generic-word .ql-editor div {
+    margin: 0 0 6px 0 !important;
+}
+
+:host ::ng-deep .xyz-generic-word .ql-editor ul,
+:host ::ng-deep .xyz-generic-word .ql-editor ol {
+    margin: 6px 0 6px 22px !important;
+    padding: 0 !important;
+    list-style-position: outside !important;
+}
+
+:host ::ng-deep .xyz-generic-word .ql-editor li {
+    margin: 2px 0 !important;
+}
+
+:host ::ng-deep .xyz-generic-word .ql-editor table,
+:host ::ng-deep .xyz-content-body .ql-editor table {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-collapse: collapse !important;
+    table-layout: auto !important;
+    margin: 8px 0 !important;
+}
+
+:host ::ng-deep .xyz-generic-word .ql-editor th,
+:host ::ng-deep .xyz-generic-word .ql-editor td,
+:host ::ng-deep .xyz-content-body .ql-editor th,
+:host ::ng-deep .xyz-content-body .ql-editor td {
+    border: 1px solid #000 !important;
+    padding: 6px !important;
+    vertical-align: top !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+    white-space: normal !important;
+}
+
+:host ::ng-deep .xyz-generic-word .ql-editor img {
+    max-width: 100% !important;
+    height: auto !important;
 }
 
 .xyz-generic-word .ql-editor p {
@@ -312,8 +365,8 @@
 .xyz-generic-word .ql-editor table {
     width: 100%;
     border-collapse: collapse;
-    table-layout: fixed;
-    margin: 4px 0;
+    table-layout: auto;
+    margin: 8px 0;
 }
 
 .xyz-generic-word .ql-editor table tr {
@@ -324,7 +377,6 @@
 .xyz-generic-word .ql-editor td {
     border: 1px solid #000;
     padding: 6px 6px !important;
-    font-size: 11px;
     line-height: 1.35 !important;
     vertical-align: middle !important;
     min-height: 32px !important;
@@ -334,9 +386,7 @@
 
 .xyz-generic-word .ql-editor td>*,
 .xyz-generic-word .ql-editor th>* {
-    margin: 0 !important;
-    padding: 0 !important;
-    line-height: 1 !important;
+    line-height: inherit !important;
 }
 
 .xyz-table-row-label {
@@ -372,6 +422,13 @@
     display: block;
 }
 
+.xyz-content-body.xyz-content-centered,
+.xyz-content-body.xyz-content-centered .xyz-generic-label,
+.xyz-content-body.xyz-content-centered .xyz-generic-value,
+.xyz-content-body.xyz-content-centered .xyz-generic-word {
+    text-align: center !important;
+}
+
 .xyz-dynamic table,
 .xyz-content-body table {
     width: 100% !important;
@@ -379,7 +436,7 @@
     border-collapse: collapse;
     margin: 8px 0;
     font-size: 14px;
-    table-layout: fixed !important;
+    table-layout: auto !important;
 }
 
 .xyz-dynamic th,
@@ -602,16 +659,6 @@
     word-break: break-word !important;
     word-wrap: break-word !important;
     overflow-wrap: break-word !important;
-    max-width: 100% !important;
-}
-
-/* Force break on nested spans inside dynamic content */
-.xyz-dynamic *,
-.xyz-content-body * {
-    word-break: break-all !important;
-    word-wrap: break-word !important;
-    overflow-wrap: break-word !important;
-    white-space: pre-wrap !important;
     max-width: 100% !important;
 }
 
