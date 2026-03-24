@@ -8748,9 +8748,24 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             // The PDF is now updated with signatures in approveApplication, so we can use it directly
             if (hasDynamicFooterFlow) {
                 if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
-                    // The stored PDF already has updated signatures from approveApplication
-                    // Return it directly for both budget approval and general forms
-                    return application.getBlbPdfData();
+                    byte[] storedPdf = application.getBlbPdfData();
+                    int storedPages = getPdfPageCount(storedPdf);
+                    if (storedPages > 1) {
+                        return storedPdf;
+                    }
+                    // Fallback: regenerate to avoid single-page/truncated frontend snapshots.
+                    try {
+                        byte[] regenerated = generateApplicationPdf(application, form,
+                                appData != null ? appData : new java.util.HashMap<>());
+                        if (regenerated != null && regenerated.length > 0 &&
+                                getPdfPageCount(regenerated) > storedPages) {
+                            return regenerated;
+                        }
+                    } catch (Exception regenEx) {
+                        log.warn("Dynamic-footer email PDF regenerate fallback failed (app object): {}",
+                                regenEx.getMessage());
+                    }
+                    return storedPdf;
                 }
                 
                 // If PDF doesn't exist in application object, try to get it from database
@@ -8760,9 +8775,25 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     if (application != null && application.getSerApplicationId() != null) {
                         dbApp = em.find(CfgTblCustomFormApplication.class, application.getSerApplicationId());
                         if (dbApp != null && dbApp.getBlbPdfData() != null && dbApp.getBlbPdfData().length > 0) {
-                            // The stored PDF in database already has updated signatures
-                            // Return it directly for both budget approval and general forms
-                            return dbApp.getBlbPdfData();
+                            byte[] storedPdf = dbApp.getBlbPdfData();
+                            int storedPages = getPdfPageCount(storedPdf);
+                            if (storedPages > 1) {
+                                return storedPdf;
+                            }
+                            // Fallback: regenerate from db snapshot when stored PDF is single page.
+                            try {
+                                Map<String, Object> dbAppData = parseApplicationData(dbApp);
+                                byte[] regenerated = generateApplicationPdf(dbApp, form,
+                                        dbAppData != null ? dbAppData : new java.util.HashMap<>());
+                                if (regenerated != null && regenerated.length > 0 &&
+                                        getPdfPageCount(regenerated) > storedPages) {
+                                    return regenerated;
+                                }
+                            } catch (Exception regenEx) {
+                                log.warn("Dynamic-footer email PDF regenerate fallback failed (db object): {}",
+                                        regenEx.getMessage());
+                            }
+                            return storedPdf;
                         }
                     }
                 } finally {
@@ -8890,12 +8921,6 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     private void sendEmailWithInlineFormPreview(List<String> recipients, String subject, String html,
             CfgTblCustomFormApplication application, CfgTblCustomForm form, boolean isCapf, String imageCid) {
         try {
-            String cidBase = imageCid != null ? imageCid : (isCapf ? "capf-inline" : "form-inline");
-            String appIdPart = application != null && application.getSerApplicationId() != null
-                    ? String.valueOf(application.getSerApplicationId())
-                    : "na";
-            String cid = cidBase + "-" + appIdPart + "-" + System.currentTimeMillis();
-
             List<com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService.EmailAttachment> attachments = new java.util.ArrayList<>();
             if (application != null) {
                 try {
@@ -8907,54 +8932,21 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             byte[] pdfBytes = resolveBestPdfBytesForEmail(application, form);
-            int pdfPageCount = getPdfPageCount(pdfBytes);
 
-            // Rule:
-            // - Single page: send inline preview image (current behavior).
-            // - Multi page: send PDF as attachment (with other attachments), no inline preview image.
-            if (pdfBytes != null && pdfBytes.length > 0 && pdfPageCount > 1) {
-                String pdfName = buildPdfFileName(form,
-                        application != null ? application.getTxtFormCode() : null);
+            // Always send form snapshot as file attachment (never inline image).
+            if (pdfBytes != null && pdfBytes.length > 0) {
+                String pdfName = (application != null && application.getTxtPdfName() != null
+                        && !application.getTxtPdfName().trim().isEmpty())
+                                ? application.getTxtPdfName().trim()
+                                : buildPdfFileName(form, application != null ? application.getTxtFormCode() : null);
+                String pdfMime = (application != null && application.getTxtPdfMime() != null
+                        && !application.getTxtPdfMime().trim().isEmpty())
+                                ? application.getTxtPdfMime().trim()
+                                : "application/pdf";
                 attachments.add(new com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService.EmailAttachment(
-                        pdfBytes, pdfName, "application/pdf"));
-                emailService.sendHtmlEmailWithAttachments(recipients, subject, html, attachments);
-                return;
+                        pdfBytes, pdfName, pdfMime));
             }
 
-            if (isCapf) {
-                byte[] imageBytes = buildCapfPreviewPng(application, form);
-                if (imageBytes != null && imageBytes.length > 0) {
-                    String htmlWithImage = appendCapfInlineImage(html, cid);
-                    if (attachments.isEmpty()) {
-                        emailService.sendHtmlEmailWithInlineImage(recipients, subject, htmlWithImage, imageBytes,
-                                "image/png",
-                                cid);
-                    } else {
-                        emailService.sendHtmlEmailWithInlineImageAndAttachments(recipients, subject, htmlWithImage,
-                                imageBytes,
-                                "image/png",
-                                cid, attachments);
-                    }
-                    return;
-                }
-            } else {
-                byte[] imageBytes = renderPdfToPng(pdfBytes);
-                if (imageBytes != null && imageBytes.length > 0) {
-                    String formTitle = getResolvedFormName(form) + " Form";
-                    String htmlWithImage = appendInlinePdfImage(html, cid, formTitle);
-                    if (attachments.isEmpty()) {
-                        emailService.sendHtmlEmailWithInlineImage(recipients, subject, htmlWithImage, imageBytes,
-                                "image/png",
-                                cid);
-                    } else {
-                        emailService.sendHtmlEmailWithInlineImageAndAttachments(recipients, subject, htmlWithImage,
-                                imageBytes,
-                                "image/png",
-                                cid, attachments);
-                    }
-                    return;
-                }
-            }
             if (!attachments.isEmpty()) {
                 emailService.sendHtmlEmailWithAttachments(recipients, subject, html, attachments);
             } else {
