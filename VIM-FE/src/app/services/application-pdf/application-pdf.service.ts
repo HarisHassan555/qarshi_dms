@@ -1701,6 +1701,64 @@ export class ApplicationPdfService {
       return entry || null;
     };
 
+    const getNameText = (entry: any): string => {
+      return (
+        entry?.approverName ||
+        entry?.approvedByName ||
+        entry?.userName ||
+        (entry?.approvedBy && isNaN(Number(entry.approvedBy)) ? String(entry.approvedBy) : '') ||
+        ''
+      );
+    };
+
+    const getDesignationText = (entry: any): string => {
+      return (
+        entry?.txtDesignation ||
+        entry?.designation ||
+        entry?.approverDesignation ||
+        entry?.role ||
+        ''
+      );
+    };
+
+    const formatEntryDate = (entry: any): string => {
+      if (!entry?.approvedDate) return '';
+      try {
+        const dt = new Date(entry.approvedDate);
+        return isNaN(dt.getTime()) ? String(entry.approvedDate) : dt.toLocaleString();
+      } catch {
+        return String(entry.approvedDate);
+      }
+    };
+
+    const isCeoEntry = (entry: any): boolean => {
+      const level = Number(entry?.level ?? entry?.intApprovalOrder);
+      const haystack = (
+        `${entry?.role || ''} ${entry?.departmentName || ''} ${entry?.txtDepartmentName || ''} ${entry?.approverDesignation || ''}`
+      ).toLowerCase();
+      return level === -99 ||
+        haystack.includes('chief executive') ||
+        haystack.includes(' ceo') ||
+        haystack.includes('ceo ') ||
+        haystack.includes('md');
+    };
+
+    const getLatestCeoEntry = (): any | null => {
+      if (!Array.isArray(approvalHistory) || approvalHistory.length === 0) return null;
+      const ceoEntries = approvalHistory.filter((e: any) => isCeoEntry(e));
+      if (ceoEntries.length === 0) return null;
+      const toMs = (e: any): number => {
+        if (!e?.approvedDate) return 0;
+        try {
+          const t = new Date(e.approvedDate).getTime();
+          return isNaN(t) ? 0 : t;
+        } catch {
+          return 0;
+        }
+      };
+      return [...ceoEntries].sort((a: any, b: any) => toMs(a) - toMs(b))[ceoEntries.length - 1] || null;
+    };
+
     const buildSignatureSlots = (): { nameText: string; designationText: string; departmentText: string; html: string; time: string }[] => {
       const staticLabels = [
         'User Deptt. (HoD)',
@@ -1709,24 +1767,6 @@ export class ApplicationPdfService {
         'Finance',
         'Core Team HTR. / CCT HO'
       ];
-      const getNameText = (entry: any): string => {
-        return (
-          entry?.approverName ||
-          entry?.approvedByName ||
-          entry?.userName ||
-          (entry?.approvedBy && isNaN(Number(entry.approvedBy)) ? String(entry.approvedBy) : '') ||
-          ''
-        );
-      };
-      const getDesignationText = (entry: any): string => {
-        return (
-          entry?.txtDesignation ||
-          entry?.designation ||
-          entry?.approverDesignation ||
-          entry?.role ||
-          ''
-        );
-      };
 
       const sortedPipelines = Array.isArray(pipelines)
         ? [...pipelines].sort((a: any, b: any) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0))
@@ -1749,14 +1789,7 @@ export class ApplicationPdfService {
           const hasSignature = !!entry?.signaturePath;
           const signatureUrl = userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '';
           const html = signatureUrl ? `<img class="sig-img" src="${signatureUrl}" alt="Signature" crossorigin="anonymous" />` : '';
-          const time = hasSignature && entry?.approvedDate ? (() => {
-            try {
-              const dt = new Date(entry.approvedDate);
-              return isNaN(dt.getTime()) ? String(entry.approvedDate) : dt.toLocaleString();
-            } catch {
-              return String(entry.approvedDate);
-            }
-          })() : '';
+          const time = hasSignature ? formatEntryDate(entry) : '';
           return { nameText, designationText, departmentText, html, time };
         });
       }
@@ -1772,19 +1805,22 @@ export class ApplicationPdfService {
         const hasSignature = !!entry?.signaturePath;
         const signatureUrl = userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '';
         const html = signatureUrl ? `<img class="sig-img" src="${signatureUrl}" alt="Signature" crossorigin="anonymous" />` : '';
-        const time = hasSignature && entry?.approvedDate ? (() => {
-          try {
-            const dt = new Date(entry.approvedDate);
-            return isNaN(dt.getTime()) ? String(entry.approvedDate) : dt.toLocaleString();
-          } catch {
-            return String(entry.approvedDate);
-          }
-        })() : '';
+        const time = hasSignature ? formatEntryDate(entry) : '';
         return { nameText, designationText, departmentText, html, time };
       });
     };
 
     const signatureSlots = buildSignatureSlots();
+    const ceoEntry = getLatestCeoEntry();
+    const ceoUserId = ceoEntry?.approvedBy || ceoEntry?.approverUserId || ceoEntry?.userId;
+    const ceoHasSignature = !!ceoEntry?.signaturePath && !!ceoUserId;
+    const ceoSignatureUrl = ceoHasSignature ? `${urls.API_URL}getSignature?userId=${ceoUserId}` : '';
+    const ceoSignatureHtml = ceoSignatureUrl
+      ? `<img class="sig-img" src="${ceoSignatureUrl}" alt="Signature" crossorigin="anonymous" />`
+      : '';
+    const ceoTimeText = formatEntryDate(ceoEntry);
+    const ceoNameText = getNameText(ceoEntry);
+    const ceoDesignationText = getDesignationText(ceoEntry);
 
     // CSS styles for CAPF form PDF - exact copy of abc.component.css to ensure identical rendering
 
@@ -2291,24 +2327,33 @@ export class ApplicationPdfService {
       min-width: 0;
       max-width: 100%;
       flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
     }
     
     .sig-line {
       border-bottom: 1px solid var(--line);
       height: 32px;
       margin-bottom: 4px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
     }
 
     .sig-img {
-      max-height: 36px;
+      max-height: 34px;
       max-width: 100%;
       object-fit: contain;
       display: block;
       margin: 0 auto;
+      transform: translateY(-4px) !important;
     }
 
     .sig-time {
-      font-size: 10px;
+      font-size: 8px;
+      width: 100%;
+      display: block;
       text-align: center;
       margin-bottom: 2px;
       line-height: 1.1;
@@ -2316,13 +2361,20 @@ export class ApplicationPdfService {
     }
 
     .sig-meta {
-      font-size: 10px;
+      font-size: 8px;
+      width: 100%;
+      display: block;
       text-align: center;
       margin-bottom: 2px;
       line-height: 1.1;
       white-space: normal;
       word-wrap: break-word;
       overflow-wrap: break-word;
+    }
+
+    .sig-line + .sig-time,
+    .sig-line + .sig-meta {
+      margin-top: -2px;
     }
 
     .sig-name {
@@ -2343,14 +2395,15 @@ export class ApplicationPdfService {
       word-wrap: break-word;
       overflow-wrap: break-word;
       line-height: 1.2;
+      margin-top: 34px;
     }
 
     .approved {
       display: flex;
       justify-content: flex-end;
       gap: 10px;
-      align-items: flex-end;
-      margin-top: 8px;
+      align-items: flex-start;
+      margin-top: 12px;
     }
 
     .approved .who {
@@ -2368,7 +2421,11 @@ export class ApplicationPdfService {
       width: 150px;
       border-bottom: 1px solid var(--line);
       height: 18px;
-      margin-bottom: 4px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      overflow: visible;
     }
 
     .approved-sig .who {
@@ -2377,6 +2434,31 @@ export class ApplicationPdfService {
       text-align: center;
       white-space: nowrap;
       width: 100%;
+    }
+
+    .approved-sig .approved-time,
+    .approved-sig .approved-meta {
+      width: 150px;
+      display: block;
+      text-align: center;
+      font-size: 8px;
+      line-height: 1.1;
+      margin-bottom: 1px;
+    }
+
+    .approved-sig .approved-meta {
+      white-space: normal;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+
+    .approved-sig .approved-meta-wrap {
+      width: 150px;
+      min-height: 30px;
+    }
+
+    .approved-sig .who.b {
+      margin-top: 4px;
     }
 
     /* PART-2 + JOB COMPLETION */
@@ -2624,6 +2706,10 @@ export class ApplicationPdfService {
     :host-context(.pdf-compact) .sig-line {
       margin-bottom: 2px !important;
       height: 14px !important;
+    }
+
+    :host-context(.pdf-compact) .sig-img {
+      transform: translateY(-4px) !important;
     }
 
     :host-context(.pdf-compact) .sig-time {
@@ -2886,7 +2972,12 @@ export class ApplicationPdfService {
         <div class="approved">
           <div class="who b">Approved By:</div>
           <div class="approved-sig">
-            <div class="appline"></div>
+            <div class="appline">${ceoSignatureHtml}</div>
+            <div class="approved-meta-wrap">
+              <div class="approved-time">${ceoTimeText ? escapeHtml(ceoTimeText) : '&nbsp;'}</div>
+              <div class="approved-meta">${ceoNameText ? escapeHtml(ceoNameText) : '&nbsp;'}</div>
+              <div class="approved-meta">${ceoDesignationText ? escapeHtml(ceoDesignationText) : '&nbsp;'}</div>
+            </div>
             <div class="who b">Chief Executive</div>
           </div>
         </div>

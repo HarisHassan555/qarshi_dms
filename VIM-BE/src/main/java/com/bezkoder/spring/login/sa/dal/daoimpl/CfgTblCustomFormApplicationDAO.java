@@ -1150,6 +1150,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
                 entityManager.merge(application);
                 entityManager.getTransaction().commit();
+                // Keep initiator informed at CEO step as well (same journey behavior as other levels).
+                try {
+                    sendSubmitterProgressEmailAfterApproval(application, application.getCfgTblCustomForm(),
+                            currentLevelSafe(application));
+                } catch (Exception e) {
+                    log.warn("Submitter CEO-step email send failed: {}", e.getMessage());
+                }
                 // Send Finance email
                 try {
                     sendFinanceEmails(application, null);
@@ -2644,8 +2651,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                     + application.getSerApplicationId() + "&userId=" + firstApprover.userId;
                             String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
                                     + application.getSerApplicationId() + "&userId=" + firstApprover.userId;
-                            String sendBackUrl = null;
-                            String sendBackToInitiatorUrl = null;
+                            String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                                    + application.getSerApplicationId() + "&userId=" + firstApprover.userId;
+                            String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                                    + application.getSerApplicationId() + "&userId=" + firstApprover.userId;
                             
                             String cid = isCapf ? "capf-inline" : "form-inline";
                             String formName = getResolvedFormName(form);
@@ -3271,6 +3280,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     historyJson,
                     getBaseUrl());
 
+            // After asset-code completion, provide initiator a direct CTA to add PR code.
+            htmlMessage = appendPrCodeActionButtonForInitiator(htmlMessage, application);
+
             sendEmailWithInlineFormPreview(
                     java.util.Arrays.asList(submitter.getTxtAddress()),
                     subject,
@@ -3289,6 +3301,103 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 emailEntityManager.close();
             }
         }
+    }
+
+    private void sendSubmitterProgressEmailAfterApproval(CfgTblCustomFormApplication application, CfgTblCustomForm form,
+            Integer approvedLevel) {
+        if (application == null || application.getSerSubmittedBy() == null) {
+            return;
+        }
+        EntityManager emailEntityManager = getEntityManager();
+        try {
+            emailEntityManager.getTransaction().begin();
+            CfgTblUser submitter = emailEntityManager.find(CfgTblUser.class, application.getSerSubmittedBy());
+            if (submitter == null || submitter.getTxtAddress() == null || submitter.getTxtAddress().trim().isEmpty()) {
+                emailEntityManager.getTransaction().rollback();
+                return;
+            }
+
+            CfgTblCustomForm resolvedForm = form;
+            if (resolvedForm == null && application.getSerFormId() != null) {
+                resolvedForm = emailEntityManager.find(CfgTblCustomForm.class, application.getSerFormId());
+            }
+            boolean isCapf = isCapfForm(resolvedForm);
+            String formName = getResolvedFormName(resolvedForm);
+            Integer level = approvedLevel != null ? approvedLevel : currentLevelSafe(application);
+
+            String subject;
+            if ("ASSET_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
+                subject = formName + " Approved by CEO - Awaiting Asset Code - "
+                        + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+            } else {
+                subject = formName + " Approved at Level " + level + " - "
+                        + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+            }
+
+            String htmlMessage = generateApprovalEmailHtml(
+                    submitter.getTxtUserName() != null ? submitter.getTxtUserName() : "User",
+                    level,
+                    application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
+                    formName,
+                    application.getTxtStatus(),
+                    application.getTxtRemarks(),
+                    false,
+                    null,
+                    null,
+                    null,
+                    null,
+                    application.getTxtApprovalHistory(),
+                    getBaseUrl());
+
+            sendEmailWithInlineFormPreview(
+                    java.util.Arrays.asList(submitter.getTxtAddress()),
+                    subject,
+                    htmlMessage,
+                    application,
+                    resolvedForm,
+                    isCapf,
+                    isCapf ? "capf-inline" : "form-inline");
+
+            emailEntityManager.getTransaction().commit();
+            log.info("Progress email sent to submitter after approval: appId={}, submitter={}",
+                    application.getSerApplicationId(), submitter.getTxtAddress());
+        } catch (Exception e) {
+            if (emailEntityManager.getTransaction().isActive()) {
+                emailEntityManager.getTransaction().rollback();
+            }
+            log.warn("Failed to send submitter progress email: {}", e.getMessage());
+        } finally {
+            if (emailEntityManager.isOpen()) {
+                emailEntityManager.close();
+            }
+        }
+    }
+
+    private String appendPrCodeActionButtonForInitiator(String baseHtml, CfgTblCustomFormApplication application) {
+        if (baseHtml == null || baseHtml.trim().isEmpty() || application == null || application.getSerApplicationId() == null) {
+            return baseHtml;
+        }
+        boolean hasAssetCode = application.getTxtAssetCode() != null && !application.getTxtAssetCode().trim().isEmpty();
+        boolean hasPrCode = application.getTxtPrCode() != null && !application.getTxtPrCode().trim().isEmpty();
+        if (!hasAssetCode || hasPrCode) {
+            return baseHtml;
+        }
+
+        String frontendUrl = frontendBaseUrl != null ? frontendBaseUrl : "http://localhost:4200";
+        String prCodeUrl = frontendUrl + "/velocity/pr-code/" + application.getSerApplicationId();
+        String fragment = "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:20px 0;'>"
+                + "<tr><td align='center' style='padding:10px 0;'>"
+                + "<a href='" + prCodeUrl
+                + "' style='display:inline-block;padding:12px 28px;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;background-color:#2c7be5;color:#ffffff !important;'>"
+                + "Add PR Code</a>"
+                + "</td></tr></table>";
+
+        String marker = "</body>";
+        int idx = baseHtml.lastIndexOf(marker);
+        if (idx == -1) {
+            return baseHtml + fragment;
+        }
+        return baseHtml.substring(0, idx) + fragment + baseHtml.substring(idx);
     }
 
     /**
@@ -4294,6 +4403,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             y -= 2;
             y = drawYesNoNaRow(content, lineStart, y, lineEnd, "Third Party assessment carried out:", thirdParty);
 
+            // Keep original spacing below third-party assessment.
             y -= 10;
             y = drawCapfSignatureSection(content, lineStart, y, lineEnd - lineStart,
                     application.getTxtApprovalHistory(), document);
@@ -4658,9 +4768,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         // and drawing another line makes it appear bold/wide in emails.
 
         content.setFont(PDType1Font.HELVETICA, 5.8f);
-        float baseDateY = lineY - 4f;
-        float baseNameY = lineY - 11f;
-        float baseDesignY = lineY - 18f;
+        // Keep CAPF metadata below the signature line.
+        float baseDateY = lineY - 3f;
+        float baseNameY = lineY - 10f;
+        float baseDesignY = lineY - 17f;
 
         for (int i = 0; i < 6; i++) {
             List<Map<String, Object>> entries = mapped[i];
@@ -4695,8 +4806,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
 
         content.setFont(PDType1Font.HELVETICA_BOLD, 7f);
-        // Push department labels down to create vertical space under signatures/metadata.
-        float fixedLabelY = baseDesignY - 29f;
+        // Keep department labels lower to reserve about one-field vertical space
+        // between signature underline and department labels.
+        float fixedLabelY = lineY - 70f;
         for (int i = 0; i < roleLabels.length; i++) {
             String label = roleLabels[i];
             float ly = fixedLabelY;
@@ -6008,22 +6120,40 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         html.append(
                 "<table width=\"100%\" style=\"width:100%; border-collapse: collapse; table-layout: fixed; margin-top: 15px;\">");
 
-        // ROW 1: Signatures + raised underline (thin line under signatures so metadata fits below)
+        boolean hasAnySignedSlot = false;
+        for (CapfSignatureSlot slot : slots) {
+            if (slot == null) {
+                continue;
+            }
+            boolean hasSig = slot.html != null && !slot.html.trim().isEmpty();
+            boolean hasMeta = slot.metaHtml != null && !slot.metaHtml.trim().isEmpty();
+            if (hasSig || hasMeta) {
+                hasAnySignedSlot = true;
+                break;
+            }
+        }
+
+        // Slightly increase spacing only when signatures are present, to mimic signed web layout.
+        String sigRowPadding = hasAnySignedSlot ? "padding: 8px 4px;" : "padding: 6px 4px;";
+        String metaRowPadding = hasAnySignedSlot ? "padding: 8px 4px 10px 4px;" : "padding: 6px 4px;";
+        String labelRowPadding = hasAnySignedSlot ? "padding: 12px 4px 8px 4px;" : "padding: 6px 4px 8px 4px;";
+
+        // ROW 1: Signatures
         html.append("<tr>");
         for (CapfSignatureSlot slot : slots) {
             html.append(
-                    "<td align=\"center\" valign=\"top\" style=\"padding: 8px 4px 6px 4px; vertical-align: top; border-bottom: 1px solid #222;\">");
-            html.append("<div style=\"min-height: 40px; display: block; text-align: center;\">");
+                    "<td align=\"center\" valign=\"top\" style=\"" + sigRowPadding + " vertical-align: top; border-bottom: 1px solid #222;\">");
+            html.append("<div style=\"display: block; text-align: center;\">");
             html.append(slot.html != null ? slot.html : "");
             html.append("</div>");
             html.append("</td>");
         }
         html.append("</tr>");
 
-        // ROW 2: Metadata (date, user name, designation) — room below for gap before labels
+        // ROW 2: Metadata (date, user name, designation)
         html.append("<tr>");
         for (CapfSignatureSlot slot : slots) {
-            html.append("<td align=\"center\" valign=\"top\" style=\"padding: 10px 4px 14px 4px; line-height: 1.5; font-size: 10px; min-height: 52px;\">");
+            html.append("<td align=\"center\" valign=\"top\" style=\"" + metaRowPadding + " line-height: 1.4; font-size: 10px;\">");
             if (slot.metaHtml != null && !slot.metaHtml.isEmpty()) {
                 html.append(slot.metaHtml);
             } else if (slot.time != null && !slot.time.isEmpty()) {
@@ -6034,10 +6164,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
         html.append("</tr>");
 
-        // ROW 3: Department names — large gap above so metadata never overlaps headings
+        // ROW 3: Department names
         html.append("<tr>");
         for (CapfSignatureSlot slot : slots) {
-            html.append("<td align=\"center\" valign=\"top\" style=\"padding-top: 36px; padding-bottom: 8px;\">");
+            html.append("<td align=\"center\" valign=\"top\" style=\"" + labelRowPadding + "\">");
             html.append(
                     "<div style=\"font-size: 11px; font-weight: bold; text-align: center; line-height: 1.2; text-transform: uppercase;\">")
                     .append(escapeHtml(slot.label)).append("</div>");
@@ -7186,6 +7316,14 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>>[] mapped = mapCapfApprovalEntries(approved, pipelines);
+        boolean hasAnySignedSlot = false;
+        for (int i = 0; i < mapped.length; i++) {
+            if (mapped[i] != null && !mapped[i].isEmpty()) {
+                hasAnySignedSlot = true;
+                break;
+            }
+        }
+        float signedSignatureLift = hasAnySignedSlot ? 10f : 0f;
 
         Integer[] approvedUserIds = new Integer[approved.size()];
         for (int i = 0; i < approved.size(); i++) {
@@ -7237,21 +7375,23 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 if (sigPath != null && !sigPath.trim().isEmpty()) {
                     float xOff = capfSignatureXOffsetForSlot(i);
                     float yOff = capfSignatureYOffsetForSlot(i);
-                    drawSignatureImage(document, content, sigPath, boxLeft + xOff, sigRowY + yOff, drawW, sigHeight);
+                    drawSignatureImage(document, content, sigPath, boxLeft + xOff, sigRowY + yOff + signedSignatureLift,
+                            drawW, sigHeight);
                 }
 
                 float metaColX = slotX + (entries.size() > 1 ? (k == 0 ? 0 : slotW / 2f) : 0);
                 float metaColW = entries.size() > 1 ? slotW / 2f : slotW;
                 float xOff = capfMetaXOffsetForSlot(i);
                 float yOff = capfMetaYOffsetForSlot(i);
-                drawSignatureMetaText(content, metaColX + xOff, metaColW, lineY + yOff, entry, approvedBy, userMeta);
+                drawSignatureMetaText(content, metaColX + xOff, metaColW, lineY + yOff, entry, approvedBy, userMeta,
+                        hasAnySignedSlot);
             }
         }
     }
 
     private void drawSignatureMetaText(PDPageContentStream content, float colX, float colWidth, float lineY,
             Map<String, Object> entry, Integer approvedBy,
-            Map<Integer, UserSignatureMeta> userMeta) throws java.io.IOException {
+            Map<Integer, UserSignatureMeta> userMeta, boolean signedLayout) throws java.io.IOException {
         String dateText = formatApprovalDateShort(entry != null ? entry.get("approvedDate") : null);
         UserSignatureMeta meta = approvedBy != null ? userMeta.get(approvedBy) : null;
         String name = meta != null && meta.userName != null ? meta.userName
@@ -7261,9 +7401,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         : (entry != null && entry.get("designation") != null ? String.valueOf(entry.get("designation"))
                                 : ""));
 
-        // Raise metadata band: keep date/name/designation in a compact band so they do not overlap department labels.
+        // Keep metadata high, right under the signature line.
         float metaFont = 5.4f;
-        float dateY = lineY - 4f;
+        float baseDrop = signedLayout ? -2f : -1f;
+        float dateY = lineY - baseDrop;
         float nameY = dateY - 7f;
         float desigY = nameY - 7f;
         float maxW = colWidth - 6f;
@@ -7733,79 +7874,60 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     }
 
     private byte[] buildCapfPreviewPng(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
-        // Prefer the actual stored CAPF PDF version used by your flow, but always overlay
-        // latest signatures so alignment logic is applied.
+        // Always prefer the frontend snapshot PDFs for CAPF email preview.
         if (application != null) {
             Integer capfLevel = application.getIntCurrentApprovalLevel();
             if (capfLevel != null && capfLevel >= 0) {
                 byte[] stagePdf = application.getBlbPdfForStage(capfLevel);
                 if (stagePdf != null && stagePdf.length > 0) {
-                    log.info("CAPF preview source: stored blbPdfForStage(stage={}) without overlay for appId={}",
+                    log.info("CAPF preview source: stored blbPdfForStage(stage={}) from frontend snapshot for appId={}",
                             capfLevel, application.getSerApplicationId());
-                    // Stored stage PDFs may already contain signature/meta overlays. Re-overlaying can
-                    // duplicate metadata and make text appear bold in emails.
                     byte[] stagePng = renderPdfFirstPageToPng(stagePdf);
                     if (stagePng != null && stagePng.length > 0) {
                         return stagePng;
                     }
-                    log.warn("CAPF preview stage PDF render failed, falling back");
+                }
+            }
+            if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                log.info("CAPF preview source: stored blbPdfData from frontend snapshot for appId={}",
+                        application.getSerApplicationId());
+                byte[] storedPng = renderPdfFirstPageToPng(application.getBlbPdfData());
+                if (storedPng != null && storedPng.length > 0) {
+                    return storedPng;
                 }
             }
         }
 
-        if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
-            log.info("CAPF preview source: stored blbPdfData without overlay for appId={}",
-                    application.getSerApplicationId());
-            byte[] storedPng = renderPdfFirstPageToPng(application.getBlbPdfData());
-            if (storedPng != null && storedPng.length > 0) {
-                return storedPng;
-            }
-            log.warn("CAPF preview blbPdfData render failed, trying generated CAPF PDF");
-        }
-
-        // Last fallback: generate CAPF PDF and overlay.
+        // Fallback: generate CAPF only when no frontend snapshot PDF is available.
         try {
             Map<String, Object> appData = parseApplicationData(application);
             byte[] capfPdf = generateCapfPdf(application, form, appData);
             if (capfPdf != null && capfPdf.length > 0) {
-                log.info("CAPF preview source: generated CAPF PDF ({} bytes) for appId={}",
+                log.info("CAPF preview fallback source: generated CAPF PDF ({} bytes) for appId={}",
                         capfPdf.length, application != null ? application.getSerApplicationId() : null);
-                String historyForPreview = application != null ? application.getTxtApprovalHistory() : null;
-                try {
-                    if (application != null) {
-                        String st = application.getTxtStatus() != null ? application.getTxtStatus().toUpperCase() : "";
-                        Integer lvl = application.getIntCurrentApprovalLevel();
-                        if (lvl != null && !"APPROVED".equals(st) && !"REJECTED".equals(st)) {
-                            historyForPreview = filterCapfApprovalHistoryForCurrentStage(historyForPreview, lvl);
-                        }
-                    }
-                } catch (Exception ignored) {
-                }
-                return renderCapfPdfToPng(capfPdf, historyForPreview);
+                return renderPdfFirstPageToPng(capfPdf);
             }
         } catch (Exception e) {
-            log.warn("Error building CAPF preview PNG from generated PDF: " + e.getMessage(), e);
+            log.warn("Error building CAPF fallback PNG from generated PDF: " + e.getMessage(), e);
         }
+
         // Final fallback.
-        String historyForPreview = application != null ? application.getTxtApprovalHistory() : null;
-        try {
-            if (application != null) {
-                String st = application.getTxtStatus() != null ? application.getTxtStatus().toUpperCase() : "";
-                Integer lvl = application.getIntCurrentApprovalLevel();
-                if (lvl != null && !"APPROVED".equals(st) && !"REJECTED".equals(st)) {
-                    historyForPreview = filterCapfApprovalHistoryForCurrentStage(historyForPreview, lvl);
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return renderCapfPdfToPng(getOrBuildCapfPdf(application, form), historyForPreview);
+        return renderPdfFirstPageToPng(getOrBuildCapfPdf(application, form));
     }
 
     private void persistCapfSignedPdf(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
         if (application == null)
             return;
         try {
-            byte[] basePdf = application.getBlbPdfData();
+            // IMPORTANT: always overlay signatures on the pristine stage-0 snapshot when available.
+            // Reusing already-signed blbPdfData causes metadata/signature text to be re-drawn and appear bolder
+            // after each approval step.
+            byte[] basePdf = application.getBlbPdfForStage(0);
+
+            if (basePdf == null || basePdf.length == 0) {
+                basePdf = application.getBlbPdfData();
+            }
+
             if (basePdf == null || basePdf.length == 0) {
                 Map<String, Object> appData = parseApplicationData(application);
                 basePdf = generateCapfPdf(application, form, appData);
@@ -8574,8 +8696,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                 + application.getSerApplicationId() + "&userId=" + previousApprover.userId;
                         String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
                                 + application.getSerApplicationId() + "&userId=" + previousApprover.userId;
-                        String sendBackUrl = null;
-                        String sendBackToInitiatorUrl = null;
+                        String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                                + application.getSerApplicationId() + "&userId=" + previousApprover.userId;
+                        String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                                + application.getSerApplicationId() + "&userId=" + previousApprover.userId;
                         
                         boolean isCapf = isCapfForm(form);
                         String cid = isCapf ? "capf-inline" : "form-inline";
@@ -8764,8 +8888,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             String baseUrl = getBaseUrl();
             String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId=" + application.getSerApplicationId();
             String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId=" + application.getSerApplicationId();
-            String sendBackUrl = null; // Don't allow sending back again from email
-            String sendBackToInitiatorUrl = null;
+            String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId=" + application.getSerApplicationId();
+            String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                    + application.getSerApplicationId();
             
                 String cid = isCapf ? "capf-inline" : "form-inline";
 
@@ -8781,6 +8906,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         "&userId=" + deptHead.getSerUserId();
                     rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId=" + application.getSerApplicationId() + 
                         "&userId=" + deptHead.getSerUserId();
+                    sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId=" + application.getSerApplicationId()
+                        + "&userId=" + deptHead.getSerUserId();
+                    sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                        + application.getSerApplicationId() + "&userId=" + deptHead.getSerUserId();
                     
                     // Use the same email format as approval emails
                     String subject = formName + " Sent Back - Requires Your Approval - " + 
