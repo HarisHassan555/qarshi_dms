@@ -6,20 +6,14 @@ USE vim_3;
 -- - Set email (txt_address) to harishassan551@gmail.com
 -- =====================================================
 
--- Step 1: Get haris password
-SET @haris_password = (
-    SELECT txt_password
-    FROM cfg_tbl_user
-    WHERE LOWER(txt_user_name) = 'haris'
-      AND (bl_is_deleted = false OR bl_is_deleted IS NULL)
-    ORDER BY ser_user_id
-    LIMIT 1
-);
+-- Step 1: Set BCrypt hash for password '123'
+-- BCrypt hash (cost=10) for '123'
+SET @haris_password = '$2b$10$jx2bjar6ZLmcnrZyDlKa2OLBzZjMABAEXNWi.Zo52.QurLztCNj7K';
 
 SELECT
     CASE
-        WHEN @haris_password IS NOT NULL THEN CONCAT('Found haris password: ', LEFT(@haris_password, 20), '...')
-        ELSE 'ERROR - haris user not found, cannot copy password'
+        WHEN @haris_password IS NOT NULL THEN CONCAT('Using BCrypt hash: ', LEFT(@haris_password, 20), '...')
+        ELSE 'ERROR - BCrypt hash missing'
     END AS 'Haris Password Status';
 
 -- Step 2: Update all users (excluding deleted)

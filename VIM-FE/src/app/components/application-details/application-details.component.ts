@@ -2799,9 +2799,9 @@ export class ApplicationDetailsComponent implements OnInit {
 
 
   showApprovalActions(): boolean {
-    if (!this.fromPendingApprovals || !this.applicationDetails) return false;
-    if (!this.isCurrentUserApproverForCurrentLevel()) return false;
-    return true;
+    // Always show action buttons when the application details are visible.
+    // Backend will enforce whether the current user can actually perform the action.
+    return !!this.applicationDetails;
   }
 
   /** Returns true only if the current user is the approver for the current level (prevents Level 2 acting on behalf of Level 3) */
