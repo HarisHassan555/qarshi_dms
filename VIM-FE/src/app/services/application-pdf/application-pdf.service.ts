@@ -150,26 +150,9 @@ export class ApplicationPdfService {
             }
           }
 
-          // For generic XYZ forms, force deterministic multi-page PDF output
-          // so long content is never flattened/truncated to one page.
-          const xyzWrapper = (iframeDoc.querySelector('.abc-wrapper') as HTMLElement) || element;
-          const isXyzPaper = element.classList.contains('xyz-paper') || !!element.querySelector('.xyz-paper');
-          if (isXyzPaper) {
-            try {
-              const pdfBlob = await this.renderXyzPdfFromElement(xyzWrapper);
-              if (done) return;
-              done = true;
-              cleanup(iframe);
-              resolve(pdfBlob);
-              return;
-            } catch (xyzError) {
-              // fall through to existing html2pdf path as fallback
-              console.error('XYZ deterministic PDF generation failed, falling back to html2pdf:', xyzError);
-            }
-          }
-
           element.offsetHeight;
           // For xyz-paper elements, ensure natural height for PDF generation
+          const isXyzPaper = element.classList.contains('xyz-paper') || element.querySelector('.xyz-paper');
           if (isXyzPaper) {
             // Add a class to the element to trigger PDF-specific styles
             element.classList.add('pdf-generation-mode');
@@ -389,90 +372,6 @@ export class ApplicationPdfService {
     boxcheckSpanSnapshots.forEach(({ el, transform }) => {
       el.style.transform = transform;
     });
-
-    return pdf.output('blob');
-  }
-
-  private async renderXyzPdfFromElement(element: HTMLElement): Promise<Blob> {
-    const captureTarget = (element.querySelector('.xyz-paper') as HTMLElement) || element;
-
-    const [html2canvasModule, jsPDFModule] = await Promise.all([
-      import('html2canvas'),
-      import('jspdf')
-    ]);
-    const html2canvas = (html2canvasModule.default || html2canvasModule) as any;
-    const jsPDF = (jsPDFModule.default || jsPDFModule) as any;
-
-    // Ensure full content is visible for capture.
-    const savedStyles: Array<{ el: HTMLElement; prop: string; value: string }> = [];
-    const setStyle = (el: HTMLElement | null, prop: string, value: string) => {
-      if (!el) return;
-      savedStyles.push({ el, prop, value: el.style.getPropertyValue(prop) });
-      el.style.setProperty(prop, value, 'important');
-    };
-
-    const paper = (captureTarget.querySelector('.xyz-paper') as HTMLElement) || captureTarget;
-    const contentArea = captureTarget.querySelector('.xyz-content-area') as HTMLElement;
-    setStyle(paper, 'height', 'auto');
-    setStyle(paper, 'max-height', 'none');
-    setStyle(paper, 'min-height', 'auto');
-    setStyle(paper, 'overflow', 'visible');
-    setStyle(contentArea, 'overflow', 'visible');
-    setStyle(contentArea, 'height', 'auto');
-    setStyle(contentArea, 'max-height', 'none');
-    setStyle(contentArea, 'min-height', 'auto');
-
-    await new Promise(resolve => setTimeout(resolve, 80));
-
-    const canvas = await html2canvas(captureTarget, {
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      backgroundColor: '#ffffff',
-      width: captureTarget.scrollWidth,
-      height: captureTarget.scrollHeight,
-      windowWidth: captureTarget.scrollWidth,
-      windowHeight: captureTarget.scrollHeight
-    });
-
-    // Restore styles
-    savedStyles.forEach(({ el, prop, value }) => {
-      if (value) {
-        el.style.setProperty(prop, value);
-      } else {
-        el.style.removeProperty(prop);
-      }
-    });
-
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-      compress: true
-    });
-
-    const pdfWidth = 210;
-    const pdfHeight = 297;
-    const marginX = 5;
-    const marginY = 5;
-    const printableWidth = pdfWidth - marginX * 2;
-    const printableHeight = pdfHeight - marginY * 2;
-
-    const imgWidth = printableWidth;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-    const imgData = canvas.toDataURL('image/jpeg', 0.98);
-
-    let heightLeft = imgHeight;
-    let position = marginY;
-    pdf.addImage(imgData, 'JPEG', marginX, position, imgWidth, imgHeight);
-    heightLeft -= printableHeight;
-
-    while (heightLeft > 0) {
-      pdf.addPage('a4', 'portrait');
-      position = marginY - (imgHeight - heightLeft);
-      pdf.addImage(imgData, 'JPEG', marginX, position, imgWidth, imgHeight);
-      heightLeft -= printableHeight;
-    }
 
     return pdf.output('blob');
   }
@@ -1310,6 +1209,15 @@ export class ApplicationPdfService {
       overflow: visible;
       position: relative;
     }
+    @media screen {
+      .xyz-paper {
+        height: 297mm;
+        min-height: 297mm;
+        max-height: 297mm;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+    }
     @media print {
       .xyz-paper {
         height: auto !important;
@@ -1380,6 +1288,13 @@ export class ApplicationPdfService {
       flex: 1 1 auto;
       overflow: visible;
       min-height: 0;
+    }
+    @media screen {
+      .xyz-content-area {
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+      }
     }
     @media print {
       .xyz-content-area {
