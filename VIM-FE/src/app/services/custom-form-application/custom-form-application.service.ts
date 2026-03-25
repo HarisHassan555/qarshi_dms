@@ -121,11 +121,4 @@ export class CustomFormApplicationService {
       }
     });
   }
-
-  requestFinanceOptionalApprover(applicationId: number, selectedUserId: number) {
-    return this.http.post(urls.API_URL + 'requestFinanceOptionalApprover', {
-      applicationId,
-      selectedUserId
-    });
-  }
 }

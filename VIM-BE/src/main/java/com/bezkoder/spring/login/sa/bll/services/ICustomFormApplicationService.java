@@ -49,11 +49,4 @@ public interface ICustomFormApplicationService {
     String assignAssetCode(Integer applicationId, String assetCode, Integer userId, String approvedIp);
 
     String assignPrCode(Integer applicationId, String prCode, Integer userId, String approvedIp);
-
-    String requestFinanceOptionalApprover(Integer applicationId, Integer selectedUserId, Integer financeUserId,
-            String requesterIp);
-
-    String approveFinanceOptionalFromEmail(Integer applicationId, Integer userId, String approvedIp);
-
-    String rejectFinanceOptionalFromEmail(Integer applicationId, Integer userId, String approvedIp);
 }

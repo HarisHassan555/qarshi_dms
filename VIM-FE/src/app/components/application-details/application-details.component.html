@@ -18,13 +18,6 @@
                     <icon-circle-check class="w-4 h-4" />
                     Approve
                 </button>
-                <button *ngIf="showFinanceOptionalApprovalButton()"
-                    (click)="openFinanceOptionalApproverModal()"
-                    class="btn btn-outline-info gap-2"
-                    [disabled]="isApproving || isRejecting || isSendingBack || isSendingBackToInitiator || isRequestingFinanceOptionalApproval">
-                    <icon-clipboard-text class="w-4 h-4" />
-                    Request Optional Approval
-                </button>
                 <button (click)="openRejectModal()" class="btn btn-danger gap-2"
                     [disabled]="isApproving || isRejecting || isSendingBack || isSendingBackToInitiator">
                     <icon-x class="w-4 h-4" />
@@ -41,10 +34,6 @@
                     <icon-arrow-backward class="w-4 h-4" />
                     Send Back to Initiator
                 </button>
-            </div>
-            <div *ngIf="showFinanceOptionalApprovalButton() && isFinanceOptionalApprovalRequested()"
-                class="text-xs font-medium text-info">
-                {{ getFinanceOptionalApprovalStatusText() }}
             </div>
             <div *ngIf="showAssetCodeForm()" class="flex flex-wrap items-center gap-2">
                 <input type="text" class="form-input w-52" placeholder="Asset Code" [(ngModel)]="assetCodeInput"
@@ -600,41 +589,6 @@
             <span *ngIf="isSendingBackToInitiator"
                 class="animate-spin border-2 border-white border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
             {{ isSendingBackToInitiator ? 'Sending...' : 'Send Back to Initiator' }}
-        </button>
-    </ng-template>
-</modal>
-
-<!-- Finance Optional External Approval Modal -->
-<modal #financeOptionalApproverModal [closeOnOutsideClick]="false">
-    <ng-template #modalHeader>
-        <div>Request Optional External Approval</div>
-    </ng-template>
-    <ng-template #modalBody>
-        <div class="space-y-4">
-            <p class="text-sm text-gray-600 dark:text-gray-400">
-                Select a user to receive an approval email. Finance approval will stay blocked until this selected user approves from email.
-            </p>
-            <div>
-                <label class="block text-sm font-medium mb-2 dark:text-white-light">Select User <span class="text-danger">*</span></label>
-                <select class="form-select w-full" [(ngModel)]="financeOptionalSelectionUserId">
-                    <option [ngValue]="null">Select user</option>
-                    <option *ngFor="let user of getFinanceApproverCandidates()"
-                        [ngValue]="user.serUserId || user.userId || user.id">
-                        {{ user.txtUserName || user.userName || user.name }} ({{ user.txtAddress }})
-                    </option>
-                </select>
-            </div>
-        </div>
-    </ng-template>
-    <ng-template #modalFooter>
-        <button type="button" (click)="closeFinanceOptionalApproverModal()"
-            class="btn btn-outline-danger" [disabled]="isRequestingFinanceOptionalApproval">Cancel</button>
-        <button type="button" (click)="requestFinanceOptionalApprover()"
-            [disabled]="isRequestingFinanceOptionalApproval || !financeOptionalSelectionUserId"
-            class="btn btn-info ltr:ml-4 rtl:mr-4">
-            <span *ngIf="isRequestingFinanceOptionalApproval"
-                class="animate-spin border-2 border-white border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
-            {{ isRequestingFinanceOptionalApproval ? 'Sending...' : 'Send Email Request' }}
         </button>
     </ng-template>
 </modal>

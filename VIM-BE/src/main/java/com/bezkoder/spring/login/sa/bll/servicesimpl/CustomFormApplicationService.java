@@ -156,25 +156,4 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
         logger.debug("assignPrCode() - applicationId: " + applicationId + ", userId: " + userId);
         return customFormApplicationDAO.assignPrCode(applicationId, prCode, userId, approvedIp);
     }
-
-    @Override
-    public String requestFinanceOptionalApprover(Integer applicationId, Integer selectedUserId, Integer financeUserId,
-            String requesterIp) {
-        logger.debug("requestFinanceOptionalApprover() - applicationId: " + applicationId + ", selectedUserId: "
-                + selectedUserId + ", financeUserId: " + financeUserId);
-        return customFormApplicationDAO.requestFinanceOptionalApprover(applicationId, selectedUserId, financeUserId,
-                requesterIp);
-    }
-
-    @Override
-    public String approveFinanceOptionalFromEmail(Integer applicationId, Integer userId, String approvedIp) {
-        logger.debug("approveFinanceOptionalFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
-        return customFormApplicationDAO.approveFinanceOptionalFromEmail(applicationId, userId, approvedIp);
-    }
-
-    @Override
-    public String rejectFinanceOptionalFromEmail(Integer applicationId, Integer userId, String approvedIp) {
-        logger.debug("rejectFinanceOptionalFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
-        return customFormApplicationDAO.rejectFinanceOptionalFromEmail(applicationId, userId, approvedIp);
-    }
 }
