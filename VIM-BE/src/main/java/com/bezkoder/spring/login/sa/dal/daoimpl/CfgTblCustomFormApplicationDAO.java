@@ -575,12 +575,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                     application.getSerFormId())
                             : null;
             boolean isBudgetApproval = isBudgetApprovalForm(formForBudget);
-            boolean isCapf = isCapfForm(formForBudget);
+            boolean isCapf = isCapfFlow(formForBudget, application);
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
-            boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
+            boolean useIndividualPipelineFlow = !isCapfFlow(formForBudget, application)
+                    && (isBudgetApproval || hasDynamicFooterFlow);
+
+            boolean capfHasInitialSigner = isCapf && hasInitialSigner(application);
 
             // If CAPF form and has initial signer in JSON data, set level to -1
-            if (isCapf && hasInitialSigner(application)) {
+            if (capfHasInitialSigner) {
                 application.setIntCurrentApprovalLevel(-1);
                 log.info("Setting initial approval level to -1 for CAPF with Initial Signer");
             }
@@ -601,7 +604,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
             // Initialize approval level and status for individual pipeline flow
             if (useIndividualPipelineFlow) {
-                application.setIntCurrentApprovalLevel(0);
+                if (!capfHasInitialSigner) {
+                    application.setIntCurrentApprovalLevel(0);
+                }
                 application.setTxtStatus("IN_PROGRESS");
             }
 
@@ -629,7 +634,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             boolean deferEmail = Boolean.TRUE.equals(application.getDeferEmail());
             if (!deferEmail) {
                 try {
-                    if (useIndividualPipelineFlow) {
+                    if (useIndividualPipelineFlow && !isCapf) {
                         // Send email to first approver in sequence (everyone should get emails sequentially)
                         sendBudgetApprovalNextEmail(application, 0);
                         sendSubmissionEmails(application); // still send submitter confirmation
@@ -1008,14 +1013,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             return false;
         }
 
-        if (isCapfForm(form) && application.getIntCurrentApprovalLevel() != null
+        if (isCapfFlow(form, application) && application.getIntCurrentApprovalLevel() != null
                 && application.getIntCurrentApprovalLevel() == -1) {
             Integer initialSignerId = extractInitialSignerId(application);
             return initialSignerId != null && initialSignerId.equals(userId);
         }
 
         Map<String, Object> appData = parseApplicationData(application);
-        boolean useIndividualPipelineFlow = isBudgetApprovalForm(form) || !extractFooterFields(appData).isEmpty();
+        boolean useIndividualPipelineFlow = !isCapfFlow(form, application)
+                && (isBudgetApprovalForm(form) || !extractFooterFields(appData).isEmpty());
         if (useIndividualPipelineFlow) {
             List<BudgetApprover> sequence = getBudgetApprovalSequence(appData, entityManager);
             int currentLevel = currentLevelSafe(application);
@@ -1038,7 +1044,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     new TypeReference<List<Map<String, Object>>>() {
                     });
             int currentLevel = currentLevelSafe(application);
-            boolean isCapf = isCapfForm(form);
+            boolean isCapf = isCapfFlow(form, application);
 
             // Calculate which pipeline entry to use. CAPF Level 0 is dynamic HOD.
             int pipelineIndex = isCapf ? currentLevel - 1 : currentLevel;
@@ -1179,7 +1185,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             boolean isBudgetApproval = isBudgetApprovalForm(form);
             Map<String, Object> appData = parseApplicationData(application);
             boolean hasDynamicFooterFlow = !extractFooterFields(appData).isEmpty();
-            boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
+            boolean useIndividualPipelineFlow = !isCapfFlow(form, application)
+                    && (isBudgetApproval || hasDynamicFooterFlow);
             if (useIndividualPipelineFlow) {
                 List<BudgetApprover> sequence = getBudgetApprovalSequence(appData, entityManager);
                 if (sequence.isEmpty()) {
@@ -1422,7 +1429,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             String departmentName = null;
             Integer pipelineOrder = null;
 
-            boolean isCapf = isCapfForm(form);
+            boolean isCapf = isCapfFlow(form, application);
 
             if (currentLevel == -1 && isCapf) {
                 // Initial Signer stage for CAPF
@@ -1603,7 +1610,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             // Increment approval level (advance to next department)
-            if (isCapfForm(form) && currentLevelBeforeApproval != null && currentLevelBeforeApproval == -1) {
+            if (isCapfFlow(form, application) && currentLevelBeforeApproval != null && currentLevelBeforeApproval == -1) {
                 // CAPF initial signer approval should move to first real stage (level 1),
                 // not to pending level 0 (which breaks email + UI stage targeting).
                 currentLevel = 1;
@@ -1615,7 +1622,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             // For CAPF, the pipeline starts at index 0 when currentLevel=1.
             // So if currentLevel is 5 and pipelines.size is 4, we are done with pipeline.
             boolean isLastStage;
-            if (isCapfForm(form)) {
+            if (isCapfFlow(form, application)) {
                 isLastStage = pipelines.isEmpty() || currentLevel > pipelines.size();
             } else {
                 isLastStage = pipelines.isEmpty() || currentLevel >= pipelines.size();
@@ -1653,9 +1660,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             // For CAPF: only persist signatures into the stored PDF when approval was via email link.
             // When approving from the web portal, do not sync PDF (same as non-CAPF individual pipeline:
             // email version stays independent so portal approvals do not alter the emailed PDF).
-            if (isCapfForm(form) && approvedVia != null && "EMAIL".equalsIgnoreCase(approvedVia.trim())) {
+            if (isCapfFlow(form, application) && approvedVia != null && "EMAIL".equalsIgnoreCase(approvedVia.trim())) {
                 persistCapfSignedPdf(application, form);
-            } else if (!isCapfForm(form)) {
+            } else if (!isCapfFlow(form, application)) {
                 // Non-CAPF: only regenerate if no PDF exists.
                 boolean shouldRegeneratePdf = application.getBlbPdfData() == null
                         || application.getBlbPdfData().length == 0;
@@ -1692,7 +1699,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             // If pipelineOrder is null, calculate it: currentLevel (0-indexed) =
             // pipelineOrder (1-indexed)
             Integer approvedPipelineOrder;
-            if (isCapfForm(form) && currentLevelBeforeApproval != null && currentLevelBeforeApproval == -1) {
+            if (isCapfFlow(form, application) && currentLevelBeforeApproval != null && currentLevelBeforeApproval == -1) {
                 approvedPipelineOrder = 0;
             } else {
                 approvedPipelineOrder = pipelineOrder != null ? pipelineOrder : (currentLevel);
@@ -1757,7 +1764,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             Map<String, Object> appData = parseApplicationData(application);
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
             boolean isBudgetApproval = form != null && isBudgetApprovalForm(form);
-            boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
+            boolean useIndividualPipelineFlow = !isCapfFlow(form, application)
+                    && (isBudgetApproval || hasDynamicFooterFlow);
             Integer currentLevel = application.getIntCurrentApprovalLevel();
             if (currentLevel == null) {
                 currentLevel = 0;
@@ -1781,7 +1789,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     List<java.util.Map<String, Object>> pipelines = mapper.readValue(
                             form.getTxtApprovalPipeline(),
                             new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {});
-                    boolean isCapf = isCapfForm(form);
+                    boolean isCapf = isCapfFlow(form, application);
                     int pipelineIndex = isCapf ? currentLevel - 1 : currentLevel;
                     Integer departmentId = null;
                     Integer requiredUserId = null;
@@ -1843,7 +1851,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
                             });
 
-                    boolean isCapf = isCapfForm(form);
+                    boolean isCapf = isCapfFlow(form, application);
                     int pipelineIndex = isCapf ? currentLevel - 1 : currentLevel;
 
                     if (!pipelines.isEmpty() && pipelineIndex >= 0 && pipelineIndex < pipelines.size()) {
@@ -1983,7 +1991,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             String currentDepartmentName = null;
             Integer currentPipelineOrder = null;
 
-            boolean isCapf = isCapfForm(form);
+            boolean isCapf = isCapfFlow(form, application);
             if (!pipelines.isEmpty() && currentLevel > 0) {
                 int currentLevelIndex = isCapf ? currentLevel - 1 : currentLevel - 1;
                 // Wait, if isCapf is true:
@@ -2042,7 +2050,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             Map<String, Object> appData = parseApplicationData(application);
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
             boolean isBudgetApproval = isBudgetApprovalForm(form);
-            boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
+            boolean useIndividualPipelineFlow = !isCapfFlow(form, application)
+                    && (isBudgetApproval || hasDynamicFooterFlow);
 
             // Get or create approval history array
             List<java.util.Map<String, Object>> approvalHistory = new java.util.ArrayList<>();
@@ -2279,7 +2288,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     }
                 } else {
                     // For non-individual pipeline footer forms, clear the PDF data so it gets regenerated
-                    if (isCapfForm(form)) {
+                    if (isCapfFlow(form, application)) {
                         // For CAPF we rely on stored PDF per stage (blbPdfForStage) so that
                         // re-approval after send-back starts from the correct base PDF.
                         int targetLevel = (currentLevel != null ? currentLevel : 0);
@@ -2380,7 +2389,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
             boolean isBudgetApproval = isBudgetApprovalForm(form);
             boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
-            boolean isCapf = isCapfForm(form);
+            boolean isCapf = isCapfFlow(form, application);
 
             Integer currentLevel = application.getIntCurrentApprovalLevel();
             Integer currentDepartmentId = null;
@@ -2737,6 +2746,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     ? entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class,
                             application.getSerFormId())
                     : null;
+            boolean isCapf = isCapfFlow(form, application);
             boolean isBudgetApproval = isBudgetApprovalForm(form);
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
             boolean useIndividualPipelineFlow = isBudgetApproval || hasDynamicFooterFlow;
@@ -2745,7 +2755,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             entityManager.getTransaction().commit();
 
             try {
-                if (useIndividualPipelineFlow) {
+                if (useIndividualPipelineFlow && !isCapf) {
                     sendBudgetApprovalNextEmail(application, 0);
                 }
                 sendSubmissionEmails(application);
@@ -2878,7 +2888,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (form == null && application.getSerFormId() != null) {
                 form = emailEntityManager.find(CfgTblCustomForm.class, application.getSerFormId());
             }
-            boolean isCapf = isCapfForm(form);
+            boolean isCapf = isCapfFlow(form, application);
             log.info("Email debug [sendApprovalEmails]: appId={}, isCapf={}, formName={}, formCode={}",
                     application.getSerApplicationId(), isCapf,
                     form != null ? form.getTxtFormName() : "null",
@@ -3151,7 +3161,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     application.getTxtApprovalHistory(),
                     getBaseUrl());
 
-            if (isCapfForm(form)) {
+            if (isCapfFlow(form, application)) {
                 String cid = "capf-inline";
                 byte[] imageBytes = buildCapfPreviewPng(application, form);
                 if (imageBytes != null && imageBytes.length > 0) {
@@ -3210,7 +3220,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     "<p>If you need to reject or send back, use the standard action buttons in the application.</p>");
             html.append("<p>Thank you.</p>");
 
-            if (isCapfForm(form)) {
+            if (isCapfFlow(form, application)) {
                 String cid = "capf-inline";
                 byte[] imageBytes = buildCapfPreviewPng(application, form);
                 String htmlStr = html.toString();
@@ -3254,7 +3264,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (form == null && application.getSerFormId() != null) {
                 form = emailEntityManager.find(CfgTblCustomForm.class, application.getSerFormId());
             }
-            boolean isCapf = isCapfForm(form);
+            boolean isCapf = isCapfFlow(form, application);
             String formName = getResolvedFormName(form);
 
             Integer level = currentLevelSafe(application);
@@ -3321,7 +3331,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (resolvedForm == null && application.getSerFormId() != null) {
                 resolvedForm = emailEntityManager.find(CfgTblCustomForm.class, application.getSerFormId());
             }
-            boolean isCapf = isCapfForm(resolvedForm);
+            boolean isCapf = isCapfFlow(resolvedForm, application);
             String formName = getResolvedFormName(resolvedForm);
             Integer level = approvedLevel != null ? approvedLevel : currentLevelSafe(application);
 
@@ -3424,7 +3434,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 formName = form.getTxtFormName();
             }
 
-            boolean isCapf = isCapfForm(form);
+            boolean isCapf = isCapfFlow(form, application);
             log.info("Email debug [sendSubmissionEmails]: appId={}, isCapf={}, formName={}, formCode={}",
                     application.getSerApplicationId(), isCapf, formName,
                     application.getTxtFormCode() != null ? application.getTxtFormCode() : "null");
@@ -3492,7 +3502,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             // 2. Send email to the first level (Initial Signer OR Department Head)
-            if (!useIndividualPipelineFlow) {
+            if (!useIndividualPipelineFlow || isCapf) {
                 Integer currentLevel = application.getIntCurrentApprovalLevel();
                 if (currentLevel != null && currentLevel == -1 && isCapf) {
                     Integer initialSignerId = extractInitialSignerId(application);
@@ -3674,7 +3684,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                                                 application.getTxtApprovalHistory(),
                                                                 getBaseUrl());
 
-                                                boolean isCapfMail = isCapfForm(form);
+                                                boolean isCapfMail = isCapfFlow(form, application);
                                                 sendEmailWithInlineFormPreview(
                                                         java.util.Arrays.asList(firstDeptHead.getTxtAddress()),
                                                         deptHeadSubject,
@@ -4085,7 +4095,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (isBudgetApprovalForm(form)) {
                 return generateBudgetApprovalPdf(application, form, appData);
             }
-            if (isCapfForm(form)) {
+            if (isCapfFlow(form, application)) {
                 return generateCapfPdf(application, form, appData);
             }
         } catch (Exception e) {
@@ -5839,6 +5849,66 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         return false;
     }
 
+    private boolean isCapfFlow(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+            CfgTblCustomFormApplication application) {
+        if (isCapfForm(form)) {
+            return true;
+        }
+        if (application == null) {
+            return false;
+        }
+        try {
+            Map<String, Object> appData = parseApplicationData(application);
+            if (appData == null || appData.isEmpty()) {
+                return false;
+            }
+
+            java.util.Set<String> markers = new java.util.HashSet<>(
+                    java.util.Arrays.asList(
+                            "initial_signer",
+                            "technical_expert",
+                            "procurement",
+                            "finance",
+                            "htr_or_cct_ho",
+                            "approved_by",
+                            "asset_code",
+                            "pr_code"));
+
+            for (String k : appData.keySet()) {
+                if (k != null && markers.contains(k.trim().toLowerCase())) {
+                    return true;
+                }
+            }
+
+            List<Map<String, Object>> footerFields = extractFooterFields(appData);
+            if (footerFields != null) {
+                for (Map<String, Object> field : footerFields) {
+                    if (field == null) {
+                        continue;
+                    }
+                    Object keyObj = field.get("key");
+                    String key = keyObj != null ? String.valueOf(keyObj).trim().toLowerCase() : "";
+                    if (markers.contains(key)) {
+                        return true;
+                    }
+                    Object labelObj = field.get("label");
+                    String label = labelObj != null ? String.valueOf(labelObj).trim().toLowerCase() : "";
+                    if (label.contains("initial signer")
+                            || label.contains("technical expert")
+                            || label.contains("core team")
+                            || label.contains("htr")
+                            || label.contains("cct")
+                            || label.contains("asset code")
+                            || label.contains("pr code")) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
     private java.util.Map<String, String> extractUserDisplay(Object obj) {
         java.util.Map<String, String> result = new java.util.HashMap<>();
         if (!(obj instanceof Map))
@@ -6133,10 +6203,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
         }
 
-        // Slightly increase spacing only when signatures are present, to mimic signed web layout.
-        String sigRowPadding = hasAnySignedSlot ? "padding: 8px 4px;" : "padding: 6px 4px;";
-        String metaRowPadding = hasAnySignedSlot ? "padding: 8px 4px 10px 4px;" : "padding: 6px 4px;";
-        String labelRowPadding = hasAnySignedSlot ? "padding: 12px 4px 8px 4px;" : "padding: 6px 4px 8px 4px;";
+        // Keep signature block tight so signatures stay aligned near their line in email clients.
+        String sigRowPadding = hasAnySignedSlot ? "padding: 0 2px 2px 2px;" : "padding: 0 2px 2px 2px;";
+        String metaRowPadding = hasAnySignedSlot ? "padding: 2px 2px 4px 2px;" : "padding: 2px 2px 4px 2px;";
+        String labelRowPadding = hasAnySignedSlot ? "padding: 4px 2px 2px 2px;" : "padding: 4px 2px 2px 2px;";
 
         // ROW 1: Signatures
         html.append("<tr>");
@@ -6250,13 +6320,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 sigHtml.append(sigImgHtml);
 
                 if (!dateStr.isEmpty())
-                    metaHtml.append("<div style=\"font-size: 10px; margin-bottom: 4px; line-height: 1.5;\">").append(escapeHtml(dateStr))
+                    metaHtml.append("<div style=\"font-size: 10px; margin-bottom: 2px; line-height: 1.3;\">").append(escapeHtml(dateStr))
                             .append("</div>");
                 if (!userName.isEmpty())
-                    metaHtml.append("<div style=\"font-size: 10px; font-weight: bold; margin-bottom: 4px; line-height: 1.5;\">")
+                    metaHtml.append("<div style=\"font-size: 10px; font-weight: bold; margin-bottom: 2px; line-height: 1.3;\">")
                             .append(escapeHtml(userName.toLowerCase())).append("</div>");
                 if (!designation.isEmpty())
-                    metaHtml.append("<div style=\"font-size: 9px; line-height: 1.5;\">").append(escapeHtml(designation)).append("</div>");
+                    metaHtml.append("<div style=\"font-size: 9px; line-height: 1.2;\">").append(escapeHtml(designation)).append("</div>");
                 slot.time = dateStr;
             }
         }
@@ -7261,7 +7331,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (thirdPartyY != null)
                 candidates.add(thirdPartyY - 48f);
             if (approvedByY != null)
-                candidates.add(approvedByY + 76f);
+                candidates.add(approvedByY + 18f);
 
             Float anchoredSigRowY = null;
             if (!candidates.isEmpty()) {
@@ -7279,7 +7349,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             } else {
                 // Stored CAPF PDFs are often image-based; text anchors may be unavailable.
                 // Use stable template-relative fallback so placement stays on signature row.
-                anchoredSigRowY = pageHeight * 0.370f;
+                anchoredSigRowY = pageHeight * 0.392f;
                 log.warn(
                         "CAPF signature log [anchor-missing]: no anchors found, using template-ratio fallback signatureRowY={}",
                         anchoredSigRowY);
@@ -7300,7 +7370,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             String approvalHistoryJson, PDDocument document, Float anchoredSigRowY,
             List<Map<String, Object>> pipelines, Map<String, Float> anchors, List<float[]> lineSegments) throws java.io.IOException {
         float colWidth = width / 6f;
-        float sigHeight = 22f;
+        float sigHeight = 20f;
         float sigRowY = anchoredSigRowY != null ? anchoredSigRowY : (y - sigHeight);
         float[] slotCenters = capfSlotCentersFromAnchors(x, width, anchors);
 
@@ -7323,7 +7393,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 break;
             }
         }
-        float signedSignatureLift = hasAnySignedSlot ? 10f : 0f;
+        // Lower signatures by ~2-3px while keeping metadata unchanged.
+        float signedSignatureLift = hasAnySignedSlot ? 6f : 0f;
+        float signedMetaLift = hasAnySignedSlot ? 0f : 0f;
 
         Integer[] approvedUserIds = new Integer[approved.size()];
         for (int i = 0; i < approved.size(); i++) {
@@ -7383,7 +7455,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 float metaColW = entries.size() > 1 ? slotW / 2f : slotW;
                 float xOff = capfMetaXOffsetForSlot(i);
                 float yOff = capfMetaYOffsetForSlot(i);
-                drawSignatureMetaText(content, metaColX + xOff, metaColW, lineY + yOff, entry, approvedBy, userMeta,
+                drawSignatureMetaText(content, metaColX + xOff, metaColW, lineY + yOff + signedMetaLift, entry, approvedBy, userMeta,
                         hasAnySignedSlot);
             }
         }
@@ -8336,7 +8408,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             
             // ALWAYS generate fresh PDF for email preview if it is a Budget or CAPF form
             // to ensure latest data and signatures are visible.
-            if (isBudgetApproval || isCapfForm(form)) {
+            if (isBudgetApproval || isCapfFlow(form, application)) {
                 return generateApplicationPdf(application, form, appData != null ? appData : new java.util.HashMap<>());
             }
 
@@ -8728,7 +8800,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
                                 + application.getSerApplicationId() + "&userId=" + previousApprover.userId;
                         
-                        boolean isCapf = isCapfForm(form);
+                        boolean isCapf = isCapfFlow(form, application);
                         String cid = isCapf ? "capf-inline" : "form-inline";
                         
                         String subject = formName + " Sent Back - Requires Your Approval - " + 
@@ -8828,7 +8900,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             
             // newLevelAfterSendBack is 0-based index of the new level (the level it's going back to)
             // Stage 1 = level 0, Stage 2 = level 1, etc.
-            boolean isCapf = isCapfForm(form);
+            boolean isCapf = isCapfFlow(form, application);
             // CAPF levels include a level 0 "Initiator HOD" stage that is NOT part of txtApprovalPipeline JSON.
             // Therefore, for CAPF, pipeline index = (level - 1) for levels >= 1.
             // When sending back to level 0, we must target the submitter's department (Initiator HOD stage).
