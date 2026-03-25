@@ -32,7 +32,8 @@ export class CustomFormApplicationService {
   }
 
   updateApplication(payload: any) {
-    return this.http.post(urls.API_URL + 'updateApplication', payload);
+    const sanitized = this.stripTransientFields(payload);
+    return this.http.post(urls.API_URL + 'updateApplication', sanitized);
   }
 
   updateApplicationPdf(applicationId: number, pdfBlob: Blob, filename?: string) {
@@ -120,5 +121,15 @@ export class CustomFormApplicationService {
         userId: userId ?? ''
       }
     });
+  }
+
+  private stripTransientFields(payload: any): any {
+    if (!payload || typeof payload !== 'object') return payload;
+    const sanitized = { ...payload };
+    // Frontend-only flag; backend entity does not allow it.
+    if ('isCapfForm' in sanitized) {
+      delete (sanitized as any).isCapfForm;
+    }
+    return sanitized;
   }
 }

@@ -748,8 +748,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return "Failure: Application not found";
             }
 
-            application.setBlbPdfForStage(0, pdfData);
-            application.setBlbPdfData(pdfData);
+            // Preserve the original submission snapshot (stage 0) once set.
+            // Subsequent uploads should not overwrite the baseline used for CAPF signature overlays.
+            if (application.getBlbPdfForStage(0) == null || application.getBlbPdfForStage(0).length == 0) {
+                application.setBlbPdfForStage(0, pdfData);
+                application.setBlbPdfData(pdfData);
+            } else if (application.getBlbPdfData() == null || application.getBlbPdfData().length == 0) {
+                // Only fill if missing, avoid overwriting signed PDFs.
+                application.setBlbPdfData(pdfData);
+            }
             application.setTxtPdfName(pdfName != null && !pdfName.trim().isEmpty() ? pdfName : "application.pdf");
             application.setTxtPdfMime(pdfMime != null && !pdfMime.trim().isEmpty() ? pdfMime : "application/pdf");
             entityManager.merge(application);
@@ -1654,10 +1661,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
             application.setSerModifiedUser(resolvedApproverId);
 
-            // For CAPF: only persist signatures into the stored PDF when approval was via email link.
-            // When approving from the web portal, do not sync PDF (same as non-CAPF individual pipeline:
-            // email version stays independent so portal approvals do not alter the emailed PDF).
-            if (isCapfForm(form) && approvedVia != null && "EMAIL".equalsIgnoreCase(approvedVia.trim())) {
+            // For CAPF: always persist signatures into the stored PDF so email approvals and
+            // portal approvals produce the same signed CAPF in outbound emails.
+            if (isCapfForm(form)) {
                 persistCapfSignedPdf(application, form);
             } else if (!isCapfForm(form)) {
                 // Non-CAPF: only regenerate if no PDF exists.

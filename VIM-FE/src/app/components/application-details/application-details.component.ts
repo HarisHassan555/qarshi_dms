@@ -702,7 +702,11 @@ export class ApplicationDetailsComponent implements OnInit {
       };
 
       // 4. Call API
-      const response: any = await this.http.post(`${urls.API_URL}updateApplication`, updatedApp).toPromise();
+      const sanitizedApp: any = { ...updatedApp };
+      if ('isCapfForm' in sanitizedApp) {
+        delete sanitizedApp.isCapfForm;
+      }
+      const response: any = await this.http.post(`${urls.API_URL}updateApplication`, sanitizedApp).toPromise();
       if (response && response.status === 'Success') {
         this.notificationService.showMessage('Vendor details updated successfully', 'success');
         this.applicationDetails.txtApplicationData = updatedApp.txtApplicationData;
