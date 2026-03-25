@@ -2554,8 +2554,7 @@ export class ApplicationDetailsComponent implements OnInit {
 
   /** One entry per "card" in the workflow. Multi-approver stages (e.g. Technical Expert with Haris + user 1) get one card per approver. */
   getPipelineCardsForDisplay(): Array<{ pipeline: any; pipelineIndex: number; approverId: number | null; approverIndex: number; totalApproversInStage: number }> {
-    const pipelines = this.getPipelineData();
-    if (!pipelines || pipelines.length === 0) return [];
+    const pipelines = this.getPipelineData() || [];
     const cards: Array<{ pipeline: any; pipelineIndex: number; approverId: number | null; approverIndex: number; totalApproversInStage: number }> = [];
     for (let i = 0; i < pipelines.length; i++) {
       const pipeline = pipelines[i];
@@ -2573,7 +2572,7 @@ export class ApplicationDetailsComponent implements OnInit {
     }
 
     // CAPF: append final "extra" stages after departmental pipeline.
-    if (this.isCapfForm()) {
+    if (this.shouldShowCapfExtraStages()) {
       const baseIndex = pipelines.length;
       cards.push({ pipeline: { type: 'capf_ceo' }, pipelineIndex: baseIndex, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
       cards.push({ pipeline: { type: 'capf_asset_code' }, pipelineIndex: baseIndex + 1, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
@@ -3529,6 +3528,113 @@ export class ApplicationDetailsComponent implements OnInit {
       const formCode = (form?.txtFormCode || form?.cfgTblCustomForm?.txtFormCode || '').toUpperCase();
       if (formName.includes('CAPITAL ASSETS PURCHASE') || formName.includes('CAPF') || formCode.includes('CAPF')) return true;
     }
+
+    // Backend CAPF lifecycle markers (useful when naming/code conventions differ)
+    const status = (this.applicationDetails?.txtStatus || '').toString().toUpperCase();
+    if (status === 'CEO_PENDING' || status === 'ASSET_PENDING') return true;
+
+    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel;
+    if (typeof currentLevel === 'number' && currentLevel < 0) return true; // CAPF often starts at -1
+
+    if (this.applicationDetails?.txtAssetCode || this.applicationDetails?.txtPrCode) return true;
+
+    if (Array.isArray(this.approvalHistory) && this.approvalHistory.length > 0) {
+      const hasCapfStyleEntry = this.approvalHistory.some((e: any) => {
+        const action = (e?.action || e?.status || '').toString().toUpperCase();
+        const role = (e?.role || e?.designation || e?.txtDesignation || e?.departmentName || '').toString().toUpperCase();
+        return action === 'PR_CODE_ASSIGNED' || role.includes('CEO') || role.includes('FINANCE');
+      });
+      if (hasCapfStyleEntry) return true;
+    }
+
+    return false;
+  }
+
+  private isCurrentUserCapfInitialSigner(): boolean {
+    const rawSigner = this.applicationFormData?.initial_signer;
+    if (rawSigner == null) return false;
+
+    const currentUserId = this.getCurrentUserId();
+    const signerText = this.extractSignerName(rawSigner);
+    if (!signerText) return false;
+
+    // Support numeric payloads if ever sent as ID.
+    const signerAsNumber = Number(signerText);
+    if (!isNaN(signerAsNumber) && currentUserId != null) {
+      return Number(currentUserId) === signerAsNumber;
+    }
+
+    // Mirror backend resolveUserIdByName behavior:
+    // trim and drop " (Role)" suffix before exact case-insensitive user-name match.
+    const cleanedSigner = signerText.split('(')[0].trim().toLowerCase();
+    if (cleanedSigner && currentUserId != null && this.userNameMap && this.userNameMap.size > 0) {
+      const matched = Array.from(this.userNameMap.entries()).find(([, name]) =>
+        String(name || '').trim().toLowerCase() === cleanedSigner
+      );
+      if (matched) {
+        return Number(currentUserId) === Number(matched[0]);
+      }
+    }
+
+    const currentNames = [
+      this.currentUser?.txtUserName,
+      this.currentUser?.userName,
+      this.currentUser?.name
+    ]
+      .filter((v: any) => v != null && String(v).trim() !== '')
+      .map((v: any) => String(v).trim().toLowerCase());
+
+    return currentNames.includes(signerText.toLowerCase());
+  }
+
+  private extractSignerName(rawSigner: any): string {
+    if (rawSigner == null) return '';
+    if (typeof rawSigner === 'string' || typeof rawSigner === 'number') {
+      return String(rawSigner).trim();
+    }
+    if (typeof rawSigner === 'object') {
+      const name = rawSigner?.txtUserName ?? rawSigner?.userName ?? rawSigner?.name;
+      return name != null ? String(name).trim() : '';
+    }
+    return String(rawSigner).trim();
+  }
+
+  private isCurrentUserInitiatorDeptHead(): boolean {
+    const userId = this.getCurrentUserId();
+    if (!userId || !this.applicationDetails) return false;
+
+    const submitterDeptId =
+      this.applicationDetails?.hrTblDepartment?.serDepartmentId ??
+      this.applicationDetails?.serDepartmentId ??
+      this.applicationDetails?.cfgTblUser?.hrTblDepartment?.serDepartmentId ??
+      this.applicationDetails?.cfgTblUser?.serDepartmentId;
+
+    if (submitterDeptId == null) return false;
+    const headId = this.departmentHeadMap.get(Number(submitterDeptId));
+    return headId != null && Number(headId) === Number(userId);
+  }
+
+  /**
+   * CAPF tile workflow should be visible when the form is CAPF OR
+   * when backend state/history clearly indicates CAPF lifecycle stages.
+   */
+  shouldShowCapfExtraStages(): boolean {
+    if (this.isCapfForm()) return true;
+
+    const status = (this.applicationDetails?.txtStatus || '').toString().toUpperCase();
+    if (status === 'CEO_PENDING' || status === 'ASSET_PENDING') return true;
+
+    const hasAsset = !!(this.applicationDetails?.txtAssetCode && String(this.applicationDetails.txtAssetCode).trim());
+    const hasPr = !!(this.applicationDetails?.txtPrCode && String(this.applicationDetails.txtPrCode).trim());
+    if (hasAsset || hasPr) return true;
+
+    if (Array.isArray(this.approvalHistory) && this.approvalHistory.length > 0) {
+      const hasPrAction = this.approvalHistory.some((e: any) =>
+        (e?.action || e?.status || '').toString().toUpperCase() === 'PR_CODE_ASSIGNED'
+      );
+      if (hasPrAction) return true;
+    }
+
     return false;
   }
 

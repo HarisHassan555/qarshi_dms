@@ -650,7 +650,7 @@
 
         </div>
 
-        <ng-container *ngIf="hasIndividualPipelineFooter()">
+        <ng-container *ngIf="hasIndividualPipelineFooter() && !shouldShowCapfExtraStages()">
             <div class="mb-4">
                 <div class="flex justify-between text-xs mb-1.5">
                     <span class="font-medium text-gray-600 dark:text-gray-400">Total Progress</span>
@@ -717,7 +717,7 @@
             </div>
         </ng-container>
 
-        <ng-container *ngIf="!hasIndividualPipelineFooter() && getPipelineData() as pipelines">
+        <ng-container *ngIf="(!hasIndividualPipelineFooter() || shouldShowCapfExtraStages()) && getPipelineData() as pipelines">
             <div class="mb-4">
                 <div class="flex justify-between text-xs mb-1.5">
                     <span class="font-medium text-gray-600 dark:text-gray-400">Total Progress</span>
