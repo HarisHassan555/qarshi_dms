@@ -1566,7 +1566,27 @@ export class ApplicationDetailsComponent implements OnInit {
     try {
       if (this.isWordEditorType(field.type) || this.isWordEditorChunkType(field.type) || this.isHtmlPreviewField(field)) {
         const html = String(this.getWordEditorHtml(field) || '');
-        return labelLen + this.stripHtmlToText(html).length;
+        const textLen = this.stripHtmlToText(html).length;
+        const brCount = (html.match(/<br\s*\/?>/gi) || []).length;
+        const pCount = (html.match(/<\/p>/gi) || []).length;
+        const liCount = (html.match(/<li\b/gi) || []).length;
+        const trCount = (html.match(/<tr\b/gi) || []).length;
+        const imgCount = (html.match(/<img\b/gi) || []).length;
+        // Heuristic weight for visual height so long, sparse HTML paginates properly.
+        const extra =
+          brCount * 18 +
+          pCount * 18 +
+          liCount * 24 +
+          trCount * 70 +
+          imgCount * 140;
+        return labelLen + textLen + extra;
+      }
+      if (this.isTableType(field.type)) {
+        const rawValue = this.getFieldValue(field);
+        if (Array.isArray(rawValue)) {
+          const rowCount = rawValue.length;
+          return labelLen + rowCount * 90;
+        }
       }
       const rawValue = this.getFieldValue(field);
       const formatted = this.formatFieldValue(field, rawValue);

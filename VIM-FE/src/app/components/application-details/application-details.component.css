@@ -532,7 +532,7 @@
 .xyz-signatures-blank td {
     height: 88px;
     min-height: 88px;
-    padding: 8px 4px 10px 4px;
+    padding: 4px 4px 10px 4px;
     background: #ffffff;
     overflow: hidden;
     position: relative;
@@ -564,7 +564,7 @@
     height: auto;
     object-fit: contain;
     display: block;
-    margin: 0 auto 4px auto;
+    margin: 0 auto 2px auto;
     box-sizing: border-box;
 }
 
@@ -575,7 +575,7 @@
     height: auto !important;
     object-fit: contain !important;
     display: block !important;
-    margin: 0 auto 4px auto !important;
+    margin: 0 auto 2px auto !important;
 }
 
 .xyz-signatures-blank td > div {
@@ -584,7 +584,8 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
+    padding-top: 6px;
     overflow: hidden;
     box-sizing: border-box;
 }
@@ -592,7 +593,8 @@
 .xyz-sig-time {
     font-size: 10px;
     color: #6b7280;
-    margin-bottom: 4px;
+    margin-top: 0;
+    margin-bottom: 2px;
 }
 
 @media (max-width: 1200px) {

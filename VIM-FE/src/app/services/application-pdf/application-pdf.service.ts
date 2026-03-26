@@ -150,9 +150,25 @@ export class ApplicationPdfService {
             }
           }
 
+          // For XYZ forms, force deterministic multi-page output.
+          const xyzWrapper = (iframeDoc.querySelector('.abc-wrapper') as HTMLElement) || element;
+          const isXyzPaper = element.classList.contains('xyz-paper') || !!element.querySelector('.xyz-paper');
+          if (isXyzPaper) {
+            try {
+              const pdfBlob = await this.renderXyzPdfFromElement(xyzWrapper);
+              if (done) return;
+              done = true;
+              cleanup(iframe);
+              resolve(pdfBlob);
+              return;
+            } catch (xyzError) {
+              // fall through to existing html2pdf path as fallback
+              console.error('XYZ deterministic PDF generation failed, falling back to html2pdf:', xyzError);
+            }
+          }
+
           element.offsetHeight;
           // For xyz-paper elements, ensure natural height for PDF generation
-          const isXyzPaper = element.classList.contains('xyz-paper') || element.querySelector('.xyz-paper');
           if (isXyzPaper) {
             // Add a class to the element to trigger PDF-specific styles
             element.classList.add('pdf-generation-mode');
@@ -372,6 +388,90 @@ export class ApplicationPdfService {
     boxcheckSpanSnapshots.forEach(({ el, transform }) => {
       el.style.transform = transform;
     });
+
+    return pdf.output('blob');
+  }
+
+  private async renderXyzPdfFromElement(element: HTMLElement): Promise<Blob> {
+    const captureTarget = (element.querySelector('.xyz-paper') as HTMLElement) || element;
+
+    const [html2canvasModule, jsPDFModule] = await Promise.all([
+      import('html2canvas'),
+      import('jspdf')
+    ]);
+    const html2canvas = (html2canvasModule.default || html2canvasModule) as any;
+    const jsPDF = (jsPDFModule.default || jsPDFModule) as any;
+
+    // Ensure full content is visible for capture.
+    const savedStyles: Array<{ el: HTMLElement; prop: string; value: string }> = [];
+    const setStyle = (el: HTMLElement | null, prop: string, value: string) => {
+      if (!el) return;
+      savedStyles.push({ el, prop, value: el.style.getPropertyValue(prop) });
+      el.style.setProperty(prop, value, 'important');
+    };
+
+    const paper = (captureTarget.querySelector('.xyz-paper') as HTMLElement) || captureTarget;
+    const contentArea = captureTarget.querySelector('.xyz-content-area') as HTMLElement;
+    setStyle(paper, 'height', 'auto');
+    setStyle(paper, 'max-height', 'none');
+    setStyle(paper, 'min-height', 'auto');
+    setStyle(paper, 'overflow', 'visible');
+    setStyle(contentArea, 'overflow', 'visible');
+    setStyle(contentArea, 'height', 'auto');
+    setStyle(contentArea, 'max-height', 'none');
+    setStyle(contentArea, 'min-height', 'auto');
+
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    const canvas = await html2canvas(captureTarget, {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      backgroundColor: '#ffffff',
+      width: captureTarget.scrollWidth,
+      height: captureTarget.scrollHeight,
+      windowWidth: captureTarget.scrollWidth,
+      windowHeight: captureTarget.scrollHeight
+    });
+
+    // Restore styles
+    savedStyles.forEach(({ el, prop, value }) => {
+      if (value) {
+        el.style.setProperty(prop, value);
+      } else {
+        el.style.removeProperty(prop);
+      }
+    });
+
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+      compress: true
+    });
+
+    const pdfWidth = 210;
+    const pdfHeight = 297;
+    const marginX = 5;
+    const marginY = 5;
+    const printableWidth = pdfWidth - marginX * 2;
+    const printableHeight = pdfHeight - marginY * 2;
+
+    const imgWidth = printableWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    const imgData = canvas.toDataURL('image/jpeg', 0.98);
+
+    let heightLeft = imgHeight;
+    let position = marginY;
+    pdf.addImage(imgData, 'JPEG', marginX, position, imgWidth, imgHeight);
+    heightLeft -= printableHeight;
+
+    while (heightLeft > 0) {
+      pdf.addPage('a4', 'portrait');
+      position = marginY - (imgHeight - heightLeft);
+      pdf.addImage(imgData, 'JPEG', marginX, position, imgWidth, imgHeight);
+      heightLeft -= printableHeight;
+    }
 
     return pdf.output('blob');
   }
@@ -1209,15 +1309,6 @@ export class ApplicationPdfService {
       overflow: visible;
       position: relative;
     }
-    @media screen {
-      .xyz-paper {
-        height: 297mm;
-        min-height: 297mm;
-        max-height: 297mm;
-        overflow: auto;
-        -webkit-overflow-scrolling: touch;
-      }
-    }
     @media print {
       .xyz-paper {
         height: auto !important;
@@ -1289,13 +1380,6 @@ export class ApplicationPdfService {
       overflow: visible;
       min-height: 0;
     }
-    @media screen {
-      .xyz-content-area {
-        overflow-y: auto;
-        overflow-x: hidden;
-        -webkit-overflow-scrolling: touch;
-      }
-    }
     @media print {
       .xyz-content-area {
         overflow: visible !important;
@@ -1335,16 +1419,16 @@ export class ApplicationPdfService {
     }
     .xyz-signatures { width:100%; border-collapse:collapse; font-family: "Calibri", "Arial", sans-serif; font-size:12px; table-layout:fixed; }
     .xyz-signatures th, .xyz-signatures td { border:1px solid #000; padding:4px 6px; text-align:center !important; vertical-align:middle !important; word-wrap:break-word; overflow-wrap:break-word; max-width:0; }
-    .xyz-signatures-blank td { height:88px; min-height:88px; padding:8px 4px 12px 4px; background:#fff; overflow:hidden; position:relative; box-sizing:border-box; vertical-align:top !important; text-align:center !important; border-bottom:1px solid #000; }
-    .xyz-signatures tr:nth-child(2) th { padding-top:36px; padding-bottom:8px; }
-    .xyz-signatures th { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:14px; font-weight:700; background:#8f8f8f; text-align:center; text-transform:none; letter-spacing:0; }
+    .xyz-signatures-blank td { height:68px; min-height:68px; padding:2px 4px 8px 4px; background:#fff; overflow:hidden; position:relative; box-sizing:border-box; vertical-align:top !important; text-align:center !important; border-bottom:1px solid #000; }
+    .xyz-signatures tr:nth-child(2) th { padding-top:18px; padding-bottom:5px; }
+    .xyz-signatures th { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:11px; font-weight:700; background:#8f8f8f; text-align:center; text-transform:none; letter-spacing:0; }
     .xyz-signatures th[colspan="2"] { text-align:center; }
     .xyz-signatures td { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:12px; text-align:center !important; vertical-align:middle !important; }
-    .xyz-sig-img { max-height: 14px; max-width: 85%; width: auto; height: auto; object-fit: contain; display:block; margin:0 auto 2px auto; box-sizing:border-box; vertical-align:bottom; }
-    .xyz-signatures-blank td .xyz-sig-img { max-height: 14px !important; max-width: calc(85% - 8px) !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 0 auto 2px auto !important; vertical-align: bottom !important; }
-    .xyz-signatures-blank td > div { text-align:center; vertical-align:middle; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; width:100%; height:100%; }
-    .xyz-sig-time { font-size:7px; color:#6b7280; margin-top:1px; line-height:1.2; }
-    .xyz-signatures-blank td .xyz-sig-time { font-size: 7px !important; margin-top: 1px !important; }
+    .xyz-sig-img { max-height: 14px; max-width: 85%; width: auto; height: auto; object-fit: contain; display:block; margin:0 auto 1px auto; box-sizing:border-box; vertical-align:bottom; }
+    .xyz-signatures-blank td .xyz-sig-img { max-height: 14px !important; max-width: calc(85% - 8px) !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 0 auto 1px auto !important; vertical-align: bottom !important; }
+    .xyz-signatures-blank td > div { text-align:center; vertical-align:middle; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; width:100%; height:100%; padding-top:0; margin-top:-2px; }
+    .xyz-sig-time { font-size:7px; color:#6b7280; margin-top:0; line-height:1.1; }
+    .xyz-signatures-blank td .xyz-sig-time { font-size: 7px !important; margin-top: 0 !important; }
     .xyz-generic-field { margin-bottom:10px; }
     .xyz-generic-label { font-size:12px; font-weight:700; margin-bottom:3px; text-transform:uppercase; letter-spacing:.2px; }
     .xyz-generic-value { font-size:13.5px; }
