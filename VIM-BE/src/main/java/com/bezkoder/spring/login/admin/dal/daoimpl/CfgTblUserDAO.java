@@ -448,20 +448,43 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 		@Override
 		public String userPasswordUpdate(int id,String NewPassword,String oldPassword) {
 			EntityManager entityManager = getEntityManager();
-		    entityManager.getTransaction().begin();
-	        CfgTblUser CfgTblUserObject = entityManager.find(CfgTblUser.class, (id));
-			if(NewPassword.equals(null) || oldPassword.equals(null)){
-				String plaintText = generateRandomPassword(PASSWORD_LENGTH);
-				CfgTblUserObject.setTxtPassword(passwordEncoder.encode(plaintText));
-			}else{
-				CfgTblUserObject.setTxtPassword(passwordEncoder.encode(oldPassword));
+			try {
+				entityManager.getTransaction().begin();
+				CfgTblUser CfgTblUserObject = entityManager.find(CfgTblUser.class, id);
+				if (CfgTblUserObject == null) {
+					entityManager.getTransaction().rollback();
+					return "Failure";
+				}
+
+				if (NewPassword == null || NewPassword.trim().isEmpty()) {
+					entityManager.getTransaction().rollback();
+					return "Failure";
+				}
+
+				if (oldPassword != null && !oldPassword.trim().isEmpty()) {
+					String existingPasswordHash = CfgTblUserObject.getTxtPassword();
+					if (existingPasswordHash == null || !passwordEncoder.matches(oldPassword, existingPasswordHash)) {
+						entityManager.getTransaction().rollback();
+						return "CPNM";
+					}
+				}
+
+				CfgTblUserObject.setTxtPassword(passwordEncoder.encode(NewPassword));
+				entityManager.merge(CfgTblUserObject);
+				entityManager.getTransaction().commit();
+				emailService.sendPassordinMail(CfgTblUserObject.getTxtAddress(),CfgTblUserObject.getTxtUserName(),NewPassword);
+				return "Success";
+			} catch (Exception ex) {
+				if (entityManager.getTransaction().isActive()) {
+					entityManager.getTransaction().rollback();
+				}
+				log.error(ex.getMessage(), ex);
+				return "Failure";
+			} finally {
+				if (entityManager != null && entityManager.isOpen()) {
+					entityManager.close();
+				}
 			}
-		//	CfgTblUserObject.setTxtPassword(passwordEncoder.encode(NewPassword));
-			entityManager.merge(CfgTblUserObject);
-			entityManager.getTransaction().commit();
-			emailService.sendPassordinMail(CfgTblUserObject.getTxtAddress(),CfgTblUserObject.getTxtUserName(),NewPassword);
-			entityManager.close();
-			return "Success";
 
 	}
 		

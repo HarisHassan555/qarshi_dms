@@ -161,10 +161,9 @@ public class UserController {
 				throws Exception {
 			
 	         String msg;
-			 msg=loginDaoImpl.userPasswordUpdatebyAdmin(jsonStr.getUserId(), jsonStr.getNewPass());
+			 msg=userService.userPasswordUpdate(jsonStr.getUserId(), jsonStr.getNewPass(), null);
 			 System.out.println(msg);
-			 
-			 return "Success";
+			 return msg;
 //			 if(msg.equals("Success")){
 //				 return "Success";
 //			 }else{

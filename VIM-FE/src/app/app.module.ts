@@ -144,6 +144,9 @@ import { XyzComponent } from './pages/xyz/xyz.component';
 import { AbcComponent } from './pages/abc/abc.component';
 import { FormDocumentHeaderComponent } from './components/form-document-header/form-document-header.component';
 import { CustomDocumentBuilderComponent } from './components/custom-document-builder/custom-document-builder.component';
+import { RolesManagementComponent } from './components/roles-management/roles-management.component';
+import { MenuListComponent } from './components/menu-list/menu-list.component';
+import { SubmenuListComponent } from './components/submenu-list/submenu-list.component';
 
 
 @NgModule({
@@ -263,7 +266,11 @@ import { CustomDocumentBuilderComponent } from './components/custom-document-bui
         XyzComponent,
         FormDocumentHeaderComponent,
         CustomDocumentBuilderComponent,
-        ApprovedApplicationsComponent
+        ApprovedApplicationsComponent,
+        RolesManagementComponent
+        ,
+        MenuListComponent,
+        SubmenuListComponent
     ],
 
     providers: [

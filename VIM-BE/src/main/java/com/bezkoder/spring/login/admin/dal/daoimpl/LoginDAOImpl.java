@@ -120,7 +120,7 @@ public class LoginDAOImpl implements LoginDAO{
     System.out.println("karwa dy print"+new String(encryptedoldPassword));
    // byte[]   encrypted = Base64.encode(CfgTblUser.getPassword().getBytes());
     if(new String(encryptedoldPassword).equals(CfgTblUserObject.getTxtPassword())){
-    if(CfgTblUserObject !=null || CfgTblUserObject.getSerUserId()>0){
+    if(CfgTblUserObject !=null && CfgTblUserObject.getSerUserId()>0){
 	    try{
 	       byte[]   encrypted = Base64.encode(NewPassword.getBytes());
 	       CfgTblUserObject.setTxtPassword(new String(encrypted));
@@ -193,7 +193,7 @@ public class LoginDAOImpl implements LoginDAO{
 //    if(new String(encryptedoldPassword).equals(CfgTblUserObject.getTxtPassword()))
     
     {
-    if(CfgTblUserObject !=null || CfgTblUserObject.getSerUserId()>0){
+    if(CfgTblUserObject !=null && CfgTblUserObject.getSerUserId()>0){
 	    try{
 	       byte[]   encrypted = Base64.encode(NewPassword.getBytes());
 	       CfgTblUserObject.setTxtPassword(new String(encrypted));

@@ -62,15 +62,22 @@ public class SubMenuRoleController {
 			HttpServletRequest request, HttpServletResponse response) {
 		logger.debug("addNewSubMenuRoleinList()");
 		try {
+			Integer parsedUserId = Integer.parseInt(userId);
+			Integer parsedRoleId = Integer.parseInt(roleId);
 			if(lstcfgTblSubMenuRole!=null)
 			System.out.println("----Role List---------"+lstcfgTblSubMenuRole.size());
 			for (CfgTblSubMenuRole subMenuRole : lstcfgTblSubMenuRole) {
-				CfgTblUser cfgTblUser = new CfgTblUser();
-				cfgTblUser.setSerUserId(Integer.parseInt(userId));
 				CfgTblRole cfgTblRole = new CfgTblRole();
-				cfgTblRole.setSerRoleId(Integer.parseInt(roleId));
+				cfgTblRole.setSerRoleId(parsedRoleId);
 				subMenuRole.setCfgTblRole(cfgTblRole);
-				subMenuRole.setCfgTblUser(cfgTblUser);
+				// userId <= 0 means role-level permission (ser_user_id IS NULL)
+				if (parsedUserId > 0) {
+					CfgTblUser cfgTblUser = new CfgTblUser();
+					cfgTblUser.setSerUserId(parsedUserId);
+					subMenuRole.setCfgTblUser(cfgTblUser);
+				} else {
+					subMenuRole.setCfgTblUser(null);
+				}
 			}
 			System.out.println(userId + "" + roleId);
 			if(lstcfgTblSubMenuRole!=null && lstcfgTblSubMenuRole.size() >0)
@@ -92,12 +99,32 @@ public class SubMenuRoleController {
 		try {
 			List<String> idList = new ArrayList<String>();
 			for (String id : subMenuRoleesId.split(",")) {
-				if (id.isEmpty()) {
+				String clean = id.replace("\"", "").trim();
+				if (clean.isEmpty()) {
 					continue;
 				}
-				idList.add(id);
+				idList.add(clean);
 			}
 			return subMenuRoleService.deleteSubMenuRole(idList);
+		} catch (Exception ex) {
+			logger.error(ex.getMessage(), ex);
+			return "Failure";
+		}
+	}
+
+	@RequestMapping(value = "/deleteSubMenuRoleBySubMenu", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE)
+	public String deleteSubMenuRoleBySubMenuAction(@RequestBody String subMenuIds, HttpServletRequest request,
+			HttpServletResponse response) {
+		try {
+			List<String> idList = new ArrayList<String>();
+			for (String id : subMenuIds.split(",")) {
+				String clean = id.replace("\"", "").trim();
+				if (clean.isEmpty()) {
+					continue;
+				}
+				idList.add(clean);
+			}
+			return subMenuRoleService.deleteSubMenuRoleBySubMenuIds(idList);
 		} catch (Exception ex) {
 			logger.error(ex.getMessage(), ex);
 			return "Failure";

@@ -1,4 +1,4 @@
-﻿<div [ngClass]="{ 'dark text-white-dark': store.semidark }">
+<div [ngClass]="{ 'dark text-white-dark': store.semidark }">
     <nav
         class="sidebar fixed bottom-0 top-0 z-50 h-full min-h-screen w-[260px] shadow-[5px_0_25px_0_rgba(94,92,154,0.1)] transition-all duration-300">
         <div class="h-full bg-white dark:bg-[#0e1726]">
@@ -61,7 +61,7 @@
                                     [@slideDownUp]="!activeDropdown.includes(menu.menuName)" class="accordion-content">
                                     <ul class="sub-menu text-gray-500">
                                         <ng-container *ngFor="let sm of menu.subMenus">
-                                            <li *ngIf="canViewMenu(sm.roles)">
+                                            <li *ngIf="canViewMenu(sm)">
                                                 <a [routerLink]="sm.subMenuAction" routerLinkActive="active"
                                                     (click)="toggleMobileMenu()">
                                                     {{ getDisplaySubMenuName(sm.subMenuName) }}

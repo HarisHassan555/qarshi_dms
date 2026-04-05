@@ -16,6 +16,8 @@ export class ChangePasswordComponent implements OnInit {
   isUnmatched = false;
   users : any;
   role: string = '';
+  showNewPass = false;
+  showConfirmPass = false;
 
   constructor (
     private fb: FormBuilder,
@@ -27,12 +29,12 @@ export class ChangePasswordComponent implements OnInit {
     initializeForm(): void {
         const formControls: any = {
             userId: [''],
-            oldPass: ['', Validators.required],
+            newPass: ['', Validators.required],
+            confirmPass: ['', Validators.required],
         };
 
         if (this.role !== 'ADMIN') {
-            formControls.newPass = ['', Validators.required];
-            formControls.confirmPass = ['', Validators.required];
+            formControls.oldPass = ['', Validators.required];
         }
 
         if (this.role === 'ADMIN') {
@@ -51,20 +53,17 @@ export class ChangePasswordComponent implements OnInit {
       selectedUser :[''],
     });*/
 
-      this.initializeForm();
-
-
       const userJson = localStorage.getItem('user');
       if (userJson) {
           this.user = JSON.parse(userJson);
           this.role = this.user?.cfgTblRole?.txtRoleName || '';
-          debugger;
+      }
+      this.initializeForm();
 
-          if (this.role !== 'ADMIN') {
-              this.form.patchValue({
-                  userId: this.user?.serUserId,
-              });
-          }
+      if (this.role !== 'ADMIN') {
+          this.form.patchValue({
+              userId: this.user?.serUserId,
+          });
       }
 
       if (this.role === 'ADMIN') {
@@ -80,9 +79,31 @@ export class ChangePasswordComponent implements OnInit {
         const selectedUser = this.form.get('selectedUser')?.value;
         if (selectedUser) {
             this.form.get('userId')?.setValue(selectedUser);
+            if (this.role === 'ADMIN') {
+                const randomPass = this.generateRandomPassword();
+                this.form.patchValue({
+                    newPass: randomPass,
+                    confirmPass: randomPass
+                });
+            }
         } else {
             this.form.get('userId')?.setValue('');
+            if (this.role === 'ADMIN') {
+                this.form.patchValue({
+                    newPass: '',
+                    confirmPass: ''
+                });
+            }
         }
+    }
+
+    generateRandomPassword(length: number = 10): string {
+        const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+";
+        let retVal = "";
+        for (let i = 0; i < length; ++i) {
+            retVal += charset.charAt(Math.floor(Math.random() * charset.length));
+        }
+        return retVal;
     }
 
   getUser() {
@@ -90,7 +111,7 @@ export class ChangePasswordComponent implements OnInit {
       .getUser()
       .subscribe((data: any) => {
           this.user=data
-        if (data) {
+        if (data && this.role !== 'ADMIN') {
           this.form.patchValue({
               userId: data.serUserId
           })
@@ -113,13 +134,7 @@ export class ChangePasswordComponent implements OnInit {
     this.isSubmit = true;
     if (this.form.invalid) return;
 
-    /*if (this.form.value.newPass !== this.form.value.confirmPass) {
-      this.isUnmatched = true;
-      return;
-    }*/
-
-    // Check password match for non-admin users
-    if (this.role !== 'ADMIN' && this.form.value.newPass !== this.form.value.confirmPass) {
+    if (this.form.value.newPass !== this.form.value.confirmPass) {
           this.isUnmatched = true;
           return;
     }
@@ -127,18 +142,22 @@ export class ChangePasswordComponent implements OnInit {
     let payload = this.form.value;
     delete payload.confirmPass;
     delete payload.selectedUser;
-    this.userService
-      .changePassword(payload)
-      .subscribe((data: any) => {
-        if (data == "Success") {
-          this.notificationService.showMessage('Record saved successfully','success');
-          this.isSubmit = false;
-          this.form.reset();
-          this.isUnmatched = false;
-        } else {
-          this.notificationService.showMessage('Error occured while saving','danger');
-        }
-      });
+    const request$ = this.role === 'ADMIN'
+      ? this.userService.changePasswordAdmin(payload)
+      : this.userService.changePassword(payload);
+
+    request$.subscribe((data: any) => {
+      if (data == "Success") {
+        this.notificationService.showMessage('Record saved successfully','success');
+        this.isSubmit = false;
+        this.form.reset();
+        this.isUnmatched = false;
+      } else if (data == "CPNM") {
+        this.notificationService.showMessage('Current Password does not match','danger');
+      } else {
+        this.notificationService.showMessage('Error occured while saving','danger');
+      }
+    });
   }
 
 

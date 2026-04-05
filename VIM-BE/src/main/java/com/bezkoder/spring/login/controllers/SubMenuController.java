@@ -66,10 +66,11 @@ public class SubMenuController {
 		try {
 			List<String> idList = new ArrayList<String>();
 			for (String id : subMenuesId.split(",")) {
-				if (id.isEmpty()) {
+				String clean = id.replace("\"", "").trim();
+				if (clean.isEmpty()) {
 					continue;
 				}
-				idList.add(id);
+				idList.add(clean);
 			}
 			return subMenuService.deleteSubMenu(idList);
 		} catch (Exception ex) {

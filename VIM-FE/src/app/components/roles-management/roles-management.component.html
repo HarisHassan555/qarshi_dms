@@ -1,0 +1,176 @@
+<div class="container mx-auto p-5 pl-0">
+    <div class="panel border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg p-4">
+        <div class="flex items-center justify-between mb-4">
+            <h5 class="text-2xl font-bold dark:text-white">Role Management</h5>
+            <button type="button" class="btn btn-primary" (click)="openAddModal()">Add New Role</button>
+        </div>
+
+        <div class="mb-4">
+            <input
+                type="text"
+                class="form-input max-w-md"
+                placeholder="Search role, code or status"
+                [ngModel]="searchText"
+                (ngModelChange)="onSearch($event)"
+            />
+        </div>
+
+        <div class="table-responsive" *ngIf="!loading; else loadingTpl">
+            <table class="table-hover min-w-full bg-white border border-gray-300 rounded-lg">
+                <thead>
+                    <tr>
+                        <th>Role</th>
+                        <th>Code</th>
+                        <th>Status</th>
+                        <th>User Count</th>
+                        <th>Permissions</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr *ngFor="let role of filteredRoles">
+                        <td class="font-semibold">{{ role.txtRoleName }}</td>
+                        <td>{{ role.txtRoleCode || '-' }}</td>
+                        <td><span [class]="getStatusBadgeClass(role)">{{ role.blnStatus ? 'Active' : 'Inactive' }}</span></td>
+                        <td>{{ role.userCount }}</td>
+                        <td>
+                            <div class="flex flex-wrap gap-2">
+                                <span class="badge bg-info" *ngFor="let p of role.permissionTiles">{{ p }}</span>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="flex items-center gap-4">
+                                <button type="button" class="hover:text-info" (click)="openEditModal(role)" title="Edit Role">
+                                    <icon-edit class="h-5 w-5" />
+                                </button>
+                                <button type="button" class="hover:text-danger" (click)="deleteRole(role)" title="Delete Role">
+                                    <icon-trash-lines class="h-5 w-5" />
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr *ngIf="!filteredRoles.length">
+                        <td colspan="6" class="text-center text-gray-500 py-6">No roles found.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <ng-template #loadingTpl>
+            <div class="text-center py-8 text-gray-500">Loading role data...</div>
+        </ng-template>
+    </div>
+</div>
+
+<div class="rm-backdrop" *ngIf="showEditModal">
+    <div class="rm-modal" style="width: min(700px, 100%);">
+        <div class="flex items-center justify-between mb-3 border-b pb-2">
+            <h5 class="text-xl font-semibold">Edit Role: {{ editingRole?.txtRoleName }}</h5>
+            <button type="button" class="btn btn-outline-danger btn-sm" (click)="closeEditModal()">X</button>
+        </div>
+
+        <form [formGroup]="editForm" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+                <label class="font-semibold text-sm">Role Name</label>
+                <input class="form-input mt-1" formControlName="txtRoleName" />
+            </div>
+            <div>
+                <label class="font-semibold text-sm">Role Code</label>
+                <input class="form-input mt-1" formControlName="txtRoleCode" />
+            </div>
+            <div class="md:col-span-2">
+                <label class="inline-flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" class="form-checkbox" formControlName="blnStatus" />
+                    <span class="text-sm font-semibold">Status Active</span>
+                </label>
+            </div>
+        </form>
+
+        <div class="max-h-[380px] overflow-auto border rounded-lg p-4 bg-gray-50 dark:bg-gray-900/20">
+            <div class="mb-3 font-bold text-gray-700 dark:text-gray-300">Assign Menu and Submenu Permissions</div>
+            <div *ngFor="let menu of menus" class="mb-4 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg p-3 shadow-sm">
+                <label class="flex items-center gap-2 font-bold cursor-pointer text-primary">
+                    <input
+                        type="checkbox"
+                        [(ngModel)]="menu.selected"
+                        [ngModelOptions]="{ standalone: true }"
+                        (change)="toggleMenu(menu)"
+                    />
+                    {{ menu.menuName }}
+                </label>
+
+                <div class="pl-6 mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <label class="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded transition-colors" *ngFor="let sm of menu.subMenus">
+                        <input
+                            type="checkbox"
+                            [(ngModel)]="sm.selected"
+                            [ngModelOptions]="{ standalone: true }"
+                            (change)="toggleSubMenu(menu)"
+                        />
+                        {{ sm.subMenuName }}
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex justify-end gap-3 mt-5 pt-3 border-t">
+            <button type="button" class="btn btn-outline-secondary" (click)="closeEditModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" [disabled]="saving" (click)="updateRole()">
+                <icon-save *ngIf="!saving" class="w-4 h-4 mr-2" />
+                {{ saving ? 'Saving...' : 'Update Permissions & Role' }}
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="rm-backdrop" *ngIf="showModal">
+    <div class="rm-modal">
+        <div class="flex items-center justify-between mb-3">
+            <h5 class="text-xl font-semibold">Add New Role</h5>
+            <button type="button" class="btn btn-outline-danger btn-sm" (click)="closeAddModal()">X</button>
+        </div>
+
+        <form [formGroup]="roleForm" class="mb-4">
+            <label class="font-semibold">Role Name</label>
+            <input class="form-input mt-1" formControlName="roleName" placeholder="Enter role name" />
+            <div class="text-danger text-xs mt-1" *ngIf="roleForm.get('roleName')?.invalid && roleForm.get('roleName')?.touched">
+                Role Name is required.
+            </div>
+        </form>
+
+        <div class="max-h-[360px] overflow-auto border rounded p-3">
+            <div class="mb-3 font-semibold">Show Menu and Submenu</div>
+            <div *ngFor="let menu of menus" class="mb-4 border rounded p-2">
+                <label class="flex items-center gap-2 font-semibold">
+                    <input
+                        type="checkbox"
+                        [(ngModel)]="menu.selected"
+                        [ngModelOptions]="{ standalone: true }"
+                        (change)="toggleMenu(menu)"
+                    />
+                    {{ menu.menuName }}
+                </label>
+
+                <div class="pl-6 mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <label class="flex items-center gap-2" *ngFor="let sm of menu.subMenus">
+                        <input
+                            type="checkbox"
+                            [(ngModel)]="sm.selected"
+                            [ngModelOptions]="{ standalone: true }"
+                            (change)="toggleSubMenu(menu)"
+                        />
+                        {{ sm.subMenuName }}
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex justify-end gap-2 mt-4">
+            <button type="button" class="btn btn-outline-secondary" (click)="closeAddModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" [disabled]="saving" (click)="saveRole()">
+                <icon-save *ngIf="!saving" class="w-4 h-4 mr-2" />
+                {{ saving ? 'Saving...' : 'Save Role' }}
+            </button>
+        </div>
+    </div>
+</div>

@@ -38,8 +38,11 @@ public class CfgTblMenuDAO implements ICfgTblMenuDAO {
 	@Override
 	public List<CfgTblMenu> getAllMenu() {
 		EntityManager entityManager = getEntityManager();
-		entityManager.getTransaction().begin(); 
-		List<CfgTblMenu> Menus = entityManager.createQuery("FROM CfgTblMenu where blIsDeleted=false")
+		entityManager.getTransaction().begin();
+		// Use 'blIsDeleted is false or blIsDeleted is null' so that rows seeded
+		// directly via SQL with a NULL value are not silently excluded.
+		List<CfgTblMenu> Menus = entityManager
+				.createQuery("FROM CfgTblMenu where blIsDeleted = false or blIsDeleted is null")
 				.getResultList();
 
 		entityManager.getTransaction().commit();

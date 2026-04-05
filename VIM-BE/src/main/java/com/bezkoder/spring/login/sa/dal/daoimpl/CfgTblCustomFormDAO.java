@@ -1,6 +1,13 @@
 package com.bezkoder.spring.login.sa.dal.daoimpl;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import javax.persistence.*;
 import javax.persistence.NoResultException;
 import org.slf4j.Logger;
@@ -10,10 +17,9 @@ import org.springframework.stereotype.Repository;
 import com.bezkoder.spring.login.admin.bll.services.ICommonService;
 import com.bezkoder.spring.login.sa.dal.dao.ICfgTblCustomFormDAO;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm;
+import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
-import java.util.ArrayList;
-import java.util.Locale;
 
 @Repository
 public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
@@ -33,6 +39,12 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
 
     private EntityManager getEntityManager() {
         return entityManagerFactory.createEntityManager();
+    }
+
+    private void closeQuietly(EntityManager entityManager) {
+        if (entityManager != null && entityManager.isOpen()) {
+            entityManager.close();
+        }
     }
 
     /**
@@ -113,10 +125,65 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
         return numberPart.matches("\\d+") ? Math.max(4, numberPart.length()) : 4;
     }
 
+    private Set<Integer> extractDepartmentIds(String approvalPipelineJson) {
+        if (approvalPipelineJson == null || approvalPipelineJson.trim().isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        Set<Integer> departmentIds = new HashSet<>();
+        try {
+            List<Map<String, Object>> pipelineArray = objectMapper.readValue(
+                    approvalPipelineJson,
+                    new TypeReference<List<Map<String, Object>>>() {}
+            );
+
+            for (Map<String, Object> pipelineData : pipelineArray) {
+                Object deptIdObj = pipelineData.get("serDepartmentId");
+                if (deptIdObj instanceof Integer) {
+                    departmentIds.add((Integer) deptIdObj);
+                } else if (deptIdObj instanceof Number) {
+                    departmentIds.add(((Number) deptIdObj).intValue());
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error extracting department IDs from approval pipeline JSON", e);
+        }
+
+        return departmentIds;
+    }
+
+    private Map<Integer, HrTblDepartment> loadDepartmentsForForms(List<CfgTblCustomForm> forms, EntityManager entityManager) {
+        Set<Integer> departmentIds = new HashSet<>();
+
+        if (forms != null) {
+            for (CfgTblCustomForm form : forms) {
+                departmentIds.addAll(extractDepartmentIds(form.getTxtApprovalPipeline()));
+            }
+        }
+
+        if (departmentIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        List<HrTblDepartment> departments = entityManager.createQuery(
+                        "SELECT d FROM HrTblDepartment d WHERE d.serDepartmentId IN :departmentIds",
+                        HrTblDepartment.class)
+                .setParameter("departmentIds", departmentIds)
+                .setHint("org.hibernate.readOnly", true)
+                .getResultList();
+
+        Map<Integer, HrTblDepartment> departmentsById = new HashMap<>();
+        for (HrTblDepartment department : departments) {
+            departmentsById.put(department.getSerDepartmentId(), department);
+        }
+
+        return departmentsById;
+    }
+
     /**
      * Deserialize approval pipeline from JSON string to list of pipeline objects
      */
-    private void deserializeApprovalPipeline(CfgTblCustomForm form, EntityManager entityManager) {
+    private void deserializeApprovalPipeline(CfgTblCustomForm form, Map<Integer, HrTblDepartment> departmentsById) {
         if (form == null) {
             return;
         }
@@ -126,20 +193,20 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
         if (form.getTxtApprovalPipeline() != null && !form.getTxtApprovalPipeline().trim().isEmpty()) {
             try {
                 // Parse JSON array
-                List<java.util.Map<String, Object>> pipelineArray = objectMapper.readValue(
+                List<Map<String, Object>> pipelineArray = objectMapper.readValue(
                     form.getTxtApprovalPipeline(), 
-                    new TypeReference<List<java.util.Map<String, Object>>>() {}
+                    new TypeReference<List<Map<String, Object>>>() {}
                 );
                 
                 // Convert each map to CfgTblCustomFormApprovalPipeline object
-                for (java.util.Map<String, Object> pipelineData : pipelineArray) {
+                for (Map<String, Object> pipelineData : pipelineArray) {
                     com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline pipeline = 
                         new com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline();
                     
                     // Set department ID and fetch department entity
                     Object deptIdObj = pipelineData.get("serDepartmentId");
+                    Integer deptId = null;
                     if (deptIdObj != null) {
-                        Integer deptId = null;
                         if (deptIdObj instanceof Integer) {
                             deptId = (Integer) deptIdObj;
                         } else if (deptIdObj instanceof Number) {
@@ -147,8 +214,7 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
                         }
                         
                         if (deptId != null) {
-                            com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment dept = 
-                                entityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, deptId);
+                            HrTblDepartment dept = departmentsById.get(deptId);
                             if (dept != null) {
                                 pipeline.setHrTblDepartment(dept);
                                 pipeline.setSerDepartmentId(deptId);
@@ -176,77 +242,74 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
         form.setCfgTblCustomFormApprovalPipelines(pipelines);
     }
 
-    @SuppressWarnings("unchecked")
-    @Override
-    public List<CfgTblCustomForm> getAllCustomForms() {
+    private List<CfgTblCustomForm> fetchCustomForms(boolean activeOnly) {
         EntityManager entityManager = getEntityManager();
+        List<CfgTblCustomForm> forms;
+        Map<Integer, HrTblDepartment> departmentsById;
+
         try {
-            entityManager.getTransaction().begin();
-            // First, fetch forms with fields (fields are EAGER, so they'll be loaded)
-            List<CfgTblCustomForm> forms = entityManager.createQuery(
+            String jpql =
                     "SELECT DISTINCT f FROM CfgTblCustomForm f " +
                     "LEFT JOIN FETCH f.cfgTblCustomFormFields field " +
                     "WHERE (f.blIsDeleted = false OR f.blIsDeleted IS NULL) " +
+                    (activeOnly
+                            ? "AND (f.blIsActive = true OR f.blIsActive IS NULL) " +
+                              "AND (f.blnStatus = true OR f.blnStatus IS NULL) "
+                            : "") +
                     "AND (field.blIsDeleted = false OR field.blIsDeleted IS NULL OR field IS NULL) " +
-                    "ORDER BY f.dteCreatedDate DESC")
+                    "ORDER BY f.dteCreatedDate DESC";
+
+            forms = entityManager.createQuery(jpql, CfgTblCustomForm.class)
+                    .setHint("org.hibernate.readOnly", true)
                     .getResultList();
-            
-            // Deserialize approval pipelines from JSON for all forms
-            if (forms != null && !forms.isEmpty()) {
-                for (CfgTblCustomForm form : forms) {
-                    deserializeApprovalPipeline(form, entityManager);
-                }
-            }
-            
-            entityManager.getTransaction().commit();
-            return forms;
+            departmentsById = loadDepartmentsForForms(forms, entityManager);
         } catch (Exception e) {
-            if (entityManager.getTransaction().isActive()) {
-                entityManager.getTransaction().rollback();
-            }
-            log.error("Error getting all custom forms: " + e.getMessage(), e);
-            e.printStackTrace();
+            log.error("Error getting {} custom forms: {}", activeOnly ? "active" : "all", e.getMessage(), e);
             throw e;
         } finally {
-            if (entityManager.isOpen()) {
-                entityManager.close();
+            closeQuietly(entityManager);
+        }
+
+        if (forms != null && !forms.isEmpty()) {
+            for (CfgTblCustomForm form : forms) {
+                deserializeApprovalPipeline(form, departmentsById);
             }
         }
+
+        return forms;
+    }
+
+    @Override
+    public List<CfgTblCustomForm> getAllCustomForms() {
+        return fetchCustomForms(false);
     }
 
     @Override
     public CfgTblCustomForm getCustomFormById(Integer formId) {
         EntityManager entityManager = getEntityManager();
+        CfgTblCustomForm form;
+        Map<Integer, HrTblDepartment> departmentsById;
         try {
-            entityManager.getTransaction().begin();
-            CfgTblCustomForm form = (CfgTblCustomForm) entityManager.createQuery(
+            form = entityManager.createQuery(
                     "SELECT DISTINCT f FROM CfgTblCustomForm f " +
                     "LEFT JOIN FETCH f.cfgTblCustomFormFields field " +
                     "WHERE f.serFormId = :formId " +
-                    "AND (field.blIsDeleted = false OR field.blIsDeleted IS NULL OR field IS NULL)")
+                    "AND (field.blIsDeleted = false OR field.blIsDeleted IS NULL OR field IS NULL)",
+                    CfgTblCustomForm.class)
                     .setParameter("formId", formId)
                     .getSingleResult();
-            // Deserialize approval pipeline from JSON
-            deserializeApprovalPipeline(form, entityManager);
-            entityManager.getTransaction().commit();
-            return form;
+            departmentsById = loadDepartmentsForForms(Collections.singletonList(form), entityManager);
         } catch (NoResultException e) {
-            if (entityManager.getTransaction().isActive()) {
-                entityManager.getTransaction().rollback();
-            }
-            entityManager.close();
             return null;
         } catch (Exception e) {
-            if (entityManager.getTransaction().isActive()) {
-                entityManager.getTransaction().rollback();
-            }
             log.error("Error getting custom form by ID: " + e.getMessage(), e);
             throw e;
         } finally {
-            if (entityManager.isOpen()) {
-                entityManager.close();
-            }
+            closeQuietly(entityManager);
         }
+
+        deserializeApprovalPipeline(form, departmentsById);
+        return form;
     }
 
     @Override
@@ -539,42 +602,8 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
         }
     }
 
-    @SuppressWarnings("unchecked")
     @Override
     public List<CfgTblCustomForm> getActiveCustomForms() {
-        EntityManager entityManager = getEntityManager();
-        try {
-            entityManager.getTransaction().begin();
-            // First, fetch forms with fields
-            List<CfgTblCustomForm> forms = entityManager.createQuery(
-                    "SELECT DISTINCT f FROM CfgTblCustomForm f " +
-                    "LEFT JOIN FETCH f.cfgTblCustomFormFields field " +
-                    "WHERE (f.blIsDeleted = false OR f.blIsDeleted IS NULL) " +
-                    "AND (f.blIsActive = true OR f.blIsActive IS NULL) " +
-                    "AND (f.blnStatus = true OR f.blnStatus IS NULL) " +
-                    "AND (field.blIsDeleted = false OR field.blIsDeleted IS NULL OR field IS NULL) " +
-                    "ORDER BY f.dteCreatedDate DESC")
-                    .getResultList();
-            
-            // Deserialize approval pipelines from JSON for all forms
-            if (forms != null && !forms.isEmpty()) {
-                for (CfgTblCustomForm form : forms) {
-                    deserializeApprovalPipeline(form, entityManager);
-                }
-            }
-            
-            entityManager.getTransaction().commit();
-            return forms;
-        } catch (Exception e) {
-            if (entityManager.getTransaction().isActive()) {
-                entityManager.getTransaction().rollback();
-            }
-            log.error("Error getting active custom forms: " + e.getMessage(), e);
-            throw e;
-        } finally {
-            if (entityManager.isOpen()) {
-                entityManager.close();
-            }
-        }
+        return fetchCustomForms(true);
     }
 }

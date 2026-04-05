@@ -78,6 +78,9 @@ import { BudgetApprovalViewComponent } from './components/budget-approval-view/b
 import { XyzComponent } from './pages/xyz/xyz.component';
 import { ApprovedApplicationsComponent } from './components/approved-applications/approved-applications.component';
 import { CustomDocumentBuilderComponent } from './components/custom-document-builder/custom-document-builder.component';
+import { RolesManagementComponent } from './components/roles-management/roles-management.component';
+import { MenuListComponent } from './components/menu-list/menu-list.component';
+import { SubmenuListComponent } from './components/submenu-list/submenu-list.component';
 
 
 export const routes: Routes = [
@@ -152,8 +155,11 @@ export const routes: Routes = [
             },
             { path: 'Dashboard', canActivate: [canActivate], component: FinanceComponent, title: 'Dash Board' },
             { path: 'role', canActivate: [canActivate], component: PermissionComponent, title: 'Permission' },
+            { path: 'roles', canActivate: [canActivate], component: RolesManagementComponent, title: 'Role Management' },
             { path: 'channel', canActivate: [canActivate], component: ChannelComponent, title: 'Channel' },
             { path: 'service-order', canActivate: [canActivate], component: ServiceOrderComponent, title: 'Service Order' },
+            { path: 'menu-list', canActivate: [canActivate], component: MenuListComponent, title: 'Menu List' },
+            { path: 'submenu-list', canActivate: [canActivate], component: SubmenuListComponent, title: 'Submenu List' },
             { path: 'vendor-view', canActivate: [canActivate], component: VendorListComponent, title: 'Vendor' },
             { path: 'payment', canActivate: [canActivate], component: PaymentComponent, title: 'Payment' },
             { path: 'OrderDepartment', canActivate: [canActivate], component: DeparmentComponent, title: 'Order By Department' },
