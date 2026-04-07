@@ -44,6 +44,11 @@ public class UserService implements IUserService {
 		return citTableUserDAO.generateUserNo(type);
 		
 	}
+
+	@Override
+	public CfgTblUser getUserById(Integer userId) {
+		return citTableUserDAO.getUserEntityById(userId);
+	}
 	
 	@Override
 	public boolean getUserByProperty(String property, String value,String mode, String oldValue) {

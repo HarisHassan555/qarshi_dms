@@ -20,6 +20,8 @@ public interface IUserService {
 	String updateUser(CfgTblUser cfgTblUser);
 	
 	String generateUserNo(String type);
+
+	CfgTblUser getUserById(Integer userId);
 	
 	List<CfgTblUser> searchUser(CfgTblUser user);
 	

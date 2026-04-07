@@ -21,6 +21,8 @@ public interface ICfgTblUserDAO {
 	String generateUserNo(String type);
 
 	String getUserById(String userId);
+
+	CfgTblUser getUserEntityById(Integer userId);
 	
 	List<CfgTblUser> searchUser(CfgTblUser user);
 	
