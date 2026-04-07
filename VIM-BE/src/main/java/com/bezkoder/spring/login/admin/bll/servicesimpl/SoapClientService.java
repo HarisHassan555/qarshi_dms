@@ -76,7 +76,6 @@ public class SoapClientService {
     private String soapAction;
 
     private SOAPConnectionFactory soapConnectionFactory;
-    private SOAPConnection soapConnection;
 
     @Autowired
     private ICustomerService customerService;
@@ -125,7 +124,22 @@ public class SoapClientService {
     @PostConstruct
     public void init() throws Exception {
         soapConnectionFactory = SOAPConnectionFactory.newInstance();
-        soapConnection = soapConnectionFactory.createConnection();
+    }
+
+    private SOAPMessage callSoapEndpoint(SOAPMessage soapRequest, String endpointUrl) throws Exception {
+        SOAPConnection connection = null;
+        try {
+            connection = soapConnectionFactory.createConnection();
+            return connection.call(soapRequest, endpointUrl);
+        } finally {
+            if (connection != null) {
+                try {
+                    connection.close();
+                } catch (Exception closeEx) {
+                    log.warn("Error closing SOAP connection: {}", closeEx.getMessage());
+                }
+            }
+        }
     }
 
 
@@ -406,7 +420,7 @@ public class SoapClientService {
 */
     public SOAPRequestResponseWrapper sendSOAPRequest(String dateFrom) throws Exception {
         SOAPMessage soapRequest = createSOAPRequest(dateFrom);
-        SOAPMessage soapResponse = soapConnection.call(soapRequest, soapEndpointUrl);
+        SOAPMessage soapResponse = callSoapEndpoint(soapRequest, soapEndpointUrl);
         return new SOAPRequestResponseWrapper(soapRequest, soapResponse);
     }
 
@@ -416,7 +430,7 @@ public class SoapClientService {
        /* SOAPMessage soapRequest = createSOAPRequestSES(zkfEInvoiceSesWebService);*/
 
         // Step 2: Send the request and receive the response
-        SOAPMessage soapResponse = soapConnection.call(soapRequest, soapEndpointUrlRemarks);
+        SOAPMessage soapResponse = callSoapEndpoint(soapRequest, soapEndpointUrlRemarks);
 
         return new SOAPRequestResponseWrapper(soapRequest, soapResponse);
        /* return soapConnection.call(soapRequest, soapEndpointUrlRemarks);*/
@@ -428,7 +442,7 @@ public class SoapClientService {
         SOAPMessage soapRequest = createSOAPRequestSES(zkfEInvoiceSesWebService);
 
         // Step 2: Send the request and receive the response
-        SOAPMessage soapResponse = soapConnection.call(soapRequest, soapEndpointUrlSES);
+        SOAPMessage soapResponse = callSoapEndpoint(soapRequest, soapEndpointUrlSES);
 
         return new SOAPRequestResponseWrapper(soapRequest, soapResponse);
     }
@@ -862,7 +876,7 @@ public class SoapClientService {
 
     public SOAPMessage sendSOAPRequestSES() throws Exception {
         SOAPMessage soapRequest = createSOAPRequest("2021-01-01");
-        return soapConnection.call(soapRequest, soapEndpointUrl);
+        return callSoapEndpoint(soapRequest, soapEndpointUrl);
     }
 
     /*public  void parseSOAPResponse(String xmlResponse) {
@@ -2277,8 +2291,6 @@ public class SoapClientService {
     }
 
     public void close() throws Exception {
-        if (soapConnection != null) {
-            soapConnection.close();
-        }
+        // no-op: SOAP connections are created and closed per call.
     }
 }

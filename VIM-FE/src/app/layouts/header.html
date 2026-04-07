@@ -1,4 +1,4 @@
-﻿<div class="z-40 shadow-sm" [ngClass]="{ 'dark text-white-dark': store.semidark && store.menu === 'horizontal'}">
+<div class="z-40 shadow-sm" [ngClass]="{ 'dark text-white-dark': store.semidark && store.menu === 'horizontal'}">
     <div class="relative flex w-full items-center bg-white px-5 py-2.5 dark:bg-[#0e1726]">
         <div class="horizontal-logo flex items-center justify-between ltr:mr-2 rtl:ml-2 lg:hidden">
             <a routerLink="/" class="main-logo flex shrink-0 items-center">
@@ -301,6 +301,36 @@
                                 Lock Screen
                             </a>
                         </li> -->
+                        <li>
+                            <a routerLink="/users" *hlMenuItem="let menuItem" class="dark:hover:text-white">
+                                <icon-users class="h-4.5 w-4.5 shrink-0 ltr:mr-2 rtl:ml-2" />
+                                Users
+                            </a>
+                        </li>
+                        <li>
+                            <a routerLink="/role" *hlMenuItem="let menuItem" class="dark:hover:text-white">
+                                <icon-menu-authentication class="h-4.5 w-4.5 shrink-0 ltr:mr-2 rtl:ml-2" />
+                                Roles &amp; permissions
+                            </a>
+                        </li>
+                        <li>
+                            <a routerLink="/roles" *hlMenuItem="let menuItem" class="dark:hover:text-white">
+                                <icon-menu-users class="h-4.5 w-4.5 shrink-0 ltr:mr-2 rtl:ml-2" />
+                                Role management
+                            </a>
+                        </li>
+                        <li>
+                            <a routerLink="/password-policy" *hlMenuItem="let menuItem" class="dark:hover:text-white">
+                                <icon-lock class="h-4.5 w-4.5 shrink-0 ltr:mr-2 rtl:ml-2" />
+                                Password policy
+                            </a>
+                        </li>
+                        <li>
+                            <a routerLink="/change-password" *hlMenuItem="let menuItem" class="dark:hover:text-white">
+                                <icon-lock-dots class="h-4.5 w-4.5 shrink-0 ltr:mr-2 rtl:ml-2" />
+                                Change password
+                            </a>
+                        </li>
                         <li class="border-t border-white-light dark:border-white-light/10">
                             <a (click)="doLogout()" *hlMenuItem="let menuItem" class="!py-3 text-danger cursor-pointer">
                                 <icon-logout class="h-4.5 w-4.5 shrink-0 rotate-90 ltr:mr-2 rtl:ml-2" />

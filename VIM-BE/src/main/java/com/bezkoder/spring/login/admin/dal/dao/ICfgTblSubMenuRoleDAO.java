@@ -16,6 +16,8 @@ public interface ICfgTblSubMenuRoleDAO {
 
 	String deleteSubMenuRole(List<String> subMenuRoleId);
 
+	String deleteSubMenuRoleBySubMenuIds(List<String> subMenuIds);
+
 	String updateSubMenuRole(CfgTblSubMenuRole CfgTblSubMenuRole);
 
 	String generateSubMenuRoleNo(String type);

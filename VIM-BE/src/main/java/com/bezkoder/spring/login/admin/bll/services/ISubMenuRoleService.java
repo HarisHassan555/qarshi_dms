@@ -17,6 +17,8 @@ public interface ISubMenuRoleService {
 	
 	String deleteSubMenuRole(List<String> subMenuRolesId);
 
+	String deleteSubMenuRoleBySubMenuIds(List<String> subMenuIds);
+
 	String updateSubMenuRole(CfgTblSubMenuRole cfgTblSubMenuRole);
 	
 	String generateSubMenuRoleNo(String type);

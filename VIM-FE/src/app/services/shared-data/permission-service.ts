@@ -58,7 +58,7 @@ export class PermissionService {
             'Form Builder',
             'Budget Approval'
         ],
-        'User Management': ['User', 'Password Policy', 'Change Password', 'Permission']
+        'User Management': ['User', 'Password Policy', 'Change Password', 'Permission', 'Role Management']
     };
 
     constructor(private menuService: MenuService) {}

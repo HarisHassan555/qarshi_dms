@@ -2,11 +2,8 @@ package com.bezkoder.spring.login.security.jwt;
 
 import java.io.IOException;
 
-import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
-import com.bezkoder.spring.login.repository.UserRepository;
+import com.bezkoder.spring.login.security.services.UserDetailsImpl;
 import com.bezkoder.spring.login.security.services.UserDetailsServiceImpl;
-
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,9 +26,6 @@ public class AuthTokenFilter extends OncePerRequestFilter {
   @Autowired
   private UserDetailsServiceImpl userDetailsService;
 
-  @Autowired
-  private UserRepository userRepository;
-
   private static final Logger logger = LoggerFactory.getLogger(AuthTokenFilter.class);
 
   @Override
@@ -51,11 +45,13 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
         SecurityContextHolder.getContext().setAuthentication(authentication);
-        int currentUserId = getCurrentLoggedInUserObject(username);
-        request.setAttribute("currentUserId", currentUserId);
+        if (userDetails instanceof UserDetailsImpl) {
+          request.setAttribute("currentUserId",
+              Math.toIntExact(((UserDetailsImpl) userDetails).getId()));
+        }
       }
     } catch (Exception e) {
-      logger.error("Cannot set user authentication: {}", e);
+      logger.error("Cannot set user authentication", e);
     }
 
     filterChain.doFilter(request, response);
@@ -69,15 +65,5 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     }
 
     return null;
-  }
-
-  public int getCurrentLoggedInUserObject(String userName) {
-    if (userName != null) {
-      CfgTblUser user = userRepository.findByTxtUserName(userName).get();
-      return  user.getSerUserId();
-    }else{
-      return -1;
-    }
-
   }
 }

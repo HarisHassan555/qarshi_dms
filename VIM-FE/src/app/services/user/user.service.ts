@@ -20,6 +20,19 @@ export class UserService {
     return this.http.get(urls.API_URL + 'getActiveRole');
   }
 
+  addRole(payload: any) {
+    return this.http.post(urls.API_URL + 'addNewRole', payload, { responseType: 'text' });
+  }
+
+  updateRole(payload: any) {
+    return this.http.post(urls.API_URL + 'updateRole', payload, { responseType: 'text' });
+  }
+
+  deleteRole(ids: (number | string)[]) {
+    const csv = (ids || []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0).join(',');
+    return this.http.post(urls.API_URL + 'deleteRole', JSON.stringify(csv), { responseType: 'text' });
+  }
+
   getPasswordPolicy() {
     return this.http.get(urls.API_URL + 'getActivePasswordPolicy');
   }
@@ -46,6 +59,10 @@ export class UserService {
 
   changePassword(payload: any) {
       return this.http.post(urls.API_URL + 'UpdatePasswordReconfirm', payload,{ responseType: 'text' });
+  }
+
+  changePasswordAdmin(payload: any) {
+      return this.http.post(urls.API_URL + 'UpdatePasswordAdmin', payload,{ responseType: 'text' });
   }
 
 

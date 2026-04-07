@@ -57,6 +57,12 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     private static final Logger log = LoggerFactory.getLogger(CfgTblCustomFormApplicationDAO.class);
 
+    @Value("${app.query.max-user-applications:100}")
+    private int maxUserApplications;
+
+    @Value("${app.query.max-pending-candidates:500}")
+    private int maxPendingCandidateApplications;
+
     @Value("${app.backend.url:http://localhost:8080/velocity}")
     private String backendBaseUrl;
 
@@ -423,8 +429,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             "ORDER BY a.dteCreatedDate DESC",
                     CfgTblCustomFormApplication.class)
                     .setParameter("userId", userId)
-                    .setFirstResult(0) // 🔥 Prevent large sort
-                    .setMaxResults(200) // 🔥 Limit results
+                    .setFirstResult(0)
+                    .setMaxResults(Math.max(1, maxUserApplications))
                     .getResultList();
 
             entityManager.getTransaction().commit();
@@ -903,23 +909,49 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return new java.util.ArrayList<>();
             }
 
-            // Keep query broad, then apply precise "is pending for this user at this stage"
-            // filtering.
+            List<String> pendingStatuses = java.util.Arrays.asList(
+                    "PENDING",
+                    "IN_PROGRESS",
+                    "CEO_PENDING",
+                    "ASSET_PENDING",
+                    "PR_PENDING");
+
             List<CfgTblCustomFormApplication> allPendingApplications = entityManager.createQuery(
                     "SELECT a FROM CfgTblCustomFormApplication a " +
                             "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                            "WHERE (a.txtStatus = 'PENDING' OR a.txtStatus = 'IN_PROGRESS' OR a.txtStatus = 'CEO_PENDING' OR a.txtStatus = 'ASSET_PENDING' OR a.txtStatus = 'PR_PENDING') "
-                            +
+                            "WHERE a.txtStatus IN :pendingStatuses " +
+                            "AND (a.serCurrentApprover = :departmentHeadUserId OR a.serCurrentApprover IS NULL) " +
                             "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
                             "ORDER BY a.dteCreatedDate DESC",
                     CfgTblCustomFormApplication.class)
+                    .setParameter("pendingStatuses", pendingStatuses)
+                    .setParameter("departmentHeadUserId", departmentHeadUserId)
                     .setFirstResult(0)
-                    .setMaxResults(2000)
+                    .setMaxResults(Math.max(100, maxPendingCandidateApplications))
                     .getResultList();
+
+            java.util.Set<Integer> involvedUserIds = new java.util.HashSet<>();
+            involvedUserIds.add(departmentHeadUserId);
+            for (CfgTblCustomFormApplication app : allPendingApplications) {
+                if (app.getSerSubmittedBy() != null) {
+                    involvedUserIds.add(app.getSerSubmittedBy());
+                }
+                if (app.getSerCurrentApprover() != null) {
+                    involvedUserIds.add(app.getSerCurrentApprover());
+                }
+            }
+            Map<Integer, Integer> userDepartmentCache = preloadUserDepartmentIds(entityManager, involvedUserIds);
+            Map<Integer, String> departmentNameCache = new java.util.HashMap<>();
 
             List<CfgTblCustomFormApplication> filteredApplications = new java.util.ArrayList<>();
             for (CfgTblCustomFormApplication app : allPendingApplications) {
-                if (isPendingForUserAtCurrentStage(entityManager, app, departmentHeadUserId, approverUser)) {
+                if (isPendingForUserAtCurrentStage(
+                        entityManager,
+                        app,
+                        departmentHeadUserId,
+                        approverUser,
+                        userDepartmentCache,
+                        departmentNameCache)) {
                     filteredApplications.add(app);
                 }
             }
@@ -957,21 +989,49 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return new java.util.ArrayList<>();
             }
 
+            List<String> pendingStatuses = java.util.Arrays.asList(
+                    "PENDING",
+                    "IN_PROGRESS",
+                    "CEO_PENDING",
+                    "ASSET_PENDING",
+                    "PR_PENDING");
+
             List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
                     "SELECT a FROM CfgTblCustomFormApplication a " +
                             "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                            "WHERE (a.txtStatus = 'PENDING' OR a.txtStatus = 'IN_PROGRESS' OR a.txtStatus = 'CEO_PENDING' OR a.txtStatus = 'ASSET_PENDING' OR a.txtStatus = 'PR_PENDING') "
-                            +
+                            "WHERE a.txtStatus IN :pendingStatuses " +
+                            "AND (a.serCurrentApprover = :currentUserId OR a.serCurrentApprover IS NULL) " +
                             "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
                             "ORDER BY a.dteCreatedDate DESC",
                     CfgTblCustomFormApplication.class)
+                    .setParameter("pendingStatuses", pendingStatuses)
+                    .setParameter("currentUserId", currentUserId)
                     .setFirstResult(0)
-                    .setMaxResults(2000)
+                    .setMaxResults(Math.max(100, maxPendingCandidateApplications))
                     .getResultList();
+
+            java.util.Set<Integer> involvedUserIds = new java.util.HashSet<>();
+            involvedUserIds.add(currentUserId);
+            for (CfgTblCustomFormApplication app : applications) {
+                if (app.getSerSubmittedBy() != null) {
+                    involvedUserIds.add(app.getSerSubmittedBy());
+                }
+                if (app.getSerCurrentApprover() != null) {
+                    involvedUserIds.add(app.getSerCurrentApprover());
+                }
+            }
+            Map<Integer, Integer> userDepartmentCache = preloadUserDepartmentIds(entityManager, involvedUserIds);
+            Map<Integer, String> departmentNameCache = new java.util.HashMap<>();
 
             List<CfgTblCustomFormApplication> filteredApplications = new java.util.ArrayList<>();
             for (CfgTblCustomFormApplication app : applications) {
-                if (isPendingForUserAtCurrentStage(entityManager, app, currentUserId, currentUser)) {
+                if (isPendingForUserAtCurrentStage(
+                        entityManager,
+                        app,
+                        currentUserId,
+                        currentUser,
+                        userDepartmentCache,
+                        departmentNameCache)) {
                     filteredApplications.add(app);
                 }
             }
@@ -995,6 +1055,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             CfgTblCustomFormApplication application,
             Integer userId,
             CfgTblUser user) {
+        return isPendingForUserAtCurrentStage(entityManager, application, userId, user, null, null);
+    }
+
+    private boolean isPendingForUserAtCurrentStage(EntityManager entityManager,
+            CfgTblCustomFormApplication application,
+            Integer userId,
+            CfgTblUser user,
+            Map<Integer, Integer> userDepartmentCache,
+            Map<Integer, String> departmentNameCache) {
         if (entityManager == null || application == null || userId == null || userId <= 0) {
             return false;
         }
@@ -1073,7 +1142,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 } else {
                     departmentId = safeInt(currentPipeline.get("serDepartmentId"),
                             safeInt(currentPipeline.get("departmentId"), null));
-                    departmentName = resolveDepartmentName(entityManager, departmentId, currentPipeline);
+                    departmentName = resolveDepartmentName(entityManager, departmentId, currentPipeline, departmentNameCache);
                 }
             }
 
@@ -1082,18 +1151,20 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
             // For CAPF forms, the first stage ALWAYS routes to the initiator's (submitter's) HOD.
             if (isCapf && currentLevel == 0) {
-                Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
+                Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy(),
+                        userDepartmentCache);
                 if (submitterDeptId != null) {
                     departmentId = submitterDeptId;
                 }
             } else if (currentPipeline != null && isUserDepartmentHodStage(currentPipeline, departmentName)) {
-                Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
+                Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy(),
+                        userDepartmentCache);
                 if (submitterDeptId != null) {
                     departmentId = submitterDeptId;
                 }
             }
 
-            Integer userDepartmentId = loadUserDepartmentId(entityManager, userId);
+            Integer userDepartmentId = loadUserDepartmentId(entityManager, userId, userDepartmentCache);
             return departmentId != null && userDepartmentId != null && departmentId.equals(userDepartmentId);
         } catch (Exception e) {
             log.warn("Error filtering pending app {} for user {}: {}", application.getSerApplicationId(), userId,
@@ -5366,6 +5437,18 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     private String resolveDepartmentName(EntityManager entityManager, Integer departmentId,
             Map<String, Object> pipelineMap) {
+        return resolveDepartmentName(entityManager, departmentId, pipelineMap, null);
+    }
+
+    private String resolveDepartmentName(EntityManager entityManager, Integer departmentId,
+            Map<String, Object> pipelineMap, Map<Integer, String> departmentNameCache) {
+        if (departmentId != null && departmentNameCache != null) {
+            String cached = departmentNameCache.get(departmentId);
+            if (cached != null && !cached.trim().isEmpty()) {
+                return cached;
+            }
+        }
+
         String name = null;
         if (pipelineMap != null) {
             Object nameObj = pipelineMap.get("departmentName");
@@ -5394,6 +5477,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (dept != null && dept.getTxtDepartmentName() != null && !dept.getTxtDepartmentName().trim().isEmpty()) {
                 name = dept.getTxtDepartmentName();
             }
+        }
+
+        if (departmentId != null && departmentNameCache != null && name != null && !name.trim().isEmpty()) {
+            departmentNameCache.put(departmentId, name);
         }
 
         return name;
@@ -5670,6 +5757,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     }
 
     private Integer loadUserDepartmentId(EntityManager em, Integer userId) {
+        return loadUserDepartmentId(em, userId, null);
+    }
+
+    private Integer loadUserDepartmentId(EntityManager em, Integer userId, Map<Integer, Integer> userDepartmentCache) {
+        if (userDepartmentCache != null && userId != null && userDepartmentCache.containsKey(userId)) {
+            return userDepartmentCache.get(userId);
+        }
         if (em == null || userId == null)
             return null;
         try {
@@ -5679,13 +5773,57 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     .getSingleResult();
             if (result == null)
                 return null;
-            if (result instanceof Number)
-                return ((Number) result).intValue();
-            return Integer.parseInt(result.toString());
+            if (result instanceof Number) {
+                Integer departmentId = ((Number) result).intValue();
+                if (userDepartmentCache != null) {
+                    userDepartmentCache.put(userId, departmentId);
+                }
+                return departmentId;
+            }
+            Integer departmentId = Integer.parseInt(result.toString());
+            if (userDepartmentCache != null) {
+                userDepartmentCache.put(userId, departmentId);
+            }
+            return departmentId;
         } catch (Exception e) {
             log.warn("Error loading user department: " + e.getMessage(), e);
             return null;
         }
+    }
+
+    private Map<Integer, Integer> preloadUserDepartmentIds(EntityManager em, java.util.Collection<Integer> userIds) {
+        Map<Integer, Integer> userDepartments = new java.util.HashMap<>();
+        if (em == null || userIds == null || userIds.isEmpty()) {
+            return userDepartments;
+        }
+
+        java.util.Set<Integer> validUserIds = userIds.stream()
+                .filter(id -> id != null && id > 0)
+                .collect(java.util.stream.Collectors.toSet());
+        if (validUserIds.isEmpty()) {
+            return userDepartments;
+        }
+
+        try {
+            @SuppressWarnings("unchecked")
+            List<Object[]> rows = (List<Object[]>) (List<?>) em.createQuery(
+                            "SELECT u.serUserId, u.hrTblDepartment.serDepartmentId FROM CfgTblUser u WHERE u.serUserId IN :userIds")
+                    .setParameter("userIds", validUserIds)
+                    .getResultList();
+
+            for (Object[] row : rows) {
+                if (row == null || row.length < 2 || row[0] == null || row[1] == null) {
+                    continue;
+                }
+                Integer uid = ((Number) row[0]).intValue();
+                Integer departmentId = ((Number) row[1]).intValue();
+                userDepartments.put(uid, departmentId);
+            }
+        } catch (Exception e) {
+            log.warn("Error preloading user departments: {}", e.getMessage());
+        }
+
+        return userDepartments;
     }
 
     private Integer findDepartmentHeadUserId(EntityManager em, Integer departmentId) {

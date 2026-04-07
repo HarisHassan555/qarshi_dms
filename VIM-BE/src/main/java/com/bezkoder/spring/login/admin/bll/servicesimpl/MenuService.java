@@ -124,21 +124,18 @@ public class MenuService implements IMenuService {
 
 
 	@Override
-	public List<CfgTblSubMenuRole> getAllSubMenuRole(Long roleId,Long userId) {
+	public List<CfgTblSubMenuRole> getAllSubMenuRole(Long roleId, Long userId) {
 
 		CfgTblRole cfgTblRole = new CfgTblRole();
 		cfgTblRole.setSerRoleId(Math.toIntExact(roleId));
 		CfgTblUser cfgTblUser = new CfgTblUser();
 		cfgTblUser.setSerUserId(Math.toIntExact(userId));
 
-		// Prefer user-specific rows; fall back to role-only (ser_user_id IS NULL)
-		List<CfgTblSubMenuRole> result = cfgTblSubMenuRoleRepository
-				.findCfgTblSubMenuRoleByCfgTblRoleAndCfgTblUser(cfgTblRole, cfgTblUser);
-		if (result == null || result.isEmpty()) {
-			result = cfgTblSubMenuRoleRepository
-					.findByRoleWithUserOrNull(cfgTblRole, cfgTblUser);
-		}
-		return result;
+		// Always use the combined OR query so we get BOTH user-specific rows AND
+		// role-level rows (ser_user_id IS NULL) in a single call.
+		// The old two-step fallback stopped early when ANY user-specific row was found,
+		// silently dropping role-level permissions (e.g. Menu Management for Admin).
+		return cfgTblSubMenuRoleRepository.findByRoleWithUserOrNull(cfgTblRole, cfgTblUser);
 	}
 
 

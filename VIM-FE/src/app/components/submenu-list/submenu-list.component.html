@@ -1,0 +1,88 @@
+<div>
+  <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+    <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+      <div class="flex items-center gap-2">
+        <h5 class="text-xl font-bold dark:text-white-light">Submenu List</h5>
+      </div>
+      <div class="ltr:ml-auto rtl:mr-auto">
+        <input [(ngModel)]="search" type="text" class="form-input" placeholder="Search..." />
+      </div>
+    </div>
+
+    <div class="datatable invoice-table px-5 pb-5">
+      <ng-datatable
+        [rows]="subMenus"
+        [columns]="cols"
+        [sortable]="true"
+        [search]="search"
+        skin="whitespace-nowrap bh-table-hover"
+      >
+        <ng-template slot="blnStatus" let-value="data">
+          <span class="badge" [ngClass]="[value.blnStatus ? 'badge-outline-success' : 'badge-outline-danger']">
+            {{ value.blnStatus ? 'Active' : 'Inactive' }}
+          </span>
+        </ng-template>
+
+        <ng-template slot="blIsActive" let-value="data">
+          <span class="badge" [ngClass]="[value.blIsActive ? 'badge-outline-success' : 'badge-outline-danger']">
+            {{ value.blIsActive ? 'Yes' : 'No' }}
+          </span>
+        </ng-template>
+
+        <ng-template slot="actions" let-value="data">
+          <div class="flex items-center justify-center gap-4">
+            <a (click)="edit(value)" class="hover:text-info">
+              <icon-edit class="h-4.5 w-4.5"></icon-edit>
+            </a>
+            <a (click)="deleteSubMenu(value)" class="hover:text-danger">
+              <icon-trash-lines class="h-4.5 w-4.5"></icon-trash-lines>
+            </a>
+          </div>
+        </ng-template>
+      </ng-datatable>
+    </div>
+  </div>
+</div>
+
+<modal #modal>
+  <ng-template #modalHeader>
+    <div>Edit Submenu</div>
+  </ng-template>
+  <ng-template #modalBody>
+    <form class="space-y-5" [formGroup]="subMenuForm" novalidate>
+      <div>
+        <label for="serMenuId">Parent Menu</label>
+        <select id="serMenuId" class="form-select" formControlName="serMenuId">
+          <option [ngValue]="null">Select Menu</option>
+          <option *ngFor="let m of menus" [ngValue]="m.serMenuId">{{ m.txtMenuName }}</option>
+        </select>
+      </div>
+      <div>
+        <label for="txtSubMenuName">Submenu Name</label>
+        <input id="txtSubMenuName" type="text" class="form-input" formControlName="txtSubMenuName" />
+      </div>
+      <div>
+        <label for="txtSubMenuUrl">Route</label>
+        <input id="txtSubMenuUrl" type="text" class="form-input" formControlName="txtSubMenuUrl" />
+      </div>
+      <div>
+        <label for="intSubMenuOrder">Order</label>
+        <input id="intSubMenuOrder" type="number" class="form-input" formControlName="intSubMenuOrder" />
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <label class="inline-flex items-center gap-2">
+          <input type="checkbox" class="form-checkbox" [(ngModel)]="blnStatus" [ngModelOptions]="{standalone: true}" />
+          <span>Status Active</span>
+        </label>
+        <label class="inline-flex items-center gap-2">
+          <input type="checkbox" class="form-checkbox" [(ngModel)]="blIsActive" [ngModelOptions]="{standalone: true}" />
+          <span>Is Active</span>
+        </label>
+      </div>
+    </form>
+  </ng-template>
+  <ng-template #modalFooter>
+    <button type="button" (click)="modal.close()" class="btn btn-outline-danger">Close</button>
+    <button type="button" (click)="submit()" class="btn btn-primary ltr:ml-4 rtl:mr-4">Save</button>
+  </ng-template>
+</modal>

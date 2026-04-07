@@ -19,6 +19,7 @@ import org.hibernate.Hibernate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Repository;
 
@@ -59,6 +60,12 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 
 	@Autowired
 	private ICfgTblRoleDAO cfgTblRoleDAO;
+
+	@Value("${mail.smtp.username:}")
+	private String smtpUsername;
+
+	@Value("${mail.smtp.password:}")
+	private String smtpPassword;
 
 	private static final Logger log = LoggerFactory.getLogger(CfgTblUserDAO.class);
 
@@ -292,6 +299,33 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			return null;
 		}
 	}
+
+	@Override
+	public CfgTblUser getUserEntityById(Integer userId) {
+		if (userId == null || userId <= 0) {
+			return null;
+		}
+		EntityManager entityManager = getEntityManager();
+		try {
+			List<CfgTblUser> users = entityManager.createQuery(
+							"SELECT user FROM CfgTblUser user " +
+									"LEFT JOIN FETCH user.cfgTblRole role " +
+									"WHERE user.serUserId = :userId " +
+									"AND (user.blIsDeleted = FALSE OR user.blIsDeleted IS NULL)",
+							CfgTblUser.class)
+					.setParameter("userId", userId)
+					.setMaxResults(1)
+					.getResultList();
+			return users.isEmpty() ? null : users.get(0);
+		} catch (Exception e) {
+			log.error("Error loading user by id: {}", userId, e);
+			return null;
+		} finally {
+			if (entityManager != null && entityManager.isOpen()) {
+				entityManager.close();
+			}
+		}
+	}
 	
 	@Override
 	public List<CfgTblUser> searchUser(CfgTblUser User) {
@@ -375,9 +409,6 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 	
 	public void sendPassordinMail(String mail,String user_name,String pass)
 	{
-		 
-		 String toAddress="mkhalil@i3pathfinder.com";
-		 
 		 Properties props = new Properties();
 		 props.put("mail.smtp.auth", "true");
 		 props.put("mail.smtp.starttls.enable", true);
@@ -394,11 +425,7 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			Session session = Session.getInstance(props,
 			  new javax.mail.Authenticator() {
 				protected PasswordAuthentication getPasswordAuthentication() {
-					return new PasswordAuthentication("taimoorrao936@gmail.com", "ss*65300");
-//					return new PasswordAuthentication("dealerfeedback@ittehadchemicals.com", "ICL*@12345");
-					
-//					return new PasswordAuthentication("iclportal5@gmail.com", "abc123456@");
-					
+					return new PasswordAuthentication(smtpUsername, smtpPassword);
 				}
 			  });
 
@@ -446,24 +473,47 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 	 
 		@SuppressWarnings("null")
 		@Override
-		public String userPasswordUpdate(int id,String NewPassword,String oldPassword) {
+		public String userPasswordUpdate(int id, String NewPassword, String oldPassword) {
 			EntityManager entityManager = getEntityManager();
-		    entityManager.getTransaction().begin();
-	        CfgTblUser CfgTblUserObject = entityManager.find(CfgTblUser.class, (id));
-			if(NewPassword.equals(null) || oldPassword.equals(null)){
-				String plaintText = generateRandomPassword(PASSWORD_LENGTH);
-				CfgTblUserObject.setTxtPassword(passwordEncoder.encode(plaintText));
-			}else{
-				CfgTblUserObject.setTxtPassword(passwordEncoder.encode(oldPassword));
-			}
-		//	CfgTblUserObject.setTxtPassword(passwordEncoder.encode(NewPassword));
-			entityManager.merge(CfgTblUserObject);
-			entityManager.getTransaction().commit();
-			emailService.sendPassordinMail(CfgTblUserObject.getTxtAddress(),CfgTblUserObject.getTxtUserName(),NewPassword);
-			entityManager.close();
-			return "Success";
+			try {
+				entityManager.getTransaction().begin();
+				CfgTblUser CfgTblUserObject = entityManager.find(CfgTblUser.class, id);
+				if (CfgTblUserObject == null) {
+					entityManager.getTransaction().rollback();
+					return "Failure";
+				}
 
-	}
+				if (NewPassword == null || NewPassword.trim().isEmpty()) {
+					entityManager.getTransaction().rollback();
+					return "Failure";
+				}
+
+				if (oldPassword != null && !oldPassword.trim().isEmpty()) {
+					String existingPasswordHash = CfgTblUserObject.getTxtPassword();
+					if (existingPasswordHash == null || !passwordEncoder.matches(oldPassword, existingPasswordHash)) {
+						entityManager.getTransaction().rollback();
+						return "CPNM";
+					}
+				}
+
+				CfgTblUserObject.setTxtPassword(passwordEncoder.encode(NewPassword));
+				entityManager.merge(CfgTblUserObject);
+				entityManager.getTransaction().commit();
+				emailService.sendPassordinMail(CfgTblUserObject.getTxtAddress(), CfgTblUserObject.getTxtUserName(),
+						NewPassword);
+				return "Success";
+			} catch (Exception ex) {
+				if (entityManager.getTransaction().isActive()) {
+					entityManager.getTransaction().rollback();
+				}
+				log.error(ex.getMessage(), ex);
+				return "Failure";
+			} finally {
+				if (entityManager != null && entityManager.isOpen()) {
+					entityManager.close();
+				}
+			}
+		}
 		
 		
 		public List<CfgTblPasswordHistory> getAllPasswordHistory(int userid) {

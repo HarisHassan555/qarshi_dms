@@ -117,11 +117,17 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
       CorsConfiguration configuration = new CorsConfiguration();
-      configuration.setAllowedOrigins(Arrays.asList("http://localhost:4200", "http://localhost:8080", "http://192.0.0.203:8080", "http://localhost:8081"));
-      configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+      // Local/dev CORS: allow Angular dev hosts and all headers/methods used by API calls.
+      configuration.setAllowedOriginPatterns(Arrays.asList(
+              "http://localhost:*",
+              "http://127.0.0.1:*",
+              "http://192.0.0.203:*"
+      ));
+      configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
       configuration.setAllowedHeaders(Arrays.asList("*"));
       configuration.setExposedHeaders(Arrays.asList("x-auth-token"));
-      configuration.setAllowCredentials(true);
+      // Token is sent in Authorization header, so credentials/cookies are not required for CORS.
+      configuration.setAllowCredentials(false);
       UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
       source.registerCorsConfiguration("/**", configuration);
       return source;

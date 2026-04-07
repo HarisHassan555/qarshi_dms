@@ -67,6 +67,11 @@ public class SubMenuRoleService implements ISubMenuRoleService {
 		// TODO Auto-generated method stub
 		return citTableSubMenuRoleDAO.deleteSubMenuRole(subMenuRolesId);
 	}
+
+	@Override
+	public String deleteSubMenuRoleBySubMenuIds(List<String> subMenuIds) {
+		return citTableSubMenuRoleDAO.deleteSubMenuRoleBySubMenuIds(subMenuIds);
+	}
 	
 	@Override
 	public List<CfgTblSubMenuRole> searchSubMenuRole(CfgTblSubMenuRole subMenuRole) {

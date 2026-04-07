@@ -99,25 +99,74 @@ public class CfgTblRoleDAO implements ICfgTblRoleDAO {
 	public String addNewRole(CfgTblRole CfgTblRole) {
 		EntityManager entityManager = getEntityManager();
 		try {
-			CfgTblRole role=new CfgTblRole();
-			role.setTxtRoleName(CfgTblRole.getTxtRoleName());
-			List lstRole=searchRole(CfgTblRole);
-			if(lstRole!=null && lstRole.size() >0)
-			{
+			String roleName = CfgTblRole.getTxtRoleName() != null ? CfgTblRole.getTxtRoleName().trim() : null;
+			String roleCode = CfgTblRole.getTxtRoleCode() != null ? CfgTblRole.getTxtRoleCode().trim() : null;
+			if (roleName == null || roleName.isEmpty()) {
+				return "Failure";
+			}
+			if (roleCode == null || roleCode.isEmpty()) {
+				roleCode = roleName.toUpperCase().replaceAll("\\s+", "_");
+			}
+
+			entityManager.getTransaction().begin();
+
+			// Exact duplicate check by role name/code among non-deleted roles.
+			Long duplicateCount = ((Number) entityManager.createNativeQuery(
+					"SELECT COUNT(*) FROM cfg_tbl_role r " +
+							"WHERE (UPPER(TRIM(r.txt_role_name)) = UPPER(TRIM(:roleName)) " +
+							"OR UPPER(TRIM(r.txt_role_code)) = UPPER(TRIM(:roleCode))) " +
+							"AND (r.bl_is_deleted = 0 OR r.bl_is_deleted IS NULL)")
+				.setParameter("roleName", roleName)
+				.setParameter("roleCode", roleCode)
+				.getSingleResult()).longValue();
+			if (duplicateCount != null && duplicateCount > 0) {
+				entityManager.getTransaction().rollback();
 				return "EXIST";
 			}
-			
-			entityManager.getTransaction().begin();
-			CfgTblRole.setBlnStatus(true);
-			CfgTblRole.setBlIsDeleted(false);
-			CfgTblRole.setBlIsActive(true);
-			entityManager.persist(CfgTblRole);
+
+			Integer nextId = ((Number) entityManager.createNativeQuery(
+					"SELECT COALESCE(MAX(ser_role_id), 0) + 1 FROM cfg_tbl_role")
+				.getSingleResult()).intValue();
+
+			Integer createdUser = CfgTblRole.getSerCreatedUser();
+			if (createdUser == null || createdUser <= 0) {
+				createdUser = commonService.getCurrentLoggedInUser();
+			}
+			if (createdUser == null || createdUser <= 0) {
+				createdUser = 1;
+			}
+
+			entityManager.createNativeQuery(
+					"INSERT INTO cfg_tbl_role (" +
+							"ser_role_id, txt_role_name, txt_role_code, " +
+							"bl_is_active, bln_status, bl_is_deleted, dte_created_date, ser_created_user" +
+							") VALUES (" +
+							":id, :name, :code, :active, :status, :deleted, NOW(), :createdUser" +
+							")")
+				.setParameter("id", nextId)
+				.setParameter("name", roleName)
+				.setParameter("code", roleCode)
+				.setParameter("active", true)
+				.setParameter("status", true)
+				.setParameter("deleted", false)
+				.setParameter("createdUser", createdUser)
+				.executeUpdate();
+
 			entityManager.getTransaction().commit();
-			entityManager.close();
 			return "Success";
 		} catch (Exception e) {
+			try {
+				if (entityManager.getTransaction().isActive()) {
+					entityManager.getTransaction().rollback();
+				}
+			} catch (Exception ignored) {
+			}
 			log.error(e.getMessage(), e);
 			return "Failure";
+		} finally {
+			if (entityManager != null && entityManager.isOpen()) {
+				entityManager.close();
+			}
 		}
 	}
 

@@ -16,11 +16,8 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.*;
 import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Base64;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -97,14 +94,7 @@ public class SignatureController {
             }
 
             // Get user to update
-            CfgTblUser user = null;
-            List<CfgTblUser> allUsers = userService.getAllUser();
-            for (CfgTblUser u : allUsers) {
-                if (u.getSerUserId() != null && u.getSerUserId().equals(userId)) {
-                    user = u;
-                    break;
-                }
-            }
+            CfgTblUser user = userService.getUserById(userId);
             if (user == null) {
                 result.put("status", "Failure");
                 result.put("message", "User not found");
@@ -279,14 +269,7 @@ public class SignatureController {
             }
 
             // Get user
-            CfgTblUser user = null;
-            List<CfgTblUser> allUsers = userService.getAllUser();
-            for (CfgTblUser u : allUsers) {
-                if (u.getSerUserId() != null && u.getSerUserId().equals(userId)) {
-                    user = u;
-                    break;
-                }
-            }
+            CfgTblUser user = userService.getUserById(userId);
             if (user == null || user.getTxtSignaturePath() == null || user.getTxtSignaturePath().isEmpty()) {
                 return ResponseEntity.notFound().build();
             }
@@ -345,14 +328,7 @@ public class SignatureController {
             }
 
             // Get user
-            CfgTblUser user = null;
-            List<CfgTblUser> allUsers = userService.getAllUser();
-            for (CfgTblUser u : allUsers) {
-                if (u.getSerUserId() != null && u.getSerUserId().equals(userId)) {
-                    user = u;
-                    break;
-                }
-            }
+            CfgTblUser user = userService.getUserById(userId);
             if (user == null) {
                 result.put("status", "Failure");
                 result.put("message", "User not found");
