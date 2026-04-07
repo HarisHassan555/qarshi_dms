@@ -1149,40 +1149,52 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     entityManager.getTransaction().rollback();
                     return "Failure: Only CEO can approve at this stage";
                 }
-                // Idempotency: if CEO already approved, do not append again or re-send emails.
+                CfgTblCustomForm capfFormForCeo = application.getSerFormId() != null
+                        ? entityManager.find(CfgTblCustomForm.class, application.getSerFormId())
+                        : null;
+
+                // Idempotency: any completed CEO step in history (level -99 / CEO role), not only matching userId.
+                // Prevents duplicate history rows when parsing/userId matching differs between email vs portal.
+                boolean ceoStageAlreadyComplete = false;
                 try {
                     List<Map<String, Object>> history = parseApprovalHistory(application.getTxtApprovalHistory());
-                    boolean alreadyApproved = false;
                     if (history != null) {
                         for (Map<String, Object> e : history) {
-                            if (e == null) continue;
+                            if (e == null || !isApprovedEntry(e)) {
+                                continue;
+                            }
                             Integer lvl = safeInt(e.get("level"), null);
                             String role = e.get("role") != null ? e.get("role").toString().toLowerCase() : "";
                             String dept = e.get("departmentName") != null ? e.get("departmentName").toString().toLowerCase() : "";
-                            Integer uid = safeInt(e.get("approvedBy"), safeInt(e.get("approverUserId"), safeInt(e.get("userId"), null)));
-                            boolean isCeo = (lvl != null && lvl == -99)
-                                    || role.contains("ceo") || role.contains("chief executive") || role.contains("executive") || role.contains("md")
-                                    || dept.contains("ceo") || dept.contains("chief executive") || dept.contains("executive") || dept.contains("md");
-                            if (isCeo && uid != null && uid.equals(resolvedApproverId)) {
-                                alreadyApproved = true;
+                            boolean isCeoEntry = (lvl != null && lvl == -99)
+                                    || "ceo".equals(role.trim())
+                                    || role.contains("ceo") || role.contains("chief executive") || role.contains("executive")
+                                    || role.contains("md")
+                                    || dept.contains("ceo") || dept.contains("chief executive") || dept.contains("executive")
+                                    || dept.contains("md");
+                            if (isCeoEntry) {
+                                ceoStageAlreadyComplete = true;
                                 break;
                             }
                         }
                     }
-                    if (alreadyApproved) {
-                        application.setTxtStatus("ASSET_PENDING");
-                        Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
-                        if (financeUserId == null) {
-                            financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
-                        }
-                        application.setSerCurrentApprover(financeUserId);
-                        application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
-                        entityManager.merge(application);
-                        entityManager.getTransaction().commit();
-                        return "Success";
-                    }
                 } catch (Exception e) {
                     log.warn("CEO idempotency check failed: {}", e.getMessage());
+                }
+                if (ceoStageAlreadyComplete) {
+                    application.setTxtStatus("ASSET_PENDING");
+                    Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
+                    if (financeUserId == null) {
+                        financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
+                    }
+                    application.setSerCurrentApprover(financeUserId);
+                    application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+                    if (capfFormForCeo != null && isCapfForm(capfFormForCeo)) {
+                        persistCapfSignedPdf(application, capfFormForCeo);
+                    }
+                    entityManager.merge(application);
+                    entityManager.getTransaction().commit();
+                    return "Success";
                 }
                 application.setTxtStatus("ASSET_PENDING");
                 Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
@@ -1193,6 +1205,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 // Append history entry for CEO approval
                 appendHistoryEntry(entityManager, application, resolvedApproverId, "APPROVED", "CEO", -99, approvedVia,
                         approvedIp);
+                // Same as departmental CAPF path: bake signatures into stored PDF before finance email.
+                // Otherwise buildCapfPreviewPng uses a stale per-stage snapshot and the CEO line is missing.
+                if (capfFormForCeo != null && isCapfForm(capfFormForCeo)) {
+                    persistCapfSignedPdf(application, capfFormForCeo);
+                }
                 application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
                 entityManager.merge(application);
                 entityManager.getTransaction().commit();
@@ -8038,6 +8055,18 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     private byte[] buildCapfPreviewPng(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
         // Always prefer the frontend snapshot PDFs for CAPF email preview.
         if (application != null) {
+            // After CEO signs, persistCapfSignedPdf updates blbPdfData (full chain + CEO). Per-stage blobs can
+            // still be the pre-CEO snapshot; finance emails must use the merged PDF or the CEO slot is blank.
+            String st = application.getTxtStatus() != null ? application.getTxtStatus().trim() : "";
+            if ("ASSET_PENDING".equalsIgnoreCase(st) && application.getBlbPdfData() != null
+                    && application.getBlbPdfData().length > 0) {
+                byte[] assetPng = renderPdfFirstPageToPng(application.getBlbPdfData());
+                if (assetPng != null && assetPng.length > 0) {
+                    log.info("CAPF preview source: blbPdfData (ASSET_PENDING post-CEO) for appId={}",
+                            application.getSerApplicationId());
+                    return assetPng;
+                }
+            }
             Integer capfLevel = application.getIntCurrentApprovalLevel();
             if (capfLevel != null && capfLevel >= 0) {
                 byte[] stagePdf = application.getBlbPdfForStage(capfLevel);
