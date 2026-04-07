@@ -46,7 +46,11 @@ export class PendingApprovalsComponent implements OnInit {
   ngOnInit() {
     const userJson = localStorage.getItem('user');
     if (userJson) {
-      this.currentUser = JSON.parse(userJson);
+      try {
+        this.currentUser = JSON.parse(userJson);
+      } catch (e) {
+        this.currentUser = null;
+      }
     }
     this.loadForms();
     this.loadPendingApprovals();
@@ -67,12 +71,16 @@ export class PendingApprovalsComponent implements OnInit {
 
   loadPendingApprovals() {
     this.isLoading = true;
-    const roleName = (this.currentUser?.cfgTblRole?.txtRoleName || this.currentUser?.txtrole || '').toUpperCase();
-    const isAdmin = roleName === 'ADMIN' || roleName === 'SUPER ADMIN';
-    
-    const request = isAdmin 
-      ? this.customFormApplicationService.getAllApplicationsPendingApproval()
-      : this.customFormApplicationService.getApplicationsPendingApproval(this.currentUser?.serUserId);
+    const userId = Number(this.currentUser?.serUserId || 0);
+
+    if (userId <= 0) {
+      this.pendingApprovals = [];
+      this.isLoading = false;
+      this.notificationService.showMessage('User context is missing. Please sign in again.', 'warning');
+      return;
+    }
+
+    const request = this.customFormApplicationService.getApplicationsPendingApproval(userId);
 
     request.pipe(finalize(() => this.isLoading = false)).subscribe(
       (data: any) => {

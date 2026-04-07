@@ -12,14 +12,54 @@ import { QuillEditorComponent } from 'ngx-quill';
 import * as QuillNamespace from 'quill';
 const Quill: any = QuillNamespace;
 
+/** Prevents duplicate paste guards when the same wrapper is patched more than once */
+const Q_TABLE_PASTE_GUARD = '__qTablePasteGuard';
+const Q_TABLE_FOCUS_GUARD = '__qTableFocusGuard';
+
 // Register a custom blot for tables to prevent Quill from stripping them
 const BlockEmbed = Quill.import('blots/block/embed');
 class TableBlot extends BlockEmbed {
     static create(value: string) {
-        let node = super.create();
-        node.innerHTML = value;
+        let node: HTMLElement = super.create();
+        // Wrapper must not be contenteditable: nested editables + Quill both handling focus breaks paste.
         node.setAttribute('contenteditable', 'false');
-        node.style.userSelect = 'all'; // Allow easy selection/deletion
+        node.innerHTML = value;
+        node.querySelectorAll('th, td').forEach((cell) => {
+            const el = cell as HTMLElement;
+            if (el.querySelector('textarea, input')) {
+                el.setAttribute('contenteditable', 'false');
+                return;
+            }
+            el.setAttribute('contenteditable', 'true');
+        });
+        // Quill listens for paste on quill.root and steals clipboard focus; stop bubble so the browser pastes into the cell.
+        if (!(node as any)[Q_TABLE_PASTE_GUARD]) {
+            (node as any)[Q_TABLE_PASTE_GUARD] = true;
+            node.addEventListener('paste', (e: ClipboardEvent) => {
+                e.stopPropagation();
+            });
+        }
+        if (!(node as any)[Q_TABLE_FOCUS_GUARD]) {
+            (node as any)[Q_TABLE_FOCUS_GUARD] = true;
+            node.addEventListener('mousedown', (e: MouseEvent) => {
+                e.stopPropagation();
+            });
+            node.addEventListener('click', (e: MouseEvent) => {
+                e.stopPropagation();
+                const target = e.target as HTMLElement | null;
+                const cell = target?.closest('th, td') as HTMLElement | null;
+                if (!cell) return;
+                const textInput = cell.querySelector('textarea, input') as HTMLTextAreaElement | HTMLInputElement | null;
+                if (textInput) {
+                    textInput.focus();
+                    return;
+                }
+                if (cell.getAttribute('contenteditable') === 'true') {
+                    cell.focus();
+                }
+            });
+        }
+        node.style.userSelect = 'text';
         return node;
     }
     static value(node: HTMLElement) {
@@ -176,6 +216,60 @@ export class BudgetApprovalComponent implements OnInit {
                 console.error('Error parsing edit data:', e);
             }
         }
+        setTimeout(() => this.attachTablePasteGuards(), 0);
+    }
+
+    /**
+     * Tables inside Quill use nested contenteditable cells. Quill's Clipboard module listens on
+     * quill.root for "paste" and hijacks the event; stopPropagation on wrappers fixes cell paste.
+     * Call after editor init and when loading HTML that may already contain .q-table-wrapper.
+     */
+    private attachTablePasteGuards(quillInstance?: any): void {
+        const quill = (quillInstance ?? this.editor?.quillEditor) as any;
+        const root = quill?.root as HTMLElement | undefined;
+        if (!root) return;
+        root.querySelectorAll('.q-table-wrapper').forEach((wrap: Element) => {
+            const el = wrap as HTMLElement;
+            el.setAttribute('contenteditable', 'false');
+            el.querySelectorAll('th, td').forEach((cell) => {
+                const c = cell as HTMLElement;
+                if (c.querySelector('textarea, input')) {
+                    c.setAttribute('contenteditable', 'false');
+                    return;
+                }
+                c.setAttribute('contenteditable', 'true');
+            });
+            if (!(el as any)[Q_TABLE_PASTE_GUARD]) {
+                (el as any)[Q_TABLE_PASTE_GUARD] = true;
+                el.addEventListener('paste', (e: ClipboardEvent) => {
+                    e.stopPropagation();
+                });
+            }
+            if (!(el as any)[Q_TABLE_FOCUS_GUARD]) {
+                (el as any)[Q_TABLE_FOCUS_GUARD] = true;
+                el.addEventListener('mousedown', (e: MouseEvent) => {
+                    e.stopPropagation();
+                });
+                el.addEventListener('click', (e: MouseEvent) => {
+                    e.stopPropagation();
+                    const target = e.target as HTMLElement | null;
+                    const cell = target?.closest('th, td') as HTMLElement | null;
+                    if (!cell) return;
+                    const textInput = cell.querySelector('textarea, input') as HTMLTextAreaElement | HTMLInputElement | null;
+                    if (textInput) {
+                        textInput.focus();
+                        return;
+                    }
+                    if (cell.getAttribute('contenteditable') === 'true') {
+                        cell.focus();
+                    }
+                });
+            }
+        });
+    }
+
+    onQuillEditorCreated(quillInstance: any): void {
+        this.attachTablePasteGuards(quillInstance);
     }
 
     private loadFromFooterFields(footerFields: any[]) {
@@ -353,9 +447,9 @@ export class BudgetApprovalComponent implements OnInit {
         let html = '<table style="width: 100%; border-collapse: collapse; border: 1px solid #000; margin: 10px 0;">';
 
         // Header Row
-        html += '<tr style="background-color: #f1f1f1; font-weight: bold;">';
+        html += '<tr style="background-color: #f1f1f1;">';
         this.tableColumns.forEach(col => {
-            html += `<td style="border: 1px solid #000; padding: 8px; text-align: center;">${col}</td>`;
+            html += `<th contenteditable="true" style="border: 1px solid #000; padding: 8px; text-align: center; font-weight: 700;">${col}</th>`;
         });
         html += '</tr>';
 
@@ -363,7 +457,7 @@ export class BudgetApprovalComponent implements OnInit {
         this.tableRows.forEach(row => {
             html += '<tr>';
             row.forEach((cell: string) => {
-                html += `<td style="border: 1px solid #000; padding: 8px; text-align: left;">${cell || '&nbsp;'}</td>`;
+                html += `<td contenteditable="true" style="border: 1px solid #000; padding: 8px; text-align: left;">${cell || '&nbsp;'}</td>`;
             });
             html += '</tr>';
         });
@@ -389,6 +483,7 @@ export class BudgetApprovalComponent implements OnInit {
 
             // Sync the model immediately
             this.editorContent = quill.root.innerHTML;
+            this.attachTablePasteGuards(quill);
 
             // Reset table builder after insertion
             this.tableColumns = ['Column 1', 'Column 2'];

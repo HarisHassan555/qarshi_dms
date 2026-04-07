@@ -14,14 +14,40 @@ import { Store } from '@ngrx/store';
 import * as QuillNamespace from 'quill';
 
 const Quill: any = QuillNamespace;
+const Q_TABLE_PASTE_GUARD = '__qTablePasteGuard';
+const Q_TABLE_FOCUS_GUARD = '__qTableFocusGuard';
 const ExistingTableBlot = Quill.imports?.['formats/table-blot'];
 if (!ExistingTableBlot) {
   const BlockEmbed = Quill.import('blots/block/embed');
   class TableBlot extends BlockEmbed {
     static create(value: string) {
-      const node = super.create();
-      node.innerHTML = value;
+      const node: HTMLElement = super.create();
       node.setAttribute('contenteditable', 'false');
+      node.innerHTML = value;
+      if (!(node as any)[Q_TABLE_PASTE_GUARD]) {
+        (node as any)[Q_TABLE_PASTE_GUARD] = true;
+        node.addEventListener('paste', (e: ClipboardEvent) => {
+          e.stopPropagation();
+        });
+      }
+      if (!(node as any)[Q_TABLE_FOCUS_GUARD]) {
+        (node as any)[Q_TABLE_FOCUS_GUARD] = true;
+        node.addEventListener('mousedown', (e: MouseEvent) => e.stopPropagation());
+        node.addEventListener('click', (e: MouseEvent) => {
+          e.stopPropagation();
+          const target = e.target as HTMLElement | null;
+          const cell = target?.closest('th, td') as HTMLElement | null;
+          if (!cell) return;
+          const input = cell.querySelector('textarea, input') as HTMLTextAreaElement | HTMLInputElement | null;
+          if (input) {
+            input.focus();
+            return;
+          }
+          if (cell.getAttribute('contenteditable') === 'true') {
+            cell.focus();
+          }
+        });
+      }
       return node;
     }
     static value(node: HTMLElement) {
@@ -692,9 +718,10 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   onWordEditorCreated(fieldName: string, editor: any): void {
+    this.attachTablePasteGuardsForEditor(editor);
     editor?.root?.addEventListener('focusin', (event: FocusEvent) => {
       const target = event.target as HTMLElement | null;
-      const cell = target?.closest('td') as HTMLTableCellElement | null;
+      const cell = target?.closest('th, td') as HTMLTableCellElement | null;
       if (cell && editor?.root?.contains(cell)) {
         this.lastFocusedTableCellByEditor.set(editor, cell);
       }
@@ -709,6 +736,40 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         this.ensureToolbarActionButton(toolbarEl, 'mergeDown', () => this.mergeTableCellDown(editor));
       }
     }
+  }
+
+  /** See budget-approval TableBlot: Quill paste on quill.root steals clipboard; stop bubble inside table embeds. */
+  private attachTablePasteGuardsForEditor(editor: any): void {
+    const root = editor?.root as HTMLElement | undefined;
+    if (!root) return;
+    root.querySelectorAll('.q-table-wrapper').forEach((wrap: Element) => {
+      const el = wrap as HTMLElement;
+      el.setAttribute('contenteditable', 'false');
+      if (!(el as any)[Q_TABLE_PASTE_GUARD]) {
+        (el as any)[Q_TABLE_PASTE_GUARD] = true;
+        el.addEventListener('paste', (e: ClipboardEvent) => {
+          e.stopPropagation();
+        });
+      }
+      if (!(el as any)[Q_TABLE_FOCUS_GUARD]) {
+        (el as any)[Q_TABLE_FOCUS_GUARD] = true;
+        el.addEventListener('mousedown', (e: MouseEvent) => e.stopPropagation());
+        el.addEventListener('click', (e: MouseEvent) => {
+          e.stopPropagation();
+          const target = e.target as HTMLElement | null;
+          const cell = target?.closest('th, td') as HTMLElement | null;
+          if (!cell) return;
+          const input = cell.querySelector('textarea, input') as HTMLTextAreaElement | HTMLInputElement | null;
+          if (input) {
+            input.focus();
+            return;
+          }
+          if (cell.getAttribute('contenteditable') === 'true') {
+            cell.focus();
+          }
+        });
+      }
+    });
   }
 
   private ensureToolbarActionButton(toolbarEl: HTMLElement, classSuffix: string, onClick: () => void): void {
@@ -761,12 +822,16 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       tableHtml += '<tr>';
       for (let c = 0; c < columns; c++) {
         const defaultValue = r === 0 ? `Header ${c + 1}` : '';
-        tableHtml += `<td style="border:1px solid #000; padding:1px; vertical-align:top;">
+        const cellTag = r === 0 ? 'th' : 'td';
+        const cellHeaderStyle = r === 0 ? 'background-color:#f1f1f1;' : '';
+        const taWeight = r === 0 ? 'font-weight:700;' : '';
+        const taAlign = r === 0 ? 'text-align:center;' : 'text-align:left;';
+        tableHtml += `<${cellTag} style="border:1px solid #000; padding:1px; vertical-align:top; ${cellHeaderStyle}${taAlign}">
           <textarea
             rows="1"
             oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';this.textContent=this.value"
-            style="width:100%; border:none; outline:none; background:transparent; font:inherit; padding:1px; line-height:1.2; resize:none; overflow:hidden; white-space:pre-wrap; word-break:break-word; box-sizing:border-box;">${defaultValue}</textarea>
-        </td>`;
+            style="width:100%; border:none; outline:none; background:transparent; font:inherit; padding:1px; line-height:1.2; resize:none; overflow:hidden; white-space:pre-wrap; word-break:break-word; box-sizing:border-box;${taWeight}${taAlign}">${defaultValue}</textarea>
+        </${cellTag}>`;
       }
       tableHtml += '</tr>';
     }
@@ -776,11 +841,12 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     const index = range ? range.index : editor.getLength();
     editor.insertEmbed(index, 'table-blot', tableHtml, 'user');
     editor.setSelection(index + 1, 0, 'api');
+    this.attachTablePasteGuardsForEditor(editor);
   }
 
   private getFocusedTableCell(editor: any): HTMLTableCellElement | null {
     const activeElement = document.activeElement as HTMLElement | null;
-    const activeCell = activeElement?.closest('td') as HTMLTableCellElement | null;
+    const activeCell = activeElement?.closest('th, td') as HTMLTableCellElement | null;
     if (activeCell && editor?.root?.contains(activeCell)) {
       this.lastFocusedTableCellByEditor.set(editor, activeCell);
       return activeCell;

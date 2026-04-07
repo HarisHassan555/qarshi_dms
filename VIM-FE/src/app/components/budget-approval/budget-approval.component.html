@@ -118,7 +118,8 @@
 
         <div class="mb-5">
             <quill-editor #editor [(ngModel)]="editorContent" [modules]="quillModules" [styles]="{height: '400px'}"
-                placeholder="Enter details, bullet points, headings..."></quill-editor>
+                placeholder="Enter details, bullet points, headings..."
+                (onEditorCreated)="onQuillEditorCreated($event)"></quill-editor>
         </div>
 
         <div class="mb-5 panel bg-gray-50 dark:bg-gray-800">
