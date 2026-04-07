@@ -1254,14 +1254,10 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   /**
-   * Slots for signature row: use same logic as other forms (department pipeline).
-   * Other forms use getStageHistoryEntry(level) → single latest entry per stage, and
-   * getPipelineCardsForDisplay() → one card per (stage, unique approverId). So we:
-   * 1) Resolve this section to pipeline level (section index + 1 or section.order).
-   * 2) Get the single latest entry for this level via getStageHistoryEntry(level).
-   * 3) If multiple approvers at same level (e.g. Technical Expert), get unique approver IDs
-   *    and for each the latest via getStageHeadHistoryEntry (same as getPipelineCardsForDisplay).
-   * Result: exactly one slot per approver at this stage, each showing the latest signature only.
+   * Slots for signature row: one column per person configured on the section (deduped by user id).
+   * When some approvers at this level have signed, merge history onto those users so names/signatures
+   * stay accurate — but still show every selected co-approver until all have acted (partial approvals
+   * used to drop pending people because only history rows were returned).
    */
   getIndividualFooterSlots(section: any): any[] {
     const sections = this.getIndividualPipelineFooterFields();
@@ -1275,8 +1271,11 @@ export class ApplicationDetailsComponent implements OnInit {
       level = 1;
     }
 
+    const baseUsers = this.dedupedSectionUsers(section);
+    const hasConfiguredUsers = baseUsers.some((u: any) => u != null);
+
     if (!this.approvalHistory || this.approvalHistory.length === 0) {
-      return this.dedupedSectionUsers(section);
+      return baseUsers;
     }
 
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
@@ -1290,17 +1289,15 @@ export class ApplicationDetailsComponent implements OnInit {
       return action === 'APPROVED' || !!(e.approvedDate);
     });
 
-    if (matches.length === 0) return this.dedupedSectionUsers(section);
+    if (matches.length === 0) return baseUsers;
 
     matches.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
-    const seen = new Set<number>();
-    const slots: any[] = [];
+    const historyByUserId = new Map<number, any>();
     for (const e of matches) {
       const uid = e.approvedBy ?? e.userId;
       const n = uid != null ? Number(uid) : NaN;
-      if (isNaN(n) || seen.has(n)) continue;
-      seen.add(n);
-      slots.push({
+      if (isNaN(n) || historyByUserId.has(n)) continue;
+      historyByUserId.set(n, {
         serUserId: n,
         userId: n,
         id: n,
@@ -1313,8 +1310,34 @@ export class ApplicationDetailsComponent implements OnInit {
         designation: e.txtDesignation ?? e.designation,
       });
     }
-    if (slots.length > 0) return slots;
-    return this.dedupedSectionUsers(section);
+
+    if (!hasConfiguredUsers && historyByUserId.size > 0) {
+      return Array.from(historyByUserId.values());
+    }
+
+    const merged: any[] = [];
+    for (const u of baseUsers) {
+      if (u == null) {
+        merged.push(null);
+        continue;
+      }
+      const uid = u.serUserId ?? u.userId ?? u.id ?? u.approvedBy;
+      const n = uid != null ? Number(uid) : NaN;
+      const hist = !isNaN(n) ? historyByUserId.get(n) : undefined;
+      merged.push(hist ? { ...u, ...hist } : u);
+    }
+
+    for (const [hid, histSlot] of historyByUserId) {
+      const inBase = baseUsers.some((u: any) => {
+        if (!u) return false;
+        const buid = u.serUserId ?? u.userId ?? u.id ?? u.approvedBy;
+        const bn = buid != null ? Number(buid) : NaN;
+        return !isNaN(bn) && bn === hid;
+      });
+      if (!inBase) merged.push(histSlot);
+    }
+
+    return merged.length > 0 ? merged : baseUsers;
   }
 
   /** Dedupe section.users by userId (used when no approval history for this stage). */
@@ -2247,6 +2270,9 @@ export class ApplicationDetailsComponent implements OnInit {
     if (hasApproved) {
       // Virtual initiator stage: rely on history (it isn't a real pipeline step).
       if (isVirtualInitiatorStage) return 'APPROVED';
+      // Multi-HOD: this card's head already signed while peers are still pending at the same stage.
+      const coHeads = this.getDepartmentStageApproverIds(pipelineOrder, departmentId);
+      if (coHeads.length > 1 && pipelineOrder === currentLevel) return 'APPROVED';
       // Real stages: only show approved when the workflow has advanced past it.
       if (pipelineOrder < currentLevel) return 'APPROVED';
       if (pipelineOrder === currentLevel) return 'CURRENT';
@@ -2871,6 +2897,11 @@ export class ApplicationDetailsComponent implements OnInit {
       }
       const deptId = pipeline?.hrTblDepartment?.serDepartmentId ?? pipeline?.serDepartmentId ?? pipeline?.departmentId;
       if (deptId == null) return false;
+      const order = pipeline?.intApprovalOrder ?? (pipelineIndex + 1);
+      const headIds = this.getDepartmentStageApproverIds(order, Number(deptId));
+      if (headIds.length > 0) {
+        return headIds.some((h) => Number(h) === Number(userId));
+      }
       const headId = this.departmentHeadMap.get(Number(deptId));
       return headId != null && Number(headId) === Number(userId);
     }
@@ -2899,14 +2930,61 @@ export class ApplicationDetailsComponent implements OnInit {
     });
   }
 
+  /**
+   * For individual pipeline footer / budget approval, backend stores history `level` as 1-based
+   * (approver sequence index + 1) while `intCurrentApprovalLevel` is the 0-based index of the pending approver.
+   * Department pipeline entries may use a different convention; keep comparing to the raw index there.
+   */
+  private getExpectedHistoryLevelForPendingStage(): number {
+    const pendingIndex = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+    if (this.hasIndividualPipelineFooter() || this.isBudgetApprovalForm()) {
+      return pendingIndex + 1;
+    }
+    return pendingIndex;
+  }
+
+  /**
+   * Department pipeline (e.g. CAPF): multiple HODs share intCurrentApprovalLevel until all have signed.
+   * Guard logic must not treat a co-head's approval as "current user already finished".
+   */
+  private isDepartmentMultiHeadPendingStage(): boolean {
+    if (this.hasIndividualPipelineFooter() || this.isBudgetApprovalForm()) return false;
+    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+    if (currentLevel < 0) return false;
+    const pipelines = this.getPipelineData() || [];
+    if (pipelines.length === 0) return false;
+    let pipelineIndex = currentLevel;
+    if (this.isCapfForm()) {
+      const hasPrependedInitiator = pipelines[0]?.intApprovalOrder === -1;
+      pipelineIndex = hasPrependedInitiator ? currentLevel : currentLevel - 1;
+    }
+    if (pipelineIndex < 0 || pipelineIndex >= pipelines.length) return false;
+    const pipeline = pipelines[pipelineIndex];
+    if ((pipeline?.type || '').toString().toLowerCase() === 'individual') return false;
+    const deptId = this.getPipelineDepartmentId(pipeline);
+    if (deptId == null) return false;
+    const order = pipeline?.intApprovalOrder ?? (pipelineIndex + 1);
+    return this.getDepartmentStageApproverIds(order, deptId).length > 1;
+  }
+
   private isCurrentLevelAlreadyHandled(): boolean {
     if (!this.approvalHistory || this.approvalHistory.length === 0) return false;
-    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel || 0;
-    if (!currentLevel) return false;
+    const useSeq = this.hasIndividualPipelineFooter() || this.isBudgetApprovalForm();
+    const pendingIndex = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+    if (!useSeq && !pendingIndex) return false;
+    const expectedLevel = this.getExpectedHistoryLevelForPendingStage();
+    const multiHeadDept = this.isDepartmentMultiHeadPendingStage();
+    const currentUserId = this.getCurrentUserId();
     return this.approvalHistory.some((e: any) => {
-      if (Number(e.level) !== Number(currentLevel)) return false;
+      if (Number(e.level) !== Number(expectedLevel)) return false;
       const action = (e.action || e.status || '').toString().toUpperCase();
-      return ['APPROVED', 'REJECTED', 'SEND_BACK', 'SENT_BACK', 'SENTBACK', 'SENT_BACK_TO_INITIATOR'].includes(action) || !!e.approvedDate;
+      // Send-back is not "stage finished": the same approver must act again after a lower level re-approves.
+      if (action !== 'APPROVED' && action !== 'REJECTED') return false;
+      if (multiHeadDept && currentUserId != null) {
+        const actorId = e.approvedBy ?? e.approverUserId ?? e.userId;
+        if (Number(actorId) !== Number(currentUserId)) return false;
+      }
+      return true;
     });
   }
 
@@ -2929,16 +3007,24 @@ export class ApplicationDetailsComponent implements OnInit {
   /** True if the current level has already been acted upon in this round (after any send-back from higher level). */
   private isCurrentLevelHandledThisRound(): boolean {
     if (!this.approvalHistory || this.approvalHistory.length === 0) return false;
-    const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
-    if (!currentLevel) return false;
+    const useSeq = this.hasIndividualPipelineFooter() || this.isBudgetApprovalForm();
+    const pendingIndex = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+    if (!useSeq && !pendingIndex) return false;
+    const expectedLevel = this.getExpectedHistoryLevelForPendingStage();
     const resetTime = this.getCurrentRoundResetTime();
-    const terminalActions = ['APPROVED', 'REJECTED', 'SEND_BACK', 'SENT_BACK', 'SENTBACK', 'SENT_BACK_TO_INITIATOR'];
+    const multiHeadDept = this.isDepartmentMultiHeadPendingStage();
+    const currentUserId = this.getCurrentUserId();
     return this.approvalHistory.some((e: any) => {
-      if (Number(e.level) !== Number(currentLevel)) return false;
+      if (Number(e.level) !== Number(expectedLevel)) return false;
       const action = (e.action || e.status || '').toString().toUpperCase();
-      const isTerminal = terminalActions.includes(action) || !!e.approvedDate;
-      if (!isTerminal) return false;
-      return this.getApprovalEntryTime(e) >= resetTime;
+      // Only approve/reject complete this stage. Old SENT_BACK at this level must not block the next cycle.
+      if (action !== 'APPROVED' && action !== 'REJECTED') return false;
+      if (this.getApprovalEntryTime(e) < resetTime) return false;
+      if (multiHeadDept && currentUserId != null) {
+        const actorId = e.approvedBy ?? e.approverUserId ?? e.userId;
+        if (Number(actorId) !== Number(currentUserId)) return false;
+      }
+      return true;
     });
   }
 
