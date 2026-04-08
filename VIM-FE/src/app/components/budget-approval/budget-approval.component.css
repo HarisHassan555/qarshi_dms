@@ -274,7 +274,7 @@ ng-select, ng-select .ng-select-container {
     border: 1px dashed #ccc;
     background: #fafafa;
     border-radius: 4px;
-    cursor: pointer;
+    cursor: text;
 }
 
 .q-table-wrapper:hover {

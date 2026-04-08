@@ -916,16 +916,16 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     "ASSET_PENDING",
                     "PR_PENDING");
 
+            // Broad candidate set only; precise routing is isPendingForUserAtCurrentStage (do not pre-filter
+            // by serCurrentApprover — it can point at another user after level transitions and would hide level-2 work).
             List<CfgTblCustomFormApplication> allPendingApplications = entityManager.createQuery(
                     "SELECT a FROM CfgTblCustomFormApplication a " +
                             "LEFT JOIN FETCH a.cfgTblCustomForm f " +
                             "WHERE a.txtStatus IN :pendingStatuses " +
-                            "AND (a.serCurrentApprover = :departmentHeadUserId OR a.serCurrentApprover IS NULL) " +
                             "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
                             "ORDER BY a.dteCreatedDate DESC",
                     CfgTblCustomFormApplication.class)
                     .setParameter("pendingStatuses", pendingStatuses)
-                    .setParameter("departmentHeadUserId", departmentHeadUserId)
                     .setFirstResult(0)
                     .setMaxResults(Math.max(100, maxPendingCandidateApplications))
                     .getResultList();
@@ -1000,12 +1000,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     "SELECT a FROM CfgTblCustomFormApplication a " +
                             "LEFT JOIN FETCH a.cfgTblCustomForm f " +
                             "WHERE a.txtStatus IN :pendingStatuses " +
-                            "AND (a.serCurrentApprover = :currentUserId OR a.serCurrentApprover IS NULL) " +
                             "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
                             "ORDER BY a.dteCreatedDate DESC",
                     CfgTblCustomFormApplication.class)
                     .setParameter("pendingStatuses", pendingStatuses)
-                    .setParameter("currentUserId", currentUserId)
                     .setFirstResult(0)
                     .setMaxResults(Math.max(100, maxPendingCandidateApplications))
                     .getResultList();

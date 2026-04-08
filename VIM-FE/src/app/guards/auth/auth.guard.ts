@@ -70,7 +70,7 @@ export const canActivate: CanActivateFn = (
   // Routes that don't require menu permission check (master data routes)
   const allowedRoutesWithoutMenu = ['Dashboard', 'department', 'country', 'city', 'media-house', 
     'tax-category', 'product-category', 'product', 'users', 'password-policy', 'change-password', 
-    'role', 'channel', 'service-order', 'vendor-view', 'payment', 'OrderDepartment', 'pdf-editor', 
+    'signature', 'role', 'channel', 'service-order', 'vendor-view', 'payment', 'OrderDepartment', 'pdf-editor', 
     'SES', 'auditLog', 'transactions-details', 'report', 'order-details', 'application', 'applicationsview', 
     'application-details', 'formbuilder', 'CAPF', 'approveApplicationFromEmail', 'rejectApplicationFromEmail',
     'pending-approvals', 'approved-applications', 'assign-asset-code', 'pr-code', 'menu-list', 'submenu-list'];

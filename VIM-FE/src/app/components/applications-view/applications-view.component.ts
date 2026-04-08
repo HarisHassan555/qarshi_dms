@@ -67,6 +67,7 @@ export class ApplicationsViewComponent implements OnInit {
   isSubmitting: boolean = false;
   isGeneratingPDF: boolean = false; // Flag to prevent multiple simultaneous PDF generations
   isPreparingApprovalPdf: boolean = false;
+  private wordEditorTableGuardTimer: ReturnType<typeof setTimeout> | null = null;
   wordEditorModules = {
     toolbar: [
       ['bold', 'italic', 'underline', 'strike'],
@@ -316,6 +317,32 @@ export class ApplicationsViewComponent implements OnInit {
   isWordEditorType(fieldType: string | undefined): boolean {
     const normalizedType = (fieldType || '').toLowerCase().replace(/\s+/g, '_');
     return normalizedType === 'word_editor' || normalizedType === 'wordeditor' || normalizedType === 'rich_text' || normalizedType === 'richtext';
+  }
+
+  /** Quill listens for paste on the editor root and intercepts clipboard; allow paste in nested table embeds. */
+  onWordEditorQuillCreated(editor: any): void {
+    const root = editor?.root as HTMLElement | undefined;
+    if (!root) return;
+    const guardKey = '__qTablePasteGuard';
+    root.querySelectorAll('.q-table-wrapper').forEach((wrap: Element) => {
+      const el = wrap as HTMLElement;
+      el.setAttribute('contenteditable', 'false');
+      if (!(el as any)[guardKey]) {
+        (el as any)[guardKey] = true;
+        el.addEventListener('paste', (e: ClipboardEvent) => e.stopPropagation());
+      }
+    });
+  }
+
+  /** Re-attach after HTML is patched in (e.g. opening edit modal) because tables are not present at onEditorCreated. */
+  onWordEditorQuillContentChanged(ev: any): void {
+    const html = ev?.html;
+    if (typeof html !== 'string' || !html.includes('q-table-wrapper')) return;
+    if (this.wordEditorTableGuardTimer) clearTimeout(this.wordEditorTableGuardTimer);
+    this.wordEditorTableGuardTimer = setTimeout(() => {
+      this.wordEditorTableGuardTimer = null;
+      this.onWordEditorQuillCreated(ev.editor);
+    }, 150);
   }
 
   private richTextRequiredValidator(control: AbstractControl): ValidationErrors | null {

@@ -1306,6 +1306,7 @@ export class ApplicationPdfService {
       padding: 10mm 10mm 10mm 12mm;
       display:flex;
       flex-direction:column;
+      min-height: 297mm;
       overflow: visible;
       position: relative;
     }
