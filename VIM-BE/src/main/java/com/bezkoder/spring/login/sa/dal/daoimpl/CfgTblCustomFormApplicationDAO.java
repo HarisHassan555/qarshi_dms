@@ -66,8 +66,24 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     @Value("${app.backend.url:http://localhost:8080/velocity}")
     private String backendBaseUrl;
 
-    @Value("${app.base.url:http://localhost:4200}")
+    @Value("${app.base.url:http://localhost:4200/velocity}")
     private String frontendBaseUrl;
+
+    /**
+     * Browser URL for the Angular SPA, including the {@code /velocity} context path.
+     * If {@code app.base.url} is set to a host only (legacy {@code http://localhost:4200}),
+     * {@code /velocity} is appended. If it already ends with {@code /velocity}, it is unchanged.
+     */
+    private String resolveSpaBaseUrl() {
+        String raw = (frontendBaseUrl != null && !frontendBaseUrl.trim().isEmpty())
+                ? frontendBaseUrl.trim()
+                : "http://localhost:4200/velocity";
+        raw = raw.replaceAll("/+$", "");
+        if (raw.endsWith("/velocity")) {
+            return raw;
+        }
+        return raw + "/velocity";
+    }
 
     /**
      * Get base URL for email links.
@@ -3339,9 +3355,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     ? application.getTxtFormCode()
                     : formName);
 
-            String frontendUrl = frontendBaseUrl != null ? frontendBaseUrl : "http://localhost:4200";
             // direct the finance HOD to the dedicated asset-code page
-            String assignUrl = frontendUrl + "/velocity/assign-asset-code/" + application.getSerApplicationId();
+            String assignUrl = resolveSpaBaseUrl() + "/assign-asset-code/" + application.getSerApplicationId();
 
             StringBuilder html = new StringBuilder();
             html.append("<p>Dear Finance Team,</p>");
@@ -3588,8 +3603,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             return baseHtml;
         }
 
-        String frontendUrl = frontendBaseUrl != null ? frontendBaseUrl : "http://localhost:4200";
-        String prCodeUrl = frontendUrl + "/velocity/pr-code/" + application.getSerApplicationId();
+        String prCodeUrl = resolveSpaBaseUrl() + "/pr-code/" + application.getSerApplicationId();
         String fragment = "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:20px 0;'>"
                 + "<tr><td align='center' style='padding:10px 0;'>"
                 + "<a href='" + prCodeUrl

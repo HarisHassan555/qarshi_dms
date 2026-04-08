@@ -1271,6 +1271,13 @@ export class ApplicationDetailsComponent implements OnInit {
       level = 1;
     }
 
+    const submitterIdRaw =
+      this.applicationDetails?.serSubmittedBy ??
+      this.applicationDetails?.cfgTblUser?.serUserId ??
+      null;
+    const submitterIdNum =
+      submitterIdRaw != null ? Number(submitterIdRaw) : NaN;
+
     const baseUsers = this.dedupedSectionUsers(section);
     const hasConfiguredUsers = baseUsers.some((u: any) => u != null);
 
@@ -1312,7 +1319,14 @@ export class ApplicationDetailsComponent implements OnInit {
     }
 
     if (!hasConfiguredUsers && historyByUserId.size > 0) {
-      return Array.from(historyByUserId.values());
+      let vals = Array.from(historyByUserId.values());
+      if (sectionIndex > 0 && !isNaN(submitterIdNum)) {
+        vals = vals.filter((h: any) => {
+          const id = h?.serUserId ?? h?.userId ?? h?.id ?? h?.approvedBy;
+          return Number(id) !== submitterIdNum;
+        });
+      }
+      return vals.length > 0 ? vals : baseUsers;
     }
 
     const merged: any[] = [];
@@ -1334,7 +1348,19 @@ export class ApplicationDetailsComponent implements OnInit {
         const bn = buid != null ? Number(buid) : NaN;
         return !isNaN(bn) && bn === hid;
       });
-      if (!inBase) merged.push(histSlot);
+      if (!inBase) {
+        // Submitter/initiator history sometimes matches the wrong stage level; do not add them as an
+        // extra column after the first footer section (CAPF keeps section 0 as initiator; other forms
+        // put first approvers in section 0 only).
+        if (
+          sectionIndex > 0 &&
+          !isNaN(submitterIdNum) &&
+          hid === submitterIdNum
+        ) {
+          continue;
+        }
+        merged.push(histSlot);
+      }
     }
 
     return merged.length > 0 ? merged : baseUsers;
