@@ -1,0 +1,33 @@
+<div class="word-editor-shell">
+  <h5 class="title">Word-Style Document Editor (MVP)</h5>
+
+  <app-word-toolbar
+    [selection]="selection"
+    [canUndo]="canUndo"
+    [canRedo]="canRedo"
+    [zoom]="zoom"
+    [margins]="margins"
+    (command)="onToolbarCommand($event)">
+  </app-word-toolbar>
+
+  <div class="page-scroller">
+    <div class="page" [style.transform]="'scale(' + (zoom / 100) + ')'">
+      <div #docHeader class="doc-header" contenteditable="true">Header</div>
+      <div
+        #editorSurface
+        class="editor-surface"
+        contenteditable="true"
+        spellcheck="true"
+        [style.paddingTop.px]="margins.top"
+        [style.paddingRight.px]="margins.right"
+        [style.paddingBottom.px]="margins.bottom"
+        [style.paddingLeft.px]="margins.left"
+        (input)="onInput()">
+      </div>
+      <div #docFooter class="doc-footer" contenteditable="true">Footer</div>
+    </div>
+  </div>
+
+  <app-word-statusbar [metrics]="metrics" [zoom]="zoom" [savedAt]="lastSavedAt"></app-word-statusbar>
+</div>
+

@@ -149,7 +149,9 @@ public class CommonService implements ICommonService {
 			for (SimpleGrantedAuthority auth : authorities) {
 				roles += auth.getAuthority() + ",";
 			}
-			roles = roles.substring(0, roles.length() - 1);
+			if (roles.length() > 0) {
+				roles = roles.substring(0, roles.length() - 1);
+			}
 			return roles;
 		} else {
 			return "ROLE_MANAGER";

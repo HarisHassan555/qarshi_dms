@@ -248,6 +248,10 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
         Map<Integer, HrTblDepartment> departmentsById;
 
         try {
+            int userId = commonService.getCurrentLoggedInUser();
+            String userRole = commonService.getCurrentUserRole();
+            boolean isAdmin = userRole != null && (userRole.toUpperCase().contains("ADMIN"));
+
             String jpql =
                     "SELECT DISTINCT f FROM CfgTblCustomForm f " +
                     "LEFT JOIN FETCH f.cfgTblCustomFormFields field " +
@@ -256,12 +260,26 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
                             ? "AND (f.blIsActive = true OR f.blIsActive IS NULL) " +
                               "AND (f.blnStatus = true OR f.blnStatus IS NULL) "
                             : "") +
-                    "AND (field.blIsDeleted = false OR field.blIsDeleted IS NULL OR field IS NULL) " +
-                    "ORDER BY f.dteCreatedDate DESC";
+                    "AND (field.blIsDeleted = false OR field.blIsDeleted IS NULL OR field IS NULL) ";
+            
+            // Add user ID filtering for ALL users (including admins) when fetching active forms for application
+            if (activeOnly && userId > 0) {
+                jpql += "AND (f.txtUserIds IS NOT NULL AND CONCAT(',', f.txtUserIds, ',') LIKE :userPattern) ";
+            } else if (activeOnly && userId <= 0) {
+                // If no valid user ID, show nothing for safety
+                jpql += "AND 1=0 ";
+            }
+            
+            jpql += "ORDER BY f.dteCreatedDate DESC";
 
-            forms = entityManager.createQuery(jpql, CfgTblCustomForm.class)
-                    .setHint("org.hibernate.readOnly", true)
-                    .getResultList();
+            TypedQuery<CfgTblCustomForm> query = entityManager.createQuery(jpql, CfgTblCustomForm.class);
+            query.setHint("org.hibernate.readOnly", true);
+            
+            if (activeOnly && userId > 0) {
+                query.setParameter("userPattern", "%," + userId + ",%");
+            }
+
+            forms = query.getResultList();
             departmentsById = loadDepartmentsForForms(forms, entityManager);
         } catch (Exception e) {
             log.error("Error getting {} custom forms: {}", activeOnly ? "active" : "all", e.getMessage(), e);
@@ -451,6 +469,7 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
             // Update form properties
             existingForm.setTxtFormName(customForm.getTxtFormName());
             existingForm.setTxtFormDescription(customForm.getTxtFormDescription());
+            existingForm.setTxtUserIds(customForm.getTxtUserIds());
             existingForm.setBlIsActive(customForm.getBlIsActive());
             existingForm.setBlnStatus(customForm.getBlnStatus());
             existingForm.setDteModifiedDate(commonService.getCurrentTimeStamp_new());

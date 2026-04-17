@@ -253,7 +253,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   loadForms() {
-    this.customFormService.getAll().subscribe(
+    this.customFormService.getActive().subscribe(
       (data: any) => {
         if (data) {
           // Map backend entities to frontend interface

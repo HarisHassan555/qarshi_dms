@@ -1,0 +1,7 @@
+<div class="statusbar">
+  <span>Words: {{ metrics.words }}</span>
+  <span>Characters: {{ metrics.characters }}</span>
+  <span>Zoom: {{ zoom }}%</span>
+  <span *ngIf="savedAt">Saved: {{ savedAt | date:'shortTime' }}</span>
+</div>
+

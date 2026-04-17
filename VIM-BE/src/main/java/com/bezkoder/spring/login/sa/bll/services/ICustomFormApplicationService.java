@@ -23,7 +23,7 @@ public interface ICustomFormApplicationService {
 
     List<CfgTblCustomFormApplication> getApplicationsByStatus(String status);
 
-    List<CfgTblCustomFormApplication> getApplicationsApprovedByUser(String status, Integer userId);
+    List<CfgTblCustomFormApplication> getApplicationsApprovedByUser(String status, Integer userId, Integer page, Integer size);
 
     List<CfgTblCustomFormApplication> getApplicationsByStatusAndUserId(String status, Integer userId);
 

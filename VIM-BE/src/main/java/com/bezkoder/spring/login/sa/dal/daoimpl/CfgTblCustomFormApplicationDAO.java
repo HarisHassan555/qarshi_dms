@@ -157,16 +157,51 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         EntityManager entityManager = getEntityManager();
         try {
             entityManager.getTransaction().begin();
-            List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                    "SELECT a FROM CfgTblCustomFormApplication a " +
-                            "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                            "WHERE a.txtStatus = :status " +
-                            "AND a.serSubmittedBy = :userId " +
-                            "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                            "ORDER BY a.dteCreatedDate DESC")
+            // OPTIMIZATION: Lightweight selection for user-status specific listing.
+            String sql = "SELECT a.ser_application_id, a.txt_form_code, f.txt_form_name, a.txt_status, " +
+                         "a.int_current_approval_level, a.dte_created_date, a.ser_form_id " +
+                         "FROM ( " +
+                         "  SELECT inner_a.ser_application_id " +
+                         "  FROM cfg_tbl_custom_form_application inner_a " +
+                         "  WHERE inner_a.txt_status = :status " +
+                         "  AND inner_a.ser_submitted_by = :userId " +
+                         "  AND (inner_a.bl_is_deleted = false OR inner_a.bl_is_deleted IS NULL) " +
+                         "  ORDER BY inner_a.dte_created_date DESC " +
+                         "  LIMIT 1000 " +
+                         ") sorted_ids " +
+                         "JOIN cfg_tbl_custom_form_application a ON a.ser_application_id = sorted_ids.ser_application_id " +
+                         "LEFT JOIN cfg_tbl_custom_form f ON a.ser_form_id = f.ser_form_id ";
+
+            Query query = entityManager.createNativeQuery(sql)
                     .setParameter("status", status)
-                    .setParameter("userId", userId)
-                    .getResultList();
+                    .setParameter("userId", userId);
+
+            List<Object[]> rows = query.getResultList();
+            List<CfgTblCustomFormApplication> applications = new java.util.ArrayList<>();
+
+            for (Object[] row : rows) {
+                CfgTblCustomFormApplication app = new CfgTblCustomFormApplication();
+                app.setSerApplicationId((Integer) row[0]);
+                app.setTxtFormCode((String) row[1]);
+
+                CfgTblCustomForm form = new CfgTblCustomForm();
+                form.setTxtFormName((String) row[2]);
+                form.setSerFormId((Integer) row[6]);
+                app.setCfgTblCustomForm(form);
+                app.setSerFormId((Integer) row[6]);
+
+                app.setTxtStatus((String) row[3]);
+                app.setIntCurrentApprovalLevel((Integer) row[4]);
+                app.setDteCreatedDate((java.sql.Timestamp) row[5]);
+                applications.add(app);
+            }
+
+            // Sort in Java
+            applications.sort((a1, a2) -> {
+                if (a1.getDteCreatedDate() == null || a2.getDteCreatedDate() == null) return 0;
+                return a2.getDteCreatedDate().compareTo(a1.getDteCreatedDate());
+            });
+
             entityManager.getTransaction().commit();
             return applications;
         } catch (Exception e) {
@@ -377,12 +412,46 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         EntityManager entityManager = getEntityManager();
         try {
             entityManager.getTransaction().begin();
-            List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                    "SELECT a FROM CfgTblCustomFormApplication a " +
-                            "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                            "WHERE (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                            "ORDER BY a.dteCreatedDate DESC")
-                    .getResultList();
+            // OPTIMIZATION: Use subquery sorting and lightweight selection for the main grid.
+            String sql = "SELECT a.ser_application_id, a.txt_form_code, f.txt_form_name, a.txt_status, " +
+                         "a.int_current_approval_level, a.dte_created_date, a.ser_form_id " +
+                         "FROM ( " +
+                         "  SELECT inner_a.ser_application_id " +
+                         "  FROM cfg_tbl_custom_form_application inner_a " +
+                         "  WHERE (inner_a.bl_is_deleted = false OR inner_a.bl_is_deleted IS NULL) " +
+                         "  ORDER BY inner_a.dte_created_date DESC " +
+                         "  LIMIT 1000 " +
+                         ") sorted_ids " +
+                         "JOIN cfg_tbl_custom_form_application a ON a.ser_application_id = sorted_ids.ser_application_id " +
+                         "LEFT JOIN cfg_tbl_custom_form f ON a.ser_form_id = f.ser_form_id ";
+
+            Query query = entityManager.createNativeQuery(sql);
+            List<Object[]> rows = query.getResultList();
+            List<CfgTblCustomFormApplication> applications = new java.util.ArrayList<>();
+
+            for (Object[] row : rows) {
+                CfgTblCustomFormApplication app = new CfgTblCustomFormApplication();
+                app.setSerApplicationId((Integer) row[0]);
+                app.setTxtFormCode((String) row[1]);
+
+                CfgTblCustomForm form = new CfgTblCustomForm();
+                form.setTxtFormName((String) row[2]);
+                form.setSerFormId((Integer) row[6]);
+                app.setCfgTblCustomForm(form);
+                app.setSerFormId((Integer) row[6]);
+
+                app.setTxtStatus((String) row[3]);
+                app.setIntCurrentApprovalLevel((Integer) row[4]);
+                app.setDteCreatedDate((java.sql.Timestamp) row[5]);
+                applications.add(app);
+            }
+
+            // Sort in Java
+            applications.sort((a1, a2) -> {
+                if (a1.getDteCreatedDate() == null || a2.getDteCreatedDate() == null) return 0;
+                return a2.getDteCreatedDate().compareTo(a1.getDteCreatedDate());
+            });
+
             entityManager.getTransaction().commit();
             return applications;
         } catch (Exception e) {
@@ -404,14 +473,49 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         EntityManager entityManager = getEntityManager();
         try {
             entityManager.getTransaction().begin();
-            List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                    "SELECT a FROM CfgTblCustomFormApplication a " +
-                            "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                            "WHERE a.serFormId = :formId " +
-                            "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                            "ORDER BY a.dteCreatedDate DESC")
-                    .setParameter("formId", formId)
-                    .getResultList();
+            // OPTIMIZATION: Lightweight selection for form-specific listing.
+            String sql = "SELECT a.ser_application_id, a.txt_form_code, f.txt_form_name, a.txt_status, " +
+                         "a.int_current_approval_level, a.dte_created_date, a.ser_form_id " +
+                         "FROM ( " +
+                         "  SELECT inner_a.ser_application_id " +
+                         "  FROM cfg_tbl_custom_form_application inner_a " +
+                         "  WHERE inner_a.ser_form_id = :formId " +
+                         "  AND (inner_a.bl_is_deleted = false OR inner_a.bl_is_deleted IS NULL) " +
+                         "  ORDER BY inner_a.dte_created_date DESC " +
+                         "  LIMIT 1000 " +
+                         ") sorted_ids " +
+                         "JOIN cfg_tbl_custom_form_application a ON a.ser_application_id = sorted_ids.ser_application_id " +
+                         "LEFT JOIN cfg_tbl_custom_form f ON a.ser_form_id = f.ser_form_id ";
+
+            Query query = entityManager.createNativeQuery(sql)
+                    .setParameter("formId", formId);
+
+            List<Object[]> rows = query.getResultList();
+            List<CfgTblCustomFormApplication> applications = new java.util.ArrayList<>();
+
+            for (Object[] row : rows) {
+                CfgTblCustomFormApplication app = new CfgTblCustomFormApplication();
+                app.setSerApplicationId((Integer) row[0]);
+                app.setTxtFormCode((String) row[1]);
+
+                CfgTblCustomForm form = new CfgTblCustomForm();
+                form.setTxtFormName((String) row[2]);
+                form.setSerFormId((Integer) row[6]);
+                app.setCfgTblCustomForm(form);
+                app.setSerFormId((Integer) row[6]);
+
+                app.setTxtStatus((String) row[3]);
+                app.setIntCurrentApprovalLevel((Integer) row[4]);
+                app.setDteCreatedDate((java.sql.Timestamp) row[5]);
+                applications.add(app);
+            }
+
+            // Sort in Java
+            applications.sort((a1, a2) -> {
+                if (a1.getDteCreatedDate() == null || a2.getDteCreatedDate() == null) return 0;
+                return a2.getDteCreatedDate().compareTo(a1.getDteCreatedDate());
+            });
+
             entityManager.getTransaction().commit();
             return applications;
         } catch (Exception e) {
@@ -430,39 +534,62 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     @Override
     @SuppressWarnings("unchecked")
     public List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId) {
-
         EntityManager entityManager = getEntityManager();
-
         try {
-
             entityManager.getTransaction().begin();
+            // OPTIMIZATION: Lightweight selection for user-specific listing.
+            String sql = "SELECT a.ser_application_id, a.txt_form_code, f.txt_form_name, a.txt_status, " +
+                         "a.int_current_approval_level, a.dte_created_date, a.ser_form_id " +
+                         "FROM ( " +
+                         "  SELECT inner_a.ser_application_id " +
+                         "  FROM cfg_tbl_custom_form_application inner_a " +
+                         "  WHERE inner_a.ser_submitted_by = :userId " +
+                         "  AND (inner_a.bl_is_deleted = false OR inner_a.bl_is_deleted IS NULL) " +
+                         "  ORDER BY inner_a.dte_created_date DESC " +
+                         "  LIMIT :maxResults " +
+                         ") sorted_ids " +
+                         "JOIN cfg_tbl_custom_form_application a ON a.ser_application_id = sorted_ids.ser_application_id " +
+                         "LEFT JOIN cfg_tbl_custom_form f ON a.ser_form_id = f.ser_form_id ";
 
-            List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                    "SELECT a FROM CfgTblCustomFormApplication a " +
-                            "JOIN FETCH a.cfgTblCustomForm f " +
-                            "WHERE a.serSubmittedBy = :userId " +
-                            "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                            "ORDER BY a.dteCreatedDate DESC",
-                    CfgTblCustomFormApplication.class)
+            Query query = entityManager.createNativeQuery(sql)
                     .setParameter("userId", userId)
-                    .setFirstResult(0)
-                    .setMaxResults(Math.max(1, maxUserApplications))
-                    .getResultList();
+                    .setParameter("maxResults", Math.max(1, maxUserApplications));
+
+            List<Object[]> rows = query.getResultList();
+            List<CfgTblCustomFormApplication> applications = new java.util.ArrayList<>();
+
+            for (Object[] row : rows) {
+                CfgTblCustomFormApplication app = new CfgTblCustomFormApplication();
+                app.setSerApplicationId((Integer) row[0]);
+                app.setTxtFormCode((String) row[1]);
+
+                CfgTblCustomForm form = new CfgTblCustomForm();
+                form.setTxtFormName((String) row[2]);
+                form.setSerFormId((Integer) row[6]);
+                app.setCfgTblCustomForm(form);
+                app.setSerFormId((Integer) row[6]);
+
+                app.setTxtStatus((String) row[3]);
+                app.setIntCurrentApprovalLevel((Integer) row[4]);
+                app.setDteCreatedDate((java.sql.Timestamp) row[5]);
+                applications.add(app);
+            }
+
+            // Sort in Java
+            applications.sort((a1, a2) -> {
+                if (a1.getDteCreatedDate() == null || a2.getDteCreatedDate() == null) return 0;
+                return a2.getDteCreatedDate().compareTo(a1.getDteCreatedDate());
+            });
 
             entityManager.getTransaction().commit();
             return applications;
-
         } catch (Exception e) {
-
             if (entityManager.getTransaction().isActive()) {
                 entityManager.getTransaction().rollback();
             }
-
-            log.error("Error getting applications by user ID", e);
+            log.error("Error getting applications by user ID: " + e.getMessage(), e);
             throw e;
-
         } finally {
-
             if (entityManager.isOpen()) {
                 entityManager.close();
             }
@@ -835,41 +962,86 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     @Override
     @SuppressWarnings("unchecked")
-    public List<CfgTblCustomFormApplication> getApplicationsApprovedByUser(String status, Integer userId) {
+    public List<CfgTblCustomFormApplication> getApplicationsApprovedByUser(String status, Integer userId, Integer page, Integer size) {
         EntityManager entityManager = getEntityManager();
         try {
             entityManager.getTransaction().begin();
-            // Fetch all non-deleted applications that have txtApprovalHistory populated
-            // and mention this userId. We filter precisely in Java below using Jackson.
-            List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                    "SELECT a FROM CfgTblCustomFormApplication a " +
-                            "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                            "WHERE a.txtApprovalHistory IS NOT NULL " +
-                            "AND a.txtApprovalHistory LIKE :userPattern " +
-                            "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                            "ORDER BY a.dteCreatedDate DESC")
-                    .setParameter("userPattern", "%" + userId + "%")
-                    .getResultList();
+            
+            int limit = (size != null && size > 0) ? size : Math.max(500, maxPendingCandidateApplications);
+            int offset = (page != null && page >= 0 && size != null) ? (page * size) : 0;
+            int fetchLimit = Math.max(limit * 10, 500); // Fetch more candidates for Java filtering
 
-            // Filter using Jackson: user must have action=APPROVED at level >= 1.
-            // Filter approvals to only include real approvals (level >= 1).
+            // OPTIMIZATION: Use a subquery to sort by date FIRST using small columns.
+            // This prevents "Out of sort memory" errors caused by sorting large JSON/Base64 strings.
+            String sql = "SELECT a.ser_application_id, a.txt_form_code, f.txt_form_name, a.txt_status, " +
+                         "a.txt_asset_code, a.txt_pr_code, a.dte_created_date, a.txt_approval_history, a.ser_form_id " +
+                         "FROM ( " +
+                         "  SELECT inner_a.ser_application_id " +
+                         "  FROM cfg_tbl_custom_form_application inner_a " +
+                         "  WHERE inner_a.txt_approval_history IS NOT NULL " +
+                         "  AND (inner_a.txt_approval_history LIKE :userPattern1 OR inner_a.txt_approval_history LIKE :userPattern2) " +
+                         "  AND (inner_a.bl_is_deleted = false OR inner_a.bl_is_deleted IS NULL) " +
+                         "  ORDER BY inner_a.dte_created_date DESC " +
+                         "  LIMIT :fetchLimit " +
+                         "  OFFSET :offset " +
+                         ") sorted_ids " +
+                         "JOIN cfg_tbl_custom_form_application a ON a.ser_application_id = sorted_ids.ser_application_id " +
+                         "LEFT JOIN cfg_tbl_custom_form f ON a.ser_form_id = f.ser_form_id ";
+                         // Removed outer ORDER BY to prevent "Out of sort memory" when rows contain large JSON/Base64.
+
+            Query query = entityManager.createNativeQuery(sql)
+                    .setParameter("userPattern1", "%\"approvedBy\":" + userId + "%")
+                    .setParameter("userPattern2", "%\"approvedBy\": " + userId + "%")
+                    .setParameter("fetchLimit", fetchLimit)
+                    .setParameter("offset", offset);
+
+            List<Object[]> rows = query.getResultList();
+            List<CfgTblCustomFormApplication> filtered = new java.util.ArrayList<>();
             ObjectMapper mapper = new ObjectMapper();
-            java.util.List<CfgTblCustomFormApplication> filtered = new java.util.ArrayList<>();
-            for (CfgTblCustomFormApplication app : applications) {
+            int passedCount = 0;
+            
+            for (Object[] row : rows) {
+                CfgTblCustomFormApplication app = new CfgTblCustomFormApplication();
+                app.setSerApplicationId((Integer) row[0]);
+                app.setTxtFormCode((String) row[1]);
+                
+                CfgTblCustomForm form = new CfgTblCustomForm();
+                form.setTxtFormName((String) row[2]);
+                form.setSerFormId((Integer) row[8]);
+                app.setCfgTblCustomForm(form);
+                app.setSerFormId((Integer) row[8]);
+                
+                app.setTxtStatus((String) row[3]);
+                app.setTxtAssetCode((String) row[4]);
+                app.setTxtPrCode((String) row[5]);
+                app.setDteCreatedDate((java.sql.Timestamp) row[6]);
+                app.setTxtApprovalHistory((String) row[7]);
+
+                // Still need to verify "REAL" approval in history
                 if (userHasRealApprovalInHistory(app, userId, mapper)) {
-                    filtered.add(app);
+                    passedCount++;
+                    if (passedCount > offset && filtered.size() < limit) {
+                        filtered.add(app);
+                    }
+                    if (filtered.size() >= limit && size != null) {
+                        break;
+                    }
                 }
             }
 
+            // Sort results in Java to maintain order without DB sort memory issues
+            filtered.sort((a1, a2) -> {
+                if (a1.getDteCreatedDate() == null || a2.getDteCreatedDate() == null) return 0;
+                return a2.getDteCreatedDate().compareTo(a1.getDteCreatedDate());
+            });
+
             entityManager.getTransaction().commit();
-            log.info("getApplicationsApprovedByUser() - userId: {} - found {} of {} candidates",
-                    userId, filtered.size(), applications.size());
             return filtered;
         } catch (Exception e) {
             if (entityManager.getTransaction().isActive()) {
                 entityManager.getTransaction().rollback();
             }
-            log.error("Error getting applications by status and user ID: " + e.getMessage(), e);
+            log.error("Error in getApplicationsApprovedByUser: " + e.getMessage(), e);
             throw e;
         } finally {
             if (entityManager.isOpen()) {
@@ -884,14 +1056,49 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         EntityManager entityManager = getEntityManager();
         try {
             entityManager.getTransaction().begin();
-            List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                    "SELECT a FROM CfgTblCustomFormApplication a " +
-                            "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                            "WHERE a.txtStatus = :status " +
-                            "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                            "ORDER BY a.dteCreatedDate DESC")
-                    .setParameter("status", status)
-                    .getResultList();
+            // OPTIMIZATION: Lightweight selection for status-specific listing.
+            String sql = "SELECT a.ser_application_id, a.txt_form_code, f.txt_form_name, a.txt_status, " +
+                         "a.int_current_approval_level, a.dte_created_date, a.ser_form_id " +
+                         "FROM ( " +
+                         "  SELECT inner_a.ser_application_id " +
+                         "  FROM cfg_tbl_custom_form_application inner_a " +
+                         "  WHERE inner_a.txt_status = :status " +
+                         "  AND (inner_a.bl_is_deleted = false OR inner_a.bl_is_deleted IS NULL) " +
+                         "  ORDER BY inner_a.dte_created_date DESC " +
+                         "  LIMIT 1000 " +
+                         ") sorted_ids " +
+                         "JOIN cfg_tbl_custom_form_application a ON a.ser_application_id = sorted_ids.ser_application_id " +
+                         "LEFT JOIN cfg_tbl_custom_form f ON a.ser_form_id = f.ser_form_id ";
+
+            Query query = entityManager.createNativeQuery(sql)
+                    .setParameter("status", status);
+
+            List<Object[]> rows = query.getResultList();
+            List<CfgTblCustomFormApplication> applications = new java.util.ArrayList<>();
+
+            for (Object[] row : rows) {
+                CfgTblCustomFormApplication app = new CfgTblCustomFormApplication();
+                app.setSerApplicationId((Integer) row[0]);
+                app.setTxtFormCode((String) row[1]);
+
+                CfgTblCustomForm form = new CfgTblCustomForm();
+                form.setTxtFormName((String) row[2]);
+                form.setSerFormId((Integer) row[6]);
+                app.setCfgTblCustomForm(form);
+                app.setSerFormId((Integer) row[6]);
+
+                app.setTxtStatus((String) row[3]);
+                app.setIntCurrentApprovalLevel((Integer) row[4]);
+                app.setDteCreatedDate((java.sql.Timestamp) row[5]);
+                applications.add(app);
+            }
+
+            // Sort in Java
+            applications.sort((a1, a2) -> {
+                if (a1.getDteCreatedDate() == null || a2.getDteCreatedDate() == null) return 0;
+                return a2.getDteCreatedDate().compareTo(a1.getDteCreatedDate());
+            });
+
             entityManager.getTransaction().commit();
             return applications;
         } catch (Exception e) {
@@ -925,26 +1132,72 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return new java.util.ArrayList<>();
             }
 
-            List<String> pendingStatuses = java.util.Arrays.asList(
-                    "PENDING",
-                    "IN_PROGRESS",
-                    "CEO_PENDING",
-                    "ASSET_PENDING",
-                    "PR_PENDING");
+            boolean isCeo = userHasRole(approverUser, "CEO");
+            boolean isFinance = userHasRole(approverUser, "FINANCE_HEAD") || userHasRole(approverUser, "FINANCE");
 
-            // Broad candidate set only; precise routing is isPendingForUserAtCurrentStage (do not pre-filter
-            // by serCurrentApprover — it can point at another user after level transitions and would hide level-2 work).
-            List<CfgTblCustomFormApplication> allPendingApplications = entityManager.createQuery(
-                    "SELECT a FROM CfgTblCustomFormApplication a " +
-                            "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                            "WHERE a.txtStatus IN :pendingStatuses " +
-                            "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                            "ORDER BY a.dteCreatedDate DESC",
-                    CfgTblCustomFormApplication.class)
-                    .setParameter("pendingStatuses", pendingStatuses)
-                    .setFirstResult(0)
-                    .setMaxResults(Math.max(100, maxPendingCandidateApplications))
-                    .getResultList();
+            List<String> targetPendingStatuses = new java.util.ArrayList<>();
+            targetPendingStatuses.add("PENDING");
+            targetPendingStatuses.add("IN_PROGRESS");
+            if (isCeo) targetPendingStatuses.add("CEO_PENDING");
+            if (isFinance) targetPendingStatuses.add("ASSET_PENDING");
+            targetPendingStatuses.add("PR_PENDING");
+
+            // OPTIMIZATION: Use a subquery with pre-filtered statuses based on role.
+            String sql = "SELECT a.ser_application_id, a.txt_form_code, f.txt_form_name, a.int_current_approval_level, " +
+                         "a.dte_created_date, a.ser_form_id, a.txt_status, a.ser_submitted_by, a.ser_current_approver, " +
+                         "a.txt_approval_history, a.txt_application_data " +
+                         "FROM ( " +
+                         "  SELECT inner_a.ser_application_id " +
+                         "  FROM cfg_tbl_custom_form_application inner_a " +
+                         "  WHERE inner_a.txt_status IN :targetPendingStatuses " +
+                         "  AND (inner_a.bl_is_deleted = false OR inner_a.bl_is_deleted IS NULL) " +
+                         "  ORDER BY inner_a.dte_created_date DESC " +
+                         "  LIMIT :maxLimit " +
+                         ") sorted_ids " +
+                         "JOIN cfg_tbl_custom_form_application a ON a.ser_application_id = sorted_ids.ser_application_id " +
+                         "LEFT JOIN cfg_tbl_custom_form f ON a.ser_form_id = f.ser_form_id ";
+                         // Removed outer ORDER BY to prevent "Out of sort memory" when rows contain large JSON/Base64.
+
+            Query query = entityManager.createNativeQuery(sql)
+                    .setParameter("targetPendingStatuses", targetPendingStatuses)
+                    .setParameter("maxLimit", Math.max(500, maxPendingCandidateApplications));
+
+            List<Object[]> rows = query.getResultList();
+            List<CfgTblCustomFormApplication> allPendingApplications = new java.util.ArrayList<>();
+            
+            for (Object[] row : rows) {
+                CfgTblCustomFormApplication app = new CfgTblCustomFormApplication();
+                app.setSerApplicationId((Integer) row[0]);
+                app.setTxtFormCode((String) row[1]);
+                
+                CfgTblCustomForm form = new CfgTblCustomForm();
+                form.setTxtFormName((String) row[2]);
+                form.setSerFormId((Integer) row[5]);
+                app.setCfgTblCustomForm(form);
+                app.setSerFormId((Integer) row[5]);
+                
+                app.setIntCurrentApprovalLevel((Integer) row[3]);
+                app.setDteCreatedDate((java.sql.Timestamp) row[4]);
+                app.setTxtStatus((String) row[6]);
+                app.setSerSubmittedBy((Integer) row[7]);
+                app.setSerCurrentApprover((Integer) row[8]);
+                app.setTxtApprovalHistory((String) row[9]);
+                
+                // DATA SANITIZATION: Strip massive base64 from JSON string immediately.
+                String rawData = (String) row[10];
+                if (rawData != null && rawData.contains("base64")) {
+                    rawData = rawData.replaceAll("\"base64\"\\s*:\\s*\"[^\"]+\"", "\"base64\":\"\"");
+                }
+                app.setTxtApplicationData(rawData);
+                
+                allPendingApplications.add(app);
+            }
+
+            // Sort results in Java to maintain order without DB sort memory issues
+            allPendingApplications.sort((a1, a2) -> {
+                if (a1.getDteCreatedDate() == null || a2.getDteCreatedDate() == null) return 0;
+                return a2.getDteCreatedDate().compareTo(a1.getDteCreatedDate());
+            });
 
             java.util.Set<Integer> involvedUserIds = new java.util.HashSet<>();
             involvedUserIds.add(departmentHeadUserId);
@@ -973,6 +1226,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             entityManager.getTransaction().commit();
+            
+            // FINAL OPTIMIZATION: Match "Approved" API behavior by not returning heavy JSON to the grid.
+            // The JSON was needed for filtering above, but isn't needed by the frontend grid.
+            for (CfgTblCustomFormApplication app : filteredApplications) {
+                app.setTxtApplicationData(null);
+                // Also remove approval history from listing to save space
+                app.setTxtApprovalHistory(null);
+            }
+
+            log.info("getApplicationsPendingApproval() - userId: {} - filtered {} from {} candidates", 
+                    departmentHeadUserId, filteredApplications.size(), allPendingApplications.size());
             return filteredApplications;
         } catch (Exception e) {
             if (entityManager.getTransaction().isActive()) {
@@ -1005,24 +1269,72 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return new java.util.ArrayList<>();
             }
 
-            List<String> pendingStatuses = java.util.Arrays.asList(
-                    "PENDING",
-                    "IN_PROGRESS",
-                    "CEO_PENDING",
-                    "ASSET_PENDING",
-                    "PR_PENDING");
+            boolean isCeo = userHasRole(currentUser, "CEO");
+            boolean isFinance = userHasRole(currentUser, "FINANCE_HEAD") || userHasRole(currentUser, "FINANCE");
 
-            List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
-                    "SELECT a FROM CfgTblCustomFormApplication a " +
-                            "LEFT JOIN FETCH a.cfgTblCustomForm f " +
-                            "WHERE a.txtStatus IN :pendingStatuses " +
-                            "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL) " +
-                            "ORDER BY a.dteCreatedDate DESC",
-                    CfgTblCustomFormApplication.class)
-                    .setParameter("pendingStatuses", pendingStatuses)
-                    .setFirstResult(0)
-                    .setMaxResults(Math.max(100, maxPendingCandidateApplications))
-                    .getResultList();
+            List<String> targetPendingStatuses = new java.util.ArrayList<>();
+            targetPendingStatuses.add("PENDING");
+            targetPendingStatuses.add("IN_PROGRESS");
+            if (isCeo) targetPendingStatuses.add("CEO_PENDING");
+            if (isFinance) targetPendingStatuses.add("ASSET_PENDING");
+            targetPendingStatuses.add("PR_PENDING");
+
+            // OPTIMIZATION: Use a subquery with pre-filtered statuses based on role.
+            String sql = "SELECT a.ser_application_id, a.txt_form_code, f.txt_form_name, a.int_current_approval_level, " +
+                         "a.dte_created_date, a.ser_form_id, a.txt_status, a.ser_submitted_by, a.ser_current_approver, " +
+                         "a.txt_approval_history, a.txt_application_data " +
+                         "FROM ( " +
+                         "  SELECT inner_a.ser_application_id " +
+                         "  FROM cfg_tbl_custom_form_application inner_a " +
+                         "  WHERE inner_a.txt_status IN :targetPendingStatuses " +
+                         "  AND (inner_a.bl_is_deleted = false OR inner_a.bl_is_deleted IS NULL) " +
+                         "  ORDER BY inner_a.dte_created_date DESC " +
+                         "  LIMIT :maxLimit " +
+                         ") sorted_ids " +
+                         "JOIN cfg_tbl_custom_form_application a ON a.ser_application_id = sorted_ids.ser_application_id " +
+                         "LEFT JOIN cfg_tbl_custom_form f ON a.ser_form_id = f.ser_form_id ";
+                         // Removed outer ORDER BY to prevent "Out of sort memory" when rows contain large JSON/Base64.
+
+            Query query = entityManager.createNativeQuery(sql)
+                    .setParameter("targetPendingStatuses", targetPendingStatuses)
+                    .setParameter("maxLimit", Math.max(500, maxPendingCandidateApplications));
+
+            List<Object[]> rows = query.getResultList();
+            List<CfgTblCustomFormApplication> applications = new java.util.ArrayList<>();
+            
+            for (Object[] row : rows) {
+                CfgTblCustomFormApplication app = new CfgTblCustomFormApplication();
+                app.setSerApplicationId((Integer) row[0]);
+                app.setTxtFormCode((String) row[1]);
+                
+                CfgTblCustomForm form = new CfgTblCustomForm();
+                form.setTxtFormName((String) row[2]);
+                form.setSerFormId((Integer) row[5]);
+                app.setCfgTblCustomForm(form);
+                app.setSerFormId((Integer) row[5]);
+                
+                app.setIntCurrentApprovalLevel((Integer) row[3]);
+                app.setDteCreatedDate((java.sql.Timestamp) row[4]);
+                app.setTxtStatus((String) row[6]);
+                app.setSerSubmittedBy((Integer) row[7]);
+                app.setSerCurrentApprover((Integer) row[8]);
+                app.setTxtApprovalHistory((String) row[9]);
+                
+                // DATA SANITIZATION: Strip massive base64 from JSON string immediately.
+                String rawData = (String) row[10];
+                if (rawData != null && rawData.contains("base64")) {
+                    rawData = rawData.replaceAll("\"base64\"\\s*:\\s*\"[^\"]+\"", "\"base64\":\"\"");
+                }
+                app.setTxtApplicationData(rawData);
+                
+                applications.add(app);
+            }
+
+            // Sort results in Java to maintain order without DB sort memory issues
+            applications.sort((a1, a2) -> {
+                if (a1.getDteCreatedDate() == null || a2.getDteCreatedDate() == null) return 0;
+                return a2.getDteCreatedDate().compareTo(a1.getDteCreatedDate());
+            });
 
             java.util.Set<Integer> involvedUserIds = new java.util.HashSet<>();
             involvedUserIds.add(currentUserId);
@@ -1051,6 +1363,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             entityManager.getTransaction().commit();
+
+            // FINAL OPTIMIZATION: Match "Approved" API behavior by not returning heavy JSON to the grid.
+            for (CfgTblCustomFormApplication app : filteredApplications) {
+                app.setTxtApplicationData(null);
+                app.setTxtApprovalHistory(null);
+            }
+
             return filteredApplications;
         } catch (Exception e) {
             if (entityManager.getTransaction().isActive()) {

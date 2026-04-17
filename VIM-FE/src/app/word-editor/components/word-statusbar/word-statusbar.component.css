@@ -1,0 +1,12 @@
+.statusbar {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  font-size: 12px;
+  color: #334155;
+  background: #eaf2ff;
+  border: 1px solid #c9d9ef;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+

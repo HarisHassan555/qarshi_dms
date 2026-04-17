@@ -1,0 +1,82 @@
+<div class="word-ribbon">
+  <div class="group">
+    <button type="button" (click)="run('undo')" [disabled]="!canUndo">Undo</button>
+    <button type="button" (click)="run('redo')" [disabled]="!canRedo">Redo</button>
+  </div>
+
+  <div class="group">
+    <select [ngModel]="selection.fontName" (ngModelChange)="run('fontName', $event)">
+      <option *ngFor="let font of fontFamilies" [value]="font">{{ font }}</option>
+    </select>
+    <select [ngModel]="selection.fontSize" (ngModelChange)="run('fontSize', $event)">
+      <option *ngFor="let size of fontSizes" [value]="size">{{ size }}</option>
+    </select>
+    <button type="button" [class.active]="selection.bold" (click)="run('bold')">B</button>
+    <button type="button" [class.active]="selection.italic" (click)="run('italic')">I</button>
+    <button type="button" [class.active]="selection.underline" (click)="run('underline')">U</button>
+    <button type="button" [class.active]="selection.strikeThrough" (click)="run('strikeThrough')">S</button>
+    <button type="button" [class.active]="selection.superscript" (click)="run('superscript')">X²</button>
+    <button type="button" [class.active]="selection.subscript" (click)="run('subscript')">X₂</button>
+    <input type="color" [ngModel]="selection.foreColor" (ngModelChange)="run('foreColor', $event)" title="Text color" />
+    <input type="color" [ngModel]="selection.hiliteColor" (ngModelChange)="run('hiliteColor', $event)" title="Highlight color" />
+    <button type="button" (click)="run('clearFormatting')">Clear</button>
+  </div>
+
+  <div class="group">
+    <select [ngModel]="selection.formatBlock" (ngModelChange)="run('formatBlock', $event)">
+      <option value="p">Paragraph</option>
+      <option value="h1">Heading 1</option>
+      <option value="h2">Heading 2</option>
+      <option value="h3">Heading 3</option>
+      <option value="blockquote">Block Quote</option>
+    </select>
+    <button type="button" [class.active]="selection.align==='left'" (click)="run('alignLeft')">Left</button>
+    <button type="button" [class.active]="selection.align==='center'" (click)="run('alignCenter')">Center</button>
+    <button type="button" [class.active]="selection.align==='right'" (click)="run('alignRight')">Right</button>
+    <button type="button" [class.active]="selection.align==='justify'" (click)="run('alignJustify')">Justify</button>
+    <button type="button" [class.active]="selection.unorderedList" (click)="run('unorderedList')">• List</button>
+    <button type="button" [class.active]="selection.orderedList" (click)="run('orderedList')">1. List</button>
+    <button type="button" (click)="run('indent')">Indent</button>
+    <button type="button" (click)="run('outdent')">Outdent</button>
+    <select (ngModelChange)="run('lineHeight', $event)" [ngModel]="'1.5'">
+      <option value="1">LH 1.0</option>
+      <option value="1.15">LH 1.15</option>
+      <option value="1.5">LH 1.5</option>
+      <option value="2">LH 2.0</option>
+    </select>
+  </div>
+
+  <div class="group">
+    <button type="button" (click)="run('insertTable', { rows: 3, cols: 3 })">Table</button>
+    <button type="button" (click)="run('tableAddRow')">+Row</button>
+    <button type="button" (click)="run('tableRemoveRow')">-Row</button>
+    <button type="button" (click)="run('tableAddColumn')">+Col</button>
+    <button type="button" (click)="run('tableRemoveColumn')">-Col</button>
+    <button type="button" (click)="run('tableMergeRight')">Merge→</button>
+    <button type="button" (click)="run('insertImage')">Image</button>
+    <button type="button" (click)="run('insertLink')">Link</button>
+    <button type="button" (click)="run('insertHorizontalRule')">Line</button>
+    <button type="button" (click)="run('insertPageBreak')">Page Break</button>
+    <select (ngModelChange)="run('insertSpecialChar', $event)" [ngModel]="''">
+      <option value="">Special</option>
+      <option *ngFor="let char of specialChars" [value]="char">{{ char }}</option>
+    </select>
+  </div>
+
+  <div class="group">
+    <button type="button" (click)="run('save')">Save</button>
+    <button type="button" (click)="run('load')">Load</button>
+    <button type="button" (click)="run('exportHtml')">Export HTML</button>
+    <button type="button" (click)="run('exportJson')">Export JSON</button>
+    <label>Zoom</label>
+    <input type="range" min="50" max="200" step="10" [ngModel]="zoom" (ngModelChange)="run('zoom', $event)" />
+  </div>
+
+  <div class="group">
+    <label>Margins (px)</label>
+    <input type="number" [ngModel]="margins.top" (ngModelChange)="updateMargin('top', $event)" title="Top" />
+    <input type="number" [ngModel]="margins.right" (ngModelChange)="updateMargin('right', $event)" title="Right" />
+    <input type="number" [ngModel]="margins.bottom" (ngModelChange)="updateMargin('bottom', $event)" title="Bottom" />
+    <input type="number" [ngModel]="margins.left" (ngModelChange)="updateMargin('left', $event)" title="Left" />
+  </div>
+</div>

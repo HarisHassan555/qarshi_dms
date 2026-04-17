@@ -243,12 +243,14 @@ public class CustomFormApplicationController {
     @RequestMapping(value = "/getApplicationsApprovedByUser", method = RequestMethod.GET)
     public List<CfgTblCustomFormApplication> getApplicationsApprovedByUser(@RequestParam String status,
             @RequestParam Integer userId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
             HttpServletRequest request,
             HttpServletResponse response) {
-        logger.debug("getApplicationsApprovedByUser() - status: " + status + ", userId: " + userId);
+        logger.debug("getApplicationsApprovedByUser() - status: " + status + ", userId: " + userId + ", page: " + page + ", size: " + size);
         try {
             List<CfgTblCustomFormApplication> applications = customFormApplicationService
-                    .getApplicationsApprovedByUser(status, userId);
+                    .getApplicationsApprovedByUser(status, userId, page, size);
             return applications;
         } catch (Exception ex) {
             logger.error("Error fetching approved applications: " + ex.getMessage(), ex);

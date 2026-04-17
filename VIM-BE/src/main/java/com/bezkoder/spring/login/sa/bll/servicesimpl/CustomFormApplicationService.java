@@ -75,9 +75,9 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     }
 
     @Override
-    public List<CfgTblCustomFormApplication> getApplicationsApprovedByUser(String status, Integer userId) {
-        logger.debug("getApplicationsApprovedByUser() - status: " + status + ", userId: " + userId);
-        return customFormApplicationDAO.getApplicationsApprovedByUser(status, userId);
+    public List<CfgTblCustomFormApplication> getApplicationsApprovedByUser(String status, Integer userId, Integer page, Integer size) {
+        logger.debug("getApplicationsApprovedByUser() - status: " + status + ", userId: " + userId + ", page: " + page + ", size: " + size);
+        return customFormApplicationDAO.getApplicationsApprovedByUser(status, userId, page, size);
     }
 
     @Override

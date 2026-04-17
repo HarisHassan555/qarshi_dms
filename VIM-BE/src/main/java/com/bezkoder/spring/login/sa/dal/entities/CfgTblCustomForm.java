@@ -61,6 +61,9 @@ public class CfgTblCustomForm implements Serializable {
     @Column(name="ser_modified_user")
     private Integer serModifiedUser;
 
+    @Column(name="txt_user_ids", columnDefinition = "LONGTEXT")
+    private String txtUserIds;
+
     //bi-directional one-to-many association to CfgTblCustomFormField
     @OneToMany(mappedBy="cfgTblCustomForm", cascade=CascadeType.ALL, fetch=FetchType.EAGER, orphanRemoval=true)
     @JsonManagedReference
@@ -177,6 +180,14 @@ public class CfgTblCustomForm implements Serializable {
 
     public void setSerModifiedUser(Integer serModifiedUser) {
         this.serModifiedUser = serModifiedUser;
+    }
+
+    public String getTxtUserIds() {
+        return this.txtUserIds;
+    }
+
+    public void setTxtUserIds(String txtUserIds) {
+        this.txtUserIds = txtUserIds;
     }
 
     public List<CfgTblCustomFormField> getCfgTblCustomFormFields() {
