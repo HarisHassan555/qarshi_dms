@@ -328,6 +328,108 @@ public class EmailService {
         public String getMimeType() { return mimeType; }
     }
 
+    public static class InlineImage {
+        private byte[] bytes;
+        private String name;
+        private String mimeType;
+        private String contentId;
+
+        public InlineImage(byte[] bytes, String name, String mimeType, String contentId) {
+            this.bytes = bytes;
+            this.name = name;
+            this.mimeType = mimeType;
+            this.contentId = contentId;
+        }
+
+        public byte[] getBytes() { return bytes; }
+        public String getName() { return name; }
+        public String getMimeType() { return mimeType; }
+        public String getContentId() { return contentId; }
+    }
+
+    public void sendHtmlEmailWithInlineImagesAndAttachments(List<String> recipients, String subject, String htmlContent,
+                                                            List<InlineImage> inlineImages,
+                                                            List<EmailAttachment> attachments) {
+        String username = sanitizeCredential(properties.getProperty("mail.smtp.username"));
+        String password = sanitizeCredential(properties.getProperty("mail.smtp.password"));
+        if (username == null || password == null) {
+            log.error("HTML email with inline images + attachments not sent: missing SMTP username/password");
+            return;
+        }
+        if (recipients == null || recipients.isEmpty()) {
+            log.error("HTML email with inline images + attachments not sent: recipient list is empty");
+            return;
+        }
+
+        Session session = Session.getInstance(properties,
+                new javax.mail.Authenticator() {
+                    protected PasswordAuthentication getPasswordAuthentication() {
+                        return new PasswordAuthentication(username, password);
+                    }
+                });
+
+        try {
+            Message message = new MimeMessage(session);
+            message.setFrom(new InternetAddress(username));
+            log.info("Sending HTML email with inline images + attachments subject='{}' to {} recipient(s)", subject,
+                    recipients.size());
+            for (String recipient : recipients) {
+                message.addRecipient(Message.RecipientType.TO, new InternetAddress(recipient));
+            }
+            message.setSubject(subject);
+
+            MimeBodyPart htmlPart = new MimeBodyPart();
+            htmlPart.setContent(htmlContent, "text/html; charset=utf-8");
+
+            MimeMultipart related = new MimeMultipart("related");
+            related.addBodyPart(htmlPart);
+
+            if (inlineImages != null) {
+                for (InlineImage img : inlineImages) {
+                    if (img == null || img.getBytes() == null || img.getBytes().length == 0) {
+                        continue;
+                    }
+                    String mime = img.getMimeType() != null ? img.getMimeType() : "image/png";
+                    String name = img.getName() != null ? img.getName() : "inline.png";
+                    String cid = img.getContentId() != null ? img.getContentId() : ("inline-" + System.nanoTime());
+                    DataSource dataSource = new ByteArrayDataSource(img.getBytes(), mime);
+                    MimeBodyPart imagePart = new MimeBodyPart();
+                    imagePart.setDataHandler(new DataHandler(dataSource));
+                    imagePart.setFileName(name);
+                    imagePart.setDisposition(MimeBodyPart.INLINE);
+                    imagePart.setHeader("Content-ID", "<" + cid + ">");
+                    related.addBodyPart(imagePart);
+                }
+            }
+
+            MimeBodyPart relatedPart = new MimeBodyPart();
+            relatedPart.setContent(related);
+
+            MimeMultipart mixed = new MimeMultipart("mixed");
+            mixed.addBodyPart(relatedPart);
+
+            if (attachments != null) {
+                for (EmailAttachment att : attachments) {
+                    if (att.getBytes() != null && att.getBytes().length > 0) {
+                        String mime = att.getMimeType() != null ? att.getMimeType() : "application/pdf";
+                        String name = att.getName() != null ? att.getName() : "attachment.pdf";
+                        DataSource dataSource = new ByteArrayDataSource(att.getBytes(), mime);
+                        MimeBodyPart attachmentPart = new MimeBodyPart();
+                        attachmentPart.setDataHandler(new DataHandler(dataSource));
+                        attachmentPart.setFileName(name);
+                        mixed.addBodyPart(attachmentPart);
+                    }
+                }
+            }
+
+            message.setContent(mixed);
+            Transport.send(message);
+            log.info("HTML email with inline images + attachments sent successfully!");
+        } catch (MessagingException e) {
+            log.error("Failed to send HTML email with inline images + attachments", e);
+        }
+    }
+
     public void sendHtmlEmailWithInlineImageAndAttachments(List<String> recipients, String subject, String htmlContent,
                                                           byte[] imageBytes, String imageMime, String imageContentId,
                                                           List<EmailAttachment> attachments) {

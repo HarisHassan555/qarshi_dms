@@ -247,7 +247,7 @@
                                         <span *ngIf="field.required" class="text-danger">*</span>
                                     </label>
                                     <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Max 5 MB total (combined size)</p>
-                                    <input type="file" multiple class="form-input"
+                                    <input type="file" multiple accept=".pdf,.webp,.png,.jpeg,.jpg,application/pdf,image/webp,image/png,image/jpeg" class="form-input"
                                         (change)="onAttachmentMultiChange(field, $event)"
                                         [class.border-danger]="isFieldInvalid(getFieldName(field.label))" />
                                     <div *ngIf="applicationForm.get(getFieldName(field.label))?.value?.length > 0" class="mt-2 space-y-1">
@@ -267,6 +267,9 @@
                                     <p *ngIf="applicationForm.get(getFieldName(field.label))?.errors?.['maxSize']" class="mt-1 text-xs text-danger">
                                         Combined size exceeds 5 MB. Please select smaller or fewer files.
                                     </p>
+                                    <p *ngIf="applicationForm.get(getFieldName(field.label))?.errors?.['invalidType']" class="mt-1 text-xs text-danger">
+                                        Only PDF, WEBP, PNG, and JPEG files are allowed.
+                                    </p>
                                     <p *ngIf="isFieldInvalid(getFieldName(field.label)) && !applicationForm.get(getFieldName(field.label))?.errors?.['maxSize']" class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                     </p>
@@ -278,8 +281,9 @@
                                         {{ field.label }}
                                         <span *ngIf="field.required" class="text-danger">*</span>
                                     </label>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Max 5 MB total (combined size across all attachment fields)</p>
                                     
-                                    <input type="file" multiple class="form-input"
+                                    <input type="file" multiple accept=".pdf,.webp,.png,.jpeg,.jpg,application/pdf,image/webp,image/png,image/jpeg" class="form-input"
                                         (change)="onMultiAttachmentChange(field, $event)"
                                         [class.border-danger]="isFieldInvalid(getFieldName(field.label))" />
                                         
@@ -297,8 +301,14 @@
                                             </li>
                                         </ul>
                                     </div>
+                                    <p *ngIf="applicationForm.get(getFieldName(field.label))?.errors?.['maxSize']" class="mt-1 text-xs text-danger">
+                                        Combined size exceeds 5 MB. Please select smaller or fewer files.
+                                    </p>
+                                    <p *ngIf="applicationForm.get(getFieldName(field.label))?.errors?.['invalidType']" class="mt-1 text-xs text-danger">
+                                        Only PDF, WEBP, PNG, and JPEG files are allowed.
+                                    </p>
                                     
-                                    <p *ngIf="isFieldInvalid(getFieldName(field.label))" class="mt-1 text-xs text-danger">
+                                    <p *ngIf="isFieldInvalid(getFieldName(field.label)) && !applicationForm.get(getFieldName(field.label))?.errors?.['maxSize']" class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                     </p>
                                 </div>

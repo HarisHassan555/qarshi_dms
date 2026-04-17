@@ -45,6 +45,9 @@ import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 
 @Repository
 public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicationDAO {
+    private static final long MAX_TOTAL_ATTACHMENT_BYTES = 5L * 1024L * 1024L; // 5 MB combined
+    private static final java.util.Set<String> ALLOWED_ATTACHMENT_MIME_TYPES = new java.util.HashSet<>(
+            java.util.Arrays.asList("application/pdf", "image/webp", "image/png", "image/jpeg"));
 
     @Autowired
     private EntityManagerFactory entityManagerFactory;
@@ -589,6 +592,16 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (application.getTxtApplicationData() == null || application.getTxtApplicationData().trim().isEmpty()) {
                 application.setTxtApplicationData("{}");
             }
+            String attachmentValidationMessage = validateAttachmentPayloadSizeLimit(application.getTxtApplicationData());
+            if (attachmentValidationMessage != null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: " + attachmentValidationMessage;
+            }
+            String attachmentTypeValidationMessage = validateAttachmentPayloadTypes(application.getTxtApplicationData());
+            if (attachmentTypeValidationMessage != null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: " + attachmentTypeValidationMessage;
+            }
 
             // Detect Budget Approval form
             com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm formForBudget = application
@@ -727,6 +740,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         jsonException);
                 // Optionally, handle this error more gracefully, e.g., by not updating
                 // txtApplicationData
+            }
+
+            String attachmentValidationMessage = validateAttachmentPayloadSizeLimit(existingApplication.getTxtApplicationData());
+            if (attachmentValidationMessage != null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: " + attachmentValidationMessage;
+            }
+            String attachmentTypeValidationMessage = validateAttachmentPayloadTypes(existingApplication.getTxtApplicationData());
+            if (attachmentTypeValidationMessage != null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: " + attachmentTypeValidationMessage;
             }
 
             entityManager.merge(existingApplication);
@@ -3355,8 +3379,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     ? application.getTxtFormCode()
                     : formName);
 
-            // direct the finance HOD to the dedicated asset-code page
-            String assignUrl = resolveSpaBaseUrl() + "/assign-asset-code/" + application.getSerApplicationId();
+            // direct finance users to server-hosted route (backend base URL), not localhost SPA URL
+            String assignUrl = getBaseUrl() + "/assign-asset-code/" + application.getSerApplicationId();
 
             StringBuilder html = new StringBuilder();
             html.append("<p>Dear Finance Team,</p>");
@@ -3603,7 +3627,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             return baseHtml;
         }
 
-        String prCodeUrl = resolveSpaBaseUrl() + "/pr-code/" + application.getSerApplicationId();
+        String prCodeUrl = getBaseUrl() + "/pr-code/" + application.getSerApplicationId();
         String fragment = "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:20px 0;'>"
                 + "<tr><td align='center' style='padding:10px 0;'>"
                 + "<a href='" + prCodeUrl
@@ -6081,6 +6105,275 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         return v != null ? v : "";
     }
 
+    private String validateAttachmentPayloadSizeLimit(String rawApplicationDataJson) {
+        if (rawApplicationDataJson == null || rawApplicationDataJson.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            Object root = mapper.readValue(rawApplicationDataJson, Object.class);
+            long totalBytes = estimateAttachmentBytesRecursively(root);
+            if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
+                return "Combined attachment size exceeds 5 MB";
+            }
+            return null;
+        } catch (Exception e) {
+            log.warn("Attachment-size validation skipped due to parse error: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private String validateAttachmentPayloadTypes(String rawApplicationDataJson) {
+        if (rawApplicationDataJson == null || rawApplicationDataJson.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            Object root = mapper.readValue(rawApplicationDataJson, Object.class);
+            java.util.List<String> invalidMimeTypes = new java.util.ArrayList<>();
+            collectInvalidAttachmentMimeTypes(root, invalidMimeTypes);
+            if (!invalidMimeTypes.isEmpty()) {
+                return "Only PDF, WEBP, PNG, and JPEG attachments are allowed";
+            }
+            return null;
+        } catch (Exception e) {
+            log.warn("Attachment-type validation skipped due to parse error: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private void collectInvalidAttachmentMimeTypes(Object value, java.util.List<String> invalidMimeTypes) {
+        if (value == null || invalidMimeTypes == null || invalidMimeTypes.size() > 0) {
+            return;
+        }
+        if (value instanceof Map<?, ?>) {
+            Map<?, ?> map = (Map<?, ?>) value;
+            if (isAttachmentPayloadMap(map)) {
+                String mime = extractAttachmentMimeType(map);
+                if (mime == null || !ALLOWED_ATTACHMENT_MIME_TYPES.contains(mime)) {
+                    invalidMimeTypes.add(mime != null ? mime : "unknown");
+                    return;
+                }
+            }
+            for (Object nested : map.values()) {
+                collectInvalidAttachmentMimeTypes(nested, invalidMimeTypes);
+                if (!invalidMimeTypes.isEmpty()) {
+                    return;
+                }
+            }
+            return;
+        }
+        if (value instanceof List<?>) {
+            for (Object item : (List<?>) value) {
+                collectInvalidAttachmentMimeTypes(item, invalidMimeTypes);
+                if (!invalidMimeTypes.isEmpty()) {
+                    return;
+                }
+            }
+        }
+    }
+
+    private boolean isAttachmentPayloadMap(Map<?, ?> map) {
+        if (map == null || map.isEmpty()) {
+            return false;
+        }
+        if (map.containsKey("dataUrl") || map.containsKey("base64") || map.containsKey("fileBase64")
+                || map.containsKey("fileData")) {
+            return true;
+        }
+        if (!looksLikeFileObject(map)) {
+            return false;
+        }
+        return map.containsKey("data") || map.containsKey("content");
+    }
+
+    private String extractAttachmentMimeType(Map<?, ?> map) {
+        if (map == null || map.isEmpty()) {
+            return null;
+        }
+        String dataUrl = firstNonEmptyString(map.get("dataUrl"));
+        String fromDataUrl = extractMimeFromDataUrl(dataUrl);
+        if (fromDataUrl != null) {
+            return fromDataUrl;
+        }
+
+        String mime = normalizeMimeValue(firstNonEmptyString(map.get("mimeType"), map.get("type")));
+        if (mime != null) {
+            return mime;
+        }
+
+        String fileName = firstNonEmptyString(map.get("fileName"), map.get("filename"), map.get("name"));
+        return mimeFromFileName(fileName);
+    }
+
+    private String extractMimeFromDataUrl(String dataUrl) {
+        if (dataUrl == null) {
+            return null;
+        }
+        String trimmed = dataUrl.trim().toLowerCase(Locale.ROOT);
+        if (!trimmed.startsWith("data:")) {
+            return null;
+        }
+        int semi = trimmed.indexOf(';');
+        int comma = trimmed.indexOf(',');
+        int end = semi >= 0 ? semi : comma;
+        if (end <= 5) {
+            return null;
+        }
+        return normalizeMimeValue(trimmed.substring(5, end));
+    }
+
+    private String normalizeMimeValue(String mime) {
+        if (mime == null) {
+            return null;
+        }
+        String normalized = mime.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        if ("pdf".equals(normalized)) {
+            return "application/pdf";
+        }
+        if ("webp".equals(normalized)) {
+            return "image/webp";
+        }
+        if ("png".equals(normalized)) {
+            return "image/png";
+        }
+        if ("jpeg".equals(normalized) || "jpg".equals(normalized)) {
+            return "image/jpeg";
+        }
+        return normalized;
+    }
+
+    private String mimeFromFileName(String fileName) {
+        if (fileName == null || fileName.trim().isEmpty()) {
+            return null;
+        }
+        String name = fileName.trim().toLowerCase(Locale.ROOT);
+        int dot = name.lastIndexOf('.');
+        if (dot < 0 || dot >= name.length() - 1) {
+            return null;
+        }
+        String ext = name.substring(dot + 1);
+        if ("pdf".equals(ext)) {
+            return "application/pdf";
+        }
+        if ("webp".equals(ext)) {
+            return "image/webp";
+        }
+        if ("png".equals(ext)) {
+            return "image/png";
+        }
+        if ("jpeg".equals(ext) || "jpg".equals(ext)) {
+            return "image/jpeg";
+        }
+        return null;
+    }
+
+    private long estimateAttachmentBytesRecursively(Object value) {
+        if (value == null) {
+            return 0L;
+        }
+        if (value instanceof Map<?, ?>) {
+            Map<?, ?> map = (Map<?, ?>) value;
+            long directAttachmentBytes = estimateAttachmentBytesFromPayloadMap(map);
+            if (directAttachmentBytes > 0L) {
+                return directAttachmentBytes;
+            }
+            long nestedTotal = 0L;
+            for (Object nested : map.values()) {
+                nestedTotal += estimateAttachmentBytesRecursively(nested);
+                if (nestedTotal > MAX_TOTAL_ATTACHMENT_BYTES) {
+                    return nestedTotal;
+                }
+            }
+            return nestedTotal;
+        }
+        if (value instanceof List<?>) {
+            long total = 0L;
+            for (Object item : (List<?>) value) {
+                total += estimateAttachmentBytesRecursively(item);
+                if (total > MAX_TOTAL_ATTACHMENT_BYTES) {
+                    return total;
+                }
+            }
+            return total;
+        }
+        return 0L;
+    }
+
+    private long estimateAttachmentBytesFromPayloadMap(Map<?, ?> map) {
+        if (map == null || map.isEmpty()) {
+            return 0L;
+        }
+        String encoded = firstNonEmptyString(
+                map.get("dataUrl"),
+                map.get("base64"),
+                map.get("fileBase64"),
+                map.get("fileData"));
+        if ((encoded == null || encoded.trim().isEmpty()) && looksLikeFileObject(map)) {
+            encoded = firstNonEmptyString(map.get("data"), map.get("content"));
+        }
+        if (encoded == null || encoded.trim().isEmpty()) {
+            return 0L;
+        }
+        String payload = encoded.trim();
+        if (payload.startsWith("data:")) {
+            int commaIndex = payload.indexOf(',');
+            if (commaIndex < 0 || commaIndex >= payload.length() - 1) {
+                return 0L;
+            }
+            payload = payload.substring(commaIndex + 1);
+        }
+        payload = payload.replaceAll("\\s+", "");
+        if (payload.isEmpty()) {
+            return 0L;
+        }
+        return estimateDecodedBase64Bytes(payload);
+    }
+
+    private boolean looksLikeFileObject(Map<?, ?> map) {
+        if (map == null || map.isEmpty()) {
+            return false;
+        }
+        return map.containsKey("fileName")
+                || map.containsKey("filename")
+                || map.containsKey("name")
+                || map.containsKey("mimeType")
+                || map.containsKey("type");
+    }
+
+    private String firstNonEmptyString(Object... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Object val : values) {
+            if (val instanceof String) {
+                String str = ((String) val).trim();
+                if (!str.isEmpty()) {
+                    return str;
+                }
+            }
+        }
+        return null;
+    }
+
+    private long estimateDecodedBase64Bytes(String base64) {
+        if (base64 == null || base64.isEmpty()) {
+            return 0L;
+        }
+        int len = base64.length();
+        int padding = 0;
+        if (len >= 1 && base64.charAt(len - 1) == '=') {
+            padding++;
+        }
+        if (len >= 2 && base64.charAt(len - 2) == '=') {
+            padding++;
+        }
+        return ((long) len * 3L) / 4L - padding;
+    }
+
     private Integer extractInitialSignerId(CfgTblCustomFormApplication application) {
         try {
             String appDataJson = application.getTxtApplicationData();
@@ -7150,13 +7443,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
 
         String historyHtml = buildApprovalHistoryHtml(approvalHistoryJson, baseUrl);
-        if (historyHtml != null && !historyHtml.trim().isEmpty()) {
-            html.append(historyHtml);
-        }
+        // Placeholder for inline form image so the final order is:
+        // image -> action buttons -> prior approvals log.
+        html.append("<!--INLINE_FORM_PREVIEW-->");
 
         boolean canApproveReject = showActionButtons && approveUrl != null && rejectUrl != null;
-        boolean canSendBack = showActionButtons && sendBackUrl != null && level != null && level >= 2;
-        boolean canSendBackToInitiator = showActionButtons && sendBackToInitiatorUrl != null && level != null && level >= 2;
+        boolean canSendBack = showActionButtons && sendBackUrl != null;
+        boolean canSendBackToInitiator = showActionButtons && sendBackToInitiatorUrl != null;
 
         if (showActionButtons && (canApproveReject || canSendBack || canSendBackToInitiator)) {
             // Button container using table for Outlook
@@ -7208,6 +7501,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             html.append("<p style='margin:15px 0;'>Thank you for using our system.</p>");
         }
 
+        if (historyHtml != null && !historyHtml.trim().isEmpty()) {
+            html.append(historyHtml);
+        }
+
         // Footer
         html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin-top:30px;padding-top:20px;border-top:2px solid #ecf0f1;'>");
         html.append("<tr><td align='center' style='color:#95a5a6;font-size:12px;padding:10px 0;'>");
@@ -7248,6 +7545,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Role</th>");
             sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Status</th>");
             sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Date</th>");
+            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Comments</th>");
             sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Signature</th>");
             sb.append("</tr></thead><tbody>");
 
@@ -7262,6 +7560,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         : entry.get("status") != null ? String.valueOf(entry.get("status")) : "";
                 String date = entry.get("approvedDate") != null ? String.valueOf(entry.get("approvedDate")) 
                         : (entry.get("sentBackDate") != null ? String.valueOf(entry.get("sentBackDate")) : "");
+                String comments = entry.get("remarks") != null ? String.valueOf(entry.get("remarks"))
+                        : (entry.get("comment") != null ? String.valueOf(entry.get("comment")) : "");
                 String signaturePath = entry.get("signaturePath") != null ? String.valueOf(entry.get("signaturePath"))
                         : "";
                 String approvedBy = entry.get("approvedBy") != null ? String.valueOf(entry.get("approvedBy")) : "";
@@ -7286,6 +7586,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;" + tdWrap + "'>").append(escapeHtml(role)).append("</td>");
                 sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;" + tdWrap + "'>").append(escapeHtml(action)).append("</td>");
                 sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;" + tdWrap + "'>").append(escapeHtml(date)).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;" + tdWrap + "' title='")
+                        .append(escapeHtml(comments)).append("'>")
+                        .append("<div style='display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3em;max-height:2.6em;'>")
+                        .append(escapeHtml(comments))
+                        .append("</div></td>");
                 sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:center;vertical-align:middle;" + tdWrap + "'>").append(sigHtml).append("</td>");
                 sb.append("</tr>");
             }
@@ -8620,12 +8925,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 + "<img src='cid:" + cid
                 + "' style='max-width:820px;width:100%;height:auto;display:block;border:1px solid #222;' alt='CAPF Form' />"
                 + "</td></tr></table>";
-        String marker = "</body>";
-        int idx = baseHtml.lastIndexOf(marker);
-        if (idx == -1) {
+        String inlineMarker = "<!--INLINE_FORM_PREVIEW-->";
+        int markerIdx = baseHtml.indexOf(inlineMarker);
+        if (markerIdx >= 0) {
+            return baseHtml.substring(0, markerIdx) + fragment + baseHtml.substring(markerIdx + inlineMarker.length());
+        }
+        String bodyMarker = "</body>";
+        int bodyIdx = baseHtml.lastIndexOf(bodyMarker);
+        if (bodyIdx == -1) {
             return baseHtml + fragment;
         }
-        return baseHtml.substring(0, idx) + fragment + baseHtml.substring(idx);
+        return baseHtml.substring(0, bodyIdx) + fragment + baseHtml.substring(bodyIdx);
     }
 
     private String appendInlinePdfImage(String baseHtml, String imageCid, String altText) {
@@ -8640,12 +8950,50 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 + "' style='max-width:820px;width:100%;height:auto;display:block;' alt='"
                 + escapeHtml(alt) + "' />"
                 + "</td></tr></table>";
-        String marker = "</body>";
-        int idx = baseHtml.lastIndexOf(marker);
-        if (idx == -1) {
+        String inlineMarker = "<!--INLINE_FORM_PREVIEW-->";
+        int markerIdx = baseHtml.indexOf(inlineMarker);
+        if (markerIdx >= 0) {
+            return baseHtml.substring(0, markerIdx) + fragment + baseHtml.substring(markerIdx + inlineMarker.length());
+        }
+        String bodyMarker = "</body>";
+        int bodyIdx = baseHtml.lastIndexOf(bodyMarker);
+        if (bodyIdx == -1) {
             return baseHtml + fragment;
         }
-        return baseHtml.substring(0, idx) + fragment + baseHtml.substring(idx);
+        return baseHtml.substring(0, bodyIdx) + fragment + baseHtml.substring(bodyIdx);
+    }
+
+    private String appendInlinePdfImages(String baseHtml, List<String> imageCids, String altText) {
+        if (baseHtml == null || baseHtml.trim().isEmpty()) {
+            return baseHtml;
+        }
+        if (imageCids == null || imageCids.isEmpty()) {
+            return baseHtml;
+        }
+        String alt = altText != null ? altText : "Document";
+        StringBuilder fragment = new StringBuilder();
+        fragment.append(
+                "<table role='presentation' align='center' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:20px 0;'>");
+        for (int i = 0; i < imageCids.size(); i++) {
+            fragment.append("<tr><td align='center' style='padding:10px 0;'>")
+                    .append("<img src='cid:").append(escapeHtml(imageCids.get(i)))
+                    .append("' style='max-width:820px;width:100%;height:auto;display:block;border:1px solid #e5e7eb;' alt='")
+                    .append(escapeHtml(alt)).append(" - Page ").append(i + 1)
+                    .append("' />")
+                    .append("</td></tr>");
+        }
+        fragment.append("</table>");
+        String inlineMarker = "<!--INLINE_FORM_PREVIEW-->";
+        int markerIdx = baseHtml.indexOf(inlineMarker);
+        if (markerIdx >= 0) {
+            return baseHtml.substring(0, markerIdx) + fragment + baseHtml.substring(markerIdx + inlineMarker.length());
+        }
+        String bodyMarker = "</body>";
+        int bodyIdx = baseHtml.lastIndexOf(bodyMarker);
+        if (bodyIdx == -1) {
+            return baseHtml + fragment;
+        }
+        return baseHtml.substring(0, bodyIdx) + fragment + baseHtml.substring(bodyIdx);
     }
 
     private String getResolvedFormName(CfgTblCustomForm form) {
@@ -8899,8 +9247,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             byte[] pdfBytes = resolveBestPdfBytesForEmail(application, form);
-            // Always send form snapshot as file attachment (never inline image).
-            if (pdfBytes != null && pdfBytes.length > 0) {
+            int pdfPages = getPdfPageCount(pdfBytes);
+            boolean nonCapfInlineEligible = !isCapf && pdfBytes != null && pdfBytes.length > 0 && pdfPages > 0
+                    && pdfPages <= 2;
+            boolean shouldAttachFormPdf = pdfBytes != null && pdfBytes.length > 0
+                    && (isCapf || pdfPages == 0 || pdfPages > 2);
+
+            // For CAPF keep attachment behavior; for non-CAPF attach only when 3+ pages
+            // (or when page count could not be determined).
+            if (shouldAttachFormPdf) {
                 String pdfName = (application != null && application.getTxtPdfName() != null
                         && !application.getTxtPdfName().trim().isEmpty())
                                 ? application.getTxtPdfName().trim()
@@ -8937,6 +9292,45 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     return;
                 }
             }
+
+            // Non-CAPF: inline image preview only for 1-2 pages (one image per page).
+            if (nonCapfInlineEligible) {
+                List<byte[]> pageImages = renderPdfPagesToPng(pdfBytes, Math.min(2, pdfPages));
+                if (!pageImages.isEmpty()) {
+                    List<String> pageCids = new java.util.ArrayList<>();
+                    List<com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService.InlineImage> inlineImages = new java.util.ArrayList<>();
+                    for (int i = 0; i < pageImages.size(); i++) {
+                        String pageCid = cid + "-p" + (i + 1);
+                        pageCids.add(pageCid);
+                        inlineImages.add(new com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService.InlineImage(
+                                pageImages.get(i), "form-page-" + (i + 1) + ".png", "image/png", pageCid));
+                    }
+                    String htmlWithImage = appendInlinePdfImages(html, pageCids, getResolvedFormName(form));
+                    if (attachments.isEmpty()) {
+                        emailService.sendHtmlEmailWithInlineImagesAndAttachments(recipients, subject, htmlWithImage,
+                                inlineImages, new java.util.ArrayList<>());
+                    } else {
+                        emailService.sendHtmlEmailWithInlineImagesAndAttachments(recipients, subject, htmlWithImage,
+                                inlineImages, attachments);
+                    }
+                    return;
+                }
+                log.warn("Non-CAPF inline preview rendering failed, sending attachment fallback. appId={}, pages={}",
+                        application != null ? application.getSerApplicationId() : null, pdfPages);
+                if (pdfBytes != null && pdfBytes.length > 0) {
+                    String pdfName = (application != null && application.getTxtPdfName() != null
+                            && !application.getTxtPdfName().trim().isEmpty())
+                                    ? application.getTxtPdfName().trim()
+                                    : buildPdfFileName(form, application != null ? application.getTxtFormCode() : null);
+                    String pdfMime = (application != null && application.getTxtPdfMime() != null
+                            && !application.getTxtPdfMime().trim().isEmpty())
+                                    ? application.getTxtPdfMime().trim()
+                                    : "application/pdf";
+                    attachments.add(new com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService.EmailAttachment(
+                            pdfBytes, pdfName, pdfMime));
+                }
+            }
+
             if (!attachments.isEmpty()) {
                 emailService.sendHtmlEmailWithAttachments(recipients, subject, html, attachments);
             } else {
@@ -8957,6 +9351,27 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             log.warn("Unable to read PDF page count for email decision: {}", e.getMessage());
             return 0;
         }
+    }
+
+    private List<byte[]> renderPdfPagesToPng(byte[] pdfBytes, int maxPages) {
+        List<byte[]> pages = new java.util.ArrayList<>();
+        if (pdfBytes == null || pdfBytes.length == 0) {
+            return pages;
+        }
+        try (PDDocument document = PDDocument.load(pdfBytes)) {
+            PDFRenderer renderer = new PDFRenderer(document);
+            int pageCount = document.getNumberOfPages();
+            int limit = maxPages > 0 ? Math.min(maxPages, pageCount) : pageCount;
+            for (int i = 0; i < limit; i++) {
+                BufferedImage image = renderer.renderImageWithDPI(i, 150);
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ImageIO.write(image, "png", baos);
+                pages.add(baos.toByteArray());
+            }
+        } catch (Exception e) {
+            log.warn("Error rendering PDF pages to PNG: {}", e.getMessage());
+        }
+        return pages;
     }
 
     private String buildQuotationAttachmentHtml(Map<String, Object> appData) {

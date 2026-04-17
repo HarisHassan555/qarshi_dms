@@ -15,6 +15,7 @@ const Quill: any = QuillNamespace;
 /** Prevents duplicate paste guards when the same wrapper is patched more than once */
 const Q_TABLE_PASTE_GUARD = '__qTablePasteGuard';
 const Q_TABLE_FOCUS_GUARD = '__qTableFocusGuard';
+const Q_TABLE_EXTERNAL_PASTE_GUARD = '__qTableExternalPasteGuard';
 
 // Register a custom blot for tables to prevent Quill from stripping them
 const BlockEmbed = Quill.import('blots/block/embed');
@@ -269,7 +270,89 @@ export class BudgetApprovalComponent implements OnInit {
     }
 
     onQuillEditorCreated(quillInstance: any): void {
+        this.attachExternalTablePasteHandler(quillInstance);
         this.attachTablePasteGuards(quillInstance);
+    }
+
+    private attachExternalTablePasteHandler(quillInstance: any): void {
+        const quill = quillInstance as any;
+        const root = quill?.root as HTMLElement | undefined;
+        if (!root || (root as any)[Q_TABLE_EXTERNAL_PASTE_GUARD]) return;
+        (root as any)[Q_TABLE_EXTERNAL_PASTE_GUARD] = true;
+
+        root.addEventListener('paste', (event: ClipboardEvent) => {
+            const target = event.target as HTMLElement | null;
+            if (target?.closest('.q-table-wrapper')) {
+                return;
+            }
+            const html = event.clipboardData?.getData('text/html') || '';
+            if (!html || !/<table[\s>]/i.test(html)) {
+                return;
+            }
+            const tableHtml = this.buildEditorTableHtmlFromClipboard(html);
+            if (!tableHtml) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            const range = quill.getSelection(true);
+            const index = range ? range.index : quill.getLength();
+            quill.insertEmbed(index, 'table-blot', tableHtml, 'user');
+            quill.setSelection(index + 1, 0, 'api');
+            this.attachTablePasteGuards(quill);
+        });
+    }
+
+    private buildEditorTableHtmlFromClipboard(rawHtml: string): string | null {
+        const doc = new DOMParser().parseFromString(rawHtml, 'text/html');
+        doc.querySelectorAll('script, style').forEach((node) => node.remove());
+        const table = doc.querySelector('table') as HTMLTableElement | null;
+        if (!table) return null;
+
+        const rows = Array.from(table.querySelectorAll('tr')).slice(0, 50);
+        if (!rows.length) return null;
+
+        let tableHtml = '<table style="width:100%; border-collapse:collapse; border:1px solid #000; margin:10px 0; table-layout:fixed;">';
+        rows.forEach((row) => {
+            tableHtml += '<tr>';
+            const cells = Array.from(row.children)
+                .filter((node) => ['TD', 'TH'].includes((node as HTMLElement).tagName))
+                .slice(0, 50) as HTMLElement[];
+
+            cells.forEach((cell) => {
+                const rawTag = (cell.tagName || '').toLowerCase();
+                const cellTag = rawTag === 'th' ? 'th' : 'td';
+                const text = (cell.innerText || '').replace(/\r\n/g, '\n').trim();
+                const safeText = this.escapeHtml(text);
+                const colSpan = Number(cell.getAttribute('colspan') || 1);
+                const rowSpan = Number(cell.getAttribute('rowspan') || 1);
+                const colSpanAttr = Number.isFinite(colSpan) && colSpan > 1 ? ` colspan="${Math.floor(colSpan)}"` : '';
+                const rowSpanAttr = Number.isFinite(rowSpan) && rowSpan > 1 ? ` rowspan="${Math.floor(rowSpan)}"` : '';
+                const cellHeaderStyle = cellTag === 'th' ? 'background-color:#f1f1f1;' : '';
+                const taWeight = cellTag === 'th' ? 'font-weight:700;' : '';
+                const taAlign = cellTag === 'th' ? 'text-align:center;' : 'text-align:left;';
+
+                tableHtml += `<${cellTag}${rowSpanAttr}${colSpanAttr} style="border:1px solid #000; padding:1px; vertical-align:top; ${cellHeaderStyle}${taAlign}">
+          <textarea
+            rows="1"
+            oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';this.textContent=this.value"
+            style="width:100%; border:none; outline:none; background:transparent; font:inherit; padding:1px; line-height:1.2; resize:none; overflow:hidden; white-space:pre-wrap; word-break:break-word; box-sizing:border-box;${taWeight}${taAlign}">${safeText}</textarea>
+        </${cellTag}>`;
+            });
+            tableHtml += '</tr>';
+        });
+        tableHtml += '</table>';
+        return tableHtml;
+    }
+
+    private escapeHtml(value: string): string {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     private loadFromFooterFields(footerFields: any[]) {

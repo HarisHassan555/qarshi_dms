@@ -12,6 +12,34 @@ import { firstValueFrom } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
+import * as QuillNamespace from 'quill';
+
+const Quill: any = QuillNamespace;
+const Q_TABLE_PASTE_GUARD = '__qTablePasteGuard';
+const Q_TABLE_EXTERNAL_PASTE_GUARD = '__qTableExternalPasteGuard';
+const ExistingTableBlot = Quill.imports?.['formats/table-blot'];
+if (!ExistingTableBlot) {
+  const BlockEmbed = Quill.import('blots/block/embed');
+  class TableBlot extends BlockEmbed {
+    static create(value: string) {
+      const node: HTMLElement = super.create();
+      node.setAttribute('contenteditable', 'false');
+      node.innerHTML = value;
+      if (!(node as any)[Q_TABLE_PASTE_GUARD]) {
+        (node as any)[Q_TABLE_PASTE_GUARD] = true;
+        node.addEventListener('paste', (e: ClipboardEvent) => e.stopPropagation());
+      }
+      return node;
+    }
+    static value(node: HTMLElement) {
+      return node.innerHTML;
+    }
+  }
+  TableBlot['blotName'] = 'table-blot';
+  TableBlot['tagName'] = 'div';
+  TableBlot['className'] = 'q-table-wrapper';
+  Quill.register(TableBlot);
+}
 
 interface Application {
   serApplicationId?: number;
@@ -321,6 +349,7 @@ export class ApplicationsViewComponent implements OnInit {
 
   /** Quill listens for paste on the editor root and intercepts clipboard; allow paste in nested table embeds. */
   onWordEditorQuillCreated(editor: any): void {
+    this.attachExternalTablePasteHandler(editor);
     const root = editor?.root as HTMLElement | undefined;
     if (!root) return;
     const guardKey = '__qTablePasteGuard';
@@ -332,6 +361,86 @@ export class ApplicationsViewComponent implements OnInit {
         el.addEventListener('paste', (e: ClipboardEvent) => e.stopPropagation());
       }
     });
+  }
+
+  private attachExternalTablePasteHandler(editor: any): void {
+    const root = editor?.root as HTMLElement | undefined;
+    if (!root || (root as any)[Q_TABLE_EXTERNAL_PASTE_GUARD]) return;
+    (root as any)[Q_TABLE_EXTERNAL_PASTE_GUARD] = true;
+
+    root.addEventListener('paste', (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('.q-table-wrapper')) {
+        return;
+      }
+      const html = event.clipboardData?.getData('text/html') || '';
+      if (!html || !/<table[\s>]/i.test(html)) {
+        return;
+      }
+      const tableHtml = this.buildEditorTableHtmlFromClipboard(html);
+      if (!tableHtml) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      const range = editor.getSelection(true);
+      const index = range ? range.index : editor.getLength();
+      editor.insertEmbed(index, 'table-blot', tableHtml, 'user');
+      editor.setSelection(index + 1, 0, 'api');
+      this.onWordEditorQuillCreated(editor);
+    });
+  }
+
+  private buildEditorTableHtmlFromClipboard(rawHtml: string): string | null {
+    const doc = new DOMParser().parseFromString(rawHtml, 'text/html');
+    doc.querySelectorAll('script, style').forEach((node) => node.remove());
+    const table = doc.querySelector('table') as HTMLTableElement | null;
+    if (!table) return null;
+
+    const rows = Array.from(table.querySelectorAll('tr')).slice(0, 50);
+    if (!rows.length) return null;
+
+    let tableHtml = '<table style="width:100%; border-collapse:collapse; border:1px solid #000; margin:10px 0; table-layout:fixed;">';
+    rows.forEach((row) => {
+      tableHtml += '<tr>';
+      const cells = Array.from(row.children)
+        .filter((node) => ['TD', 'TH'].includes((node as HTMLElement).tagName))
+        .slice(0, 50) as HTMLElement[];
+
+      cells.forEach((cell) => {
+        const rawTag = (cell.tagName || '').toLowerCase();
+        const cellTag = rawTag === 'th' ? 'th' : 'td';
+        const text = (cell.innerText || '').replace(/\r\n/g, '\n').trim();
+        const safeText = this.escapeHtml(text);
+        const colSpan = Number(cell.getAttribute('colspan') || 1);
+        const rowSpan = Number(cell.getAttribute('rowspan') || 1);
+        const colSpanAttr = Number.isFinite(colSpan) && colSpan > 1 ? ` colspan="${Math.floor(colSpan)}"` : '';
+        const rowSpanAttr = Number.isFinite(rowSpan) && rowSpan > 1 ? ` rowspan="${Math.floor(rowSpan)}"` : '';
+        const cellHeaderStyle = cellTag === 'th' ? 'background-color:#f1f1f1;' : '';
+        const taWeight = cellTag === 'th' ? 'font-weight:700;' : '';
+        const taAlign = cellTag === 'th' ? 'text-align:center;' : 'text-align:left;';
+
+        tableHtml += `<${cellTag}${rowSpanAttr}${colSpanAttr} style="border:1px solid #000; padding:1px; vertical-align:top; ${cellHeaderStyle}${taAlign}">
+          <textarea
+            rows="1"
+            oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';this.textContent=this.value"
+            style="width:100%; border:none; outline:none; background:transparent; font:inherit; padding:1px; line-height:1.2; resize:none; overflow:hidden; white-space:pre-wrap; word-break:break-word; box-sizing:border-box;${taWeight}${taAlign}">${safeText}</textarea>
+        </${cellTag}>`;
+      });
+      tableHtml += '</tr>';
+    });
+    tableHtml += '</table>';
+    return tableHtml;
+  }
+
+  private escapeHtml(value: string): string {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   /** Re-attach after HTML is patched in (e.g. opening edit modal) because tables are not present at onEditorCreated. */

@@ -388,105 +388,69 @@ public class CustomFormApplicationController {
             return result;
         }
     }
-
-    /**
-     * GET endpoint for email-based approval (accessed via email link)
-     * This allows users to approve applications directly from email
-     */
     @RequestMapping(value = "/approveApplicationFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
     public String approveApplicationFromEmail(@RequestParam Integer applicationId,
             @RequestParam Integer userId,
             HttpServletRequest request,
             HttpServletResponse response) {
         logger.debug("approveApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
+        return renderEmailActionCommentForm("Approve Application", "Add a comment (optional) and confirm approval.",
+                "/approveApplicationFromEmail", applicationId, userId, request);
+    }
+
+    @RequestMapping(value = "/approveApplicationFromEmail", method = RequestMethod.POST, produces = MediaType.TEXT_HTML_VALUE)
+    public String approveApplicationFromEmailSubmit(@RequestParam Integer applicationId,
+            @RequestParam Integer userId,
+            @RequestParam(required = false) String remarks,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("approveApplicationFromEmailSubmit() - applicationId: " + applicationId + ", userId: " + userId);
         try {
             String approvedIp = resolveClientIp(request);
-            String status = customFormApplicationService.approveApplication(applicationId, "Approved via email", userId,
-                    "EMAIL", approvedIp);
+            String finalRemarks = normalizeRemarks(remarks, "Approved via email");
+            String status = customFormApplicationService.approveApplication(applicationId, finalRemarks, userId, "EMAIL",
+                    approvedIp);
             if ("Success".equals(status)) {
-                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Application Approved</title>" +
-                        "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
-                        ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
-                        +
-                        ".success{color:#27ae60;font-size:24px;margin-bottom:20px}" +
-                        ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                        "<div class='container'><div class='success'>✓ Application Approved Successfully</div>" +
-                        "<div class='message'>The application has been approved. You can close this window.</div></div></body></html>";
-            } else {
-                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Approval Failed</title>" +
-                        "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
-                        ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
-                        +
-                        ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
-                        ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                        "<div class='container'><div class='error'>✗ Approval Failed</div>" +
-                        "<div class='message'>"
-                        + (status != null && status.startsWith("Failure:") ? status.substring(8)
-                                : "Failed to approve application")
-                        +
-                        "</div></div></body></html>";
+                return renderEmailActionResultPage("Application Approved", "The application has been approved.");
             }
+            return renderEmailActionErrorPage("Approval Failed",
+                    status != null && status.startsWith("Failure:") ? status.substring(8) : "Failed to approve application");
         } catch (Exception ex) {
             logger.error("Error approving application from email: " + ex.getMessage(), ex);
-            return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Error</title>" +
-                    "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
-                    ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
-                    +
-                    ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
-                    ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                    "<div class='container'><div class='error'>✗ Error</div>" +
-                    "<div class='message'>An error occurred: " + ex.getMessage() + "</div></div></body></html>";
+            return renderEmailActionErrorPage("Error", "An error occurred: " + ex.getMessage());
         }
     }
 
-    /**
-     * GET endpoint for email-based rejection (accessed via email link)
-     * This allows users to reject applications directly from email
-     */
     @RequestMapping(value = "/rejectApplicationFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
     public String rejectApplicationFromEmail(@RequestParam Integer applicationId,
             @RequestParam Integer userId,
             HttpServletRequest request,
             HttpServletResponse response) {
         logger.debug("rejectApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
-        try {
-            String status = customFormApplicationService.rejectApplication(applicationId, "Rejected via email");
-            if ("Success".equals(status)) {
-                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Application Rejected</title>" +
-                        "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
-                        ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
-                        +
-                        ".success{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
-                        ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                        "<div class='container'><div class='success'>✗ Application Rejected</div>" +
-                        "<div class='message'>The application has been rejected. You can close this window.</div></div></body></html>";
-            } else {
-                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Rejection Failed</title>" +
-                        "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
-                        ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
-                        +
-                        ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
-                        ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                        "<div class='container'><div class='error'>✗ Rejection Failed</div>" +
-                        "<div class='message'>"
-                        + (status != null && status.startsWith("Failure:") ? status.substring(8)
-                                : "Failed to reject application")
-                        +
-                        "</div></div></body></html>";
-            }
-        } catch (Exception ex) {
-            logger.error("Error rejecting application from email: " + ex.getMessage(), ex);
-            return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Error</title>" +
-                    "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
-                    ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
-                    +
-                    ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
-                    ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                    "<div class='container'><div class='error'>✗ Error</div>" +
-                    "<div class='message'>An error occurred: " + ex.getMessage() + "</div></div></body></html>";
-        }
+        return renderEmailActionCommentForm("Reject Application", "Add a comment (optional) and confirm rejection.",
+                "/rejectApplicationFromEmail", applicationId, userId, request);
     }
 
+    @RequestMapping(value = "/rejectApplicationFromEmail", method = RequestMethod.POST, produces = MediaType.TEXT_HTML_VALUE)
+    public String rejectApplicationFromEmailSubmit(@RequestParam Integer applicationId,
+            @RequestParam Integer userId,
+            @RequestParam(required = false) String remarks,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("rejectApplicationFromEmailSubmit() - applicationId: " + applicationId + ", userId: " + userId);
+        try {
+            String finalRemarks = normalizeRemarks(remarks, "Rejected via email");
+            String status = customFormApplicationService.rejectApplication(applicationId, finalRemarks);
+            if ("Success".equals(status)) {
+                return renderEmailActionResultPage("Application Rejected", "The application has been rejected.");
+            }
+            return renderEmailActionErrorPage("Rejection Failed",
+                    status != null && status.startsWith("Failure:") ? status.substring(8) : "Failed to reject application");
+        } catch (Exception ex) {
+            logger.error("Error rejecting application from email: " + ex.getMessage(), ex);
+            return renderEmailActionErrorPage("Error", "An error occurred: " + ex.getMessage());
+        }
+    }
     @RequestMapping(value = "/sendBackApplication", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> sendBackApplication(@RequestBody Map<String, Object> requestBody,
             HttpServletRequest request,
@@ -568,108 +532,74 @@ public class CustomFormApplicationController {
             return result;
         }
     }
-
-    /**
-     * GET endpoint for email-based send back (accessed via email link)
-     * This allows users to send back applications directly from email
-     */
     @RequestMapping(value = "/sendBackApplicationFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
     public String sendBackApplicationFromEmail(@RequestParam Integer applicationId,
             @RequestParam Integer userId,
             HttpServletRequest request,
             HttpServletResponse response) {
         logger.debug("sendBackApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
+        return renderEmailActionCommentForm("Send Back Application",
+                "Add a comment (optional) and confirm send back action.", "/sendBackApplicationFromEmail",
+                applicationId, userId, request);
+    }
+
+    @RequestMapping(value = "/sendBackApplicationFromEmail", method = RequestMethod.POST, produces = MediaType.TEXT_HTML_VALUE)
+    public String sendBackApplicationFromEmailSubmit(@RequestParam Integer applicationId,
+            @RequestParam Integer userId,
+            @RequestParam(required = false) String remarks,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug(
+                "sendBackApplicationFromEmailSubmit() - applicationId: " + applicationId + ", userId: " + userId);
         try {
-            // Use DAO directly to pass userId for email-based send back
-            com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO dao = 
-                (com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO) customFormApplicationDAO;
-            String status = dao.sendBackApplication(applicationId, "Sent back via email", userId);
+            String finalRemarks = normalizeRemarks(remarks, "Sent back via email");
+            String status = getCustomFormApplicationDaoImpl().sendBackApplication(applicationId, finalRemarks, userId);
             if ("Success".equals(status)) {
-                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Application Sent Back</title>" +
-                        "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
-                        ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
-                        +
-                        ".success{color:#f39c12;font-size:24px;margin-bottom:20px}" +
-                        ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                        "<div class='container'><div class='success'>✓ Application Sent Back</div>" +
-                        "<div class='message'>The application has been sent back. You can close this window.</div></div></body></html>";
-            } else {
-                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Send Back Failed</title>" +
-                        "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
-                        ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
-                        +
-                        ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
-                        ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                        "<div class='container'><div class='error'>Send Back Failed</div>" +
-                        "<div class='message'>"
-                        + (status != null && status.startsWith("Failure:") ? status.substring(8)
-                                : "Failed to send back application")
-                        +
-                        "</div></div></body></html>";
+                return renderEmailActionResultPage("Application Sent Back", "The application has been sent back.");
             }
+            return renderEmailActionErrorPage("Send Back Failed",
+                    status != null && status.startsWith("Failure:") ? status.substring(8)
+                            : "Failed to send back application");
         } catch (Exception ex) {
             logger.error("Error sending back application from email: " + ex.getMessage(), ex);
-            return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Error</title>" +
-                    "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
-                    ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
-                    +
-                    ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
-                    ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                    "<div class='container'><div class='error'>Error</div>" +
-                    "<div class='message'>An error occurred: " + ex.getMessage() + "</div></div></body></html>";
+            return renderEmailActionErrorPage("Error", "An error occurred: " + ex.getMessage());
         }
     }
 
-    /**
-     * GET endpoint for email-based send back to initiator (accessed via email link)
-     */
     @RequestMapping(value = "/sendBackToInitiatorFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
     public String sendBackToInitiatorFromEmail(@RequestParam Integer applicationId,
             @RequestParam Integer userId,
             HttpServletRequest request,
             HttpServletResponse response) {
         logger.debug("sendBackToInitiatorFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
-        try {
-            // Use DAO directly to pass userId for email-based send back
-            com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO dao = 
-                (com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO) customFormApplicationDAO;
-            String status = dao.sendBackApplicationToInitiator(applicationId, "Sent back to initiator via email", userId);
-            if ("Success".equals(status)) {
-                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Application Sent Back to Initiator</title>" +
-                        "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
-                        ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
-                        +
-                        ".success{color:#f39c12;font-size:24px;margin-bottom:20px}" +
-                        ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                        "<div class='container'><div class='success'>✓ Application Sent Back to Initiator</div>" +
-                        "<div class='message'>The application has been sent back to the initiator. You can close this window.</div></div></body></html>";
-            } else {
-                return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Send Back Failed</title>" +
-                        "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
-                        ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
-                        +
-                        ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
-                        ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                        "<div class='container'><div class='error'>Send Back Failed</div>" +
-                        "<div class='message'>"
-                        + (status != null && status.startsWith("Failure:") ? status.substring(8)
-                                : "Failed to send back application to initiator")
-                        +
-                        "</div></div></body></html>";
-            }
-        } catch (Exception ex) {
-            logger.error("Error sending back application to initiator from email: " + ex.getMessage(), ex);
-            return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Error</title>" +
-                    "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}" +
-                    ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
-                    +
-                    ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}" +
-                    ".message{color:#333;font-size:16px;line-height:1.6}</style></head><body>" +
-                    "<div class='container'><div class='error'>Error</div>" +
-                    "<div class='message'>An error occurred: " + ex.getMessage() + "</div></div></body></html>";
-        }
+        return renderEmailActionCommentForm("Send Back To Initiator",
+                "Add a comment (optional) and confirm send back to initiator.", "/sendBackToInitiatorFromEmail",
+                applicationId, userId, request);
     }
 
+    @RequestMapping(value = "/sendBackToInitiatorFromEmail", method = RequestMethod.POST, produces = MediaType.TEXT_HTML_VALUE)
+    public String sendBackToInitiatorFromEmailSubmit(@RequestParam Integer applicationId,
+            @RequestParam Integer userId,
+            @RequestParam(required = false) String remarks,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("sendBackToInitiatorFromEmailSubmit() - applicationId: " + applicationId + ", userId: " + userId);
+        try {
+            String finalRemarks = normalizeRemarks(remarks, "Sent back to initiator via email");
+            String status = getCustomFormApplicationDaoImpl().sendBackApplicationToInitiator(applicationId, finalRemarks,
+                    userId);
+            if ("Success".equals(status)) {
+                return renderEmailActionResultPage("Application Sent Back To Initiator",
+                        "The application has been sent back to the initiator.");
+            }
+            return renderEmailActionErrorPage("Send Back Failed",
+                    status != null && status.startsWith("Failure:") ? status.substring(8)
+                            : "Failed to send back application to initiator");
+        } catch (Exception ex) {
+            logger.error("Error sending back application to initiator from email: " + ex.getMessage(), ex);
+            return renderEmailActionErrorPage("Error", "An error occurred: " + ex.getMessage());
+        }
+    }
 
     @RequestMapping(value = "/sendSubmissionEmails", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> sendSubmissionEmails(@RequestParam Integer applicationId,
@@ -758,7 +688,69 @@ public class CustomFormApplicationController {
         }
         return result;
     }
+    private com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO getCustomFormApplicationDaoImpl() {
+        return (com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO) customFormApplicationDAO;
+    }
 
+    private String normalizeRemarks(String remarks, String fallbackValue) {
+        if (remarks == null || remarks.trim().isEmpty()) {
+            return fallbackValue;
+        }
+        return remarks.trim();
+    }
+
+    private String renderEmailActionCommentForm(String title, String subtitle, String actionPath, Integer applicationId,
+            Integer userId, HttpServletRequest request) {
+        String contextPath = request != null ? request.getContextPath() : "";
+        String actionUrl = contextPath + actionPath;
+        return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>" + escapeHtml(title) + "</title>"
+                + "<style>body{font-family:Arial,sans-serif;background:#f5f5f5;padding:30px}"
+                + ".container{background:white;padding:28px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:560px;margin:0 auto}"
+                + "h2{margin:0 0 10px 0;color:#2c3e50;font-size:24px}.subtitle{color:#555;margin-bottom:18px}"
+                + "label{display:block;color:#2c3e50;font-weight:600;margin-bottom:8px}"
+                + "textarea{width:100%;min-height:110px;padding:10px;border:1px solid #d5d5d5;border-radius:6px;resize:vertical;font-size:14px;font-family:Arial,sans-serif;box-sizing:border-box}"
+                + ".hint{color:#888;font-size:12px;margin-top:8px}"
+                + "button{margin-top:18px;background:#1f6feb;color:#fff;border:none;border-radius:6px;padding:10px 18px;font-size:14px;cursor:pointer}"
+                + "button:hover{background:#1558b0}</style></head><body><div class='container'>"
+                + "<h2>" + escapeHtml(title) + "</h2>"
+                + "<div class='subtitle'>" + escapeHtml(subtitle) + "</div>"
+                + "<form method='post' action='" + escapeHtml(actionUrl) + "'>"
+                + "<input type='hidden' name='applicationId' value='" + applicationId + "'/>"
+                + "<input type='hidden' name='userId' value='" + userId + "'/>"
+                + "<label for='remarks'>Comments</label>"
+                + "<textarea id='remarks' name='remarks' maxlength='2000' placeholder='Enter comments (optional)'></textarea>"
+                + "<div class='hint'>Optional. Max 2000 characters.</div>"
+                + "<button type='submit'>Submit</button></form></div></body></html>";
+    }
+
+    private String renderEmailActionResultPage(String title, String message) {
+        return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>" + escapeHtml(title) + "</title>"
+                + "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}"
+                + ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
+                + ".success{color:#27ae60;font-size:24px;margin-bottom:20px}.message{color:#333;font-size:16px;line-height:1.6}</style></head><body>"
+                + "<div class='container'><div class='success'>" + escapeHtml(title) + "</div>"
+                + "<div class='message'>" + escapeHtml(message) + " You can close this window.</div></div></body></html>";
+    }
+
+    private String renderEmailActionErrorPage(String title, String message) {
+        return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>" + escapeHtml(title) + "</title>"
+                + "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}"
+                + ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
+                + ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}.message{color:#333;font-size:16px;line-height:1.6}</style></head><body>"
+                + "<div class='container'><div class='error'>" + escapeHtml(title) + "</div>"
+                + "<div class='message'>" + escapeHtml(message) + "</div></div></body></html>";
+    }
+
+    private String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
+    }
     private String resolveClientIp(HttpServletRequest request) {
         if (request == null)
             return "";
@@ -777,3 +769,4 @@ public class CustomFormApplicationController {
         return remoteAddr != null ? remoteAddr : "";
     }
 }
+

@@ -254,11 +254,22 @@ export class FormBuilderComponent implements OnInit {
       );
       field.get('label')?.clearValidators();
       field.get('label')?.updateValueAndValidity();
+    } else if (type === 'attachment') {
+      field.get('label')?.clearValidators();
+      field.get('label')?.updateValueAndValidity();
     } else {
       field.get('label')?.setValidators([Validators.required]);
       field.get('label')?.updateValueAndValidity();
     }
 
+  }
+
+  isFieldLabelMandatory(type: string | null | undefined): boolean {
+    const normalized = (type || '').toLowerCase();
+    return normalized !== 'word_editor'
+      && normalized !== 'attachment'
+      && normalized !== 'footer'
+      && normalized !== 'individual_pipeline_footer';
   }
 
   add() {
@@ -473,7 +484,7 @@ export class FormBuilderComponent implements OnInit {
       
       const fieldForm = this.fb.group({
         fieldUid: [fieldUid],
-        label: [field.label, (field.type === 'word_editor' || field.type === 'footer' || field.type === 'individual_pipeline_footer') ? [] : [Validators.required]],
+        label: [field.label, this.isFieldLabelMandatory(field.type) ? [Validators.required] : []],
         type: [field.type, Validators.required],
         required: [field.required || false],
         placeholder: [field.placeholder || ''],

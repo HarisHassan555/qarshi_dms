@@ -2382,6 +2382,11 @@ export class ApplicationDetailsComponent implements OnInit {
     return date && String(date).trim() !== '' ? String(date) : '--';
   }
 
+  getApprovalLogComments(entry: any): string {
+    const comments = entry?.remarks ?? entry?.comment;
+    return comments && String(comments).trim() !== '' ? String(comments) : '--';
+  }
+
   getApprovalLogSignatureUrl(entry: any): string {
     if (!entry || !entry?.signaturePath) return '';
     const id = entry?.approvedBy ?? entry?.approverUserId ?? entry?.userId;

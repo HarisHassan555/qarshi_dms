@@ -819,6 +819,7 @@
                             <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Role</th>
                             <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Status</th>
                             <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Date</th>
+                            <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Comments</th>
                             <th class="px-3 py-2 text-center font-semibold text-gray-700 dark:text-gray-200">Signature</th>
                         </tr>
                     </thead>
@@ -830,6 +831,11 @@
                             <td class="px-3 py-2 align-top text-gray-700 dark:text-gray-200">{{ getApprovalLogRole(entry) }}</td>
                             <td class="px-3 py-2 align-top text-gray-700 dark:text-gray-200">{{ getApprovalLogStatus(entry) }}</td>
                             <td class="px-3 py-2 align-top text-gray-700 dark:text-gray-200">{{ getApprovalLogDate(entry) }}</td>
+                            <td class="px-3 py-2 align-top text-gray-700 dark:text-gray-200" [title]="getApprovalLogComments(entry)">
+                                <div style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3em;max-height:2.6em;">
+                                    {{ getApprovalLogComments(entry) }}
+                                </div>
+                            </td>
                             <td class="px-3 py-2 align-middle text-center">
                                 <img *ngIf="getApprovalLogSignatureUrl(entry)"
                                     [src]="getApprovalLogSignatureUrl(entry)"

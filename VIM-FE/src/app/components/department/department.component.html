@@ -114,9 +114,16 @@
                     Select users to assign to this department. You can select multiple users.
                 </p>
             </div>
+            <div>
+                <input
+                    [(ngModel)]="assignUsersSearch"
+                    type="text"
+                    class="form-input"
+                    placeholder="Search users by name, email, or role..." />
+            </div>
             <div class="max-h-96 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                 <div *ngIf="allUsers && allUsers.length > 0" class="space-y-2">
-                    <div *ngFor="let user of allUsers" 
+                    <div *ngFor="let user of filteredUsersForAssign" 
                         class="flex items-center p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700">
                         <label class="flex items-center flex-1 cursor-pointer">
                             <input type="checkbox" 
@@ -166,6 +173,9 @@
                         </div>
                     </div>
                 </div>
+                <div *ngIf="allUsers && allUsers.length > 0 && filteredUsersForAssign.length === 0" class="text-center py-8 text-gray-500">
+                    No matching users found
+                </div>
                 <div *ngIf="!allUsers || allUsers.length === 0" class="text-center py-8 text-gray-500">
                     No users available
                 </div>
@@ -198,4 +208,3 @@
         <button type="button" (click)="assignUsers()" class="btn btn-primary ltr:ml-4 rtl:mr-4">Assign Users</button>
     </ng-template>
 </modal>
-

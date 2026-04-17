@@ -24,6 +24,7 @@ export class DepartmentComponent implements OnInit {
   selectedDepartment: any = null;
   selectedUserIds: number[] = [];
   selectedDepartmentHeadIds: number[] = [];
+  assignUsersSearch = '';
   blnStatus = false;
   editCase = false;
 
@@ -232,6 +233,7 @@ export class DepartmentComponent implements OnInit {
     this.selectedDepartment = department;
     this.selectedUserIds = [];
     this.selectedDepartmentHeadIds = [];
+    this.assignUsersSearch = '';
 
     if (department.serDepartmentHeadId) {
       this.selectedDepartmentHeadIds = String(department.serDepartmentHeadId)
@@ -271,6 +273,20 @@ export class DepartmentComponent implements OnInit {
     }
 
     this.assignUsersModal.open();
+  }
+
+  get filteredUsersForAssign(): any[] {
+    if (!Array.isArray(this.allUsers)) return [];
+
+    const query = (this.assignUsersSearch || '').trim().toLowerCase();
+    if (!query) return this.allUsers;
+
+    return this.allUsers.filter((user: any) => {
+      const name = (user?.txtUserName || '').toLowerCase();
+      const email = (user?.txtAddress || '').toLowerCase();
+      const role = (user?.cfgTblRole?.txtRoleName || '').toLowerCase();
+      return name.includes(query) || email.includes(query) || role.includes(query);
+    });
   }
 
   toggleUserSelection(userId: number) {
@@ -348,4 +364,3 @@ export class DepartmentComponent implements OnInit {
     return department.hrTblEmployees;
   }
 }
-

@@ -116,10 +116,10 @@
                             
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div *ngIf="field.get('type')?.value !== 'word_editor' && field.get('type')?.value !== 'footer' && field.get('type')?.value !== 'individual_pipeline_footer'">
-                                    <label>Field Label <span class="text-danger">*</span></label>
+                                    <label>Field Label <span class="text-danger" *ngIf="isFieldLabelMandatory(field.get('type')?.value)">*</span></label>
                                     <input type="text" placeholder="e.g., First Name" class="form-input" 
                                         formControlName="label" />
-                                    <ng-container *ngIf="isSubmit && field.get('label')?.invalid && field.get('label')?.touched">
+                                    <ng-container *ngIf="isSubmit && isFieldLabelMandatory(field.get('type')?.value) && field.get('label')?.invalid && field.get('label')?.touched">
                                         <p class="mt-1 text-danger text-xs">Label is required</p>
                                     </ng-container>
                                 </div>

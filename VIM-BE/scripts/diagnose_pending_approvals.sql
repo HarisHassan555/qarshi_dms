@@ -10,7 +10,7 @@
 
 -- >>> Set your staging schema <<<
 -- USE your_staging_db;
-
+  
 SELECT DATABASE() AS current_schema, NOW() AS run_at;
 
 -- -----------------------------------------------------------------------------

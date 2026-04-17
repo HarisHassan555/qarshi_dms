@@ -16,6 +16,7 @@ import * as QuillNamespace from 'quill';
 const Quill: any = QuillNamespace;
 const Q_TABLE_PASTE_GUARD = '__qTablePasteGuard';
 const Q_TABLE_FOCUS_GUARD = '__qTableFocusGuard';
+const Q_TABLE_EXTERNAL_PASTE_GUARD = '__qTableExternalPasteGuard';
 const ExistingTableBlot = Quill.imports?.['formats/table-blot'];
 if (!ExistingTableBlot) {
   const BlockEmbed = Quill.import('blots/block/embed');
@@ -127,7 +128,14 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   attachmentPayloads: Record<string, { fileName: string; mimeType: string; dataUrl: string; base64: string }> = {};
   multiAttachmentFiles: Record<string, File[]> = {};
   multiAttachmentPayloads: Record<string, { fileName: string; mimeType: string; dataUrl: string; base64: string }[]> = {};
-  static readonly MAX_ATTACHMENT_TOTAL_BYTES = 5 * 1024 * 1024; // 5 MB for attachment component
+  static readonly MAX_ATTACHMENT_TOTAL_BYTES = 5 * 1024 * 1024; // 5 MB combined across all attachment fields
+  static readonly ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
+    'application/pdf',
+    'image/webp',
+    'image/png',
+    'image/jpeg'
+  ]);
+  static readonly ALLOWED_ATTACHMENT_EXTENSIONS = new Set(['pdf', 'webp', 'png', 'jpeg', 'jpg']);
   previewDate = new Date().toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -169,6 +177,17 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(file);
     });
+  }
+
+  private isAllowedAttachmentFile(file: File): boolean {
+    const mime = String(file?.type || '').trim().toLowerCase();
+    if (mime && ApplicationComponent.ALLOWED_ATTACHMENT_MIME_TYPES.has(mime)) {
+      return true;
+    }
+    const name = String(file?.name || '').toLowerCase();
+    const dotIndex = name.lastIndexOf('.');
+    const ext = dotIndex >= 0 ? name.substring(dotIndex + 1) : '';
+    return !!ext && ApplicationComponent.ALLOWED_ATTACHMENT_EXTENSIONS.has(ext);
   }
 
   constructor(
@@ -613,23 +632,53 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     const input = event.target as HTMLInputElement;
     const files = input?.files ? Array.from(input.files) : [];
     const fieldName = this.getFieldName(field.label);
-    const normalizedType = (field.type || '').toString().toLowerCase();
-    const isAttachmentOrFile = normalizedType === 'attachment' || normalizedType === 'file';
-    const maxTotalBytes = isAttachmentOrFile ? ApplicationComponent.MAX_ATTACHMENT_TOTAL_BYTES : 0;
 
-    if (files.length > 0 && maxTotalBytes > 0) {
-      const totalBytes = files.reduce((sum, f) => sum + (Number((f as File).size) || 0), 0);
-      if (totalBytes > maxTotalBytes) {
+    if (files.length > 0) {
+      const disallowed = files.filter((f) => !this.isAllowedAttachmentFile(f));
+      if (disallowed.length > 0) {
         const control = this.applicationForm.get(fieldName);
         if (control) {
-          control.setErrors({ maxSize: { max: maxTotalBytes, actual: totalBytes } });
+          control.setErrors({ invalidType: true });
           control.setValue(this.multiAttachmentFiles[fieldName]?.map(f => f.name) || [], { emitEvent: true });
           control.markAsTouched();
           control.updateValueAndValidity({ emitEvent: true });
         }
         this.applicationForm?.updateValueAndValidity({ emitEvent: true });
         this.notificationService.showMessage(
-          `Combined file size (${(totalBytes / (1024 * 1024)).toFixed(2)} MB) exceeds 5 MB. Please select smaller or fewer files.`,
+          'Only PDF, WEBP, PNG, and JPEG files are allowed for attachments.',
+          'danger'
+        );
+        input.value = '';
+        return;
+      }
+      const control = this.applicationForm.get(fieldName);
+      if (control?.errors?.['invalidType']) {
+        const err = { ...control.errors };
+        delete err['invalidType'];
+        control.setErrors(Object.keys(err).length ? err : null);
+      }
+    }
+
+    if (files.length > 0) {
+      const selectedBytes = files.reduce((sum, f) => sum + (Number((f as File).size) || 0), 0);
+      const bytesFromOtherFields = Object.entries(this.multiAttachmentFiles).reduce((sum, [key, selected]) => {
+        if (key === fieldName) return sum;
+        const fieldBytes = (selected || []).reduce((inner, file) => inner + (Number((file as File).size) || 0), 0);
+        return sum + fieldBytes;
+      }, 0);
+      const totalBytes = bytesFromOtherFields + selectedBytes;
+
+      if (totalBytes > ApplicationComponent.MAX_ATTACHMENT_TOTAL_BYTES) {
+        const control = this.applicationForm.get(fieldName);
+        if (control) {
+          control.setErrors({ maxSize: { max: ApplicationComponent.MAX_ATTACHMENT_TOTAL_BYTES, actual: totalBytes } });
+          control.setValue(this.multiAttachmentFiles[fieldName]?.map(f => f.name) || [], { emitEvent: true });
+          control.markAsTouched();
+          control.updateValueAndValidity({ emitEvent: true });
+        }
+        this.applicationForm?.updateValueAndValidity({ emitEvent: true });
+        this.notificationService.showMessage(
+          `Combined file size across all attachment fields (${(totalBytes / (1024 * 1024)).toFixed(2)} MB) exceeds 5 MB. Please select smaller or fewer files.`,
           'danger'
         );
         input.value = '';
@@ -691,13 +740,20 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     }
 
     const normalizedType = (field.type || '').toString().toLowerCase();
-    if (normalizedType === 'attachment' || normalizedType === 'file') {
-      const remaining = this.multiAttachmentFiles[fieldName] || [];
-      const totalBytes = remaining.reduce((sum, f) => sum + (Number((f as File).size) || 0), 0);
+    if (normalizedType === 'attachment' || normalizedType === 'file' || normalizedType === 'multi_attachment') {
+      const totalBytes = Object.values(this.multiAttachmentFiles).reduce((sum, list) => {
+        const fieldBytes = (list || []).reduce((inner, f) => inner + (Number((f as File).size) || 0), 0);
+        return sum + fieldBytes;
+      }, 0);
       const control = this.applicationForm.get(fieldName);
       if (control?.errors && control.errors['maxSize'] && totalBytes <= ApplicationComponent.MAX_ATTACHMENT_TOTAL_BYTES) {
         const err = { ...control.errors };
         delete err['maxSize'];
+        control.setErrors(Object.keys(err).length ? err : null);
+      }
+      if (control?.errors && control.errors['invalidType']) {
+        const err = { ...control.errors };
+        delete err['invalidType'];
         control.setErrors(Object.keys(err).length ? err : null);
       }
     }
@@ -718,6 +774,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   onWordEditorCreated(fieldName: string, editor: any): void {
+    this.attachExternalTablePasteHandler(editor);
     this.attachTablePasteGuardsForEditor(editor);
     editor?.root?.addEventListener('focusin', (event: FocusEvent) => {
       const target = event.target as HTMLElement | null;
@@ -770,6 +827,86 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         });
       }
     });
+  }
+
+  private attachExternalTablePasteHandler(editor: any): void {
+    const root = editor?.root as HTMLElement | undefined;
+    if (!root || (root as any)[Q_TABLE_EXTERNAL_PASTE_GUARD]) return;
+    (root as any)[Q_TABLE_EXTERNAL_PASTE_GUARD] = true;
+
+    root.addEventListener('paste', (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('.q-table-wrapper')) {
+        return;
+      }
+      const html = event.clipboardData?.getData('text/html') || '';
+      if (!html || !/<table[\s>]/i.test(html)) {
+        return;
+      }
+      const tableHtml = this.buildEditorTableHtmlFromClipboard(html);
+      if (!tableHtml) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      const range = editor.getSelection(true);
+      const index = range ? range.index : editor.getLength();
+      editor.insertEmbed(index, 'table-blot', tableHtml, 'user');
+      editor.setSelection(index + 1, 0, 'api');
+      this.attachTablePasteGuardsForEditor(editor);
+    });
+  }
+
+  private buildEditorTableHtmlFromClipboard(rawHtml: string): string | null {
+    const doc = new DOMParser().parseFromString(rawHtml, 'text/html');
+    doc.querySelectorAll('script, style').forEach((node) => node.remove());
+    const table = doc.querySelector('table') as HTMLTableElement | null;
+    if (!table) return null;
+
+    const rows = Array.from(table.querySelectorAll('tr')).slice(0, 50);
+    if (!rows.length) return null;
+
+    let tableHtml = '<table style="width:100%; border-collapse:collapse; border:1px solid #000; margin:10px 0; table-layout:fixed;">';
+    rows.forEach((row) => {
+      tableHtml += '<tr>';
+      const cells = Array.from(row.children)
+        .filter((node) => ['TD', 'TH'].includes((node as HTMLElement).tagName))
+        .slice(0, 50) as HTMLElement[];
+
+      cells.forEach((cell) => {
+        const rawTag = (cell.tagName || '').toLowerCase();
+        const cellTag = rawTag === 'th' ? 'th' : 'td';
+        const text = (cell.innerText || '').replace(/\r\n/g, '\n').trim();
+        const safeText = this.escapeHtml(text);
+        const colSpan = Number(cell.getAttribute('colspan') || 1);
+        const rowSpan = Number(cell.getAttribute('rowspan') || 1);
+        const colSpanAttr = Number.isFinite(colSpan) && colSpan > 1 ? ` colspan="${Math.floor(colSpan)}"` : '';
+        const rowSpanAttr = Number.isFinite(rowSpan) && rowSpan > 1 ? ` rowspan="${Math.floor(rowSpan)}"` : '';
+        const cellHeaderStyle = cellTag === 'th' ? 'background-color:#f1f1f1;' : '';
+        const taWeight = cellTag === 'th' ? 'font-weight:700;' : '';
+        const taAlign = cellTag === 'th' ? 'text-align:center;' : 'text-align:left;';
+
+        tableHtml += `<${cellTag}${rowSpanAttr}${colSpanAttr} style="border:1px solid #000; padding:1px; vertical-align:top; ${cellHeaderStyle}${taAlign}">
+          <textarea
+            rows="1"
+            oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';this.textContent=this.value"
+            style="width:100%; border:none; outline:none; background:transparent; font:inherit; padding:1px; line-height:1.2; resize:none; overflow:hidden; white-space:pre-wrap; word-break:break-word; box-sizing:border-box;${taWeight}${taAlign}">${safeText}</textarea>
+        </${cellTag}>`;
+      });
+      tableHtml += '</tr>';
+    });
+    tableHtml += '</table>';
+    return tableHtml;
+  }
+
+  private escapeHtml(value: string): string {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   private ensureToolbarActionButton(toolbarEl: HTMLElement, classSuffix: string, onClick: () => void): void {
@@ -1414,6 +1551,18 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
   async onSubmit() {
     if (this.applicationForm.valid && this.selectedForm) {
+      const totalAttachmentBytes = Object.values(this.multiAttachmentFiles).reduce((sum, files) => {
+        const fieldBytes = (files || []).reduce((inner, file) => inner + (Number((file as File).size) || 0), 0);
+        return sum + fieldBytes;
+      }, 0);
+      if (totalAttachmentBytes > ApplicationComponent.MAX_ATTACHMENT_TOTAL_BYTES) {
+        this.notificationService.showMessage(
+          `Combined attachment size across all fields exceeds 5 MB (${(totalAttachmentBytes / (1024 * 1024)).toFixed(2)} MB).`,
+          'danger'
+        );
+        return;
+      }
+
       const formData = { ...this.applicationForm.value };
 
       // Ensure multi-select attachments (attachment/file and multi_attachment) are captured as base64 payloads
@@ -1600,6 +1749,9 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       }
       if (control.errors['email']) {
         return 'Please enter a valid email address';
+      }
+      if (control.errors['invalidType']) {
+        return 'Only PDF, WEBP, PNG, and JPEG files are allowed';
       }
     }
     return '';
