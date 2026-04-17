@@ -63,6 +63,52 @@ export class PermissionService {
 
     constructor(private menuService: MenuService) {}
 
+    private normalizeSubMenuName(name: string): string {
+        return (name || '').trim().toLowerCase();
+    }
+
+    private getRoleId(user: any): number | undefined {
+        if (!user) {
+            return undefined;
+        }
+        const rawRole = user.cfgTblRole;
+        if (rawRole && typeof rawRole === 'object') {
+            const nested = Number(rawRole.serRoleId);
+            return Number.isFinite(nested) ? nested : undefined;
+        }
+        const direct = Number(rawRole);
+        return Number.isFinite(direct) ? direct : undefined;
+    }
+
+    private isAdminUser(user: any): boolean {
+        const roleName = (user?.cfgTblRole?.txtRoleName || user?.txtrole || '').toString().trim().toLowerCase();
+        return roleName.includes('admin');
+    }
+
+    private getMatchingPermissions(subMenuName: string): SubMenuPermission[] {
+        const normalized = this.normalizeSubMenuName(subMenuName);
+        return (this.subMenuRoles || []).filter(role =>
+            this.normalizeSubMenuName(role?.cfgTblSubMenu?.txtSubMenuName || '') === normalized
+        );
+    }
+
+    private resolvePermissionFlag(
+        subMenuName: string,
+        newFlag: keyof SubMenuPermission,
+        legacyFlag?: keyof SubMenuPermission
+    ): boolean {
+        const matching = this.getMatchingPermissions(subMenuName);
+        if (!matching.length) {
+            return false;
+        }
+
+        return matching.some(permission => {
+            const newValue = permission[newFlag];
+            const legacyValue = legacyFlag ? permission[legacyFlag] : false;
+            return newValue === true || legacyValue === true;
+        });
+    }
+
 
     getUserFromLocalStorage(): CfgTblUser | null {
         const userJson = localStorage.getItem('user');
@@ -120,21 +166,27 @@ export class PermissionService {
     canAdd(subMenuName: string): Observable<boolean> {
         const user = this.getUserFromLocalStorage();
 
-        if (!user || !user.cfgTblRole) {
+        if (!user) {
             return of(false);
         }
 
-        // @ts-ignore
-        return this.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).pipe(
+        if (this.isAdminUser(user)) {
+            return of(true);
+        }
+
+        const roleId = this.getRoleId(user);
+        if (!roleId) {
+            return of(false);
+        }
+
+        return this.loadPermissionRoles(roleId, user.serUserId).pipe(
             map(roles => {
                 // Validate and update subMenuRoles
                 console.log('Roles received:', roles);
                 this.subMenuRoles = Array.isArray(roles) ? roles : [];
-                const permission = this.subMenuRoles.find(
-                    role => role.cfgTblSubMenu?.txtSubMenuName === subMenuName
-                );
-                console.log('Permission for', subMenuName, ':', permission);
-                return permission?.blIsNewCreate ?? false;
+                const canCreate = this.resolvePermissionFlag(subMenuName, 'blIsNewCreate', 'blIsAdd');
+                console.log('Permission for', subMenuName, ':', canCreate);
+                return canCreate;
             }),
             catchError(error => {
                 console.error('Error loading permission roles:', error);
@@ -174,10 +226,43 @@ export class PermissionService {
      * @returns boolean
      */
     canUpdate(subMenuName: string): boolean {
-        const permission = this.subMenuRoles.find(
-            role => role.cfgTblSubMenu?.txtSubMenuName === subMenuName
+        const user = this.getUserFromLocalStorage();
+        if (this.isAdminUser(user)) {
+            return true;
+        }
+        return this.resolvePermissionFlag(subMenuName, 'blIsNewUpdate', 'blIsUpdate');
+    }
+
+    /**
+     * Async update permission check that refreshes permissions before evaluating.
+     * Useful for components that should not rely on previously cached permission state.
+     */
+    canUpdateAsync(subMenuName: string): Observable<boolean> {
+        const user = this.getUserFromLocalStorage();
+
+        if (!user) {
+            return of(false);
+        }
+
+        if (this.isAdminUser(user)) {
+            return of(true);
+        }
+
+        const roleId = this.getRoleId(user);
+        if (!roleId) {
+            return of(false);
+        }
+
+        return this.loadPermissionRoles(roleId, user.serUserId).pipe(
+            map(roles => {
+                this.subMenuRoles = Array.isArray(roles) ? roles : [];
+                return this.resolvePermissionFlag(subMenuName, 'blIsNewUpdate', 'blIsUpdate');
+            }),
+            catchError(error => {
+                console.error('Error loading permission roles for update check:', error);
+                return of(false);
+            })
         );
-        return permission?.blIsNewUpdate ?? false;
     }
 
     /**
@@ -186,10 +271,7 @@ export class PermissionService {
      * @returns boolean
      */
     canView(subMenuName: string): boolean {
-        const permission = this.subMenuRoles.find(
-            role => role.cfgTblSubMenu?.txtSubMenuName === subMenuName
-        );
-        return permission?.blIsNewView ?? false;
+        return this.resolvePermissionFlag(subMenuName, 'blIsNewView', 'blIsview');
     }
 
     /**
@@ -198,10 +280,7 @@ export class PermissionService {
      * @returns boolean
      */
     canDelete(subMenuName: string): boolean {
-        const permission = this.subMenuRoles.find(
-            role => role.cfgTblSubMenu?.txtSubMenuName === subMenuName
-        );
-        return permission?.blIsDelete ?? false;
+        return this.resolvePermissionFlag(subMenuName, 'blIsDelete');
     }
 
     /**
@@ -210,10 +289,7 @@ export class PermissionService {
      * @returns boolean
      */
     canApprove(subMenuName: string): boolean {
-        const permission = this.subMenuRoles.find(
-            role => role.cfgTblSubMenu?.txtSubMenuName === subMenuName
-        );
-        return permission?.blIsApprove ?? false;
+        return this.resolvePermissionFlag(subMenuName, 'blIsApprove');
     }
 
     /**
@@ -222,10 +298,7 @@ export class PermissionService {
      * @returns boolean
      */
     canNewCreate(subMenuName: string): boolean {
-        const permission = this.subMenuRoles.find(
-            role => role.cfgTblSubMenu?.txtSubMenuName === subMenuName
-        );
-        return permission?.blIsNewCreate ?? false;
+        return this.resolvePermissionFlag(subMenuName, 'blIsNewCreate', 'blIsAdd');
     }
 
     /**
@@ -234,10 +307,7 @@ export class PermissionService {
      * @returns boolean
      */
     canNewUpdate(subMenuName: string): boolean {
-        const permission = this.subMenuRoles.find(
-            role => role.cfgTblSubMenu?.txtSubMenuName === subMenuName
-        );
-        return permission?.blIsNewUpdate ?? false;
+        return this.resolvePermissionFlag(subMenuName, 'blIsNewUpdate', 'blIsUpdate');
     }
 
     /**
@@ -246,10 +316,7 @@ export class PermissionService {
      * @returns boolean
      */
     canNewView(subMenuName: string): boolean {
-        const permission = this.subMenuRoles.find(
-            role => role.cfgTblSubMenu?.txtSubMenuName === subMenuName
-        );
-        return permission?.blIsNewView ?? false;
+        return this.resolvePermissionFlag(subMenuName, 'blIsNewView', 'blIsview');
     }
 
     /**

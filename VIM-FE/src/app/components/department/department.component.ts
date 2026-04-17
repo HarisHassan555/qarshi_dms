@@ -44,6 +44,22 @@ export class DepartmentComponent implements OnInit {
     private permissionService: PermissionService
   ) { }
 
+  private getCurrentUserContext(): { roleId?: number; userId?: number } {
+    const userJson = localStorage.getItem('user');
+    if (!userJson) {
+      return {};
+    }
+
+    const user: any = JSON.parse(userJson);
+    const roleId = Number(user?.cfgTblRole?.serRoleId ?? user?.cfgTblRole);
+    const userId = Number(user?.serUserId);
+
+    return {
+      roleId: Number.isFinite(roleId) ? roleId : undefined,
+      userId: Number.isFinite(userId) ? userId : undefined
+    };
+  }
+
   ngOnInit() {
     this.departmentForm = this.fb.group({
       serDepartmentId: [''],
@@ -52,18 +68,13 @@ export class DepartmentComponent implements OnInit {
       txtDescription: ['']
     });
 
-    const userJson = localStorage.getItem('user');
-    let user: {
-      cfgTblRole: number | undefined;
-      serUserId: number;
-    };
-
-    if (userJson) {
-      // @ts-ignore
-      user = JSON.parse(userJson) as CfgTblUser;
+    const { roleId, userId } = this.getCurrentUserContext();
+    if (!roleId || !userId) {
+      this.getAllUsers();
+      return;
     }
-    // @ts-ignore
-    this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
+
+    this.permissionService.loadPermissionRoles(roleId, userId).subscribe(() => {
       this.getAllUsers();
     });
   }
@@ -137,46 +148,34 @@ export class DepartmentComponent implements OnInit {
   }
 
   add() {
-    const userJson = localStorage.getItem('user');
-    let user: {
-      cfgTblRole: number | undefined;
-      serUserId: number;
-    };
-
-    if (userJson) {
-      // @ts-ignore
-      user = JSON.parse(userJson) as CfgTblUser;
-    }
-    // @ts-ignore
-    this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
-      // @ts-ignore
-      this.permissionService.canAdd('Department').subscribe(canAdd => {
-        if (canAdd == true) {
-          this.isSubmit = false;
-          this.departmentForm.reset();
-          this.blnStatus = false;
-          this.editCase = false;
-          this.modal.open();
-          return;
-        } else {
-          this.notificationService.showMessage('You do not have permission to add new departments', 'danger');
-          return;
-        }
-      });
+    this.permissionService.canAdd('Department').subscribe(canAdd => {
+      if (canAdd === true) {
+        this.isSubmit = false;
+        this.departmentForm.reset();
+        this.blnStatus = false;
+        this.editCase = false;
+        this.modal.open();
+        return;
+      } else {
+        this.notificationService.showMessage('You do not have permission to add new departments', 'danger');
+        return;
+      }
     });
   }
 
   edit(department: any) {
-    if (!this.permissionService.canUpdate('Department')) {
-      this.notificationService.showMessage('You do not have permission to edit departments', 'danger');
-      return;
-    }
-    this.departmentForm.reset();
-    this.modal.open();
-    this.departmentForm.patchValue(department);
-    this.blnStatus = department.blnStatus;
-    // @ts-ignore
-    this.editCase = true;
+    this.permissionService.canUpdateAsync('Department').subscribe(canUpdate => {
+      if (!canUpdate) {
+        this.notificationService.showMessage('You do not have permission to edit departments', 'danger');
+        return;
+      }
+      this.departmentForm.reset();
+      this.modal.open();
+      this.departmentForm.patchValue(department);
+      this.blnStatus = department.blnStatus;
+      // @ts-ignore
+      this.editCase = true;
+    });
   }
 
   submit() {
@@ -348,4 +347,3 @@ export class DepartmentComponent implements OnInit {
     return department.hrTblEmployees;
   }
 }
-
