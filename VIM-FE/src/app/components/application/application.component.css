@@ -73,7 +73,7 @@
     height: auto;
     display: flex;
     align-items: flex-start;
-    justify-content: center;
+    justify-content: flex-start;
     overflow: hidden;
     width: 100%;
     box-sizing: border-box;
@@ -85,7 +85,7 @@
     max-height: none;
     transform: none;
     transform-origin: top left;
-    overflow: hidden;
+    overflow: visible;
     flex: 0 0 auto;
 }
 
@@ -95,6 +95,29 @@
 
 .app-preview-scale.xyz-page-inline {
     display: block;
+}
+
+.app-preview-pages {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.app-preview-pages .xyz-paper {
+    margin: 0;
+}
+
+.app-preview-measure {
+    position: absolute;
+    left: -99999px;
+    top: 0;
+    width: auto;
+    height: auto;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+    z-index: -1;
 }
 
 @media (max-width: 1024px) {
