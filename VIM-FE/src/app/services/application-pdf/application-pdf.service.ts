@@ -12,7 +12,7 @@ export class ApplicationPdfService {
     form: any,
     formFields: any[],
     applicationFormData: any,
-    applicationMeta?: { formName?: string; txtFormCode?: string }
+    applicationMeta?: { formName?: string; txtFormCode?: string; omitApprovalSignaturesInPdf?: boolean }
   ): string {
     let isCapf = this.isCapfFormMeta(data, form, applicationMeta);
 
@@ -36,12 +36,24 @@ export class ApplicationPdfService {
 
     if (forceBudgetApprovalByCode) {
       handledBudgetApproval = true;
-      htmlContent = this.generateBudgetApprovalPdfHtml(data, formFields, applicationFormData, resolvedFormName || 'Budget Approval');
+      htmlContent = this.generateBudgetApprovalPdfHtml(
+        data,
+        formFields,
+        applicationFormData,
+        resolvedFormName || 'Budget Approval',
+        applicationMeta
+      );
     }
 
     if (!handledBudgetApproval && isBudgetApproval) {
       handledBudgetApproval = true;
-      htmlContent = this.generateBudgetApprovalPdfHtml(data, formFields, applicationFormData, resolvedFormName || 'Budget Approval');
+      htmlContent = this.generateBudgetApprovalPdfHtml(
+        data,
+        formFields,
+        applicationFormData,
+        resolvedFormName || 'Budget Approval',
+        applicationMeta
+      );
     } else if (!handledBudgetApproval && isCapf) {
       let pipelines: any[] = [];
       if (form && form.cfgTblFormApprovalPipelines) {
@@ -55,7 +67,7 @@ export class ApplicationPdfService {
         pipelines = [];
       }
 
-      htmlContent = this.generateCapfAbcHtml(data, formFields, applicationFormData, pipelines);
+      htmlContent = this.generateCapfAbcHtml(data, formFields, applicationFormData, pipelines, applicationMeta);
       if (!htmlContent || !htmlContent.includes('abc-wrapper')) {
         throw new Error('ABC HTML generation failed');
       }
@@ -76,7 +88,8 @@ export class ApplicationPdfService {
         data,
         formFields,
         applicationFormData,
-        resolvedFormName || 'Unknown Form'
+        resolvedFormName || 'Unknown Form',
+        applicationMeta
       );
     }
 
@@ -133,9 +146,28 @@ export class ApplicationPdfService {
             return;
           }
 
-          if (element.classList.contains('abc-wrapper')) {
+          // Generic / budget XYZ layouts also use .abc-wrapper (same outer class as CAPF). Route by content:
+          // — .xyz-paper => multi-page split via renderXyzPdfFromElement (must run before CAPF branch).
+          // — .page inside wrapper => CAPF layout.
+          const abcRoot = (iframeDoc.querySelector('.abc-wrapper') as HTMLElement) || null;
+          const hasXyzPaper = !!iframeDoc.querySelector('.xyz-paper');
+          const hasCapfPageLayout = !!(iframeDoc.querySelector('.abc-wrapper .page') || iframeDoc.querySelector('.page'));
+
+          if (hasXyzPaper) {
+            const xyzRoot = (abcRoot || element) as HTMLElement;
             try {
-              const pdfBlob = await this.renderCapfPdfFromElement(element);
+              const pdfBlob = await this.renderXyzPdfFromElement(xyzRoot);
+              if (done) return;
+              done = true;
+              cleanup(iframe);
+              resolve(pdfBlob);
+              return;
+            } catch (xyzError) {
+              console.error('XYZ deterministic PDF generation failed, falling back to html2pdf:', xyzError);
+            }
+          } else if (hasCapfPageLayout && abcRoot) {
+            try {
+              const pdfBlob = await this.renderCapfPdfFromElement(abcRoot);
               if (done) return;
               done = true;
               cleanup(iframe);
@@ -150,22 +182,7 @@ export class ApplicationPdfService {
             }
           }
 
-          // For XYZ forms, force deterministic multi-page output.
-          const xyzWrapper = (iframeDoc.querySelector('.abc-wrapper') as HTMLElement) || element;
           const isXyzPaper = element.classList.contains('xyz-paper') || !!element.querySelector('.xyz-paper');
-          if (isXyzPaper) {
-            try {
-              const pdfBlob = await this.renderXyzPdfFromElement(xyzWrapper);
-              if (done) return;
-              done = true;
-              cleanup(iframe);
-              resolve(pdfBlob);
-              return;
-            } catch (xyzError) {
-              // fall through to existing html2pdf path as fallback
-              console.error('XYZ deterministic PDF generation failed, falling back to html2pdf:', xyzError);
-            }
-          }
 
           element.offsetHeight;
           // For xyz-paper elements, ensure natural height for PDF generation
@@ -173,20 +190,34 @@ export class ApplicationPdfService {
             // Add a class to the element to trigger PDF-specific styles
             element.classList.add('pdf-generation-mode');
             const paperElement = (element.querySelector('.xyz-paper') as HTMLElement) || element;
+            const footerPinned = paperElement?.classList.contains('xyz-paper-footer-pinned');
             if (paperElement) {
               paperElement.classList.add('pdf-generation-mode');
-              paperElement.style.height = 'auto';
-              paperElement.style.maxHeight = 'none';
-              paperElement.style.minHeight = 'auto';
-              paperElement.style.overflow = 'visible';
-              paperElement.style.display = 'block';
+              if (footerPinned) {
+                paperElement.style.setProperty('display', 'flex', 'important');
+                paperElement.style.setProperty('flex-direction', 'column', 'important');
+                paperElement.style.setProperty('min-height', '297mm', 'important');
+                paperElement.style.setProperty('height', 'auto', 'important');
+                paperElement.style.setProperty('max-height', 'none', 'important');
+                paperElement.style.setProperty('overflow', 'visible', 'important');
+              } else {
+                paperElement.style.height = 'auto';
+                paperElement.style.maxHeight = 'none';
+                paperElement.style.minHeight = 'auto';
+                paperElement.style.overflow = 'visible';
+                paperElement.style.display = 'block';
+              }
             }
             const contentArea = element.querySelector('.xyz-content-area') as HTMLElement;
             if (contentArea) {
-              contentArea.style.overflow = 'visible';
-              contentArea.style.minHeight = 'auto';
-              contentArea.style.flex = 'none';
-              contentArea.style.height = 'auto';
+              if (footerPinned) {
+                contentArea.style.setProperty('overflow', 'visible', 'important');
+              } else {
+                contentArea.style.overflow = 'visible';
+                contentArea.style.minHeight = 'auto';
+                contentArea.style.flex = 'none';
+                contentArea.style.height = 'auto';
+              }
             }
           }
 
@@ -412,14 +443,30 @@ export class ApplicationPdfService {
 
     const paper = (captureTarget.querySelector('.xyz-paper') as HTMLElement) || captureTarget;
     const contentArea = captureTarget.querySelector('.xyz-content-area') as HTMLElement;
-    setStyle(paper, 'height', 'auto');
-    setStyle(paper, 'max-height', 'none');
-    setStyle(paper, 'min-height', 'auto');
+    const footerPinned = paper.classList.contains('xyz-paper-footer-pinned');
+    // Email / stored PDF uses this capture path. Collapsing min-height breaks the pinned footer
+    // (spacer + footer); the on-screen details view never applies these overrides.
     setStyle(paper, 'overflow', 'visible');
-    setStyle(contentArea, 'overflow', 'visible');
-    setStyle(contentArea, 'height', 'auto');
-    setStyle(contentArea, 'max-height', 'none');
-    setStyle(contentArea, 'min-height', 'auto');
+    if (footerPinned) {
+      setStyle(paper, 'display', 'flex');
+      setStyle(paper, 'flex-direction', 'column');
+      setStyle(paper, 'min-height', '297mm');
+      setStyle(paper, 'height', 'auto');
+      setStyle(paper, 'max-height', 'none');
+      if (contentArea) {
+        setStyle(contentArea, 'overflow', 'visible');
+      }
+    } else {
+      setStyle(paper, 'height', 'auto');
+      setStyle(paper, 'max-height', 'none');
+      setStyle(paper, 'min-height', 'auto');
+      if (contentArea) {
+        setStyle(contentArea, 'overflow', 'visible');
+        setStyle(contentArea, 'height', 'auto');
+        setStyle(contentArea, 'max-height', 'none');
+        setStyle(contentArea, 'min-height', 'auto');
+      }
+    }
 
     await new Promise(resolve => setTimeout(resolve, 80));
 
@@ -931,7 +978,13 @@ export class ApplicationPdfService {
     return html;
   }
 
-  private generateBudgetApprovalPdfHtml(application: any, formFields: any[], applicationFormData: any, formName: string): string {
+  private generateBudgetApprovalPdfHtml(
+    application: any,
+    formFields: any[],
+    applicationFormData: any,
+    formName: string,
+    applicationMeta?: { omitApprovalSignaturesInPdf?: boolean }
+  ): string {
     const { heading, contentHtml, preparedBy, reviewers, recommenders, approver, footerFields } = this.buildBudgetApprovalContent(applicationFormData);
     
     // Extract document_header field value for heading if available
@@ -980,14 +1033,26 @@ export class ApplicationPdfService {
     }
     
     const dateStr = application?.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleDateString() : new Date().toLocaleDateString();
-    return this.generateBudgetApprovalXyzHtml(headingText, dateStr, contentHtml, application?.txtApprovalHistory, preparedBy, reviewers, recommenders, approver, footerFields || []);
+    return this.generateBudgetApprovalXyzHtml(
+      headingText,
+      dateStr,
+      contentHtml,
+      application?.txtApprovalHistory,
+      preparedBy,
+      reviewers,
+      recommenders,
+      approver,
+      footerFields || [],
+      applicationMeta
+    );
   }
 
   private generateGenericApplicationPdfHtml(
     application: any,
     formFields: any[],
     applicationFormData: any,
-    formName: string
+    formName: string,
+    applicationMeta?: { omitApprovalSignaturesInPdf?: boolean }
   ): string {
     const normalizeFieldType = (fieldType: any): string => String(fieldType || '').toLowerCase().replace(/\s+/g, '_');
     const slugify = (label: string): string =>
@@ -1146,7 +1211,8 @@ export class ApplicationPdfService {
       [],
       [],
       undefined,
-      Array.isArray(dynamicFooterFields) ? dynamicFooterFields : []
+      Array.isArray(dynamicFooterFields) ? dynamicFooterFields : [],
+      applicationMeta
     );
   }
 
@@ -1159,8 +1225,10 @@ export class ApplicationPdfService {
     reviewers: any[] = [],
     recommenders: any[] = [],
     approver?: any,
-    footerFields: any[] = []
+    footerFields: any[] = [],
+    applicationMeta?: { omitApprovalSignaturesInPdf?: boolean }
   ): string {
+    const omitApprovalSignatures = !!applicationMeta?.omitApprovalSignaturesInPdf;
     let approvalHistory: any[] = [];
     if (approvalHistoryJson) {
       try {
@@ -1237,6 +1305,9 @@ export class ApplicationPdfService {
     };
 
     const renderUserCell = (user: any, sectionLabel?: string): string => {
+      if (omitApprovalSignatures) {
+        return '';
+      }
       if (!user) return '';
       const sigUrl = getUserSignatureUrl(user, sectionLabel);
       const sigDate = getUserApprovalDate(user, sectionLabel);
@@ -1345,6 +1416,18 @@ export class ApplicationPdfService {
       flex-shrink: 0 !important;
       margin-top: auto !important;
     }
+    .pdf-generation-mode.xyz-paper.xyz-paper-footer-pinned,
+    .pdf-generation-mode .xyz-paper.xyz-paper-footer-pinned {
+      display: flex !important;
+      flex-direction: column !important;
+      min-height: 297mm !important;
+    }
+    .pdf-generation-mode .xyz-paper-footer-pinned > .xyz-content-area {
+      flex: 0 1 auto !important;
+    }
+    .pdf-generation-mode .xyz-paper-footer-pinned > .xyz-footer-spacer {
+      flex: 1 1 auto !important;
+    }
     .xyz-header-container {
       flex-shrink: 0;
       background:#ffffff;
@@ -1403,11 +1486,34 @@ export class ApplicationPdfService {
     .xyz-col-sr { width:8%; text-align:center; }
     .xyz-col-amount { width:18%; text-align:center; }
     .xyz-note { margin-top:6px; font-size:11px; }
+    .xyz-footer-spacer {
+      flex: 1 1 auto;
+      min-height: 0;
+      width: 100%;
+    }
+    .xyz-paper.xyz-paper-footer-pinned > .xyz-content-area {
+      flex: 0 1 auto !important;
+      min-height: 0;
+      overflow: visible;
+    }
+    .xyz-paper.xyz-paper-footer-pinned > .xyz-footer-spacer {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    .xyz-paper.xyz-paper-footer-pinned > .xyz-footer {
+      flex-shrink: 0;
+      margin-top: 0;
+      padding-top: 6px;
+      page-break-inside: avoid;
+      break-inside: avoid;
+      position: static;
+      width: 100%;
+    }
     .xyz-footer {
       flex-shrink: 0;
       background:#ffffff;
       margin-top: auto;
-      padding-top: 14px;
+      padding-top: 6px;
       page-break-inside: avoid;
       break-inside: avoid;
       position: static;
@@ -1420,8 +1526,8 @@ export class ApplicationPdfService {
     }
     .xyz-signatures { width:100%; border-collapse:collapse; font-family: "Calibri", "Arial", sans-serif; font-size:12px; table-layout:fixed; }
     .xyz-signatures th, .xyz-signatures td { border:1px solid #000; padding:4px 6px; text-align:center !important; vertical-align:middle !important; word-wrap:break-word; overflow-wrap:break-word; max-width:0; }
-    .xyz-signatures-blank td { height:68px; min-height:68px; padding:2px 4px 8px 4px; background:#fff; overflow:hidden; position:relative; box-sizing:border-box; vertical-align:top !important; text-align:center !important; border-bottom:1px solid #000; }
-    .xyz-signatures tr:nth-child(2) th { padding-top:18px; padding-bottom:5px; }
+    .xyz-signatures-blank td { height:52px; min-height:52px; padding:2px 4px 4px 4px; background:#fff; overflow:hidden; position:relative; box-sizing:border-box; vertical-align:top !important; text-align:center !important; border-bottom:1px solid #000; }
+    .xyz-signatures tr:nth-child(2) th { padding-top:8px; padding-bottom:5px; }
     .xyz-signatures th { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:11px; font-weight:700; background:#8f8f8f; text-align:center; text-transform:none; letter-spacing:0; }
     .xyz-signatures th[colspan="2"] { text-align:center; }
     .xyz-signatures td { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:12px; text-align:center !important; vertical-align:middle !important; }
@@ -1469,10 +1575,10 @@ export class ApplicationPdfService {
   <meta charset="UTF-8">
 </head>
 <body>
-  <div class="abc-wrapper">
+    <div class="abc-wrapper">
     <style>${css}</style>
     <div class="xyz-page">
-      <div class="xyz-paper">
+      <div class="xyz-paper${hasDynamicFooter ? ' xyz-paper-footer-pinned' : ''}">
       <div class="xyz-header-container">
         <div class="xyz-date-row"><div class="xyz-date">Date: ${dateStr}</div></div>
         <div class="xyz-header">
@@ -1489,6 +1595,7 @@ export class ApplicationPdfService {
       <div class="xyz-content-area">
         <div class="xyz-dynamic">${contentHtml}</div>
       </div>
+      ${hasDynamicFooter ? '<div class="xyz-footer-spacer" aria-hidden="true"></div>' : ''}
       <div class="xyz-footer">
       <table class="xyz-signatures">
         ${hasDynamicFooter ? `
@@ -1535,7 +1642,14 @@ export class ApplicationPdfService {
   }
 
   
-  private generateCapfAbcHtml(application: any, formFields: any[], applicationFormData: any, pipelines: any[] = []): string {
+  private generateCapfAbcHtml(
+    application: any,
+    formFields: any[],
+    applicationFormData: any,
+    pipelines: any[] = [],
+    applicationMeta?: { formName?: string; txtFormCode?: string; omitApprovalSignaturesInPdf?: boolean }
+  ): string {
+    const omitApprovalSignaturesInPdf = !!applicationMeta?.omitApprovalSignaturesInPdf;
     // Helper function to get field value - completely self-contained, no dependency on abc component
     const getFieldValue = (fieldLabel: string): string => {
       // Helper: Slugify label to match backend keys
@@ -1844,6 +1958,12 @@ export class ApplicationPdfService {
       return [...ceoEntries].sort((a: any, b: any) => toMs(a) - toMs(b))[ceoEntries.length - 1] || null;
     };
 
+    /** Invisible box matching real signature image footprint so server-side PDF overlay aligns after vendor edits. */
+    const pipelineSigPlaceholderHtml =
+      '<span class="sig-img sig-img-placeholder" aria-hidden="true"></span>';
+    const ceoSigPlaceholderHtml =
+      '<span class="sig-img sig-img-placeholder sig-img-placeholder--ceo" aria-hidden="true"></span>';
+
     const buildSignatureSlots = (): { nameText: string; designationText: string; departmentText: string; html: string; time: string }[] => {
       const staticLabels = [
         'User Deptt. (HoD)',
@@ -1867,14 +1987,19 @@ export class ApplicationPdfService {
         ];
         return fallback.map((f) => {
           const entry = getApprovalEntryForPipeline(f.order);
-          const nameText = getNameText(entry);
-          const designationText = getDesignationText(entry);
+          const nameText = omitApprovalSignaturesInPdf ? '' : getNameText(entry);
+          const designationText = omitApprovalSignaturesInPdf ? '' : getDesignationText(entry);
           const departmentText = f.label;
           const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
           const hasSignature = !!entry?.signaturePath;
           const signatureUrl = userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '';
-          const html = signatureUrl ? `<img class="sig-img" src="${signatureUrl}" alt="Signature" crossorigin="anonymous" />` : '';
-          const time = hasSignature ? formatEntryDate(entry) : '';
+          let html = '';
+          if (omitApprovalSignaturesInPdf) {
+            html = pipelineSigPlaceholderHtml;
+          } else if (signatureUrl) {
+            html = `<img class="sig-img" src="${signatureUrl}" alt="Signature" crossorigin="anonymous" />`;
+          }
+          const time = !omitApprovalSignaturesInPdf && hasSignature ? formatEntryDate(entry) : '';
           return { nameText, designationText, departmentText, html, time };
         });
       }
@@ -1883,14 +2008,19 @@ export class ApplicationPdfService {
         const order = pipeline.intApprovalOrder || (index + 1);
         const departmentId = pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId || pipeline.departmentId;
         const entry = getApprovalEntryForPipeline(order, departmentId);
-        const nameText = getNameText(entry);
-        const designationText = getDesignationText(entry);
+        const nameText = omitApprovalSignaturesInPdf ? '' : getNameText(entry);
+        const designationText = omitApprovalSignaturesInPdf ? '' : getDesignationText(entry);
         const departmentText = staticLabels[index] || `Department ${order}`;
         const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
         const hasSignature = !!entry?.signaturePath;
         const signatureUrl = userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '';
-        const html = signatureUrl ? `<img class="sig-img" src="${signatureUrl}" alt="Signature" crossorigin="anonymous" />` : '';
-        const time = hasSignature ? formatEntryDate(entry) : '';
+        let html = '';
+        if (omitApprovalSignaturesInPdf) {
+          html = pipelineSigPlaceholderHtml;
+        } else if (signatureUrl) {
+          html = `<img class="sig-img" src="${signatureUrl}" alt="Signature" crossorigin="anonymous" />`;
+        }
+        const time = !omitApprovalSignaturesInPdf && hasSignature ? formatEntryDate(entry) : '';
         return { nameText, designationText, departmentText, html, time };
       });
     };
@@ -1900,12 +2030,15 @@ export class ApplicationPdfService {
     const ceoUserId = ceoEntry?.approvedBy || ceoEntry?.approverUserId || ceoEntry?.userId;
     const ceoHasSignature = !!ceoEntry?.signaturePath && !!ceoUserId;
     const ceoSignatureUrl = ceoHasSignature ? `${urls.API_URL}getSignature?userId=${ceoUserId}` : '';
-    const ceoSignatureHtml = ceoSignatureUrl
-      ? `<img class="sig-img" src="${ceoSignatureUrl}" alt="Signature" crossorigin="anonymous" />`
-      : '';
-    const ceoTimeText = formatEntryDate(ceoEntry);
-    const ceoNameText = getNameText(ceoEntry);
-    const ceoDesignationText = getDesignationText(ceoEntry);
+    let ceoSignatureHtml = '';
+    if (omitApprovalSignaturesInPdf) {
+      ceoSignatureHtml = ceoSigPlaceholderHtml;
+    } else if (ceoSignatureUrl) {
+      ceoSignatureHtml = `<img class="sig-img" src="${ceoSignatureUrl}" alt="Signature" crossorigin="anonymous" />`;
+    }
+    const ceoTimeText = omitApprovalSignaturesInPdf ? '' : formatEntryDate(ceoEntry);
+    const ceoNameText = omitApprovalSignaturesInPdf ? '' : getNameText(ceoEntry);
+    const ceoDesignationText = omitApprovalSignaturesInPdf ? '' : getDesignationText(ceoEntry);
 
     // CSS styles for CAPF form PDF - exact copy of abc.component.css to ensure identical rendering
 
@@ -2433,6 +2566,27 @@ export class ApplicationPdfService {
       display: block;
       margin: 0 auto;
       transform: translateY(-4px) !important;
+    }
+
+    /* Same box model as real signatures so rasterized base PDF matches submission layout for server overlay */
+    .sig-img-placeholder {
+      display: block;
+      margin: 0 auto;
+      width: 80px;
+      height: 34px;
+      max-height: 34px;
+      max-width: 100%;
+      flex-shrink: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateY(-4px) !important;
+    }
+
+    .sig-img-placeholder--ceo {
+      width: 120px;
+      height: 18px;
+      max-height: 18px;
+      transform: none !important;
     }
 
     .sig-time {
@@ -3041,15 +3195,22 @@ export class ApplicationPdfService {
         </div>
 
         <div class="sig-row">
-          ${signatureSlots.map(slot => `
+          ${signatureSlots.map((slot) => {
+            const timeRow = omitApprovalSignaturesInPdf
+              ? `<div class="sig-time">${slot.time ? escapeHtml(slot.time) : '&nbsp;'}</div>`
+              : slot.html && slot.time
+                ? `<div class="sig-time">${escapeHtml(slot.time)}</div>`
+                : '';
+            return `
             <div class="sig">
               <div class="sig-line">${slot.html}</div>
-              ${slot.html && slot.time ? '<div class="sig-time">' + escapeHtml(slot.time) + '</div>' : ''}
+              ${timeRow}
               ${slot.nameText ? '<div class="sig-meta">' + escapeHtml(slot.nameText) + '</div>' : ''}
               ${slot.designationText ? '<div class="sig-meta">' + escapeHtml(slot.designationText) + '</div>' : ''}
               <div class="sig-label">${escapeHtml(slot.departmentText)}</div>
             </div>
-          `).join('')}
+          `;
+          }).join('')}
         </div>
 
         <div class="xs mt6"><span class="b">Note:</span> Designation must be mentioned against each signature.</div>

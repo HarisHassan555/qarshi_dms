@@ -1,0 +1,76 @@
+1359: if (form == null) { opens 
+1362: } closes -1
+1368: if (useIndividualPipelineFlow) { opens +1 (total 1)
+1370: if (sequence.isEmpty()) { opens +1 (total 2)
+1373: } closes -1 (total 1)
+1378: if (currentLevel < 0 || currentLevel >= sequence.size()) { opens +1 (total 2)
+1380: if ("APPROVED"... { opens +1 (total 3)
+1382: } closes -1 (total 2)
+1385: } closes -1 (total 1)
+1389: if (expected.userId == null || !expected.userId.equals(resolvedApproverId)) { opens +1 (total 2)
+1391: if (isUserAlreadyInApprovedHistory(application, resolvedApproverId)) { opens +1 (total 3)
+1393: } closes -1 (total 2)
+1396: } closes -1 (total 1)
+1400: if (historyJson != null && !historyJson.trim().isEmpty()) { opens +1 (total 2)
+1401: try { opens +1 (total 3)
+1410: } closes -1 (total 2)
+1411: } closes -1 (total 1)
+1440: try { opens +1 (total 2)
+1448: if (priorApprovalsJson != null && !priorApprovalsJson.trim().isEmpty()) { opens +1 (total 3)
+1449: try { opens +1 (total 4)
+1457: } closes -1 (total 3)
+1458: } closes -1 (total 2)
+1464: } closes -1 (total 1)
+1469: if (currentLevel >= sequence.size()) { opens +1 (total 2)
+1471: if (hasDynamicFooterFlow && !isBudgetApproval) { opens +1 (total 3)
+1473: } closes -1 (total 2)
+1474: else {
+1477: if (ceoUserId != null) { opens +1 (total 3)
+1479: } closes -1 (total 2)
+1483: if (financeUserId == null) { opens +1 (total 3)
+1485: } closes -1 (total 2)
+1487: } closes -1 (total 1)
+1489: else {
+1492: } closes -1 (total 0)
+1502: boolean shouldRegeneratePdf = ... no brace
+1504: if (shouldRegeneratePdf) { opens +1 (total 1)
+1505: try { opens +1 (total 2)
+1507: if (pdfBytes != null && pdfBytes.length > 0) { opens +1 (total 3)
+1514: } closes -1 (total 2)
+1517: } closes -1 (total 1)
+1518: } closes -1 (total 0)
+1519: else if (hasDynamicFooterFlow && application.getBlbPdfData() != null && ... ) { opens +1 (total 1)
+1523: try { opens +1 (total 2)
+1529: if (signedPdf != null && signedPdf.length > 0) { opens +1 (total 3)
+1541: } closes -1 (total 2)
+1542: } closes -1 (total 1)
+1543: } closes -1 (total 0)
+1546: boolean shouldSendFinalInitiatorEmail = ... no brace
+1552: try { opens +1 (total 1)
+1553: if (currentLevel < sequence.size()) { opens +1 (total 2)
+1555: } closes -1 (total 1)
+1558: } closes -1 (total 0)
+1560: if (shouldSendFinalInitiatorEmail) { opens +1 (total 1)
+1561: try { opens +1 (total 2)
+1565: } closes -1 (total 1)
+1566: } closes -1 (total 0)
+1569: return "Success";
+1569: } closes -1 (total -1 PROBLEM!)
+
+Line 1569 has TWO closing braces on line 1569? No wait:
+Line 1568: return "Success";
+Line 1569: }
+That's one close for the if block that started at line 1560 (shouldSendFinalInitiatorEmail).
+
+Wait I think I lost track. Let me recount the main if blocks that started at line 1368.
+
+1368: if (useIndividualPipelineFlow) {
+... lots of code ...
+1569: } closes this block
+
+So line 1569 should have 1 close.
+Total opens in this segment: 
+- 1368: 1 open
+- 1368's block has many nested opens/closes that even out
+
+Let me count carefully:

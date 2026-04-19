@@ -36,10 +36,13 @@ export class CustomFormApplicationService {
     return this.http.post(urls.API_URL + 'updateApplication', sanitized);
   }
 
-  updateApplicationPdf(applicationId: number, pdfBlob: Blob, filename?: string) {
+  updateApplicationPdf(applicationId: number, pdfBlob: Blob, filename?: string, refreshCapfSignatures?: boolean) {
     const formData = new FormData();
     formData.append('applicationId', String(applicationId));
     formData.append('pdf', pdfBlob, filename || 'application.pdf');
+    if (refreshCapfSignatures) {
+      formData.append('refreshCapfSignatures', 'true');
+    }
     return this.http.post(urls.API_URL + 'updateApplicationPdf', formData);
   }
 
@@ -71,11 +74,15 @@ export class CustomFormApplicationService {
     return this.http.get(urls.API_URL + 'getAllApplicationsPendingApproval');
   }
 
-  approveApplication(applicationId: number, remarks?: string) {
-    return this.http.post(urls.API_URL + 'approveApplication', {
+  approveApplication(applicationId: number, remarks?: string, approverUserId?: number) {
+    const body: any = {
       applicationId: applicationId,
       remarks: remarks || ''
-    });
+    };
+    if (approverUserId != null) {
+      body.approverUserId = approverUserId;
+    }
+    return this.http.post(urls.API_URL + 'approveApplication', body);
   }
 
   rejectApplication(applicationId: number, remarks?: string) {

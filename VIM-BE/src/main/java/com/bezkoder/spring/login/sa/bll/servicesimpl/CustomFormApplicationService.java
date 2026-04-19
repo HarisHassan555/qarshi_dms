@@ -57,9 +57,12 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     }
 
     @Override
-    public String updateApplicationPdf(Integer applicationId, byte[] pdfData, String pdfName, String pdfMime) {
-        logger.debug("updateApplicationPdf() - applicationId: " + applicationId);
-        return customFormApplicationDAO.updateApplicationPdf(applicationId, pdfData, pdfName, pdfMime);
+    public String updateApplicationPdf(Integer applicationId, byte[] pdfData, String pdfName, String pdfMime,
+            boolean refreshCapfSignatures) {
+        logger.debug("updateApplicationPdf() - applicationId: " + applicationId + ", refreshCapfSignatures: "
+                + refreshCapfSignatures);
+        return customFormApplicationDAO.updateApplicationPdf(applicationId, pdfData, pdfName, pdfMime,
+                refreshCapfSignatures);
     }
 
     @Override

@@ -1,8 +1,9 @@
-import { ChangeDetectorRef, Component, OnInit, ViewChild } from '@angular/core';
+import { AfterViewChecked, ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
+import { ApplicationPdfService } from '../../services/application-pdf/application-pdf.service';
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
 import { DepartmentService } from '../../services/department/department.service';
 import { NotificationService } from 'src/app/NotificationService';
@@ -11,12 +12,21 @@ import { AbcComponent } from '../../pages/abc/abc.component';
 import { urls } from 'src/app/utils/urls';
 import { finalize, firstValueFrom, forkJoin } from 'rxjs';
 
+/** Blocks for DOM height–based generic pagination (same approach as /application preview). */
+interface DetailsGenericBlock {
+  key: string;
+  field: any;
+  showLabel: boolean;
+  /** Pre-split rich HTML for one measured block (optional). */
+  wordEditorChunkHtml?: string;
+}
+
 @Component({
   selector: 'app-application-details',
   templateUrl: './application-details.component.html',
   styleUrls: ['./application-details.component.css']
 })
-export class ApplicationDetailsComponent implements OnInit {
+export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, OnDestroy {
   applicationId: number | null = null;
   applicationDetails: any = null;
   formFields: any[] = [];
@@ -69,6 +79,17 @@ export class ApplicationDetailsComponent implements OnInit {
 
   /** For generic form: body fields split into pages (each page ≈ A4). */
   genericPages: any[][] = [];
+  /** When individual footer pipeline: pages from real DOM height measurement (matches /application). */
+  genericMeasurePages: DetailsGenericBlock[][] = [];
+  /** Blocks rendered in the hidden measure row (kept in sync in rebuild). */
+  detailsGenericMeasureBlocks: DetailsGenericBlock[] = [];
+  private genericMeasureLayoutSignature = '';
+  private genericMeasureFrame: number | null = null;
+  private genericMeasurePending = false;
+  @ViewChild('genericMeasurePaper') genericMeasurePaper?: ElementRef<HTMLElement>;
+  @ViewChild('genericMeasureHeader') genericMeasureHeader?: ElementRef<HTMLElement>;
+  @ViewChild('genericMeasureContent') genericMeasureContent?: ElementRef<HTMLElement>;
+  @ViewChild('genericMeasureFooter') genericMeasureFooter?: ElementRef<HTMLElement>;
   /** For budget approval form: HTML content split into pages. */
   budgetPages: SafeHtml[] = [];
 
@@ -716,9 +737,8 @@ export class ApplicationDetailsComponent implements OnInit {
           this.vendorEditModal.close();
         }
 
-        // Refresh local data in ABC component if it exists
-        if (this.isCapfForm()) {
-          // Trigger any internal refresh needed
+        if (this.isCapfForm() && this.applicationDetails?.serApplicationId) {
+          void this.refreshCapfPdfSnapshotAfterVendorUpdate(this.applicationDetails.serApplicationId);
         }
       } else {
         this.notificationService.showMessage(response?.message || 'Failed to update vendor details', 'danger');
@@ -728,6 +748,84 @@ export class ApplicationDetailsComponent implements OnInit {
       this.notificationService.showMessage('An error occurred while saving', 'danger');
     } finally {
       this.isSavingVendor = false;
+    }
+  }
+
+  /** Maps DB form fields to ApplicationPdfService shape (same as applications-view edit PDF refresh). */
+  private mapCfgFormFieldsToPdfFields(form: any): any[] {
+    if (!form?.cfgTblCustomFormFields) {
+      return [];
+    }
+    return form.cfgTblCustomFormFields
+      .map((field: any) => ({
+        serFieldId: field.serFieldId,
+        label: field.txtFieldLabel,
+        type: field.txtFieldType,
+        required: field.blIsRequired || false,
+        placeholder: field.txtPlaceholder || '',
+        intFieldOrder: field.intFieldOrder || 0,
+        txtFieldOptions: field.txtFieldOptions
+      }))
+      .sort((a: any, b: any) => (a.intFieldOrder || 0) - (b.intFieldOrder || 0));
+  }
+
+  /**
+   * Regenerates CAPF PDF from updated application JSON (e.g. procurement vendor edits), replaces stage-0
+   * base snapshot, and re-applies department/CEO signatures on the server so emails/previews stay correct.
+   */
+  private async refreshCapfPdfSnapshotAfterVendorUpdate(applicationId: number): Promise<void> {
+    if (!this.isCapfForm()) {
+      return;
+    }
+    try {
+      const application: any = await firstValueFrom(
+        this.customFormApplicationService.getApplicationById(applicationId)
+      );
+      if (!application) {
+        return;
+      }
+      const form = this.forms.find((f: any) => f.serFormId === application.serFormId);
+      if (!form) {
+        return;
+      }
+      const formFields = this.mapCfgFormFieldsToPdfFields(form);
+      let appData: any = {};
+      try {
+        appData = application.txtApplicationData ? JSON.parse(application.txtApplicationData) : {};
+      } catch {
+        appData = {};
+      }
+      const formName = (form?.txtFormName || application?.cfgTblCustomForm?.txtFormName || '').trim();
+      const formCode = (application?.txtFormCode || '').trim();
+      const htmlContent = this.applicationPdfService.buildPdfHtmlForApplication(
+        application,
+        form,
+        formFields,
+        appData,
+        { formName, txtFormCode: formCode, omitApprovalSignaturesInPdf: true }
+      );
+      if (!htmlContent) {
+        return;
+      }
+      const filename = `application_${formCode || applicationId}.pdf`;
+      const pdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(htmlContent, filename);
+      const pdfResponse: any = await firstValueFrom(
+        this.customFormApplicationService.updateApplicationPdf(applicationId, pdfBlob, filename, true)
+      );
+      if (!pdfResponse || pdfResponse.status !== 'Success') {
+        this.notificationService.showMessage(
+          pdfResponse?.message || 'Vendor details saved, but the PDF snapshot could not be refreshed.',
+          'warning'
+        );
+      } else {
+        this.loadApplicationDetails();
+      }
+    } catch (e) {
+      console.warn('CAPF PDF refresh after vendor update failed', e);
+      this.notificationService.showMessage(
+        'Vendor details saved, but the PDF snapshot could not be refreshed.',
+        'warning'
+      );
     }
   }
 
@@ -763,6 +861,7 @@ export class ApplicationDetailsComponent implements OnInit {
     private route: ActivatedRoute,
     private router: Router,
     private customFormApplicationService: CustomFormApplicationService,
+    private applicationPdfService: ApplicationPdfService,
     private customFormService: CustomFormService,
     private departmentService: DepartmentService,
     private userService: UserService,
@@ -820,6 +919,28 @@ export class ApplicationDetailsComponent implements OnInit {
       this.fromPendingApprovals = params.get('from') === 'pending';
     });
     this.loadUsers();
+  }
+
+  ngAfterViewChecked(): void {
+    if (typeof window === 'undefined' || !this.shouldUseMeasuredGenericPagination()) {
+      return;
+    }
+    if (this.genericMeasurePending) {
+      return;
+    }
+    this.genericMeasurePending = true;
+    this.genericMeasureFrame = window.requestAnimationFrame(() => {
+      this.genericMeasurePending = false;
+      this.genericMeasureFrame = null;
+      this.rebuildGenericMeasurePagesIfNeeded();
+    });
+  }
+
+  ngOnDestroy(): void {
+    if (this.genericMeasureFrame !== null && typeof window !== 'undefined') {
+      window.cancelAnimationFrame(this.genericMeasureFrame);
+      this.genericMeasureFrame = null;
+    }
   }
 
   loadForms() {
@@ -900,6 +1021,9 @@ export class ApplicationDetailsComponent implements OnInit {
       (data: any) => {
         if (data) {
           this.applicationDetails = data;
+          this.genericMeasureLayoutSignature = '';
+          this.genericMeasurePages = [];
+          this.detailsGenericMeasureBlocks = [];
 
           // If cfgTblCustomForm is null (lazy-load issue or API omission), fetch and attach it so isCapfForm() works
           if (!data.cfgTblCustomForm && data.serFormId) {
@@ -907,6 +1031,7 @@ export class ApplicationDetailsComponent implements OnInit {
               (formData: any) => {
                 if (formData) {
                   this.applicationDetails = { ...this.applicationDetails, cfgTblCustomForm: formData };
+                  this.buildGenericPages();
                   this.cdr.detectChanges();
                 }
               }
@@ -1020,6 +1145,7 @@ export class ApplicationDetailsComponent implements OnInit {
                       txtFieldOptions: field.txtFieldOptions
                     }))
                     .sort((a: any, b: any) => (a.intFieldOrder || 0) - (b.intFieldOrder || 0));
+                  this.buildGenericPages();
                   this.cdr.detectChanges();
                 }
               }
@@ -1341,27 +1467,9 @@ export class ApplicationDetailsComponent implements OnInit {
       merged.push(hist ? { ...u, ...hist } : u);
     }
 
-    for (const [hid, histSlot] of historyByUserId) {
-      const inBase = baseUsers.some((u: any) => {
-        if (!u) return false;
-        const buid = u.serUserId ?? u.userId ?? u.id ?? u.approvedBy;
-        const bn = buid != null ? Number(buid) : NaN;
-        return !isNaN(bn) && bn === hid;
-      });
-      if (!inBase) {
-        // Submitter/initiator history sometimes matches the wrong stage level; do not add them as an
-        // extra column after the first footer section (CAPF keeps section 0 as initiator; other forms
-        // put first approvers in section 0 only).
-        if (
-          sectionIndex > 0 &&
-          !isNaN(submitterIdNum) &&
-          hid === submitterIdNum
-        ) {
-          continue;
-        }
-        merged.push(histSlot);
-      }
-    }
+    // Do not append unmatched history-only users as extra columns.
+    // UI must follow the configured footer pipeline exactly for general forms.
+    // History still overlays configured users above via merge.
 
     return merged.length > 0 ? merged : baseUsers;
   }
@@ -1440,12 +1548,13 @@ export class ApplicationDetailsComponent implements OnInit {
     const pages: any[][] = [];
     const individualLayout = this.useIndividualFooterDocumentLayout();
     const hasFooterOnLastPage = individualLayout && this.hasIndividualPipelineFooter();
-    // Approximate A4 by text length (not field count)
-    // Use larger limits so each page is filled more naturally in preview.
-    const MAX_CHARS_FIRST_PAGE = individualLayout ? 5200 : 3200;
-    const MAX_CHARS_OTHER_PAGES = individualLayout ? 6400 : 3600;
+    // Approximate A4 by text length (not field count).
+    // Keep this closer to `/application` preview chunking so details-page pagination
+    // matches what users saw while creating/submitting the same general form.
+    const MAX_CHARS_FIRST_PAGE = individualLayout ? 1500 : 2200;
+    const MAX_CHARS_OTHER_PAGES = individualLayout ? 1700 : 2400;
     // Keep reserved room on the final page when signature footer is present.
-    const MAX_CHARS_LAST_PAGE = hasFooterOnLastPage ? 4200 : MAX_CHARS_OTHER_PAGES;
+    const MAX_CHARS_LAST_PAGE = hasFooterOnLastPage ? 1200 : MAX_CHARS_OTHER_PAGES;
     let current: any[] = [];
     let currentChars = 0;
     let pageIndex = 0;
@@ -1515,7 +1624,310 @@ export class ApplicationDetailsComponent implements OnInit {
       this.enforceGenericLastPageLimit(pages, MAX_CHARS_LAST_PAGE);
     }
     this.genericPages = pages.length > 0 ? pages : (allFields.length > 0 ? [[...allFields]] : [[]]);
+    if (this.shouldUseMeasuredGenericPagination()) {
+      this.detailsGenericMeasureBlocks = this.buildDetailsGenericBlocks();
+    } else {
+      this.detailsGenericMeasureBlocks = [];
+    }
     this.cdr.markForCheck();
+  }
+
+  /** Same condition as /application paginated generic preview: individual pipeline footer on a general form. */
+  shouldUseMeasuredGenericPagination(): boolean {
+    return !this.isBudgetApprovalForm() && !this.isCapfForm() && this.hasIndividualPipelineFooter();
+  }
+
+  getGenericMeasurePagesForDisplay(): DetailsGenericBlock[][] {
+    if (!this.shouldUseMeasuredGenericPagination()) {
+      return [];
+    }
+    if (this.genericMeasurePages.length > 0) {
+      return this.genericMeasurePages;
+    }
+    const blocks = this.detailsGenericMeasureBlocks.length
+      ? this.detailsGenericMeasureBlocks
+      : this.buildDetailsGenericBlocks();
+    return blocks.length ? [blocks] : [[]];
+  }
+
+  getDetailsBlockWordHtml(block: DetailsGenericBlock): SafeHtml {
+    if (block.wordEditorChunkHtml !== undefined) {
+      return this.sanitizer.bypassSecurityTrustHtml(block.wordEditorChunkHtml);
+    }
+    return this.getWordEditorValue(block.field);
+  }
+
+  trackByDetailsBlockKey(_index: number, block: DetailsGenericBlock): string {
+    return block.key;
+  }
+
+  private isDetailsFormNameLabel(label: string | undefined): boolean {
+    const normalizedLabel = (label || '').trim().toLowerCase();
+    const normalizedFormName = (
+      this.applicationDetails?.cfgTblCustomForm?.txtFormName ||
+      this.applicationDetails?.formName ||
+      ''
+    ).trim()
+      .toLowerCase();
+    return !!normalizedLabel && !!normalizedFormName && normalizedLabel === normalizedFormName;
+  }
+
+  private buildDetailsGenericBlocks(): DetailsGenericBlock[] {
+    const fields = this.getBodyPreviewFields() || [];
+    const blocks: DetailsGenericBlock[] = [];
+    fields.forEach((field: any, index: number) => {
+      if (this.isDocumentHeaderType(field?.type)) {
+        return;
+      }
+      if (!this.isWordEditorType(field.type) && !this.isHtmlPreviewField(field)) {
+        blocks.push({
+          key: `f_${index}_${this.getFieldName(field.label)}`,
+          field,
+          showLabel: !this.isDetailsFormNameLabel(field.label)
+        });
+        return;
+      }
+      const rawHtml = this.getWordEditorHtml(field);
+      const normalizedHtml =
+        rawHtml === null || rawHtml === undefined || rawHtml === ''
+          ? '<p>-</p>'
+          : this.normalizeWordEditorHtmlForDisplay(String(rawHtml));
+      const chunks = this.splitDetailsWordEditorHtmlIntoChunks(normalizedHtml);
+      chunks.forEach((chunkHtml: string, chunkIndex: number) => {
+        blocks.push({
+          key: `f_${index}_${this.getFieldName(field.label)}_w_${chunkIndex}`,
+          field,
+          showLabel: chunkIndex === 0 && !this.isDetailsFormNameLabel(field.label),
+          wordEditorChunkHtml: chunkHtml
+        });
+      });
+    });
+    return blocks;
+  }
+
+  private splitDetailsWordEditorHtmlIntoChunks(html: string, maxChunkChars: number = 2200): string[] {
+    if (!html) {
+      return ['<p>-</p>'];
+    }
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    const nodes = Array.from(wrapper.childNodes).filter((node: ChildNode) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        return !!(node.textContent || '').trim();
+      }
+      return true;
+    });
+    if (nodes.length <= 1) {
+      return [html];
+    }
+    const chunks: string[] = [];
+    let current = '';
+    nodes.forEach((node: ChildNode) => {
+      const serialized =
+        node.nodeType === Node.ELEMENT_NODE
+          ? (node as HTMLElement).outerHTML
+          : `<p>${this.escapeHtml(node.textContent || '')}</p>`;
+      if (!current) {
+        current = serialized;
+        return;
+      }
+      if (current.length + serialized.length > maxChunkChars) {
+        chunks.push(current);
+        current = serialized;
+      } else {
+        current += serialized;
+      }
+    });
+    if (current) {
+      chunks.push(current);
+    }
+    return chunks.length > 0 ? chunks : [html];
+  }
+
+  private mmToPx(mm: number): number {
+    return (mm * 96) / 25.4;
+  }
+
+  private buildDetailsMeasureSignature(blocks: DetailsGenericBlock[]): string {
+    const fields = this.getBodyPreviewFields() || [];
+    const fieldValues = fields.map((f: any) => {
+      const key = this.getFieldName(f.label);
+      const v = this.applicationFormData?.[key];
+      if (v === null || v === undefined) {
+        return `${key}:`;
+      }
+      if (typeof v === 'string') {
+        return `${key}:${v.length}:${v}`;
+      }
+      if (typeof v === 'number' || typeof v === 'boolean') {
+        return `${key}:${String(v)}`;
+      }
+      try {
+        return `${key}:${JSON.stringify(v)}`;
+      } catch {
+        return `${key}:${String(v)}`;
+      }
+    });
+    const footerSig = JSON.stringify(this.getIndividualPipelineFooterFields() || []);
+    return [
+      String(this.applicationDetails?.serFormId || ''),
+      String(this.applicationId || ''),
+      this.getGenericDocumentHeading(),
+      fieldValues.join('|'),
+      String(blocks.length),
+      footerSig
+    ].join('::');
+  }
+
+  private rebuildGenericMeasurePagesIfNeeded(): void {
+    if (!this.shouldUseMeasuredGenericPagination()) {
+      this.genericMeasureLayoutSignature = '';
+      this.genericMeasurePages = [];
+      return;
+    }
+
+    const blocks = this.buildDetailsGenericBlocks();
+    this.detailsGenericMeasureBlocks = blocks;
+
+    const paperEl = this.genericMeasurePaper?.nativeElement;
+    const headerEl = this.genericMeasureHeader?.nativeElement;
+    const contentEl = this.genericMeasureContent?.nativeElement;
+    const footerEl = this.genericMeasureFooter?.nativeElement;
+    const signature = this.buildDetailsMeasureSignature(blocks);
+
+    if (
+      signature === this.genericMeasureLayoutSignature &&
+      this.genericMeasurePages.length > 0 &&
+      paperEl &&
+      headerEl &&
+      contentEl &&
+      footerEl
+    ) {
+      return;
+    }
+
+    if (!paperEl || !headerEl || !contentEl || !footerEl) {
+      this.genericMeasurePages = [blocks];
+      this.genericMeasureLayoutSignature = signature;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const styles = window.getComputedStyle(paperEl);
+    const minHeightPx = parseFloat(styles.minHeight || '0') || this.mmToPx(297);
+    const paddingTopPx = parseFloat(styles.paddingTop || '0') || 0;
+    const paddingBottomPx = parseFloat(styles.paddingBottom || '0') || 0;
+    const pageContentHeight = Math.max(minHeightPx - paddingTopPx - paddingBottomPx, 200);
+
+    const headerHeight = Math.max(headerEl.getBoundingClientRect().height, 0);
+    const footerHeight = Math.max(footerEl.getBoundingClientRect().height, 0);
+
+    // Slight pessimism so a block is not placed on a page when its measured height is a few
+    // subpixels short — that used to clip the last line on page 1 and show the same line again
+    // at the top of page 2 (next chunk).
+    const layoutFudgePx = 4;
+    const firstPageContentHeight = Math.max(
+      pageContentHeight - headerHeight - layoutFudgePx,
+      pageContentHeight * 0.3
+    );
+    const middlePageContentHeight = Math.max(pageContentHeight - layoutFudgePx, 200);
+    const lastPageContentHeight = Math.max(
+      pageContentHeight - footerHeight - layoutFudgePx,
+      pageContentHeight * 0.3
+    );
+
+    const measureBlocks = Array.from(contentEl.querySelectorAll('.xyz-measure-field-block')) as HTMLElement[];
+    if (!measureBlocks.length || measureBlocks.length !== blocks.length) {
+      this.genericMeasurePages = [blocks];
+      this.genericMeasureLayoutSignature = signature;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const blockHeights = measureBlocks.map((blockEl: HTMLElement) => {
+      const blockStyle = window.getComputedStyle(blockEl);
+      const marginTop = parseFloat(blockStyle.marginTop || '0') || 0;
+      const marginBottom = parseFloat(blockStyle.marginBottom || '0') || 0;
+      const h = blockEl.getBoundingClientRect().height + marginTop + marginBottom;
+      return Math.max(Math.ceil(h) + 1, 1);
+    });
+
+    const paged = this.chunkDetailsBlocksIntoPages(
+      blocks,
+      blockHeights,
+      firstPageContentHeight,
+      middlePageContentHeight,
+      lastPageContentHeight
+    );
+
+    this.genericMeasurePages = paged;
+    this.genericMeasureLayoutSignature = signature;
+    this.cdr.markForCheck();
+  }
+
+  private chunkDetailsBlocksIntoPages(
+    blocks: DetailsGenericBlock[],
+    blockHeights: number[],
+    firstPageCapacity: number,
+    middlePageCapacity: number,
+    lastPageCapacity: number
+  ): DetailsGenericBlock[][] {
+    if (!blocks.length || blocks.length !== blockHeights.length) {
+      return [blocks];
+    }
+
+    const pages: number[][] = [[]];
+    const pageHeights: number[] = [0];
+    let currentPageIndex = 0;
+
+    const getRegularPageCapacity = (pageIndex: number): number =>
+      pageIndex === 0 ? firstPageCapacity : middlePageCapacity;
+
+    blocks.forEach((_: DetailsGenericBlock, fieldIndex: number) => {
+      const blockHeight = blockHeights[fieldIndex];
+      const pageCapacity = getRegularPageCapacity(currentPageIndex);
+      const nextHeight = pageHeights[currentPageIndex] + blockHeight;
+      if (pages[currentPageIndex].length > 0 && nextHeight > pageCapacity) {
+        pages.push([]);
+        pageHeights.push(0);
+        currentPageIndex += 1;
+      }
+      pages[currentPageIndex].push(fieldIndex);
+      pageHeights[currentPageIndex] += blockHeight;
+    });
+
+    const footerReserve = Math.max(middlePageCapacity - lastPageCapacity, 0);
+    const getLastPageAllowedHeight = (): number =>
+      pages.length === 1
+        ? Math.max(firstPageCapacity - footerReserve, firstPageCapacity * 0.25)
+        : lastPageCapacity;
+
+    let safetyCounter = 0;
+    while (safetyCounter < blocks.length * 2) {
+      const lastPageIndex = pages.length - 1;
+      const allowedHeight = getLastPageAllowedHeight();
+      if (pageHeights[lastPageIndex] <= allowedHeight) {
+        break;
+      }
+
+      if (pages[lastPageIndex].length <= 1) {
+        break;
+      }
+
+      const movedToNextPage: number[] = [];
+      while (pageHeights[lastPageIndex] > allowedHeight && pages[lastPageIndex].length > 1) {
+        const movedFieldIndex = pages[lastPageIndex].pop() as number;
+        movedToNextPage.unshift(movedFieldIndex);
+        pageHeights[lastPageIndex] -= blockHeights[movedFieldIndex];
+      }
+
+      const movedHeight = movedToNextPage.reduce((sum: number, idx: number) => sum + blockHeights[idx], 0);
+      pages.push(movedToNextPage);
+      pageHeights.push(movedHeight);
+      safetyCounter += 1;
+    }
+
+    return pages.map((pageFieldIndices: number[]) => pageFieldIndices.map((idx: number) => blocks[idx]));
   }
 
   private splitFieldByTextLength(field: any, maxTextChars: number): { head: any; tail: any } | null {
@@ -1622,12 +2034,14 @@ export class ApplicationDetailsComponent implements OnInit {
         const trCount = (html.match(/<tr\b/gi) || []).length;
         const imgCount = (html.match(/<img\b/gi) || []).length;
         // Heuristic weight for visual height so long, sparse HTML paginates properly.
+        // Individual footer pipeline content often has many manual line breaks with
+        // little plain text; give structural breaks stronger weight.
         const extra =
-          brCount * 18 +
-          pCount * 18 +
-          liCount * 24 +
-          trCount * 70 +
-          imgCount * 140;
+          brCount * 42 +
+          pCount * 54 +
+          liCount * 42 +
+          trCount * 80 +
+          imgCount * 180;
         return labelLen + textLen + extra;
       }
       if (this.isTableType(field.type)) {
@@ -2188,17 +2602,17 @@ export class ApplicationDetailsComponent implements OnInit {
     }
   }
 
-  // Check if a department in the pipeline has been approved (and still valid after send-back)
-  // pipelineOrder is 1-indexed; currentLevel is 0-indexed. Show approved only for pipelineOrder <= currentLevel.
+  // Check if a department in the pipeline has been approved (and still valid after send-back).
   isDepartmentApproved(pipelineOrder: number): boolean {
     if (!this.applicationDetails) return false;
     // CAPF virtual initiator stage uses negative pipelineOrder (e.g. -1).
     // Never treat it as automatically approved; backend/signature must exist.
     if (pipelineOrder < 0) return false;
+    if (this.isCapfForm()) {
+      const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
+      return pend != null && pipelineOrder < pend;
+    }
     const currentLevel = this.applicationDetails.intCurrentApprovalLevel ?? 0;
-    // Only treat a stage as fully approved after the workflow advances past it.
-    // This prevents a stage from turning green when only one of multiple HODs
-    // has approved but the pipeline hasn't advanced yet.
     return currentLevel > pipelineOrder;
   }
 
@@ -2281,10 +2695,31 @@ export class ApplicationDetailsComponent implements OnInit {
     return Array.from(ids).filter((n) => !isNaN(n) && n > 0);
   }
 
+  /**
+   * Minimum history level / intApprovalOrder not yet completed (aligns with backend CAPF PDF filtering).
+   */
+  private getCapfPendingExclusiveMinHistoryLevelFe(): number | null {
+    if (!this.isCapfForm() || !this.applicationDetails) return null;
+    const capfLevel = this.applicationDetails.intCurrentApprovalLevel;
+    const pipelines = this.getPipelineData() || [];
+    if (capfLevel == null || pipelines.length === 0) return null;
+    const hasPrependedInitiator = pipelines[0]?.intApprovalOrder === -1;
+    if (capfLevel === -1) return 0;
+    if (capfLevel <= 0) {
+      const firstReal =
+        pipelines.find((p: any) => (p?.intApprovalOrder ?? 0) >= 0) ?? (hasPrependedInitiator ? pipelines[1] : pipelines[0]);
+      return firstReal?.intApprovalOrder ?? 1;
+    }
+    const pipelineIndex = hasPrependedInitiator ? capfLevel : capfLevel - 1;
+    if (pipelineIndex < 0 || pipelineIndex >= pipelines.length) return null;
+    return pipelines[pipelineIndex]?.intApprovalOrder ?? capfLevel;
+  }
+
   getDepartmentHeadStatus(pipelineOrder: number, departmentId: number | undefined, headId: number): string {
     if (!departmentId) return '';
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
     const isVirtualInitiatorStage = pipelineOrder < 0;
+    const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
 
     const entry = this.getStageHeadHistoryEntry(pipelineOrder, departmentId, headId);
     const entryAction = (entry?.action || entry?.status || '').toString().toUpperCase();
@@ -2292,6 +2727,19 @@ export class ApplicationDetailsComponent implements OnInit {
     const hasRejected = entryAction === 'REJECTED';
 
     if (hasRejected) return 'REJECTED';
+
+    if (this.isCapfForm() && pend != null && !isVirtualInitiatorStage) {
+      if (pipelineOrder > pend) return 'PENDING';
+      if (pipelineOrder < pend) {
+        return hasApproved ? 'APPROVED' : 'PENDING';
+      }
+      if (hasApproved) {
+        const coHeads = this.getDepartmentStageApproverIds(pipelineOrder, departmentId);
+        if (coHeads.length > 1) return 'APPROVED';
+        return 'CURRENT';
+      }
+      return 'CURRENT';
+    }
 
     if (hasApproved) {
       // Virtual initiator stage: rely on history (it isn't a real pipeline step).
@@ -2314,7 +2762,9 @@ export class ApplicationDetailsComponent implements OnInit {
     if (!departmentId) return '';
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
     const isVirtualInitiatorStage = pipelineOrder < 0;
-    if (!isVirtualInitiatorStage && pipelineOrder > currentLevel) return '';
+    const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
+    if (this.isCapfForm() && pend != null && !isVirtualInitiatorStage && pipelineOrder > pend) return '';
+    if (!this.isCapfForm() && !isVirtualInitiatorStage && pipelineOrder > currentLevel) return '';
     const entry = this.getStageHeadHistoryEntry(pipelineOrder, departmentId, approverId);
     if (!entry?.approvedDate) return '';
     try {
@@ -2329,7 +2779,9 @@ export class ApplicationDetailsComponent implements OnInit {
     if (!departmentId) return '';
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
     const isVirtualInitiatorStage = pipelineOrder < 0;
-    if (!isVirtualInitiatorStage && pipelineOrder > currentLevel) return '';
+    const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
+    if (this.isCapfForm() && pend != null && !isVirtualInitiatorStage && pipelineOrder > pend) return '';
+    if (!this.isCapfForm() && !isVirtualInitiatorStage && pipelineOrder > currentLevel) return '';
     const entry = this.getStageHeadHistoryEntry(pipelineOrder, departmentId, approverId);
     return entry?.remarks ? String(entry.remarks) : '';
   }
@@ -2427,6 +2879,18 @@ export class ApplicationDetailsComponent implements OnInit {
 
     if (candidates.length === 0) return null;
     candidates.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+
+    if (this.isCapfForm()) {
+      const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
+      if (pend != null && pipelineOrder === pend) {
+        const resetT = this.getCurrentRoundResetTime();
+        if (resetT > 0) {
+          const alive = candidates.filter((c) => this.getApprovalEntryTime(c) > resetT);
+          if (alive.length === 0) return null;
+          return alive[0];
+        }
+      }
+    }
     return candidates[0];
   }
 
@@ -2824,7 +3288,9 @@ export class ApplicationDetailsComponent implements OnInit {
     if (!departmentId) return '';
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
     const isVirtualInitiatorStage = pipelineOrder < 0;
-    if (!isVirtualInitiatorStage && pipelineOrder > currentLevel) return '';
+    const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
+    if (this.isCapfForm() && pend != null && !isVirtualInitiatorStage && pipelineOrder > pend) return '';
+    if (!this.isCapfForm() && !isVirtualInitiatorStage && pipelineOrder > currentLevel) return '';
     const entry = this.getStageHeadHistoryEntry(pipelineOrder, departmentId, approverId);
     return (entry?.approvedIp ?? entry?.approvedVia ?? '') || '';
   }
@@ -3063,13 +3529,12 @@ export class ApplicationDetailsComponent implements OnInit {
   private isApplicationAlreadyActedUpon(): boolean {
     if (!this.applicationDetails) return false;
     const status = (this.applicationDetails.txtStatus || '').toUpperCase();
+    // Only block immediately after a send-back-to-initiator action while the
+    // application is still in that terminal state. Once initiator resubmits and
+    // status moves back to PENDING/IN_PROGRESS, approvers must be able to act again.
+    if (status === 'SENT_BACK_TO_INITIATOR') return true;
     if (status === 'APPROVED' || status === 'REJECTED') return true;
     if (this.isCurrentLevelHandledThisRound()) return true;
-    if (this.approvalHistory && this.approvalHistory.length > 0) {
-      const sorted = [...this.approvalHistory].sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
-      const lastAction = (sorted[0]?.action || sorted[0]?.status || '').toString().toUpperCase();
-      if (lastAction === 'SENT_BACK_TO_INITIATOR') return true;
-    }
     return false;
   }
 
@@ -3149,16 +3614,23 @@ export class ApplicationDetailsComponent implements OnInit {
     }
 
     if (this.isApproving) return;
+
+    if (!this.remarksText || this.remarksText.trim() === '') {
+      this.notificationService.showMessage('Please enter comments or remarks before approving', 'danger');
+      return;
+    }
+
     this.isApproving = true;
 
     // Do not upload a new PDF before approving: the backend updates the stored PDF by appending
     // only the new signature. Uploading a frontend-generated PDF here would overwrite the PDF
     // and cause duplicate signatures when mixing email and portal approvals.
 
-    this.customFormApplicationService.approveApplication(
-      this.selectedApplicationForRemarks.serApplicationId,
-      this.remarksText
-    ).pipe(
+     this.customFormApplicationService.approveApplication(
+       this.selectedApplicationForRemarks.serApplicationId,
+       this.remarksText,
+       this.getCurrentUserId() ?? undefined
+     ).pipe(
       finalize(() => {
         this.isApproving = false;
       })
@@ -3403,6 +3875,18 @@ export class ApplicationDetailsComponent implements OnInit {
     if (candidates.length === 0) return null;
     // Sort by approvedDate descending and return the latest approval
     candidates.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+
+    if (this.isCapfForm()) {
+      const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
+      if (pend != null && pipelineOrder === pend) {
+        const resetT = this.getCurrentRoundResetTime();
+        if (resetT > 0) {
+          const alive = candidates.filter((c) => this.getApprovalEntryTime(c) > resetT);
+          if (alive.length === 0) return null;
+          return alive[0];
+        }
+      }
+    }
     return candidates[0];
   }
 
@@ -3412,6 +3896,25 @@ export class ApplicationDetailsComponent implements OnInit {
     const overallStatus = (this.applicationDetails?.txtStatus || '').toUpperCase();
     const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
     const isVirtualInitiatorStage = pipelineOrder < 0;
+    const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
+
+    if (this.isCapfForm() && pend != null && !isVirtualInitiatorStage) {
+      if (pipelineOrder > pend) return 'PENDING';
+      if (pipelineOrder < pend) {
+        if (entry) {
+          const action = (entry.action || entry.status || '').toUpperCase();
+          if (action === 'REJECTED') return 'REJECTED';
+          if (action === 'APPROVED') return 'APPROVED';
+        }
+        return 'PENDING';
+      }
+      if (entry) {
+        const action = (entry.action || entry.status || '').toUpperCase();
+        if (action === 'REJECTED') return 'REJECTED';
+        if (action === 'APPROVED') return 'CURRENT';
+      }
+      return overallStatus === 'REJECTED' ? 'REJECTED' : 'CURRENT';
+    }
 
     if (entry) {
       const action = (entry.action || entry.status || '').toUpperCase();

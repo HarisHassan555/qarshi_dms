@@ -17,7 +17,8 @@ public interface ICfgTblCustomFormApplicationDAO {
 
     String updateApplication(CfgTblCustomFormApplication application);
 
-    String updateApplicationPdf(Integer applicationId, byte[] pdfData, String pdfName, String pdfMime);
+    String updateApplicationPdf(Integer applicationId, byte[] pdfData, String pdfName, String pdfMime,
+            boolean refreshCapfSignatures);
 
     String deleteApplication(Integer applicationId);
 

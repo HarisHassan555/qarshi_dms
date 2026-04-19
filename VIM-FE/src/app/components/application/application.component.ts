@@ -489,8 +489,9 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     return null;
   }
 
+  /** Paginated A4 preview for all generic forms (not budget/CAPF). */
   shouldUsePaginatedGenericPreview(): boolean {
-    return !this.showBudgetApproval && !this.isCapfSelected() && !!this.selectedForm && !!this.getPreviewIndividualFooterField();
+    return !this.showBudgetApproval && !this.isCapfSelected() && !!this.selectedForm;
   }
 
   getGenericPreviewBlocks(): GenericPreviewBlock[] {
@@ -559,7 +560,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       const blockStyle = window.getComputedStyle(blockEl);
       const marginTop = parseFloat(blockStyle.marginTop || '0') || 0;
       const marginBottom = parseFloat(blockStyle.marginBottom || '0') || 0;
-      return Math.max(blockEl.getBoundingClientRect().height + marginTop + marginBottom, 1);
+      return Math.max(Math.ceil(blockEl.getBoundingClientRect().height + marginTop + marginBottom) + 1, 1);
     });
 
     const pagedFields = this.chunkFieldsIntoPages(

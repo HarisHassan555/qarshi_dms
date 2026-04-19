@@ -97,6 +97,7 @@
     display: block;
 }
 
+/* Multi-page generic preview: each sheet is exactly A4 (210×297mm). */
 .app-preview-pages {
     display: flex;
     flex-direction: column;
@@ -106,6 +107,22 @@
 
 .app-preview-pages .xyz-paper {
     margin: 0;
+}
+
+.app-preview-paper-a4 {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    height: 297mm !important;
+    max-height: 297mm !important;
+    overflow: hidden !important;
+    box-sizing: border-box;
+    flex-shrink: 0;
+}
+
+.app-preview-paper-a4 .xyz-generic-content {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .app-preview-measure {

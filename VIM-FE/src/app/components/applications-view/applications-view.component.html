@@ -104,9 +104,10 @@
                 </p>
             </div>
             <div>
-                <label class="block text-sm font-medium mb-2 dark:text-white-light">Remarks (Optional)</label>
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Comments / remarks <span
+                        class="text-danger">*</span></label>
                 <textarea [(ngModel)]="remarksText" class="form-textarea" rows="3"
-                    placeholder="Enter any remarks or comments...">
+                    placeholder="Enter comments or remarks (required)...">
                 </textarea>
             </div>
         </div>
@@ -114,7 +115,8 @@
     <ng-template #modalFooter>
         <button type="button" (click)="selectedApplicationForRemarks = null; remarksText = ''"
             class="btn btn-outline-danger">Cancel</button>
-        <button type="button" (click)="approveApplication()" class="btn btn-success ltr:ml-4 rtl:mr-4">Approve</button>
+        <button type="button" (click)="approveApplication()" class="btn btn-success ltr:ml-4 rtl:mr-4"
+            [disabled]="!remarksText || remarksText.trim() === ''">Approve</button>
     </ng-template>
 </modal>
 
@@ -138,10 +140,10 @@
                 </p>
             </div>
             <div>
-                <label class="block text-sm font-medium mb-2 dark:text-white-light">Rejection Reason <span
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Comments / rejection reason <span
                         class="text-danger">*</span></label>
                 <textarea [(ngModel)]="remarksText" class="form-textarea" rows="3"
-                    placeholder="Please provide a reason for rejection..." required>
+                    placeholder="Enter comments or reason for rejection (required)..." required>
                 </textarea>
             </div>
         </div>
@@ -178,10 +180,10 @@
                 </p>
             </div>
             <div>
-                <label class="block text-sm font-medium mb-2 dark:text-white-light">Remarks <span
+                <label class="block text-sm font-medium mb-2 dark:text-white-light">Comments / remarks <span
                         class="text-danger">*</span></label>
                 <textarea [(ngModel)]="remarksText" class="form-textarea" rows="3"
-                    placeholder="Please provide remarks for sending back this application..." required>
+                    placeholder="Enter comments (required) for sending back this application..." required>
                 </textarea>
             </div>
         </div>
@@ -211,6 +213,14 @@
             </div>
 
             <form [formGroup]="editForm">
+                <app-form-document-header *ngIf="getEditDocumentHeaderField()"
+                    class="block mb-6"
+                    [headingControl]="getEditDocumentHeaderControl()"
+                    [headingLabel]="getEditDocumentHeaderField()?.label || 'Form Heading'"
+                    [placeholder]="getEditDocumentHeaderField()?.placeholder || 'Enter form heading'"
+                    [required]="getEditDocumentHeaderField()?.required"
+                    [dateText]="getEditApplicationDateDisplay()">
+                </app-form-document-header>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <!-- Text Input -->
                     <div *ngFor="let field of editFormFields">

@@ -1,5 +1,5 @@
 import { Component, OnInit, ViewChild } from '@angular/core';
-import { AbstractControl, FormBuilder, FormGroup, FormArray, Validators, ValidationErrors } from '@angular/forms';
+import { AbstractControl, FormBuilder, FormGroup, FormArray, FormControl, Validators, ValidationErrors } from '@angular/forms';
 import { Router } from '@angular/router';
 import { PermissionService } from '../../services/shared-data/permission-service';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
@@ -340,6 +340,43 @@ export class ApplicationsViewComponent implements OnInit {
     return label.toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '');
+  }
+
+  /** Matches application.component / form builder: `document_header` (Document Header field). */
+  isDocumentHeaderFieldType(fieldType: string | undefined): boolean {
+    const t = (fieldType || '').toString().trim().toLowerCase().replace(/\s+/g, '_');
+    return t === 'document_header' || t === 'header';
+  }
+
+  getEditDocumentHeaderField(): any | null {
+    return this.editFormFields.find((f: any) => this.isDocumentHeaderFieldType(f.type)) || null;
+  }
+
+  getEditDocumentHeaderControl(): FormControl | null {
+    const field = this.getEditDocumentHeaderField();
+    if (!field || !this.editForm) {
+      return null;
+    }
+    const name = this.getFieldName(field.label);
+    const ctrl = this.editForm.get(name);
+    return ctrl instanceof FormControl ? ctrl : null;
+  }
+
+  /** Shown next to "Date:" in the edit modal document header (submission date). */
+  getEditApplicationDateDisplay(): string {
+    const d = this.selectedApplicationForEdit?.dteCreatedDate;
+    if (!d) {
+      return '';
+    }
+    try {
+      return new Date(d).toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+      }).replace(/ /g, '-');
+    } catch {
+      return '';
+    }
   }
 
   isWordEditorType(fieldType: string | undefined): boolean {
@@ -733,6 +770,68 @@ export class ApplicationsViewComponent implements OnInit {
     }
   }
 
+  /** Maps DB form fields to the shape expected by ApplicationPdfService (same as edit modal). */
+  private mapCfgFormFieldsToPdfFields(form: any): any[] {
+    if (!form?.cfgTblCustomFormFields) {
+      return [];
+    }
+    return form.cfgTblCustomFormFields
+      .map((field: any) => ({
+        serFieldId: field.serFieldId,
+        label: field.txtFieldLabel,
+        type: field.txtFieldType,
+        required: field.blIsRequired || false,
+        placeholder: field.txtPlaceholder || '',
+        intFieldOrder: field.intFieldOrder || 0,
+        txtFieldOptions: field.txtFieldOptions
+      }))
+      .sort((a: any, b: any) => (a.intFieldOrder || 0) - (b.intFieldOrder || 0));
+  }
+
+  /**
+   * Regenerates the stored PDF snapshot so notification emails and approvals use the same multi-page
+   * layout as submission (portal preview), replacing the previous blob after a successful data update.
+   */
+  private async replaceApplicationPdfSnapshotAfterUpdate(applicationId: number): Promise<void> {
+    const application: any = await firstValueFrom(
+      this.customFormApplicationService.getApplicationById(applicationId)
+    );
+    if (!application) {
+      return;
+    }
+    const form = this.forms.find((f: any) => f.serFormId === application.serFormId);
+    if (!form) {
+      return;
+    }
+    const formFields = this.mapCfgFormFieldsToPdfFields(form);
+    let appData: any = {};
+    try {
+      appData = application.txtApplicationData ? JSON.parse(application.txtApplicationData) : {};
+    } catch {
+      appData = {};
+    }
+    const formName = (form?.txtFormName || application?.cfgTblCustomForm?.txtFormName || '').trim();
+    const formCode = (application?.txtFormCode || '').trim();
+    const htmlContent = this.applicationPdfService.buildPdfHtmlForApplication(
+      application,
+      form,
+      formFields,
+      appData,
+      { formName, txtFormCode: formCode, omitApprovalSignaturesInPdf: true }
+    );
+    if (!htmlContent) {
+      return;
+    }
+    const filename = `application_${formCode || applicationId}.pdf`;
+    const pdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(htmlContent, filename);
+    const pdfResponse: any = await firstValueFrom(
+      this.customFormApplicationService.updateApplicationPdf(applicationId, pdfBlob, filename)
+    );
+    if (!pdfResponse || pdfResponse.status !== 'Success') {
+      throw new Error(pdfResponse?.message || 'Failed to refresh application PDF');
+    }
+  }
+
   updateApplication() {
     if (this.editForm.invalid) {
       this.notificationService.showMessage('Please fill all required fields', 'danger');
@@ -775,6 +874,8 @@ export class ApplicationsViewComponent implements OnInit {
       blnStatus: true
     };
 
+    const applicationIdForPdf = this.selectedApplicationForEdit.serApplicationId;
+
     // Submit to backend
     this.customFormApplicationService.updateApplication(payload).subscribe(
       (response: any) => {
@@ -786,6 +887,15 @@ export class ApplicationsViewComponent implements OnInit {
           this.loadApplications(this.currentUser.serUserId);
           if (this.isDepartmentHead) {
             this.checkIfDepartmentHeadAndLoadPendingApprovals();
+          }
+          if (applicationIdForPdf) {
+            void this.replaceApplicationPdfSnapshotAfterUpdate(applicationIdForPdf).catch((err) => {
+              console.error('replaceApplicationPdfSnapshotAfterUpdate', err);
+              this.notificationService.showMessage(
+                'Saved, but the PDF preview used in emails could not be refreshed. Try downloading PDF from application details.',
+                'warning'
+              );
+            });
           }
         } else {
           this.notificationService.showMessage(response?.message || 'Failed to update application', 'danger');
@@ -872,14 +982,20 @@ export class ApplicationsViewComponent implements OnInit {
       return;
     }
 
+    if (!this.remarksText || this.remarksText.trim() === '') {
+      this.notificationService.showMessage('Please enter comments or remarks before approving', 'danger');
+      return;
+    }
+
     // Do not upload a new PDF before approving: the backend updates the stored PDF by appending
     // only the new signature. Uploading a frontend-generated PDF here would cause duplicate
     // signatures when mixing email and portal approvals.
 
-    this.customFormApplicationService.approveApplication(
-      this.selectedApplicationForRemarks.serApplicationId,
-      this.remarksText
-    ).subscribe(
+     this.customFormApplicationService.approveApplication(
+       this.selectedApplicationForRemarks.serApplicationId,
+       this.remarksText,
+       this.currentUser?.serUserId
+     ).subscribe(
       (response: any) => {
         if (response && response.status === 'Success') {
           this.notificationService.showMessage(response.message || 'Application approved successfully', 'success');

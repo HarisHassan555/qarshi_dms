@@ -144,9 +144,11 @@ public class CustomFormApplicationController {
     @RequestMapping(value = "/updateApplicationPdf", method = RequestMethod.POST, consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> updateApplicationPdf(@RequestParam Integer applicationId,
             @RequestParam("pdf") MultipartFile pdf,
+            @RequestParam(required = false, defaultValue = "false") boolean refreshCapfSignatures,
             HttpServletRequest request,
             HttpServletResponse response) {
-        logger.debug("updateApplicationPdf() - applicationId: " + applicationId);
+        logger.debug("updateApplicationPdf() - applicationId: " + applicationId + ", refreshCapfSignatures="
+                + refreshCapfSignatures);
         Map<String, Object> result = new HashMap<>();
         try {
             if (applicationId == null) {
@@ -163,7 +165,7 @@ public class CustomFormApplicationController {
             String pdfName = pdf.getOriginalFilename();
             String pdfMime = pdf.getContentType();
             String status = customFormApplicationService.updateApplicationPdf(applicationId, pdf.getBytes(), pdfName,
-                    pdfMime);
+                    pdfMime, refreshCapfSignatures);
             if ("Success".equals(status)) {
                 result.put("status", "Success");
                 result.put("message", "Application PDF updated successfully");
@@ -333,8 +335,14 @@ public class CustomFormApplicationController {
                 return result;
             }
 
+            if (remarks == null || remarks.trim().isEmpty()) {
+                result.put("status", "Failure");
+                result.put("message", "Comments or remarks are required when approving an application");
+                return result;
+            }
+
             String approvedIp = resolveClientIp(request);
-            String status = customFormApplicationService.approveApplication(applicationId, remarks, approverUserId,
+            String status = customFormApplicationService.approveApplication(applicationId, remarks.trim(), approverUserId,
                     approvedVia, approvedIp);
             if ("Success".equals(status)) {
                 result.put("status", "Success");
@@ -370,7 +378,13 @@ public class CustomFormApplicationController {
                 return result;
             }
 
-            String status = customFormApplicationService.rejectApplication(applicationId, remarks);
+            if (remarks == null || remarks.trim().isEmpty()) {
+                result.put("status", "Failure");
+                result.put("message", "Comments or remarks are required when rejecting an application");
+                return result;
+            }
+
+            String status = customFormApplicationService.rejectApplication(applicationId, remarks.trim());
             if ("Success".equals(status)) {
                 result.put("status", "Success");
                 result.put("message", "Application rejected successfully");
@@ -394,7 +408,8 @@ public class CustomFormApplicationController {
             HttpServletRequest request,
             HttpServletResponse response) {
         logger.debug("approveApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
-        return renderEmailActionCommentForm("Approve Application", "Add a comment (optional) and confirm approval.",
+        return renderEmailActionCommentForm("Approve Application",
+                "Enter your comments (required), then confirm approval.",
                 "/approveApplicationFromEmail", applicationId, userId, request);
     }
 
@@ -406,8 +421,12 @@ public class CustomFormApplicationController {
             HttpServletResponse response) {
         logger.debug("approveApplicationFromEmailSubmit() - applicationId: " + applicationId + ", userId: " + userId);
         try {
+            if (remarks == null || remarks.trim().isEmpty()) {
+                return renderEmailActionErrorPage("Comments required",
+                        "Please enter comments before approving. Use your browser back button to return to the form.");
+            }
             String approvedIp = resolveClientIp(request);
-            String finalRemarks = normalizeRemarks(remarks, "Approved via email");
+            String finalRemarks = remarks.trim();
             String status = customFormApplicationService.approveApplication(applicationId, finalRemarks, userId, "EMAIL",
                     approvedIp);
             if ("Success".equals(status)) {
@@ -427,7 +446,8 @@ public class CustomFormApplicationController {
             HttpServletRequest request,
             HttpServletResponse response) {
         logger.debug("rejectApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
-        return renderEmailActionCommentForm("Reject Application", "Add a comment (optional) and confirm rejection.",
+        return renderEmailActionCommentForm("Reject Application",
+                "Enter your comments (required), then confirm rejection.",
                 "/rejectApplicationFromEmail", applicationId, userId, request);
     }
 
@@ -439,7 +459,11 @@ public class CustomFormApplicationController {
             HttpServletResponse response) {
         logger.debug("rejectApplicationFromEmailSubmit() - applicationId: " + applicationId + ", userId: " + userId);
         try {
-            String finalRemarks = normalizeRemarks(remarks, "Rejected via email");
+            if (remarks == null || remarks.trim().isEmpty()) {
+                return renderEmailActionErrorPage("Comments required",
+                        "Please enter comments before rejecting. Use your browser back button to return to the form.");
+            }
+            String finalRemarks = remarks.trim();
             String status = customFormApplicationService.rejectApplication(applicationId, finalRemarks);
             if ("Success".equals(status)) {
                 return renderEmailActionResultPage("Application Rejected", "The application has been rejected.");
@@ -539,7 +563,7 @@ public class CustomFormApplicationController {
             HttpServletResponse response) {
         logger.debug("sendBackApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
         return renderEmailActionCommentForm("Send Back Application",
-                "Add a comment (optional) and confirm send back action.", "/sendBackApplicationFromEmail",
+                "Enter your comments (required), then confirm send back.", "/sendBackApplicationFromEmail",
                 applicationId, userId, request);
     }
 
@@ -552,7 +576,11 @@ public class CustomFormApplicationController {
         logger.debug(
                 "sendBackApplicationFromEmailSubmit() - applicationId: " + applicationId + ", userId: " + userId);
         try {
-            String finalRemarks = normalizeRemarks(remarks, "Sent back via email");
+            if (remarks == null || remarks.trim().isEmpty()) {
+                return renderEmailActionErrorPage("Comments required",
+                        "Please enter comments before sending back. Use your browser back button to return to the form.");
+            }
+            String finalRemarks = remarks.trim();
             String status = getCustomFormApplicationDaoImpl().sendBackApplication(applicationId, finalRemarks, userId);
             if ("Success".equals(status)) {
                 return renderEmailActionResultPage("Application Sent Back", "The application has been sent back.");
@@ -573,7 +601,7 @@ public class CustomFormApplicationController {
             HttpServletResponse response) {
         logger.debug("sendBackToInitiatorFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
         return renderEmailActionCommentForm("Send Back To Initiator",
-                "Add a comment (optional) and confirm send back to initiator.", "/sendBackToInitiatorFromEmail",
+                "Enter your comments (required), then confirm send back to initiator.", "/sendBackToInitiatorFromEmail",
                 applicationId, userId, request);
     }
 
@@ -585,7 +613,11 @@ public class CustomFormApplicationController {
             HttpServletResponse response) {
         logger.debug("sendBackToInitiatorFromEmailSubmit() - applicationId: " + applicationId + ", userId: " + userId);
         try {
-            String finalRemarks = normalizeRemarks(remarks, "Sent back to initiator via email");
+            if (remarks == null || remarks.trim().isEmpty()) {
+                return renderEmailActionErrorPage("Comments required",
+                        "Please enter comments before sending back to initiator. Use your browser back button to return to the form.");
+            }
+            String finalRemarks = remarks.trim();
             String status = getCustomFormApplicationDaoImpl().sendBackApplicationToInitiator(applicationId, finalRemarks,
                     userId);
             if ("Success".equals(status)) {
@@ -692,13 +724,6 @@ public class CustomFormApplicationController {
         return (com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO) customFormApplicationDAO;
     }
 
-    private String normalizeRemarks(String remarks, String fallbackValue) {
-        if (remarks == null || remarks.trim().isEmpty()) {
-            return fallbackValue;
-        }
-        return remarks.trim();
-    }
-
     private String renderEmailActionCommentForm(String title, String subtitle, String actionPath, Integer applicationId,
             Integer userId, HttpServletRequest request) {
         String contextPath = request != null ? request.getContextPath() : "";
@@ -717,9 +742,9 @@ public class CustomFormApplicationController {
                 + "<form method='post' action='" + escapeHtml(actionUrl) + "'>"
                 + "<input type='hidden' name='applicationId' value='" + applicationId + "'/>"
                 + "<input type='hidden' name='userId' value='" + userId + "'/>"
-                + "<label for='remarks'>Comments</label>"
-                + "<textarea id='remarks' name='remarks' maxlength='2000' placeholder='Enter comments (optional)'></textarea>"
-                + "<div class='hint'>Optional. Max 2000 characters.</div>"
+                + "<label for='remarks'>Comments / remarks <span style='color:#c0392b'>*</span></label>"
+                + "<textarea id='remarks' name='remarks' maxlength='2000' required placeholder='Enter comments (required)'></textarea>"
+                + "<div class='hint'>Required. Max 2000 characters.</div>"
                 + "<button type='submit'>Submit</button></form></div></body></html>";
     }
 

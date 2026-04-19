@@ -27,12 +27,89 @@
     margin-bottom: 3mm;
 }
 
+/* Hidden DOM to measure block heights — keep out of scroll area; parent #generic-pdf-content is position:relative. */
+#generic-pdf-content {
+    position: relative;
+    overflow-x: hidden;
+}
+
+.app-details-measure {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 210mm;
+    max-width: 210mm;
+    visibility: hidden;
+    pointer-events: none;
+    z-index: -1;
+    overflow: hidden;
+    transform: translateX(-100vw);
+    contain: layout style;
+}
+
+/* Measured pagination: fixed A4 card + clip so body matches chunkFieldsIntoPages capacities. */
+.xyz-paper.xyz-paper-measured {
+    height: 297mm;
+    max-height: 297mm;
+    min-height: 297mm;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.xyz-paper.xyz-paper-measured > .xyz-content-body.xyz-generic-measured-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.xyz-paper.xyz-paper-measured.xyz-last-page {
+    height: 297mm;
+    max-height: 297mm;
+    min-height: 297mm;
+    overflow: hidden;
+}
+
+.xyz-paper.xyz-paper-measured.xyz-last-page > .xyz-content-body.xyz-generic-measured-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.xyz-generic-measured-body .xyz-field-block {
+    margin-bottom: 10px;
+}
+
+.xyz-generic-measured-body .xyz-field-label {
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+}
+
+.xyz-generic-measured-body .xyz-field-value {
+    font-size: 13px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.xyz-generic-measured-body .xyz-word-preview {
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.xyz-generic-measured-body .xyz-word-preview .ql-editor {
+    padding: 0;
+}
+
+/* Match /application preview: min A4 height only — content grows so nothing is clipped.
+   Fixed 297mm + overflow:hidden was cutting off lines when pagination used char heuristics. */
 .xyz-paper {
     width: 210mm;
     position: relative;
-    height: 297mm;
     min-height: 297mm;
-    max-height: 297mm;
+    height: auto;
+    max-height: none;
     background: #ffffff;
     color: #000000;
     font-family: "Times New Roman", Times, serif;
@@ -44,8 +121,7 @@
     display: flex;
     flex-direction: column;
     box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-    /* Page cards do not scroll; parent .xyz-pages-scroll is the only scroll */
-    overflow: hidden;
+    overflow: visible;
 }
 
 /* Ensure paper container uses full height for flex layout */
@@ -53,13 +129,22 @@
     justify-content: flex-start;
 }
 
-/* PDF-only capture: enforce A4 sizing and consistent spacing */
+/* PDF-only capture: strict A4 box + clip for html2canvas (screen preview stays overflow:visible above) */
 .pdf-capture .xyz-paper {
     width: 210mm !important;
+    height: 297mm !important;
     min-height: 297mm !important;
+    max-height: 297mm !important;
     padding: 10mm !important;
     border: 1px solid #222 !important;
     box-shadow: none !important;
+    overflow: hidden !important;
+}
+
+.pdf-capture .xyz-paper > .xyz-content-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .pdf-capture .xyz-content-body,
@@ -417,7 +502,8 @@
     overflow-wrap: break-word;
     word-wrap: break-word;
     overflow: visible;
-    flex: 1 1 0;
+    /* Natural height from content (matches /application); avoid flex-shrink clipping */
+    flex: 0 1 auto;
     min-height: 0;
     display: block;
 }
@@ -485,7 +571,7 @@
     flex-shrink: 0;
     position: static;
     background: #ffffff;
-    padding-top: 14px;
+    padding-top: 6px;
     width: 100%;
     box-sizing: border-box;
 }
@@ -500,22 +586,73 @@
     flex-grow: 0;
 }
 
-/* Last page: fixed A4 height, content fills middle, footer fixed at bottom */
+/* Last page: at least A4; grow with body + footer so no text is clipped (same idea as /application) */
 .xyz-paper.xyz-last-page {
     display: flex;
     flex-direction: column;
     min-height: 297mm;
-    height: 297mm;
-    max-height: 297mm;
+    height: auto;
+    max-height: none;
 }
 .xyz-paper.xyz-last-page > .xyz-content-body {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow: visible;
+}
+.pdf-capture .xyz-paper.xyz-last-page {
+    height: 297mm !important;
+    max-height: 297mm !important;
+    overflow: hidden !important;
+}
+.pdf-capture .xyz-paper.xyz-last-page > .xyz-content-body {
     flex: 1 1 0;
     min-height: 0;
-    overflow: hidden;
+    overflow: hidden !important;
 }
+/* Last page: margin-top:auto alone is not enough when .xyz-content-body has flex:1 (it swallows free space). */
 .xyz-paper.xyz-last-page > .xyz-footer {
     flex-shrink: 0;
     margin-top: auto;
+}
+
+/* Individual pipeline: flex spacer between body and footer pins the table to the bottom of the A4 card. */
+.xyz-footer-spacer {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+}
+
+.xyz-paper.xyz-paper--footer-pinned > .xyz-footer {
+    margin-top: 0;
+    flex-shrink: 0;
+}
+
+.xyz-paper.xyz-paper--footer-pinned > .xyz-content-body {
+    flex: 0 1 auto !important;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-content-body.xyz-generic-measured-body {
+    flex: 0 1 auto !important;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.xyz-paper.xyz-paper--footer-pinned.xyz-last-page:not(.xyz-paper-measured) {
+    min-height: 297mm;
+}
+
+.pdf-capture .xyz-paper.xyz-paper--footer-pinned.xyz-last-page > .xyz-content-body,
+.pdf-capture .xyz-paper.xyz-paper--footer-pinned.xyz-last-page > .xyz-content-body.xyz-generic-measured-body {
+    flex: 0 1 auto !important;
+    min-height: 0;
+    overflow: hidden !important;
+}
+
+.pdf-capture .xyz-paper.xyz-paper--footer-pinned.xyz-last-page > .xyz-footer-spacer {
+    flex: 1 1 0 !important;
+    min-height: 0 !important;
 }
 
 .xyz-signatures th,
@@ -530,9 +667,9 @@
 }
 
 .xyz-signatures-blank td {
-    height: 88px;
-    min-height: 88px;
-    padding: 4px 4px 10px 4px;
+    height: 52px;
+    min-height: 52px;
+    padding: 2px 4px 4px 4px;
     background: #ffffff;
     overflow: hidden;
     position: relative;
@@ -547,8 +684,8 @@
     font-weight: 700;
     background: #8f8f8f;
     text-align: center;
-    padding-top: 36px;
-    padding-bottom: 8px;
+    padding-top: 8px;
+    padding-bottom: 6px;
     border-top: none;
 }
 
@@ -585,7 +722,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
-    padding-top: 6px;
+    padding-top: 0;
     overflow: hidden;
     box-sizing: border-box;
 }
@@ -664,10 +801,10 @@
     max-width: 100% !important;
 }
 
-/* Approval flow view */
+/* Approval flow view — flex-start avoids stretching connector arrows to the tallest card (huge empty vertical gaps). */
 .approval-flow {
     display: flex;
-    align-items: stretch;
+    align-items: flex-start;
     gap: 12px;
     overflow-x: auto;
     padding: 6px 2px 12px;
@@ -829,6 +966,16 @@
     font-weight: 600;
     color: #4b5563;
     white-space: nowrap;
+}
+
+/* Prior Approvals: compact gap under workflow; comment cells use line-clamp without a fixed max-height slot. */
+.prior-approvals-comments-clamp {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-clamp: 2;
+    line-height: 1.3;
 }
 
 @media (max-width: 768px) {
