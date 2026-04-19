@@ -193,7 +193,13 @@ export class FormBuilderComponent implements OnInit {
     if (p.type === 'individual') {
       return p.hrTblUser?.txtUserName || p.hrTblUser?.userName || p.hrTblUser?.name || 'User ' + (p.serUserId || '');
     }
-    return p.hrTblDepartment?.txtDepartmentName || 'Department ' + (p.serDepartmentId || '');
+    const deptId = p.serDepartmentId ?? p.hrTblDepartment?.serDepartmentId;
+    const resolvedDept = this.departments.find((d: any) => Number(d?.serDepartmentId) === Number(deptId));
+    const deptName =
+      p.hrTblDepartment?.txtDepartmentName ||
+      (p as any)?.txtDepartmentName ||
+      resolvedDept?.txtDepartmentName;
+    return deptName || ('Department ' + (deptId || ''));
   }
 
   removeApprovalPipeline(index: number) {
@@ -530,7 +536,7 @@ export class FormBuilderComponent implements OnInit {
               type: 'department',
               serDepartmentId: deptId,
               intApprovalOrder: p.intApprovalOrder ?? i + 1,
-              hrTblDepartment: dept
+              hrTblDepartment: dept || (p.txtDepartmentName ? { serDepartmentId: deptId, txtDepartmentName: p.txtDepartmentName } : undefined)
             } as ApprovalPipeline;
           });
         }
@@ -544,7 +550,10 @@ export class FormBuilderComponent implements OnInit {
       serApprovalPipelineId: p.serApprovalPipelineId,
       serDepartmentId: p.hrTblDepartment?.serDepartmentId || p.serDepartmentId,
       intApprovalOrder: p.intApprovalOrder ?? i + 1,
-      hrTblDepartment: p.hrTblDepartment || this.departments.find((d: any) => d.serDepartmentId === (p.serDepartmentId || p.hrTblDepartment?.serDepartmentId))
+      hrTblDepartment:
+        p.hrTblDepartment ||
+        this.departments.find((d: any) => d.serDepartmentId === (p.serDepartmentId || p.hrTblDepartment?.serDepartmentId)) ||
+        (p.txtDepartmentName ? { serDepartmentId: (p.serDepartmentId || p.hrTblDepartment?.serDepartmentId), txtDepartmentName: p.txtDepartmentName } : undefined)
     })).sort((a: ApprovalPipeline, b: ApprovalPipeline) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0));
   }
 
