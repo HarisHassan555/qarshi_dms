@@ -39,6 +39,11 @@
                         {{ getFieldCount(value) }} Field(s)
                     </span>
                 </ng-template>
+                <ng-template slot="userCount" let-value="data">
+                    <span class="badge badge-outline-warning">
+                        {{ getUserCount(value) }} User(s)
+                    </span>
+                </ng-template>
                 <ng-template slot="createdAt" let-value="data">
                     <span>{{ (value.createdAt || value.dteCreatedDate) | date:'short' }}</span>
                 </ng-template>
@@ -82,6 +87,30 @@
                             Form name is required
                         </p>
                     </ng-container>
+                </div>
+
+                <div>
+                    <label>Assign Users</label>
+                    <ng-select
+                        [items]="allUsers"
+                        bindLabel="txtUserName"
+                        bindValue="serUserId"
+                        formControlName="selectedUsers"
+                        [multiple]="true"
+                        [clearable]="true"
+                        placeholder="Select users who can use this form">
+                        <ng-template ng-label-tmp let-item="item">
+                            {{ item?.txtUserName || item?.userName || item?.name }}
+                        </ng-template>
+                        <ng-template ng-option-tmp let-item="item">
+                            <div class="flex items-center gap-2">
+                                <span>{{ item?.txtUserName || item?.userName || item?.name }}</span>
+                                <span class="text-xs text-gray-500" *ngIf="item?.cfgTblRole?.txtRoleName">
+                                    ({{ item.cfgTblRole.txtRoleName }})
+                                </span>
+                            </div>
+                        </ng-template>
+                    </ng-select>
                 </div>
 
                 <div>

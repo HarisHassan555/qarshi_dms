@@ -36,6 +36,9 @@ public class CfgTblCustomForm implements Serializable {
     @Column(name="txt_form_description")
     private String txtFormDescription;
 
+    @Column(name="txt_user_ids")
+    private String txtUserIds;
+
     @Column(name="txt_approval_pipeline", columnDefinition = "JSON")
     @JsonIgnore // Don't expose JSON string in API responses, only expose the deserialized list
     private String txtApprovalPipeline;
@@ -113,6 +116,14 @@ public class CfgTblCustomForm implements Serializable {
 
     public void setTxtFormDescription(String txtFormDescription) {
         this.txtFormDescription = txtFormDescription;
+    }
+
+    public String getTxtUserIds() {
+        return this.txtUserIds;
+    }
+
+    public void setTxtUserIds(String txtUserIds) {
+        this.txtUserIds = txtUserIds;
     }
 
     public String getTxtApprovalPipeline() {

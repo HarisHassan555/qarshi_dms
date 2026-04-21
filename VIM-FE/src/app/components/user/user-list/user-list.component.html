@@ -59,12 +59,23 @@
     <ng-template #modalHeader> <div>{{form.controls['serUserId'].value ? 'Edit' : 'Add'}} User </div> </ng-template>
     <ng-template #modalBody>
         <form class="space-y-5 text-sm" [formGroup]="form" novalidate>
+            <div class="grid grid-cols-1 gap-4">
+                <div>
+                    <label for="employeeId">Employee ID*</label>
+                    <input formControlName="txtCnic" id="employeeId" type="text" placeholder="Enter Employee ID" class="form-input" />
+                    <ng-container *ngIf="isSubmit && form.controls['txtCnic'].invalid">
+                        <p class="mt-1 text-danger" *ngIf="form.controls['txtCnic'].errors?.['required']">Employee ID is required</p>
+                        <p class="mt-1 text-danger" *ngIf="form.controls['txtCnic'].errors?.['uniqueCnic']">Employee ID is already in use</p>
+                    </ng-container>
+                </div>
+            </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                     <label for="username">Username*</label>
                     <input formControlName="txtUserName" id="username" type="text" placeholder="Enter Username" class="form-input" />
                     <ng-container *ngIf="isSubmit && form.controls['txtUserName'].invalid">
-                        <p class="mt-1 text-danger">Username is required</p>
+                        <p class="mt-1 text-danger" *ngIf="form.controls['txtUserName'].errors?.['required']">Username is required</p>
+                        <p class="mt-1 text-danger" *ngIf="form.controls['txtUserName'].errors?.['duplicate']">Username already exists</p>
                     </ng-container>
                 </div>
                 <div>
@@ -80,18 +91,6 @@
                 </div>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <label for="cnic">CNIC*</label>
-                    <input formControlName="txtCnic" id="cnic" type="text" placeholder="CNIC Code" class="form-input" />
-                    <ng-container *ngIf="isSubmit && form.controls['txtCnic'].invalid">
-                        <p class="mt-1 text-danger" *ngIf="form.controls['txtCnic'].errors?.['required']">CNIC is required</p>
-                        <p class="mt-1 text-danger" *ngIf="form.controls['txtCnic'].errors?.['pattern']">Invalid CNIC format. Please use the format: 12345-1234567-1</p>
-                        <p class="mt-1 text-danger" *ngIf="form.controls['txtCnic'].errors?.['uniqueCnic']">CNIC is already in use</p>
-                    </ng-container>
-                    <!--<ng-container *ngIf="isSubmit && form.controls['txtCnic'].invalid">
-                        <p class="mt-1 text-danger">CNIC is required</p>
-                    </ng-container>-->
-                </div>
                 <div [formGroup]="cfgTblRole">
                     <label for="role">Role*</label>
                     <select id="role" class="form-select text-white-dark" formControlName="serRoleId" (change)="onChangeRole($event)">
@@ -104,8 +103,6 @@
                         <p class="mt-1 text-danger">Role is required</p>
                     </ng-container>
                 </div>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                     <label for="contactNumber">Contact Number</label>
                     <input formControlName="txtContactNo" id="contactNumber" type="text" placeholder="Enter Contact Number" class="form-input" />

@@ -34,6 +34,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
   forms: any[] = [];
   isLoading: boolean = true;
   approvalHistory: any[] = []; // Store approval history with remarks
+  priorApprovalHistory: any[] = []; // Persisted historical entries (survive send-back resets)
   departmentNameMap: Map<number, string> = new Map();
   departmentHeadMap: Map<number, any> = new Map();
   userNameMap: Map<number, string> = new Map();
@@ -66,7 +67,10 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
     vendorName: '',
     vendorAddress: '',
     approvedPrice: '',
+    /** Free-text delivery period (e.g. "30 days"). */
     deliveryPeriod: '',
+    /** yyyy-mm-dd for date picker; combined with deliveryPeriod on save for CAPF field. */
+    deliveryDate: '',
     termsConditions: ''
   };
   isSavingVendor: boolean = false;
@@ -648,12 +652,33 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
     return isProcHod && isPending;
   }
 
+  /** Split stored "DELIVERY PERIOD & DATE" into text + ISO date when we previously saved as "text / yyyy-mm-dd". */
+  private parseVendorDeliveryPeriodAndDate(raw: string): { text: string; date: string } {
+    const s = (raw != null ? String(raw) : '').trim();
+    if (!s) return { text: '', date: '' };
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return { text: '', date: s };
+    const m = s.match(/^(.+?)\s*[/|]\s*(\d{4}-\d{2}-\d{2})$/);
+    if (m) return { text: m[1].trim(), date: m[2] };
+    return { text: s, date: '' };
+  }
+
+  private formatVendorDeliveryPeriodAndDate(text: string, date: string): string {
+    const t = (text != null ? String(text) : '').trim();
+    const d = (date != null ? String(date) : '').trim();
+    if (t && d) return `${t} / ${d}`;
+    return t || d || '';
+  }
+
   startEditingVendor() {
+    const rawDelivery =
+      this.getFieldValueByLabel('DELIVERY PERIOD & DATE') || this.getFieldValueByLabel('DELIVERY PERIOD') || '';
+    const deliveryParts = this.parseVendorDeliveryPeriodAndDate(rawDelivery);
     this.vendorEditForm = {
       vendorName: this.getFieldValueByLabel('NAME') || this.getFieldValueByLabel('Vendor Name'),
       vendorAddress: this.getFieldValueByLabel('ADDRESS') || this.getFieldValueByLabel('Address'),
       approvedPrice: this.getFieldValueByLabel('APPROVED PRICE') || this.getFieldValueByLabel('Approved price'),
-      deliveryPeriod: this.getFieldValueByLabel('DELIVERY PERIOD & DATE') || this.getFieldValueByLabel('DELIVERY PERIOD'),
+      deliveryPeriod: deliveryParts.text,
+      deliveryDate: deliveryParts.date,
       termsConditions: this.getFieldValueByLabel('TERMS & CONDITIONS') || this.getFieldValueByLabel('Terms & Conditions')
     };
     this.isEditingVendor = true;
@@ -682,12 +707,17 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
         appData = raw;
       }
 
+      const deliveryCombined = this.formatVendorDeliveryPeriodAndDate(
+        this.vendorEditForm.deliveryPeriod,
+        this.vendorEditForm.deliveryDate
+      );
+
       // 2. Map labels to keys and update
       const mappings: any = {
         'vendor_name': this.vendorEditForm.vendorName,
         'vendor_address': this.vendorEditForm.vendorAddress,
         'approved_price': this.vendorEditForm.approvedPrice,
-        'delivery_period': this.vendorEditForm.deliveryPeriod,
+        'delivery_period': deliveryCombined,
         'terms_conditions': this.vendorEditForm.termsConditions
       };
 
@@ -706,9 +736,11 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
       };
 
       for (const [label, formKey] of Object.entries(fieldNameMap)) {
-        appData[label] = this.vendorEditForm[formKey as string];
+        const value =
+          formKey === 'deliveryPeriod' ? deliveryCombined : this.vendorEditForm[formKey as string];
+        appData[label] = value;
         const derived = this.getFieldName(label);
-        appData[derived] = this.vendorEditForm[formKey as string];
+        appData[derived] = value;
       }
 
       // Explicitly update fixed keys used by template
@@ -1122,6 +1154,16 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
             }
           } else {
             this.approvalHistory = [];
+          }
+          if (data.txtPriorApprovals) {
+            try {
+              this.priorApprovalHistory = JSON.parse(data.txtPriorApprovals);
+            } catch (e) {
+              console.error('Error parsing prior approvals:', e);
+              this.priorApprovalHistory = [];
+            }
+          } else {
+            this.priorApprovalHistory = [];
           }
 
           this.enrichPipelineWithDepartmentNames();
@@ -2643,6 +2685,22 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
     ));
   }
 
+  /**
+   * History levels allowed when attributing an approval row to a pipeline card.
+   * CAPF uses exact `intApprovalOrder` in history — wide tolerance pulled the same user’s
+   * earlier stage (e.g. initiator / HoD) into another department card when they are also that dept’s head.
+   */
+  private getAllowedHistoryLevelsForStage(pipelineOrder: number): number[] {
+    if (this.isCapfForm() && pipelineOrder >= 0) {
+      return [pipelineOrder];
+    }
+    return [
+      pipelineOrder,
+      pipelineOrder - 1, pipelineOrder + 1,
+      pipelineOrder - 2, pipelineOrder + 2
+    ];
+  }
+
   // For a given stage+department, return all distinct approvers/users we can find:
   // 1) from departmentHeadMap (if configured)
   // 2) from approvalHistory (so even non-HOD users within the same department show up)
@@ -2662,16 +2720,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
     };
 
     if (this.approvalHistory && this.approvalHistory.length > 0) {
-      // CAPF level↔pipelineOrder mapping can drift by a couple steps (virtual initiator,
-      // re-approval after send-back, etc.). Use a wider tolerance so we still list
-      // all approvers that belong to "this stage".
-      // Important: keep this tolerance tight to avoid pulling approvals from
-      // other repeated steps (e.g. Finance approved at step 1 showing as approved at step 4).
-      const allowedLevels = [
-        pipelineOrder,
-        pipelineOrder - 1, pipelineOrder + 1,
-        pipelineOrder - 2, pipelineOrder + 2
-      ];
+      const allowedLevels = this.getAllowedHistoryLevelsForStage(pipelineOrder);
 
       for (const e of this.approvalHistory) {
         if (!e) continue;
@@ -2718,8 +2767,14 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
   getDepartmentHeadStatus(pipelineOrder: number, departmentId: number | undefined, headId: number): string {
     if (!departmentId) return '';
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
+    const overallStatus = (this.applicationDetails?.txtStatus || '').toString().toUpperCase();
     const isVirtualInitiatorStage = pipelineOrder < 0;
     const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
+
+    // When application is sent back to initiator, all actual approval stages must reset visually.
+    if (overallStatus === 'SENT_BACK_TO_INITIATOR' && !isVirtualInitiatorStage) {
+      return 'PENDING';
+    }
 
     const entry = this.getStageHeadHistoryEntry(pipelineOrder, departmentId, headId);
     const entryAction = (entry?.action || entry?.status || '').toString().toUpperCase();
@@ -2760,6 +2815,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
 
   getDepartmentApproverApprovalDate(pipelineOrder: number, departmentId: number | undefined, approverId: number): string {
     if (!departmentId) return '';
+    if (this.isSentBackToInitiatorState()) return '';
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
     const isVirtualInitiatorStage = pipelineOrder < 0;
     const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
@@ -2777,6 +2833,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
 
   getDepartmentApproverRemarks(pipelineOrder: number, departmentId: number | undefined, approverId: number): string {
     if (!departmentId) return '';
+    if (this.isSentBackToInitiatorState()) return '';
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
     const isVirtualInitiatorStage = pipelineOrder < 0;
     const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
@@ -2792,10 +2849,29 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
   }
 
   getApprovalLogRows(): any[] {
-    if (!Array.isArray(this.approvalHistory) || this.approvalHistory.length === 0) {
+    const current = Array.isArray(this.approvalHistory) ? this.approvalHistory : [];
+    const prior = Array.isArray(this.priorApprovalHistory) ? this.priorApprovalHistory : [];
+    const merged = [...prior, ...current];
+    if (merged.length === 0) {
       return [];
     }
-    return this.approvalHistory;
+    const seen = new Set<string>();
+    const rows: any[] = [];
+    for (const entry of merged) {
+      if (!entry || typeof entry !== 'object') continue;
+      const key = [
+        entry?.action || entry?.status || '',
+        entry?.approvedBy ?? entry?.approverUserId ?? entry?.userId ?? '',
+        entry?.approvedDate || entry?.sentBackDate || '',
+        entry?.level ?? entry?.intApprovalOrder ?? '',
+        entry?.remarks ?? entry?.comment ?? ''
+      ].join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(entry);
+    }
+    rows.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+    return rows;
   }
 
   getApprovalLogLevel(entry: any): string {
@@ -2851,6 +2927,8 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
   private getStageHeadHistoryEntry(pipelineOrder: number, departmentId: number, headId: number): any {
     if (!this.approvalHistory || this.approvalHistory.length === 0) return null;
 
+    const allowedLevels = this.getAllowedHistoryLevelsForStage(pipelineOrder);
+
     const candidates = this.approvalHistory.filter((e: any) => {
       const action = (e.action || '').toString().toUpperCase();
       if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') return false;
@@ -2858,12 +2936,6 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
       const entryLevel = e.level ?? e.intApprovalOrder;
       if (entryLevel == null) return false;
       const lvl = Number(entryLevel);
-      // Keep tolerant matching tight to avoid pulling approvals from other repeated steps.
-      const allowedLevels = [
-        pipelineOrder,
-        pipelineOrder - 1, pipelineOrder + 1,
-        pipelineOrder - 2, pipelineOrder + 2
-      ];
       if (!allowedLevels.includes(lvl)) {
         return false;
       }
@@ -2879,6 +2951,15 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
 
     if (candidates.length === 0) return null;
     candidates.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+
+    if (this.isCapfForm() && pipelineOrder >= 0) {
+      const resetToInitiatorT = this.getSendBackToInitiatorResetTime();
+      if (resetToInitiatorT > 0) {
+        const afterReset = candidates.filter((c) => this.getApprovalEntryTime(c) > resetToInitiatorT);
+        if (afterReset.length === 0) return null;
+        return afterReset[0];
+      }
+    }
 
     if (this.isCapfForm()) {
       const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
@@ -2896,6 +2977,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
 
   // Get remarks for a specific department from approval history (uses latest approval entry)
   getDepartmentRemarks(pipelineOrder: number, departmentId?: number): string {
+    if (this.isSentBackToInitiatorState()) return '';
     if (!this.isDepartmentApproved(pipelineOrder)) {
       return '';
     }
@@ -2913,6 +2995,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
 
   // Get approval date for a department (uses latest approval entry)
   getDepartmentApprovalDate(pipelineOrder: number, departmentId?: number): string {
+    if (this.isSentBackToInitiatorState()) return '';
     if (!this.isDepartmentApproved(pipelineOrder)) {
       return '';
     }
@@ -3191,7 +3274,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
 
     if (t === 'capf_asset_code') {
       if (status === 'ASSET_PENDING') return 'CURRENT';
-      if (hasAsset && status === 'APPROVED') return 'APPROVED';
+      if (hasAsset && (status === 'PR_PENDING' || status === 'APPROVED' || hasPr)) return 'APPROVED';
       // If CEO is not done yet, keep this pending.
       return 'PENDING';
     }
@@ -3220,7 +3303,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
       const e = this.findApprovalHistoryEntry((x: any) => {
         const action = (x.action || x.status || '').toString().toUpperCase();
         const desig = (x.designation || x.txtDesignation || x.departmentName || '').toString().toUpperCase();
-        return action === 'APPROVED' && desig.includes('FINANCE');
+        return action === 'ASSET_CODE_ASSIGNED' || (action === 'APPROVED' && desig.includes('FINANCE'));
       });
       return e?.approverName || this.getUserNameById(e?.approvedBy) || '--';
     }
@@ -3242,7 +3325,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
       if (t === 'capf_asset_code') {
         const action = (x.action || x.status || '').toString().toUpperCase();
         const desig = (x.designation || x.txtDesignation || x.departmentName || '').toString().toUpperCase();
-        return action === 'APPROVED' && desig.includes('FINANCE');
+        return action === 'ASSET_CODE_ASSIGNED' || (action === 'APPROVED' && desig.includes('FINANCE'));
       }
       if (t === 'capf_pr_code') {
         return (x.action || x.status || '').toString().toUpperCase() === 'PR_CODE_ASSIGNED';
@@ -3264,7 +3347,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
       const action = (x.action || x.status || '').toString().toUpperCase();
       const desig = (x.designation || x.txtDesignation || x.departmentName || '').toString().toUpperCase();
       if (t === 'capf_ceo') return action === 'APPROVED' && desig.includes('CEO');
-      if (t === 'capf_asset_code') return action === 'APPROVED' && desig.includes('FINANCE');
+      if (t === 'capf_asset_code') return action === 'ASSET_CODE_ASSIGNED' || (action === 'APPROVED' && desig.includes('FINANCE'));
       if (t === 'capf_pr_code') return action === 'PR_CODE_ASSIGNED';
       return false;
     });
@@ -3277,7 +3360,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
       const action = (x.action || x.status || '').toString().toUpperCase();
       const desig = (x.designation || x.txtDesignation || x.departmentName || '').toString().toUpperCase();
       if (t === 'capf_ceo') return action === 'APPROVED' && desig.includes('CEO');
-      if (t === 'capf_asset_code') return action === 'APPROVED' && desig.includes('FINANCE');
+      if (t === 'capf_asset_code') return action === 'ASSET_CODE_ASSIGNED' || (action === 'APPROVED' && desig.includes('FINANCE'));
       if (t === 'capf_pr_code') return action === 'PR_CODE_ASSIGNED';
       return false;
     });
@@ -3286,6 +3369,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
 
   getDepartmentApproverIp(pipelineOrder: number, departmentId: number | undefined, approverId: number): string {
     if (!departmentId) return '';
+    if (this.isSentBackToInitiatorState()) return '';
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
     const isVirtualInitiatorStage = pipelineOrder < 0;
     const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
@@ -3296,6 +3380,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
   }
 
   getCardTimeTaken(cardIndex: number, cards: Array<{ pipeline: any; pipelineIndex: number; approverId: number | null }>): string {
+    if (this.isSentBackToInitiatorState()) return '';
     if (!cards || cardIndex <= 0 || cardIndex >= cards.length) return '';
     const prev = cards[cardIndex - 1];
     const curr = cards[cardIndex];
@@ -3501,6 +3586,23 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
     return 0;
   }
 
+  /** Full reset marker: latest explicit send-back-to-initiator action. */
+  private getSendBackToInitiatorResetTime(): number {
+    const combined = [
+      ...(Array.isArray(this.approvalHistory) ? this.approvalHistory : []),
+      ...(Array.isArray(this.priorApprovalHistory) ? this.priorApprovalHistory : [])
+    ];
+    if (combined.length === 0) return 0;
+    const sorted = [...combined].sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+    for (const e of sorted) {
+      const action = (e.action || e.status || '').toString().toUpperCase();
+      if (action === 'SENT_BACK_TO_INITIATOR') {
+        return this.getApprovalEntryTime(e);
+      }
+    }
+    return 0;
+  }
+
   /** True if the current level has already been acted upon in this round (after any send-back from higher level). */
   private isCurrentLevelHandledThisRound(): boolean {
     if (!this.approvalHistory || this.approvalHistory.length === 0) return false;
@@ -3536,6 +3638,10 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
     if (status === 'APPROVED' || status === 'REJECTED') return true;
     if (this.isCurrentLevelHandledThisRound()) return true;
     return false;
+  }
+
+  private isSentBackToInitiatorState(): boolean {
+    return (this.applicationDetails?.txtStatus || '').toString().toUpperCase() === 'SENT_BACK_TO_INITIATOR';
   }
 
   private readonly NOT_AUTHORIZED_MSG = 'You are not authorized to perform this action';
@@ -3832,7 +3938,12 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
 
   /** Get approvedDate as timestamp for sorting (earliest first) */
   private getApprovalEntryTime(e: any): number {
-    const d = e?.approvedDate;
+    const d =
+      e?.approvedDate ??
+      e?.sentBackDate ??
+      e?.actionDate ??
+      e?.createdAt ??
+      e?.updatedAt;
     if (!d) return 0;
     if (typeof d === 'number') return d;
     const t = new Date(d).getTime();
@@ -3846,6 +3957,17 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
 
     const hasIndividualPipelineFooter = this.getIndividualPipelineFooterFields().length > 0;
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel || 0;
+
+    const levelEq = (e: any, order: number): boolean => {
+      const raw = e.level ?? e.intApprovalOrder;
+      if (raw == null) return false;
+      return Number(raw) === Number(order);
+    };
+    const deptEq = (e: any, dept?: number): boolean => {
+      if (dept == null) return true;
+      if (e.departmentId == null) return false;
+      return Number(e.departmentId) === Number(dept);
+    };
 
     const matches = (pred: (e: any) => boolean): any[] => {
       return this.approvalHistory!.filter((e: any) => {
@@ -3861,20 +3983,31 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
 
     let candidates: any[] = [];
     if (departmentId) {
-      candidates = matches((e) => e.level === pipelineOrder && e.departmentId === departmentId);
+      candidates = matches((e) => levelEq(e, pipelineOrder) && deptEq(e, departmentId));
     }
-    if (candidates.length === 0) {
-      candidates = matches((e) => e.level === pipelineOrder);
+    // Never fall back to "level only" when a department is known: same approver can act at multiple
+    // stages (initiator + another HoD) and would otherwise show the wrong row on later cards.
+    if (candidates.length === 0 && !departmentId) {
+      candidates = matches((e) => levelEq(e, pipelineOrder));
     }
     if (candidates.length === 0 && departmentId && pipelineOrder < 0) {
       // Virtual CAPF initiator stage may be represented by a different "level" in stored history.
       // For real (non-negative) stages, avoid department-only fallback because it can mark
       // a later stage as approved using another stage's history.
-      candidates = matches((e) => e.departmentId === departmentId);
+      candidates = matches((e) => deptEq(e, departmentId));
     }
     if (candidates.length === 0) return null;
     // Sort by approvedDate descending and return the latest approval
     candidates.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+
+    if (this.isCapfForm() && pipelineOrder >= 0) {
+      const resetToInitiatorT = this.getSendBackToInitiatorResetTime();
+      if (resetToInitiatorT > 0) {
+        const afterReset = candidates.filter((c) => this.getApprovalEntryTime(c) > resetToInitiatorT);
+        if (afterReset.length === 0) return null;
+        return afterReset[0];
+      }
+    }
 
     if (this.isCapfForm()) {
       const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
@@ -3897,6 +4030,11 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
     const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
     const isVirtualInitiatorStage = pipelineOrder < 0;
     const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
+
+    // Keep all approval cards reset after "send back to initiator" until re-submission starts a new cycle.
+    if (overallStatus === 'SENT_BACK_TO_INITIATOR' && !isVirtualInitiatorStage) {
+      return 'PENDING';
+    }
 
     if (this.isCapfForm() && pend != null && !isVirtualInitiatorStage) {
       if (pipelineOrder > pend) return 'PENDING';
@@ -3976,6 +4114,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
 
   // Get approver name for a stage
   getStageApproverName(pipelineOrder: number, departmentId?: number): string {
+    if (this.isSentBackToInitiatorState()) return '';
     // 1. History always takes precedence (who actually approved it)
     const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
     if (entry) {
@@ -4046,6 +4185,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
 
   // Get approved via channel
   getStageApprovedVia(pipelineOrder: number, departmentId?: number): string {
+    if (this.isSentBackToInitiatorState()) return '';
     const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
     if (entry) {
       return entry.approvedIp || entry.ipAddress || entry.ip || '--';
@@ -4101,10 +4241,17 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
   getPipelineProgress(): number {
     const pipelines = this.getPipelineData();
     if (!pipelines || pipelines.length === 0) return 0;
-    const approved = pipelines.filter((p: any, i: number) =>
+    const approvedPipelineStages = pipelines.filter((p: any, i: number) =>
       this.getStageStatus(p.intApprovalOrder || (i + 1), p.hrTblDepartment?.serDepartmentId) === 'APPROVED'
     ).length;
-    return Math.round((approved / pipelines.length) * 100);
+    let totalStages = pipelines.length;
+    let approvedStages = approvedPipelineStages;
+    if (this.isCapfForm()) {
+      const capfExtraTypes = ['capf_asset_code', 'capf_pr_code'];
+      totalStages += capfExtraTypes.length;
+      approvedStages += capfExtraTypes.filter((type) => this.getCapfExtraStageStatus(type) === 'APPROVED').length;
+    }
+    return totalStages > 0 ? Math.round((approvedStages / totalStages) * 100) : 0;
   }
 
   private getStageDurationMs(index: number, pipelines: any[]): number | null {

@@ -109,28 +109,55 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
      * When a higher level sends an application back, lower level signatures must be cleared in the UI.
      * We keep the history but ignore approvals for the *target stage* that occurred before the latest send-back.
      *
-     * Example: Level 5 sends back to Level 4 → ignore old Level 4 approvals before that send-back time.
-     * IMPORTANT: Do NOT clear earlier stages (levels 1-3) — only the stage being re-approved.
+     * Backend (`CfgTblCustomFormApplicationDAO.sendBackApplication`) typically stores:
+     * - `toLevel` ≈ sender's 0-indexed CAPF level (often equals originalLevel), so recipient intApprovalOrder ≈ `toLevel - 1`
+     * - `fromLevel` = originalLevel + 1 (display)
+     * - `level` on the marker row = originalLevel + 1 → recipient stage order ≈ `level - 2`
+     * Older rows may omit toLevel; we fall back to `level` matching.
      */
     private getStageResetTime(stageOrder: number): number {
         if (!this.approvalHistory || this.approvalHistory.length === 0) return 0;
-        // CAPF virtual stage (0) is not a real approval step in history send-back targets.
         if (stageOrder <= 0) return 0;
+
         const terminalActions = ['SENT_BACK', 'SENTBACK', 'SEND_BACK', 'SENT_BACK_TO_INITIATOR'];
         let reset = 0;
+
+        const recipientMatchesMarker = (e: any, action: string): boolean => {
+            const a = action.toUpperCase();
+            const toRaw = Number(e?.toLevel ?? e?.to ?? e?.targetLevel ?? NaN);
+            const fromRaw = Number(e?.fromLevel ?? NaN);
+            const markerLvl = Number(e?.level ?? e?.intApprovalOrder ?? NaN);
+
+            if (!isNaN(toRaw) && toRaw > 0) {
+                if (toRaw - 1 === stageOrder) return true;
+                // Avoid SENT_BACK_TO_INITIATOR using toLevel=1 falsely matching Technical (stage 1)
+                if (a !== 'SENT_BACK_TO_INITIATOR' && toRaw === stageOrder) return true;
+            }
+            if (!isNaN(fromRaw) && fromRaw >= 2 && fromRaw - 2 === stageOrder) return true;
+
+            // SENT_BACK marker row: level is (originalCurrentLevel + 1) → recipient ≈ level - 2
+            if ((a === 'SENT_BACK' || a === 'SEND_BACK') && !isNaN(markerLvl) && markerLvl >= 2) {
+                if (markerLvl - 2 === stageOrder) return true;
+            }
+            return false;
+        };
+
         for (const e of this.approvalHistory) {
             if (!e) continue;
             const action = (e.action || e.status || '').toString().toUpperCase();
             if (!terminalActions.includes(action)) continue;
-            // Backend includes 1-indexed fromLevel/toLevel in SENT_BACK markers.
-            // Only reset the stage that was sent back to.
-            const toLevel = Number(e.toLevel ?? e.to ?? e.targetLevel ?? -1);
-            if (isNaN(toLevel) || toLevel <= 0) continue;
-            if (toLevel !== stageOrder) continue;
+            if (!recipientMatchesMarker(e, action)) continue;
+
             const t = this.getApprovalEntryTime(e);
             if (t > reset) reset = t;
         }
         return reset;
+    }
+
+    private levelMatchesOrder(e: any, order: number): boolean {
+        const lv = e?.level ?? e?.intApprovalOrder;
+        if (lv == null) return false;
+        return Number(lv) === Number(order);
     }
 
     // Session storage key for persistence across page refresh/new tabs
@@ -337,7 +364,8 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
                 allEntries = this.getApprovalEntriesForPipeline(order, departmentId);
             }
             if (allEntries.length === 0 && slot) {
-                allEntries = this.getApprovalEntriesForSlot(slot);
+                // Use pipeline intApprovalOrder for send-back reset, not a random first history match
+                allEntries = this.getApprovalEntriesForSlot(slot, order);
             }
 
             // Cross-slot deduplication to prevent the same signature appearing in multiple columns
@@ -410,7 +438,7 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         return entries[0] || null;
     }
 
-    private getApprovalEntriesForSlot(slot: { label: string, keywords: string[] }): any[] {
+    private getApprovalEntriesForSlot(slot: { label: string, keywords: string[] }, pipelineOrderHint?: number): any[] {
         if (!this.approvalHistory || this.approvalHistory.length === 0) {
             return [];
         }
@@ -452,7 +480,9 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         });
         if (byDept.length > 0) {
             const lvlGuess = byDept[0]?.level ?? byDept[0]?.intApprovalOrder;
-            const stageOrder = lvlGuess != null && !isNaN(Number(lvlGuess)) ? Number(lvlGuess) : 0;
+            const guessed = lvlGuess != null && !isNaN(Number(lvlGuess)) ? Number(lvlGuess) : 0;
+            const stageOrder =
+                pipelineOrderHint != null && !isNaN(Number(pipelineOrderHint)) ? Number(pipelineOrderHint) : guessed;
             if (this.shouldHideStageSignatures(stageOrder)) return [];
             const resetTime = this.getStageResetTime(stageOrder);
             const filtered = resetTime > 0 ? byDept.filter((e: any) => this.getApprovalEntryTime(e) >= resetTime) : byDept;
@@ -489,12 +519,12 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         let entries: any[] = [];
         if (departmentId) {
             entries = this.approvalHistory.filter((e: any) =>
-                (e.level === order || e.intApprovalOrder === order) &&
+                this.levelMatchesOrder(e, order) &&
                 (Number(e.departmentId) === Number(departmentId) || Number(e.serDepartmentId) === Number(departmentId))
             );
         }
         if (entries.length === 0) {
-            entries = this.approvalHistory.filter((e: any) => e.level === order || e.intApprovalOrder === order);
+            entries = this.approvalHistory.filter((e: any) => this.levelMatchesOrder(e, order));
         }
         if (entries.length === 0 && departmentId) {
             entries = this.approvalHistory.filter((e: any) =>

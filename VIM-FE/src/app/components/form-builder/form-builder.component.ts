@@ -41,6 +41,7 @@ interface CustomForm {
   cfgTblCustomFormApprovalPipelines?: any[];
   createdAt?: Date;
   dteCreatedDate?: Date;
+  txtUserIds?: string;
 }
 
 @Component({
@@ -77,6 +78,7 @@ export class FormBuilderComponent implements OnInit {
     { field: 'name', title: 'Form Name' },
     { field: 'txtFormCode', title: 'Form Code' },
     { field: 'fieldCount', title: 'Fields' },
+    { field: 'userCount', title: 'Assigned Users' },
     { field: 'createdAt', title: 'Created Date' },
     { field: 'actions', title: 'Actions', sort: false, headerClass: 'justify-center' },
   ];
@@ -214,6 +216,7 @@ export class FormBuilderComponent implements OnInit {
     this.formBuilderForm = this.fb.group({
       formName: ['', Validators.required],
       convention: [''], // Convention prefix (e.g., "CAPF", "PRC")
+      selectedUsers: [[]], // Users who can access/use this form
       fields: this.fb.array([])
     });
   }
@@ -361,7 +364,8 @@ export class FormBuilderComponent implements OnInit {
         intApprovalOrder: index + 1,
         txtDepartmentName: p.type === 'department' ? (p.hrTblDepartment?.txtDepartmentName ?? this.departments.find((d: any) => d.serDepartmentId === p.serDepartmentId)?.txtDepartmentName) : null,
         txtUserName: p.type === 'individual' ? (p.hrTblUser?.txtUserName ?? this.allUsers.find((u: any) => (u.serUserId ?? u.userId) === (p.serUserId ?? p.hrTblUser?.serUserId))?.txtUserName) : null
-      })))
+      }))),
+      txtUserIds: formData.selectedUsers && formData.selectedUsers.length > 0 ? formData.selectedUsers.join(',') : null
     };
 
     // If editing, include the form ID
@@ -412,7 +416,8 @@ export class FormBuilderComponent implements OnInit {
             })),
             approvalPipelines: this.parseApprovalPipelinesFromForm(form),
             createdAt: form.dteCreatedDate ? new Date(form.dteCreatedDate) : new Date(),
-            dteCreatedDate: form.dteCreatedDate
+            dteCreatedDate: form.dteCreatedDate,
+            txtUserIds: form.txtUserIds
           }));
         }
       },
@@ -452,7 +457,8 @@ export class FormBuilderComponent implements OnInit {
     
     this.formBuilderForm.patchValue({
       formName: form.name || form.txtFormName,
-      convention: form.txtConventionPrefix || ''
+      convention: form.txtConventionPrefix || '',
+      selectedUsers: form.txtUserIds ? form.txtUserIds.split(',').map((id: string) => Number(id)) : []
     });
 
     // Clear existing fields
@@ -507,6 +513,11 @@ export class FormBuilderComponent implements OnInit {
 
   getFieldCount(form: CustomForm): number {
     return form.fields.length;
+  }
+
+  getUserCount(form: CustomForm): number {
+    if (!form.txtUserIds) return 0;
+    return form.txtUserIds.split(',').filter((id: string) => id.trim().length > 0).length;
   }
 
   parseApprovalPipelinesFromForm(form: any): ApprovalPipeline[] {

@@ -75,13 +75,6 @@ interface FormField {
   txtFieldOptions?: string;
 }
 
-interface GenericPreviewBlock {
-  key: string;
-  field: FormField;
-  showLabel: boolean;
-  wordEditorChunkHtml?: string;
-}
-
 interface IndividualPipelineFooterField {
   key: string;
   label: string;
@@ -119,10 +112,6 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   @ViewChild(BudgetApprovalComponent) budgetApprovalCmp?: BudgetApprovalComponent;
   @ViewChild('previewCanvas') previewCanvas?: ElementRef<HTMLElement>;
   @ViewChild('previewScale') previewScale?: ElementRef<HTMLElement>;
-  @ViewChild('genericMeasurePaper') genericMeasurePaper?: ElementRef<HTMLElement>;
-  @ViewChild('genericMeasureHeader') genericMeasureHeader?: ElementRef<HTMLElement>;
-  @ViewChild('genericMeasureContent') genericMeasureContent?: ElementRef<HTMLElement>;
-  @ViewChild('genericMeasureFooter') genericMeasureFooter?: ElementRef<HTMLElement>;
   search = '';
   customForms: CustomForm[] = [];
   selectedForm: CustomForm | null = null;
@@ -171,8 +160,13 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   };
   private previewFitPending = false;
   private previewFitFrame: number | null = null;
-  private genericPreviewPages: GenericPreviewBlock[][] = [];
+  /** Paginated generic preview: each page is plain-text lines (fixed count per page). */
+  private genericPreviewLinePages: string[][] = [];
   private genericPreviewLayoutSignature = '';
+  /** Content lines per A4 sheet (body only; header/footer are outside this count). */
+  static readonly GENERIC_PREVIEW_LINES_PER_PAGE = 38;
+  /** Approximate wrap width for long unbroken lines (~A4 content width). */
+  static readonly GENERIC_PREVIEW_MAX_CHARS_PER_LINE = 88;
   private lastFocusedTableCellByEditor = new WeakMap<any, HTMLTableCellElement>();
   private async buildAttachmentPayload(file: File): Promise<{ fileName: string; mimeType: string; dataUrl: string; base64: string }> {
     return new Promise((resolve, reject) => {
@@ -285,7 +279,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   loadForms() {
-    this.customFormService.getAll().subscribe(
+    this.customFormService.getActive().subscribe(
       (data: any) => {
         if (data) {
           // Map backend entities to frontend interface
@@ -459,7 +453,9 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     const availableWidth = Math.max(canvasEl.clientWidth - horizontalSafeInset, 0);
     const renderableWidth = Math.max(availableWidth - horizontalPadding, 0);
     const naturalWidth = Math.max(previewContentEl.scrollWidth || previewContentEl.offsetWidth, 0);
-    const naturalHeight = Math.max(previewContentEl.scrollHeight || previewContentEl.offsetHeight, 0);
+    // scrollHeight can under-report a column of fixed-height .xyz-paper pages after transform/layout,
+    // which clips middle sheets inside .app-preview-canvas (overflow hidden). Prefer last child bottom.
+    const naturalHeight = this.getPreviewContentNaturalHeight(previewContentEl);
 
     if (!renderableWidth || !naturalWidth || !naturalHeight) {
       return;
@@ -489,157 +485,69 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     return null;
   }
 
+  /** Total stacked height for multi-page preview; avoids scrollHeight / offsetTop gaps after scale transforms. */
+  private getPreviewContentNaturalHeight(el: HTMLElement): number {
+    const base = Math.max(el.scrollHeight || 0, el.offsetHeight || 0);
+    const children = el.children;
+    if (!children.length) {
+      return Math.max(base, 1);
+    }
+
+    let sumHeights = 0;
+    for (let i = 0; i < children.length; i++) {
+      const c = children[i] as HTMLElement;
+      sumHeights += Math.max(c.offsetHeight, c.getBoundingClientRect().height);
+    }
+    if (children.length > 1) {
+      const cs = window.getComputedStyle(el);
+      const gapRaw = cs.rowGap || cs.columnGap || cs.gap || '0px';
+      const gapPx = parseFloat(gapRaw) || 0;
+      sumHeights += gapPx * (children.length - 1);
+    }
+
+    const last = children[children.length - 1] as HTMLElement;
+    const stackedBottom = last.offsetTop + last.offsetHeight;
+    return Math.max(base, sumHeights, stackedBottom, 1);
+  }
+
   /** Paginated A4 preview for all generic forms (not budget/CAPF). */
   shouldUsePaginatedGenericPreview(): boolean {
     return !this.showBudgetApproval && !this.isCapfSelected() && !!this.selectedForm;
   }
 
-  getGenericPreviewBlocks(): GenericPreviewBlock[] {
-    return this.buildGenericPreviewBlocks(this.getGenericPreviewFields());
-  }
-
-  getGenericPreviewFieldPages(): GenericPreviewBlock[][] {
+  /** One A4 sheet = up to N plain-text lines; next line starts the next page immediately. */
+  getGenericPreviewLinePages(): string[][] {
     if (!this.shouldUsePaginatedGenericPreview()) {
-      return [this.getGenericPreviewBlocks()];
+      return [['']];
     }
-    if (this.genericPreviewPages.length === 0) {
-      return [this.getGenericPreviewBlocks()];
+    if (this.genericPreviewLinePages.length > 0) {
+      return this.genericPreviewLinePages;
     }
-    return this.genericPreviewPages;
+    const lines = this.buildGenericPreviewFlatLines(this.getGenericPreviewFields());
+    return this.chunkLinesIntoPages(lines, ApplicationComponent.GENERIC_PREVIEW_LINES_PER_PAGE);
   }
 
   private rebuildGenericPreviewPagesIfNeeded(): void {
     if (!this.shouldUsePaginatedGenericPreview()) {
-      const singlePage = this.getGenericPreviewBlocks();
       this.genericPreviewLayoutSignature = '';
-      if (this.genericPreviewPages.length !== 1 || this.genericPreviewPages[0] !== singlePage) {
-        this.genericPreviewPages = [singlePage];
-      }
+      this.genericPreviewLinePages = [];
       return;
     }
 
     const fields = this.getGenericPreviewFields();
-    const blocks = this.buildGenericPreviewBlocks(fields);
-    const paperEl = this.genericMeasurePaper?.nativeElement;
-    const headerEl = this.genericMeasureHeader?.nativeElement;
-    const contentEl = this.genericMeasureContent?.nativeElement;
-    const footerEl = this.genericMeasureFooter?.nativeElement;
-    const signature = this.buildGenericPreviewLayoutSignature(fields, blocks);
+    const signature = this.buildGenericPreviewLayoutSignature(fields);
 
-    if (signature === this.genericPreviewLayoutSignature && this.genericPreviewPages.length > 0 && paperEl && headerEl && contentEl && footerEl) {
+    if (signature === this.genericPreviewLayoutSignature && this.genericPreviewLinePages.length > 0) {
       return;
     }
 
-    if (!paperEl || !headerEl || !contentEl || !footerEl) {
-      this.genericPreviewPages = [blocks];
-      this.genericPreviewLayoutSignature = signature;
-      return;
-    }
-
-    const styles = window.getComputedStyle(paperEl);
-    const minHeightPx = parseFloat(styles.minHeight || '0') || this.mmToPx(297);
-    const paddingTopPx = parseFloat(styles.paddingTop || '0') || 0;
-    const paddingBottomPx = parseFloat(styles.paddingBottom || '0') || 0;
-    const pageContentHeight = Math.max(minHeightPx - paddingTopPx - paddingBottomPx, 200);
-
-    const headerHeight = Math.max(headerEl.getBoundingClientRect().height, 0);
-    const footerHeight = Math.max(footerEl.getBoundingClientRect().height, 0);
-
-    const firstPageContentHeight = Math.max(pageContentHeight - headerHeight, pageContentHeight * 0.3);
-    const middlePageContentHeight = pageContentHeight;
-    const lastPageContentHeight = Math.max(pageContentHeight - footerHeight, pageContentHeight * 0.3);
-
-    const measureBlocks = Array.from(contentEl.querySelectorAll('.xyz-measure-field-block')) as HTMLElement[];
-    if (!measureBlocks.length || measureBlocks.length !== blocks.length) {
-      this.genericPreviewPages = [blocks];
-      this.genericPreviewLayoutSignature = signature;
-      return;
-    }
-
-    const blockHeights = measureBlocks.map((blockEl: HTMLElement) => {
-      const blockStyle = window.getComputedStyle(blockEl);
-      const marginTop = parseFloat(blockStyle.marginTop || '0') || 0;
-      const marginBottom = parseFloat(blockStyle.marginBottom || '0') || 0;
-      return Math.max(Math.ceil(blockEl.getBoundingClientRect().height + marginTop + marginBottom) + 1, 1);
-    });
-
-    const pagedFields = this.chunkFieldsIntoPages(
-      blocks,
-      blockHeights,
-      firstPageContentHeight,
-      middlePageContentHeight,
-      lastPageContentHeight
-    );
-
-    this.genericPreviewPages = pagedFields;
+    const lines = this.buildGenericPreviewFlatLines(fields);
+    const pages = this.chunkLinesIntoPages(lines, ApplicationComponent.GENERIC_PREVIEW_LINES_PER_PAGE);
+    this.genericPreviewLinePages = pages.length > 0 ? pages : [['-']];
     this.genericPreviewLayoutSignature = signature;
   }
 
-  private chunkFieldsIntoPages(
-    blocks: GenericPreviewBlock[],
-    blockHeights: number[],
-    firstPageCapacity: number,
-    middlePageCapacity: number,
-    lastPageCapacity: number
-  ): GenericPreviewBlock[][] {
-    if (!blocks.length || blocks.length !== blockHeights.length) {
-      return [blocks];
-    }
-
-    const pages: number[][] = [[]];
-    const pageHeights: number[] = [0];
-    let currentPageIndex = 0;
-
-    const getRegularPageCapacity = (pageIndex: number): number => pageIndex === 0 ? firstPageCapacity : middlePageCapacity;
-
-    blocks.forEach((_: GenericPreviewBlock, fieldIndex: number) => {
-      const blockHeight = blockHeights[fieldIndex];
-      const pageCapacity = getRegularPageCapacity(currentPageIndex);
-      const nextHeight = pageHeights[currentPageIndex] + blockHeight;
-      if (pages[currentPageIndex].length > 0 && nextHeight > pageCapacity) {
-        pages.push([]);
-        pageHeights.push(0);
-        currentPageIndex += 1;
-      }
-      pages[currentPageIndex].push(fieldIndex);
-      pageHeights[currentPageIndex] += blockHeight;
-    });
-
-    const footerReserve = Math.max(middlePageCapacity - lastPageCapacity, 0);
-    const getLastPageAllowedHeight = (): number =>
-      pages.length === 1
-        ? Math.max(firstPageCapacity - footerReserve, firstPageCapacity * 0.25)
-        : lastPageCapacity;
-
-    let safetyCounter = 0;
-    while (safetyCounter < blocks.length * 2) {
-      const lastPageIndex = pages.length - 1;
-      const allowedHeight = getLastPageAllowedHeight();
-      if (pageHeights[lastPageIndex] <= allowedHeight) {
-        break;
-      }
-
-      if (pages[lastPageIndex].length <= 1) {
-        break;
-      }
-
-      const movedToNextPage: number[] = [];
-      while (pageHeights[lastPageIndex] > allowedHeight && pages[lastPageIndex].length > 1) {
-        const movedFieldIndex = pages[lastPageIndex].pop() as number;
-        movedToNextPage.unshift(movedFieldIndex);
-        pageHeights[lastPageIndex] -= blockHeights[movedFieldIndex];
-      }
-
-      const movedHeight = movedToNextPage.reduce((sum: number, idx: number) => sum + blockHeights[idx], 0);
-      pages.push(movedToNextPage);
-      pageHeights.push(movedHeight);
-      safetyCounter += 1;
-    }
-
-    return pages.map((pageFieldIndices: number[]) => pageFieldIndices.map((idx: number) => blocks[idx]));
-  }
-
-  private buildGenericPreviewLayoutSignature(fields: FormField[], blocks: GenericPreviewBlock[]): string {
+  private buildGenericPreviewLayoutSignature(fields: FormField[]): string {
     const fieldValues = fields.map((field: FormField) => {
       const key = this.getFieldName(field.label);
       const value = this.applicationForm?.get(key)?.value;
@@ -667,94 +575,142 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       String(this.selectedForm?.serFormId || ''),
       this.getDocumentHeaderPreviewValue(),
       fieldValues.join('|'),
-      String(blocks.length),
+      String(ApplicationComponent.GENERIC_PREVIEW_LINES_PER_PAGE),
       footerSignature
     ].join('::');
   }
 
-  private buildGenericPreviewBlocks(fields: FormField[]): GenericPreviewBlock[] {
-    const blocks: GenericPreviewBlock[] = [];
+  /** Flatten form body to plain lines in field order (word editor → lines; tables → one line per row). */
+  private buildGenericPreviewFlatLines(fields: FormField[]): string[] {
+    const lines: string[] = [];
+    const maxChars = ApplicationComponent.GENERIC_PREVIEW_MAX_CHARS_PER_LINE;
 
-    fields.forEach((field: FormField, index: number) => {
-      if (!this.isWordEditorType(field.type)) {
-        blocks.push({
-          key: `f_${index}_${this.getFieldName(field.label)}`,
-          field,
-          showLabel: !this.isFormNameLabel(field.label)
-        });
-        return;
+    for (const field of fields) {
+      if (this.isWordEditorType(field.type)) {
+        if (!this.isFormNameLabel(field.label)) {
+          lines.push(`${field.label}:`);
+        }
+        const raw = this.getPreviewFieldValue(field);
+        lines.push(...this.wordEditorHtmlToPlainLines(raw === null || raw === undefined ? '' : String(raw)));
+        lines.push('');
+        continue;
       }
 
-      const rawValue = this.getPreviewFieldValue(field);
-      const normalizedHtml = rawValue === null || rawValue === undefined || rawValue === ''
-        ? '<p>-</p>'
-        : this.normalizeWordEditorHtmlForDisplay(String(rawValue));
-      const chunks = this.splitWordEditorHtmlIntoChunks(normalizedHtml);
+      if (this.isTableType(field.type)) {
+        if (!this.isFormNameLabel(field.label)) {
+          lines.push(`${field.label}:`);
+        }
+        const rows = this.getPreviewTableValue(field);
+        if (rows.length === 0) {
+          lines.push('-');
+        } else {
+          rows.forEach((row: any[], rowIndex: number) => {
+            const rowLine = `${this.getTableRowLabel(field, rowIndex)} | ${row.map((c) => c ?? '-').join(' | ')}`;
+            lines.push(...this.wrapPlainLineToLineSegments(rowLine, maxChars));
+          });
+        }
+        lines.push('');
+        continue;
+      }
 
-      chunks.forEach((chunkHtml: string, chunkIndex: number) => {
-        blocks.push({
-          key: `f_${index}_${this.getFieldName(field.label)}_w_${chunkIndex}`,
-          field,
-          showLabel: chunkIndex === 0 && !this.isFormNameLabel(field.label),
-          wordEditorChunkHtml: chunkHtml
-        });
+      if (!this.isFormNameLabel(field.label)) {
+        lines.push(`${field.label}:`);
+      }
+      const display = this.getPreviewFieldDisplayValue(field);
+      const parts = String(display).split(/\r?\n/);
+      parts.forEach((part) => {
+        const t = part.trimEnd();
+        if (t === '') {
+          lines.push('');
+        } else {
+          lines.push(...this.wrapPlainLineToLineSegments(t, maxChars));
+        }
       });
-    });
+      lines.push('');
+    }
 
-    return blocks;
+    while (lines.length && lines[lines.length - 1] === '') {
+      lines.pop();
+    }
+    return lines.length ? lines : ['-'];
   }
 
-  private splitWordEditorHtmlIntoChunks(html: string, maxChunkChars: number = 2200): string[] {
-    if (!html) {
-      return ['<p>-</p>'];
+  private chunkLinesIntoPages(lines: string[], linesPerPage: number): string[][] {
+    const n = Math.max(1, Math.floor(linesPerPage));
+    if (lines.length === 0) {
+      return [['-']];
     }
-
-    const wrapper = document.createElement('div');
-    wrapper.innerHTML = html;
-    const nodes = Array.from(wrapper.childNodes).filter((node: ChildNode) => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        return !!(node.textContent || '').trim();
-      }
-      return true;
-    });
-
-    if (nodes.length <= 1) {
-      return [html];
+    const pages: string[][] = [];
+    for (let i = 0; i < lines.length; i += n) {
+      pages.push(lines.slice(i, i + n));
     }
+    return pages;
+  }
 
-    const chunks: string[] = [];
-    let current = '';
+  /** Word editor HTML → plain lines (newlines from &lt;br&gt;, &lt;/p&gt;, etc.), then wrap long lines. */
+  private wordEditorHtmlToPlainLines(html: string): string[] {
+    if (!html || !String(html).trim()) {
+      return ['-'];
+    }
+    const normalized = this.normalizeWordEditorHtmlForDisplay(String(html));
+    const withBreaks = normalized
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<\/div>/gi, '\n')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<\/tr>/gi, '\n')
+      .replace(/<\/h[1-6]>/gi, '\n');
 
-    nodes.forEach((node: ChildNode) => {
-      const serialized = node.nodeType === Node.ELEMENT_NODE
-        ? (node as HTMLElement).outerHTML
-        : `<p>${this.escapeHtml(node.textContent || '')}</p>`;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = withBreaks.replace(/<[^>]+>/g, ' ');
+    const plain = (tmp.textContent || tmp.innerText || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\r/g, '');
 
-      if (!current) {
-        current = serialized;
-        return;
+    const rawLines = plain.split('\n').map((l) => l.replace(/\s+$/g, ''));
+    const out: string[] = [];
+    const maxChars = ApplicationComponent.GENERIC_PREVIEW_MAX_CHARS_PER_LINE;
+
+    for (const raw of rawLines) {
+      if (raw === '') {
+        out.push('');
+        continue;
       }
+      out.push(...this.wrapPlainLineToLineSegments(raw, maxChars));
+    }
+    return out.length ? out : ['-'];
+  }
 
-      if ((current.length + serialized.length) > maxChunkChars) {
-        chunks.push(current);
-        current = serialized;
+  /** Split a long line into visual lines (~chars per line) without waiting for HTML packets. */
+  private wrapPlainLineToLineSegments(text: string, maxChars: number): string[] {
+    const t = text.trim();
+    if (!t) {
+      return [];
+    }
+    if (t.length <= maxChars) {
+      return [t];
+    }
+    const out: string[] = [];
+    let remaining = t;
+    while (remaining.length > 0) {
+      if (remaining.length <= maxChars) {
+        out.push(remaining);
+        break;
+      }
+      let slice = remaining.slice(0, maxChars);
+      const lastSpace = slice.lastIndexOf(' ');
+      if (lastSpace > maxChars / 3) {
+        slice = remaining.slice(0, lastSpace);
+        remaining = remaining.slice(lastSpace).trimStart();
       } else {
-        current += serialized;
+        slice = remaining.slice(0, maxChars);
+        remaining = remaining.slice(maxChars);
       }
-    });
-
-    if (current) {
-      chunks.push(current);
+      out.push(slice);
     }
-
-    return chunks.length > 0 ? chunks : [html];
-  }
-
-  getPreviewWordEditorBlockHtml(block: GenericPreviewBlock): SafeHtml {
-    if (block.wordEditorChunkHtml !== undefined) {
-      return this.sanitizer.bypassSecurityTrustHtml(block.wordEditorChunkHtml);
-    }
-    return this.getPreviewWordEditorValue(block.field);
+    return out;
   }
 
   private mmToPx(mm: number): number {
@@ -1066,6 +1022,12 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   isWordEditorType(fieldType: string | undefined): boolean {
     const normalizedType = (fieldType || '').toLowerCase().replace(/\s+/g, '_');
     return normalizedType === 'word_editor' || normalizedType === 'wordeditor' || normalizedType === 'rich_text' || normalizedType === 'richtext';
+  }
+
+  /** Defer preview pagination so the form control and measure DOM match Quill's latest HTML. */
+  onWordEditorQuillContentChanged(): void {
+    if (typeof window === 'undefined') return;
+    setTimeout(() => this.requestPreviewFit(), 0);
   }
 
   onWordEditorCreated(fieldName: string, editor: any): void {
@@ -2003,19 +1965,41 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     const formName = (form?.txtFormName || form?.name || application?.cfgTblCustomForm?.txtFormName || '').trim();
     const formCode = (application?.txtFormCode || this.generatedApplicationCode || form?.txtFormCode || '').trim();
 
-    const htmlContent = this.applicationPdfService.buildPdfHtmlForApplication(
-      application,
-      form,
-      formFields,
-      formData,
-      { formName, txtFormCode: formCode }
-    );
-    if (!htmlContent) {
-      throw new Error('PDF HTML generation failed');
-    }
-
     const filename = `application_${formCode || applicationId}.pdf`;
-    const pdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(htmlContent, filename);
+
+    let pdfBlob: Blob;
+    const individualFooter = this.getPreviewIndividualFooterField();
+    if (individualFooter && !this.isCapfSelected()) {
+      const previewPages = document.querySelector('.app-preview-pages') as HTMLElement | null;
+      const paperCount = previewPages ? previewPages.querySelectorAll('.xyz-paper').length : 0;
+      if (previewPages && paperCount > 0) {
+        pdfBlob = await this.applicationPdfService.renderMultiPageXyzPapersToPdfBlob(previewPages);
+      } else {
+        const htmlContent = this.applicationPdfService.buildPdfHtmlForApplication(
+          application,
+          form,
+          formFields,
+          formData,
+          { formName, txtFormCode: formCode }
+        );
+        if (!htmlContent) {
+          throw new Error('PDF HTML generation failed');
+        }
+        pdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(htmlContent, filename);
+      }
+    } else {
+      const htmlContent = this.applicationPdfService.buildPdfHtmlForApplication(
+        application,
+        form,
+        formFields,
+        formData,
+        { formName, txtFormCode: formCode }
+      );
+      if (!htmlContent) {
+        throw new Error('PDF HTML generation failed');
+      }
+      pdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(htmlContent, filename);
+    }
     const pdfResponse: any = await firstValueFrom(
       this.customFormApplicationService.updateApplicationPdf(applicationId, pdfBlob, filename)
     );

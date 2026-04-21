@@ -74,7 +74,9 @@
     display: flex;
     align-items: flex-start;
     justify-content: flex-start;
-    overflow: hidden;
+    /* Allow vertical paint past the scale host when transform scale reserves a shorter box; hidden clipped middle pages. */
+    overflow-x: hidden;
+    overflow-y: visible;
     width: 100%;
     box-sizing: border-box;
 }
@@ -123,6 +125,21 @@
     flex: 1 1 0;
     min-height: 0;
     overflow: hidden;
+}
+
+/* Line-based generic preview: one DOM row per logical line (fixed lines per page). */
+.xyz-generic-content--line-pages {
+    font-family: "Times New Roman", Times, serif;
+    font-size: 13.5px;
+    line-height: 1.35;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.xyz-preview-line {
+    min-height: 1.35em;
+    margin: 0;
+    padding: 0;
 }
 
 .app-preview-measure {

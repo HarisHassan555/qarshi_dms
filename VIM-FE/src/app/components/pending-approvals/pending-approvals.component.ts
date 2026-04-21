@@ -1,7 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
-import { CustomFormService } from '../../services/custom-form/custom-form.service';
 import { NotificationService } from 'src/app/NotificationService';
 import { finalize } from 'rxjs/operators';
 
@@ -24,7 +23,6 @@ interface Application {
 export class PendingApprovalsComponent implements OnInit {
   search = '';
   pendingApprovals: Application[] = [];
-  forms: any[] = [];
   currentUser: any;
   isLoading = false;
 
@@ -38,7 +36,6 @@ export class PendingApprovalsComponent implements OnInit {
 
   constructor(
     private customFormApplicationService: CustomFormApplicationService,
-    private customFormService: CustomFormService,
     private notificationService: NotificationService,
     private router: Router
   ) {}
@@ -48,21 +45,7 @@ export class PendingApprovalsComponent implements OnInit {
     if (userJson) {
       this.currentUser = JSON.parse(userJson);
     }
-    this.loadForms();
     this.loadPendingApprovals();
-  }
-
-  loadForms() {
-    this.customFormService.getAll().subscribe(
-      (data: any) => {
-        if (data) {
-          this.forms = data;
-        }
-      },
-      (error) => {
-        this.notificationService.showMessage('Error loading forms: ' + (error.error?.message || error.message), 'danger');
-      }
-    );
   }
 
   loadPendingApprovals() {
@@ -94,10 +77,6 @@ export class PendingApprovalsComponent implements OnInit {
   getFormName(app: any): string {
     if (app.cfgTblCustomForm && app.cfgTblCustomForm.txtFormName) {
       return app.cfgTblCustomForm.txtFormName;
-    }
-    if (app.serFormId && this.forms && this.forms.length > 0) {
-      const form = this.forms.find(f => f.serFormId === app.serFormId);
-      if (form && form.txtFormName) return form.txtFormName;
     }
     return app.serFormId ? 'Unknown Form' : 'N/A';
   }

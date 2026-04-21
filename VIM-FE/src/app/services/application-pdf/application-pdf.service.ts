@@ -523,6 +523,75 @@ export class ApplicationPdfService {
     return pdf.output('blob');
   }
 
+  /**
+   * Multi-page PDF from the same DOM structure as /application and /application-details previews:
+   * one PDF page per `.xyz-paper` (measured A4 pagination for general forms with individual pipeline footer).
+   * Matches {@link ApplicationDetailsComponent.generatePdf} non-CAPF path so stored PDF/email previews align with on-screen line breaks.
+   * Do not use for CAPF.
+   */
+  async renderMultiPageXyzPapersToPdfBlob(container: HTMLElement): Promise<Blob> {
+    const papers = Array.from(container.querySelectorAll('.xyz-paper')) as HTMLElement[];
+    if (papers.length === 0) {
+      throw new Error('No .xyz-paper pages found for multi-page PDF capture');
+    }
+
+    const [html2canvasModule, jsPDFModule] = await Promise.all([
+      import('html2canvas'),
+      import('jspdf')
+    ]);
+    const html2canvas = (html2canvasModule.default || html2canvasModule) as any;
+    const jsPDF = (jsPDFModule.default || jsPDFModule) as any;
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+      compress: true
+    });
+    const PDF_WIDTH = 210;
+    const PDF_HEIGHT = 297;
+    const pxToMm = (px: number) => (px * 25.4) / 96;
+
+    for (let i = 0; i < papers.length; i++) {
+      const target = papers[i];
+      const rect = target.getBoundingClientRect();
+      const contentWidthPx = rect.width || target.scrollWidth;
+      const contentHeightPx = rect.height || target.scrollHeight;
+      const contentWidthMm = pxToMm(contentWidthPx);
+      const contentHeightMm = pxToMm(contentHeightPx);
+      const availableWidth = PDF_WIDTH;
+      const availableHeight = PDF_HEIGHT;
+      const scaleByWidth = availableWidth / contentWidthMm;
+      const scaleByHeight = availableHeight / contentHeightMm;
+      const finalScale = contentHeightMm * scaleByWidth <= availableHeight ? scaleByWidth : scaleByHeight;
+      const imgWidth = contentWidthMm * finalScale;
+      const imgHeight = contentHeightMm * finalScale;
+      const xOffset = (PDF_WIDTH - imgWidth) / 2;
+      const yOffset = (PDF_HEIGHT - imgHeight) / 2;
+
+      const canvas = await html2canvas(target, {
+        scale: 3,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        width: target.scrollWidth,
+        height: target.scrollHeight,
+        windowWidth: target.scrollWidth,
+        windowHeight: target.scrollHeight
+      });
+
+      if (i > 0) {
+        pdf.addPage('a4', 'portrait');
+      }
+      const imgData = canvas.toDataURL('image/jpeg', 0.98);
+      pdf.addImage(imgData, 'JPEG', xOffset, yOffset, imgWidth, imgHeight);
+    }
+
+    return pdf.output('blob');
+  }
+
   private isBudgetApprovalFormMeta(applicationMeta?: { formName?: string; txtFormCode?: string }): boolean {
     const name = (applicationMeta?.formName || '').replace(/\s+/g, ' ').toUpperCase();
     const code = (applicationMeta?.txtFormCode || '').toUpperCase();

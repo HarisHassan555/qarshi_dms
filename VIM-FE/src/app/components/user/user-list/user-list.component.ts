@@ -29,7 +29,7 @@ export class UserListComponent implements OnInit {
 
   cols = [
     { field: 'txtUserName', title: 'Username' },
-    { field: 'txtCnic', title: 'CNIC', width: '160px' },
+    { field: 'txtCnic', title: 'Employee ID', width: '160px' },
     { field: 'txtContactNo', title: 'Contact Number', width: '160px' },
     { field: 'cfgTblRole.txtRoleName', title: 'Role', width: '120px' },
     { field: 'txtAddress', title: 'Email' },
@@ -50,7 +50,8 @@ export class UserListComponent implements OnInit {
       serUserId: [''],
       txtUserName: ['', Validators.required],
       txtAddress: ['', [Validators.required, Validators.email]], // Correct email validation
-      txtCnic: ['', [Validators.required, Validators.pattern(/^\d{5}-\d{7}-\d{1}$/)], this.asyncCnicValidator()],
+      // Keep txtCnic as payload key for backend compatibility, but use it as Employee ID in UI.
+      txtCnic: ['', [Validators.required], this.asyncCnicValidator()],
       cfgTblRole: this.fb.group({
         serRoleId: ['', Validators.required]
       }),
@@ -157,6 +158,13 @@ export class UserListComponent implements OnInit {
     if (this.form.invalid) return;
     let payload = this.form.value;
 
+    if (this.isUsernameDuplicate(payload.txtUserName, payload.serUserId)) {
+      const usernameControl = this.form.controls['txtUserName'];
+      usernameControl.setErrors({ ...(usernameControl.errors || {}), duplicate: true });
+      this.notificationService.showMessage('Username already exists. Please choose a different username', 'danger');
+      return;
+    }
+
     if (payload.serUserId) {
       // payload.blnStatus = this.blnStatus;
       payload.blIsDeleted = false;
@@ -262,5 +270,22 @@ export class UserListComponent implements OnInit {
   checkCnic(cnic: string): boolean {
     const existingCnics = ['12345-1234567-1', '67890-9876543-2'];
     return !existingCnics.includes(cnic);
+  }
+
+  private normalizeUsername(value: string): string {
+    return (value || '').trim().toLowerCase();
+  }
+
+  private isUsernameDuplicate(username: string, currentUserId?: number): boolean {
+    if (!Array.isArray(this.users)) return false;
+    const normalized = this.normalizeUsername(username);
+    if (!normalized) return false;
+
+    return this.users.some((user: any) => {
+      const userName = this.normalizeUsername(user?.txtUserName || '');
+      const userId = Number(user?.serUserId || 0);
+      const editingUserId = Number(currentUserId || 0);
+      return userName === normalized && userId !== editingUserId;
+    });
   }
 }

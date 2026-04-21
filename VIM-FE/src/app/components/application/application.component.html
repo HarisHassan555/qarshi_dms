@@ -163,6 +163,7 @@
                                 <div *ngIf="isWordEditorType(field.type)" class="md:col-span-2">
                                     <quill-editor [formControlName]="getFieldName(field.label)"
                                         (onEditorCreated)="onWordEditorCreated(getFieldName(field.label), $event)"
+                                        (onContentChanged)="onWordEditorQuillContentChanged()"
                                         [modules]="wordEditorModules"
                                         [styles]="{height: '280px'}"
                                         [placeholder]="field.placeholder || 'Enter details, bullet points, headings...'">
@@ -556,7 +557,7 @@
                             <div class="app-preview-canvas" #previewCanvas>
                                 <div class="app-preview-scale" #previewScale>
                                     <div class="app-preview-pages">
-                                        <div class="xyz-paper app-preview-paper-a4" *ngFor="let pageFields of getGenericPreviewFieldPages(); let pageIndex = index; let isLast = last">
+                                        <div class="xyz-paper app-preview-paper-a4" *ngFor="let pageLines of getGenericPreviewLinePages(); let pageIndex = index; let isLast = last">
                                             <ng-container *ngIf="pageIndex === 0">
                                                 <div class="xyz-date-row">
                                                     <div class="xyz-date">Date: {{ previewDate }}</div>
@@ -578,30 +579,8 @@
                                                 <div class="xyz-title">{{ getDocumentHeaderPreviewValue() }}</div>
                                             </ng-container>
 
-                                            <div class="xyz-generic-content">
-                                                <div *ngFor="let block of pageFields" class="xyz-field-block">
-                                                    <div *ngIf="block.showLabel && !isWordEditorType(block.field.type) && !isIndividualPipelineFooterType(block.field.type) && block.field.type !== 'footer'" class="xyz-field-label">{{ block.field.label }}</div>
-
-                                                    <div *ngIf="!isWordEditorType(block.field.type) && !isTableType(block.field.type) && !isIndividualPipelineFooterType(block.field.type) && block.field.type !== 'footer'" class="xyz-field-value">
-                                                        {{ getPreviewFieldDisplayValue(block.field) }}
-                                                    </div>
-
-                                                    <div *ngIf="isWordEditorType(block.field.type)" class="xyz-word-preview">
-                                                        <div class="ql-editor" [innerHTML]="getPreviewWordEditorBlockHtml(block)"></div>
-                                                    </div>
-
-                                                    <div *ngIf="isTableType(block.field.type)" class="overflow-x-auto">
-                                                        <table class="xyz-generic-table">
-                                                            <tbody>
-                                                                <tr *ngFor="let row of getPreviewTableValue(block.field); let rowIndex = index">
-                                                                    <td class="xyz-row-label">{{ getTableRowLabel(block.field, rowIndex) }}</td>
-                                                                    <td *ngFor="let col of row">{{ col || '-' }}</td>
-                                                                </tr>
-                                                            </tbody>
-                                                        </table>
-                                                        <div *ngIf="getPreviewTableValue(block.field).length === 0" class="xyz-field-value">-</div>
-                                                    </div>
-                                                </div>
+                                            <div class="xyz-generic-content xyz-generic-content--line-pages">
+                                                <div *ngFor="let line of pageLines" class="xyz-preview-line">{{ line }}</div>
                                             </div>
 
                                             <ng-container *ngIf="isLast">
@@ -643,95 +622,6 @@
                                                     </table>
                                                 </div>
                                             </ng-container>
-                                        </div>
-                                    </div>
-
-                                    <div class="app-preview-measure" aria-hidden="true">
-                                        <div class="xyz-paper app-preview-paper-a4" #genericMeasurePaper>
-                                            <div #genericMeasureHeader>
-                                                <div class="xyz-date-row">
-                                                    <div class="xyz-date">Date: {{ previewDate }}</div>
-                                                </div>
-
-                                                <div class="xyz-header">
-                                                    <div class="xyz-logo">
-                                                        <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
-                                                    </div>
-                                                    <div class="xyz-company">
-                                                        <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
-                                                        <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
-                                                    </div>
-                                                    <div class="xyz-header-spacer"></div>
-                                                </div>
-
-                                                <div class="xyz-rule thick"></div>
-
-                                                <div class="xyz-title">{{ getDocumentHeaderPreviewValue() }}</div>
-                                            </div>
-
-                                            <div class="xyz-generic-content" #genericMeasureContent>
-                                                <div *ngFor="let block of getGenericPreviewBlocks()" class="xyz-field-block xyz-measure-field-block">
-                                                    <div *ngIf="block.showLabel && !isWordEditorType(block.field.type) && !isIndividualPipelineFooterType(block.field.type) && block.field.type !== 'footer'" class="xyz-field-label">{{ block.field.label }}</div>
-
-                                                    <div *ngIf="!isWordEditorType(block.field.type) && !isTableType(block.field.type) && !isIndividualPipelineFooterType(block.field.type) && block.field.type !== 'footer'" class="xyz-field-value">
-                                                        {{ getPreviewFieldDisplayValue(block.field) }}
-                                                    </div>
-
-                                                    <div *ngIf="isWordEditorType(block.field.type)" class="xyz-word-preview">
-                                                        <div class="ql-editor" [innerHTML]="getPreviewWordEditorBlockHtml(block)"></div>
-                                                    </div>
-
-                                                    <div *ngIf="isTableType(block.field.type)" class="overflow-x-auto">
-                                                        <table class="xyz-generic-table">
-                                                            <tbody>
-                                                                <tr *ngFor="let row of getPreviewTableValue(block.field); let rowIndex = index">
-                                                                    <td class="xyz-row-label">{{ getTableRowLabel(block.field, rowIndex) }}</td>
-                                                                    <td *ngFor="let col of row">{{ col || '-' }}</td>
-                                                                </tr>
-                                                            </tbody>
-                                                        </table>
-                                                        <div *ngIf="getPreviewTableValue(block.field).length === 0" class="xyz-field-value">-</div>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <div #genericMeasureFooter>
-                                                <div *ngIf="getPreviewDepartmentFooterField()" class="mt-8 pt-4 xyz-footer">
-                                                    <div class="flex flex-wrap justify-center gap-6 py-2">
-                                                        <div *ngFor="let pipeline of selectedForm?.approvalPipelines; let i = index"
-                                                                class="flex flex-col items-center min-w-[120px]">
-                                                            <div class="w-full h-10 flex items-end justify-center mb-1"></div>
-                                                            <div class="w-full border-t border-gray-300 mb-1"></div>
-                                                            <div class="text-[10px] font-bold text-center uppercase tracking-wider text-gray-700">
-                                                                {{ getPipelineDisplayName(pipeline) }}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <div *ngIf="getPreviewIndividualFooterField() as footerField" class="mt-8 pt-4 xyz-footer">
-                                                    <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields(footerField) as sections">
-                                                        <tr class="xyz-signatures-blank">
-                                                            <ng-container *ngFor="let section of sections">
-                                                                <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
-                                                            </ng-container>
-                                                        </tr>
-                                                        <tr>
-                                                            <th *ngFor="let section of sections"
-                                                                [attr.colspan]="getIndividualFooterColSpan(section)">
-                                                                {{ section.label || 'New Field' }}:
-                                                            </th>
-                                                        </tr>
-                                                        <tr>
-                                                            <ng-container *ngFor="let section of sections">
-                                                                <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                                                    {{ getIndividualFooterUserLabel(slotUser, section) }}
-                                                                </td>
-                                                            </ng-container>
-                                                        </tr>
-                                                    </table>
-                                                </div>
-                                            </div>
                                         </div>
                                     </div>
                                 </div>

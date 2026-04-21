@@ -21,10 +21,10 @@ export class DepartmentComponent implements OnInit {
   departments: any;
   users: any;
   allUsers: any;
+  assignUsersSearch = '';
   selectedDepartment: any = null;
   selectedUserIds: number[] = [];
   selectedDepartmentHeadIds: number[] = [];
-  assignUsersSearch = '';
   blnStatus = false;
   editCase = false;
 
@@ -45,6 +45,22 @@ export class DepartmentComponent implements OnInit {
     private permissionService: PermissionService
   ) { }
 
+  private getCurrentUserContext(): { roleId?: number; userId?: number } {
+    const userJson = localStorage.getItem('user');
+    if (!userJson) {
+      return {};
+    }
+
+    const user: any = JSON.parse(userJson);
+    const roleId = Number(user?.cfgTblRole?.serRoleId ?? user?.cfgTblRole);
+    const userId = Number(user?.serUserId);
+
+    return {
+      roleId: Number.isFinite(roleId) ? roleId : undefined,
+      userId: Number.isFinite(userId) ? userId : undefined
+    };
+  }
+
   ngOnInit() {
     this.departmentForm = this.fb.group({
       serDepartmentId: [''],
@@ -53,18 +69,13 @@ export class DepartmentComponent implements OnInit {
       txtDescription: ['']
     });
 
-    const userJson = localStorage.getItem('user');
-    let user: {
-      cfgTblRole: number | undefined;
-      serUserId: number;
-    };
-
-    if (userJson) {
-      // @ts-ignore
-      user = JSON.parse(userJson) as CfgTblUser;
+    const { roleId, userId } = this.getCurrentUserContext();
+    if (!roleId || !userId) {
+      this.getAllUsers();
+      return;
     }
-    // @ts-ignore
-    this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
+
+    this.permissionService.loadPermissionRoles(roleId, userId).subscribe(() => {
       this.getAllUsers();
     });
   }
@@ -138,46 +149,34 @@ export class DepartmentComponent implements OnInit {
   }
 
   add() {
-    const userJson = localStorage.getItem('user');
-    let user: {
-      cfgTblRole: number | undefined;
-      serUserId: number;
-    };
-
-    if (userJson) {
-      // @ts-ignore
-      user = JSON.parse(userJson) as CfgTblUser;
-    }
-    // @ts-ignore
-    this.permissionService.loadPermissionRoles(user.cfgTblRole.serRoleId, user.serUserId).subscribe(() => {
-      // @ts-ignore
-      this.permissionService.canAdd('Department').subscribe(canAdd => {
-        if (canAdd == true) {
-          this.isSubmit = false;
-          this.departmentForm.reset();
-          this.blnStatus = false;
-          this.editCase = false;
-          this.modal.open();
-          return;
-        } else {
-          this.notificationService.showMessage('You do not have permission to add new departments', 'danger');
-          return;
-        }
-      });
+    this.permissionService.canAdd('Department').subscribe(canAdd => {
+      if (canAdd === true) {
+        this.isSubmit = false;
+        this.departmentForm.reset();
+        this.blnStatus = false;
+        this.editCase = false;
+        this.modal.open();
+        return;
+      } else {
+        this.notificationService.showMessage('You do not have permission to add new departments', 'danger');
+        return;
+      }
     });
   }
 
   edit(department: any) {
-    if (!this.permissionService.canUpdate('Department')) {
-      this.notificationService.showMessage('You do not have permission to edit departments', 'danger');
-      return;
-    }
-    this.departmentForm.reset();
-    this.modal.open();
-    this.departmentForm.patchValue(department);
-    this.blnStatus = department.blnStatus;
-    // @ts-ignore
-    this.editCase = true;
+    this.permissionService.canUpdateAsync('Department').subscribe(canUpdate => {
+      if (!canUpdate) {
+        this.notificationService.showMessage('You do not have permission to edit departments', 'danger');
+        return;
+      }
+      this.departmentForm.reset();
+      this.modal.open();
+      this.departmentForm.patchValue(department);
+      this.blnStatus = department.blnStatus;
+      // @ts-ignore
+      this.editCase = true;
+    });
   }
 
   submit() {
@@ -231,9 +230,9 @@ export class DepartmentComponent implements OnInit {
 
   openAssignUsersModal(department: any) {
     this.selectedDepartment = department;
+    this.assignUsersSearch = '';
     this.selectedUserIds = [];
     this.selectedDepartmentHeadIds = [];
-    this.assignUsersSearch = '';
 
     if (department.serDepartmentHeadId) {
       this.selectedDepartmentHeadIds = String(department.serDepartmentHeadId)
@@ -275,20 +274,6 @@ export class DepartmentComponent implements OnInit {
     this.assignUsersModal.open();
   }
 
-  get filteredUsersForAssign(): any[] {
-    if (!Array.isArray(this.allUsers)) return [];
-
-    const query = (this.assignUsersSearch || '').trim().toLowerCase();
-    if (!query) return this.allUsers;
-
-    return this.allUsers.filter((user: any) => {
-      const name = (user?.txtUserName || '').toLowerCase();
-      const email = (user?.txtAddress || '').toLowerCase();
-      const role = (user?.cfgTblRole?.txtRoleName || '').toLowerCase();
-      return name.includes(query) || email.includes(query) || role.includes(query);
-    });
-  }
-
   toggleUserSelection(userId: number) {
     const index = this.selectedUserIds.indexOf(userId);
     if (index > -1) {
@@ -318,6 +303,20 @@ export class DepartmentComponent implements OnInit {
 
   isUserSelected(userId: number): boolean {
     return this.selectedUserIds.indexOf(userId) > -1;
+  }
+
+  get filteredUsersForAssign(): any[] {
+    const users = Array.isArray(this.allUsers) ? this.allUsers : [];
+    const q = (this.assignUsersSearch || '').trim().toLowerCase();
+    if (!q) {
+      return users;
+    }
+    return users.filter((user: any) => {
+      const name = (user?.txtUserName || '').toString().toLowerCase();
+      const email = (user?.txtAddress || '').toString().toLowerCase();
+      const role = (user?.cfgTblRole?.txtRoleName || '').toString().toLowerCase();
+      return name.includes(q) || email.includes(q) || role.includes(q);
+    });
   }
 
   assignUsers() {

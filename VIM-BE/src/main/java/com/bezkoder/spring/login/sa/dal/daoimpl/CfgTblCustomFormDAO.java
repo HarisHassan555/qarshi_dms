@@ -248,20 +248,26 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
         Map<Integer, HrTblDepartment> departmentsById;
 
         try {
+            int currentUserId = commonService.getCurrentLoggedInUser();
             String jpql =
                     "SELECT DISTINCT f FROM CfgTblCustomForm f " +
                     "LEFT JOIN FETCH f.cfgTblCustomFormFields field " +
                     "WHERE (f.blIsDeleted = false OR f.blIsDeleted IS NULL) " +
                     (activeOnly
                             ? "AND (f.blIsActive = true OR f.blIsActive IS NULL) " +
-                              "AND (f.blnStatus = true OR f.blnStatus IS NULL) "
+                              "AND (f.blnStatus = true OR f.blnStatus IS NULL) " +
+                              "AND (:currentUserId <= 0 OR (f.txtUserIds IS NOT NULL AND CONCAT(',', f.txtUserIds, ',') LIKE :userMatch)) "
                             : "") +
                     "AND (field.blIsDeleted = false OR field.blIsDeleted IS NULL OR field IS NULL) " +
                     "ORDER BY f.dteCreatedDate DESC";
 
-            forms = entityManager.createQuery(jpql, CfgTblCustomForm.class)
-                    .setHint("org.hibernate.readOnly", true)
-                    .getResultList();
+            TypedQuery<CfgTblCustomForm> query = entityManager.createQuery(jpql, CfgTblCustomForm.class)
+                    .setHint("org.hibernate.readOnly", true);
+            if (activeOnly) {
+                query.setParameter("currentUserId", currentUserId);
+                query.setParameter("userMatch", "%," + currentUserId + ",%");
+            }
+            forms = query.getResultList();
             departmentsById = loadDepartmentsForForms(forms, entityManager);
         } catch (Exception e) {
             log.error("Error getting {} custom forms: {}", activeOnly ? "active" : "all", e.getMessage(), e);
@@ -451,6 +457,7 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
             // Update form properties
             existingForm.setTxtFormName(customForm.getTxtFormName());
             existingForm.setTxtFormDescription(customForm.getTxtFormDescription());
+            existingForm.setTxtUserIds(customForm.getTxtUserIds());
             existingForm.setBlIsActive(customForm.getBlIsActive());
             existingForm.setBlnStatus(customForm.getBlnStatus());
             existingForm.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
