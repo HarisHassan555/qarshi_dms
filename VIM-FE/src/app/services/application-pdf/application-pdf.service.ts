@@ -424,7 +424,12 @@ export class ApplicationPdfService {
   }
 
   private async renderXyzPdfFromElement(element: HTMLElement): Promise<Blob> {
-    const captureTarget = (element.querySelector('.xyz-paper') as HTMLElement) || element;
+    const papers = Array.from(element.querySelectorAll('.xyz-paper')) as HTMLElement[];
+    if (papers.length > 1) {
+      return this.renderMultiPageXyzPapersToPdfBlob(element);
+    }
+
+    const captureTarget = (papers[0] as HTMLElement) || (element.querySelector('.xyz-paper') as HTMLElement) || element;
 
     const [html2canvasModule, jsPDFModule] = await Promise.all([
       import('html2canvas'),
@@ -444,8 +449,6 @@ export class ApplicationPdfService {
     const paper = (captureTarget.querySelector('.xyz-paper') as HTMLElement) || captureTarget;
     const contentArea = captureTarget.querySelector('.xyz-content-area') as HTMLElement;
     const footerPinned = paper.classList.contains('xyz-paper-footer-pinned');
-    // Email / stored PDF uses this capture path. Collapsing min-height breaks the pinned footer
-    // (spacer + footer); the on-screen details view never applies these overrides.
     setStyle(paper, 'overflow', 'visible');
     if (footerPinned) {
       setStyle(paper, 'display', 'flex');
@@ -453,8 +456,18 @@ export class ApplicationPdfService {
       setStyle(paper, 'min-height', '297mm');
       setStyle(paper, 'height', 'auto');
       setStyle(paper, 'max-height', 'none');
+      const footer = paper.querySelector('.xyz-footer') as HTMLElement | null;
+      const spacer = paper.querySelector('.xyz-footer-spacer') as HTMLElement | null;
+      if (footer) {
+        setStyle(footer, 'flex-shrink', '0');
+        setStyle(footer, 'margin-top', '0');
+      }
+      if (spacer) {
+        setStyle(spacer, 'flex', '1 1 auto');
+      }
       if (contentArea) {
         setStyle(contentArea, 'overflow', 'visible');
+        setStyle(contentArea, 'flex', '0 1 auto');
       }
     } else {
       setStyle(paper, 'height', 'auto');
@@ -469,6 +482,20 @@ export class ApplicationPdfService {
     }
 
     await new Promise(resolve => setTimeout(resolve, 80));
+
+    const paperRect = paper.getBoundingClientRect();
+    const paperWidthPx = Math.max(paperRect.width || paper.scrollWidth || 0, 1);
+    const pageHeightPx = Math.max(Math.round((paperWidthPx * 297) / 210), 1);
+
+    // Footer-pinned forms: align total paper height to whole A4 pages so footer lands at bottom of final page.
+    if (footerPinned) {
+      const naturalHeightPx = Math.max(paper.scrollHeight, paper.offsetHeight, pageHeightPx);
+      const snappedHeightPx = Math.ceil(naturalHeightPx / pageHeightPx) * pageHeightPx;
+      setStyle(paper, 'height', `${snappedHeightPx}px`);
+      setStyle(paper, 'min-height', `${snappedHeightPx}px`);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     const canvas = await html2canvas(captureTarget, {
       scale: 2,
@@ -499,25 +526,32 @@ export class ApplicationPdfService {
 
     const pdfWidth = 210;
     const pdfHeight = 297;
-    const marginX = 5;
-    const marginY = 5;
-    const printableWidth = pdfWidth - marginX * 2;
-    const printableHeight = pdfHeight - marginY * 2;
+    const pageSliceHeightPx = Math.max(Math.round((canvas.width * pdfHeight) / pdfWidth), 1);
+    const totalPages = Math.max(Math.ceil(canvas.height / pageSliceHeightPx), 1);
 
-    const imgWidth = printableWidth;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-    const imgData = canvas.toDataURL('image/jpeg', 0.98);
+    for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+      const srcY = pageIndex * pageSliceHeightPx;
+      const remaining = canvas.height - srcY;
+      const sliceHeightPx = Math.max(Math.min(pageSliceHeightPx, remaining), 1);
 
-    let heightLeft = imgHeight;
-    let position = marginY;
-    pdf.addImage(imgData, 'JPEG', marginX, position, imgWidth, imgHeight);
-    heightLeft -= printableHeight;
+      const pageCanvas = document.createElement('canvas');
+      pageCanvas.width = canvas.width;
+      pageCanvas.height = sliceHeightPx;
+      const pageCtx = pageCanvas.getContext('2d');
+      if (!pageCtx) {
+        throw new Error('Failed to create canvas context for page snapshot');
+      }
+      pageCtx.fillStyle = '#ffffff';
+      pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+      pageCtx.drawImage(canvas, 0, srcY, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
 
-    while (heightLeft > 0) {
-      pdf.addPage('a4', 'portrait');
-      position = marginY - (imgHeight - heightLeft);
-      pdf.addImage(imgData, 'JPEG', marginX, position, imgWidth, imgHeight);
-      heightLeft -= printableHeight;
+      const imgData = pageCanvas.toDataURL('image/jpeg', 0.98);
+      const renderedHeightMm = (sliceHeightPx * pdfWidth) / canvas.width;
+
+      if (pageIndex > 0) {
+        pdf.addPage('a4', 'portrait');
+      }
+      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, renderedHeightMm);
     }
 
     return pdf.output('blob');
@@ -530,66 +564,234 @@ export class ApplicationPdfService {
    * Do not use for CAPF.
    */
   async renderMultiPageXyzPapersToPdfBlob(container: HTMLElement): Promise<Blob> {
-    const papers = Array.from(container.querySelectorAll('.xyz-paper')) as HTMLElement[];
-    if (papers.length === 0) {
-      throw new Error('No .xyz-paper pages found for multi-page PDF capture');
-    }
+    // Capture from an offscreen clone so live /application preview never changes while snapshot is generated.
+    const captureHost = document.createElement('div');
+    captureHost.style.position = 'fixed';
+    captureHost.style.left = '-100000px';
+    captureHost.style.top = '0';
+    captureHost.style.opacity = '0';
+    captureHost.style.pointerEvents = 'none';
+    captureHost.style.zIndex = '-1';
+    const cloneRoot = container.cloneNode(true) as HTMLElement;
+    captureHost.appendChild(cloneRoot);
+    document.body.appendChild(captureHost);
 
-    const [html2canvasModule, jsPDFModule] = await Promise.all([
-      import('html2canvas'),
-      import('jspdf')
-    ]);
-    const html2canvas = (html2canvasModule.default || html2canvasModule) as any;
-    const jsPDF = (jsPDFModule.default || jsPDFModule) as any;
+    try {
+      const papers = (Array.from(cloneRoot.querySelectorAll('.xyz-paper')) as HTMLElement[])
+        .filter((paper: HTMLElement) => {
+          if (paper.classList.contains('xyz-paper-measured')) {
+            return false;
+          }
+          const cs = window.getComputedStyle(paper);
+          if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') {
+            return false;
+          }
+          const rect = paper.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        });
+      if (papers.length === 0) {
+        throw new Error('No .xyz-paper pages found for multi-page PDF capture');
+      }
 
-    await new Promise(resolve => setTimeout(resolve, 100));
+      const [html2canvasModule, jsPDFModule] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf')
+      ]);
+      const html2canvas = (html2canvasModule.default || html2canvasModule) as any;
+      const jsPDF = (jsPDFModule.default || jsPDFModule) as any;
 
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-      compress: true
-    });
-    const PDF_WIDTH = 210;
-    const PDF_HEIGHT = 297;
-    const pxToMm = (px: number) => (px * 25.4) / 96;
+      await new Promise(resolve => setTimeout(resolve, 100));
 
-    for (let i = 0; i < papers.length; i++) {
-      const target = papers[i];
-      const rect = target.getBoundingClientRect();
-      const contentWidthPx = rect.width || target.scrollWidth;
-      const contentHeightPx = rect.height || target.scrollHeight;
-      const contentWidthMm = pxToMm(contentWidthPx);
-      const contentHeightMm = pxToMm(contentHeightPx);
-      const availableWidth = PDF_WIDTH;
-      const availableHeight = PDF_HEIGHT;
-      const scaleByWidth = availableWidth / contentWidthMm;
-      const scaleByHeight = availableHeight / contentHeightMm;
-      const finalScale = contentHeightMm * scaleByWidth <= availableHeight ? scaleByWidth : scaleByHeight;
-      const imgWidth = contentWidthMm * finalScale;
-      const imgHeight = contentHeightMm * finalScale;
-      const xOffset = (PDF_WIDTH - imgWidth) / 2;
-      const yOffset = (PDF_HEIGHT - imgHeight) / 2;
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
+      const PDF_WIDTH = 210;
+      const PDF_HEIGHT = 297;
+      let firstPdfPage = true;
+      let addedPages = 0;
 
+    const hasVisibleInk = (canvasEl: HTMLCanvasElement): boolean => {
+      const probe = document.createElement('canvas');
+      probe.width = 64;
+      probe.height = 64;
+      const probeCtx = probe.getContext('2d');
+      if (!probeCtx) {
+        return true;
+      }
+      probeCtx.fillStyle = '#ffffff';
+      probeCtx.fillRect(0, 0, probe.width, probe.height);
+      probeCtx.drawImage(canvasEl, 0, 0, probe.width, probe.height);
+      const img = probeCtx.getImageData(0, 0, probe.width, probe.height).data;
+      for (let p = 0; p < img.length; p += 4) {
+        const a = img[p + 3];
+        if (a < 10) continue;
+        const r = img[p];
+        const g = img[p + 1];
+        const b = img[p + 2];
+        // Keep anything that is not near-white.
+        if (r < 245 || g < 245 || b < 245) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+      for (let i = 0; i < papers.length; i++) {
+        const target = papers[i];
+        const savedStyles: Array<{ el: HTMLElement; prop: string; value: string }> = [];
+        const setStyle = (el: HTMLElement | null, prop: string, value: string) => {
+          if (!el) return;
+          savedStyles.push({ el, prop, value: el.style.getPropertyValue(prop) });
+          el.style.setProperty(prop, value, 'important');
+        };
+
+      // Ensure export uses real paper metrics, not any preview scaling transform.
+      setStyle(target, 'transform', 'none');
+      setStyle(target, 'transform-origin', 'top left');
+      setStyle(target, 'width', '210mm');
+      setStyle(target, 'max-width', '210mm');
+      setStyle(target, 'min-width', '210mm');
+      setStyle(target, 'font-size', '13.5px');
+      setStyle(target, 'line-height', '1.35');
+
+      const hasFooter = !!target.querySelector('.xyz-footer');
+      const footerPinned =
+        target.classList.contains('xyz-paper-footer-pinned') ||
+        target.classList.contains('xyz-paper--footer-pinned') ||
+        // Application preview generic papers usually don't carry a pinned class;
+        // if last paper has footer, treat it as footer-pinned for email/export parity.
+        (hasFooter && i === papers.length - 1);
+      let targetPageHeightPx = 0;
+      if (footerPinned) {
+        const contentArea = (target.querySelector('.xyz-content-area') ||
+          target.querySelector('.xyz-content-body') ||
+          target.querySelector('.xyz-generic-content')) as HTMLElement | null;
+        const spacer = target.querySelector('.xyz-footer-spacer') as HTMLElement | null;
+        const footer = target.querySelector('.xyz-footer') as HTMLElement | null;
+
+        setStyle(target, 'display', 'flex');
+        setStyle(target, 'flex-direction', 'column');
+        setStyle(target, 'overflow', 'visible');
+        setStyle(target, 'min-height', '297mm');
+        setStyle(target, 'height', 'auto');
+        setStyle(target, 'max-height', 'none');
+        if (contentArea) {
+          setStyle(contentArea, 'flex', '0 1 auto');
+          setStyle(contentArea, 'overflow', 'visible');
+        }
+        if (spacer) {
+          setStyle(spacer, 'flex', '1 1 auto');
+          setStyle(spacer, 'min-height', '0');
+        }
+        if (footer) {
+          setStyle(footer, 'flex-shrink', '0');
+          setStyle(footer, 'margin-top', spacer ? '0' : 'auto');
+        }
+
+        // Keep footer at the bottom of the final page by snapping paper height
+        // to full A4 page multiples before image slicing.
+        const widthPx = Math.max(target.getBoundingClientRect().width || target.scrollWidth || 0, 1);
+        const pageHeightPx = Math.max(Math.round((widthPx * PDF_HEIGHT) / PDF_WIDTH), 1);
+        targetPageHeightPx = pageHeightPx;
+        const naturalHeightPx = Math.max(
+          target.scrollHeight || 0,
+          target.offsetHeight || 0,
+          Math.round(target.getBoundingClientRect().height || 0),
+          pageHeightPx
+        );
+        const snappedHeightPx = Math.ceil(naturalHeightPx / pageHeightPx) * pageHeightPx;
+        setStyle(target, 'height', `${snappedHeightPx}px`);
+        setStyle(target, 'min-height', `${snappedHeightPx}px`);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const captureWidthPx = Math.max(
+        target.offsetWidth || 0,
+        Math.round(target.getBoundingClientRect().width || 0),
+        target.scrollWidth || 0,
+        1
+      );
+      const captureHeightPx = Math.max(
+        target.offsetHeight || 0,
+        Math.round(target.getBoundingClientRect().height || 0),
+        target.scrollHeight || 0,
+        1
+      );
       const canvas = await html2canvas(target, {
         scale: 3,
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff',
-        width: target.scrollWidth,
-        height: target.scrollHeight,
-        windowWidth: target.scrollWidth,
-        windowHeight: target.scrollHeight
+        width: captureWidthPx,
+        height: captureHeightPx,
+        windowWidth: captureWidthPx,
+        windowHeight: captureHeightPx
       });
 
-      if (i > 0) {
-        pdf.addPage('a4', 'portrait');
+      // Slice each rendered paper into true A4-height snapshots.
+      let pageSliceHeightPx = Math.max(Math.round((canvas.width * PDF_HEIGHT) / PDF_WIDTH), 1);
+      // For footer-pinned documents, map the exact DOM page-height to canvas pixels.
+      // This avoids off-by-some-pixels slicing drift that makes the last page look cut short.
+      if (footerPinned && targetPageHeightPx > 0) {
+        const domRenderedHeight = Math.max(captureHeightPx, 1);
+        const domToCanvasY = canvas.height / domRenderedHeight;
+        pageSliceHeightPx = Math.max(Math.round(targetPageHeightPx * domToCanvasY), 1);
       }
-      const imgData = canvas.toDataURL('image/jpeg', 0.98);
-      pdf.addImage(imgData, 'JPEG', xOffset, yOffset, imgWidth, imgHeight);
-    }
+      const totalSlices = Math.max(Math.ceil(canvas.height / pageSliceHeightPx), 1);
 
-    return pdf.output('blob');
+      for (let sliceIndex = 0; sliceIndex < totalSlices; sliceIndex++) {
+        const srcY = sliceIndex * pageSliceHeightPx;
+        const remaining = canvas.height - srcY;
+        const sliceHeightPx = Math.max(Math.min(pageSliceHeightPx, remaining), 1);
+        if (sliceHeightPx < 24) {
+          continue;
+        }
+
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = canvas.width;
+        // Keep every PDF page at full A4 frame height; draw remaining content on top.
+        // This preserves "footer fixed at bottom of last page" visual alignment.
+        pageCanvas.height = pageSliceHeightPx;
+        const pageCtx = pageCanvas.getContext('2d');
+        if (!pageCtx) {
+          throw new Error('Failed to create page canvas context');
+        }
+        pageCtx.fillStyle = '#ffffff';
+        pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+        pageCtx.drawImage(canvas, 0, srcY, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
+
+        const renderedHeightMm = PDF_HEIGHT;
+        const imgData = pageCanvas.toDataURL('image/jpeg', 0.98);
+        const nonBlankSlice = hasVisibleInk(pageCanvas);
+        if (!nonBlankSlice && addedPages > 0) {
+          continue;
+        }
+        if (!firstPdfPage) {
+          pdf.addPage('a4', 'portrait');
+        }
+        pdf.addImage(imgData, 'JPEG', 0, 0, PDF_WIDTH, renderedHeightMm);
+        firstPdfPage = false;
+        addedPages += 1;
+      }
+
+        savedStyles.forEach(({ el, prop, value }) => {
+          if (value) {
+            el.style.setProperty(prop, value);
+          } else {
+            el.style.removeProperty(prop);
+          }
+        });
+      }
+
+      return pdf.output('blob');
+    } finally {
+      if (captureHost.parentNode) {
+        captureHost.parentNode.removeChild(captureHost);
+      }
+    }
   }
 
   private isBudgetApprovalFormMeta(applicationMeta?: { formName?: string; txtFormCode?: string }): boolean {
@@ -1602,7 +1804,7 @@ export class ApplicationPdfService {
     .xyz-signatures td { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:12px; text-align:center !important; vertical-align:middle !important; }
     .xyz-sig-img { max-height: 14px; max-width: 85%; width: auto; height: auto; object-fit: contain; display:block; margin:0 auto 1px auto; box-sizing:border-box; vertical-align:bottom; }
     .xyz-signatures-blank td .xyz-sig-img { max-height: 14px !important; max-width: calc(85% - 8px) !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 0 auto 1px auto !important; vertical-align: bottom !important; }
-    .xyz-signatures-blank td > div { text-align:center; vertical-align:middle; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; width:100%; height:100%; padding-top:0; margin-top:-2px; }
+    .xyz-signatures-blank td > div { text-align:center; vertical-align:middle; display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; padding-top:2px; margin-top:0; }
     .xyz-sig-time { font-size:7px; color:#6b7280; margin-top:0; line-height:1.1; }
     .xyz-signatures-blank td .xyz-sig-time { font-size: 7px !important; margin-top: 0 !important; }
     .xyz-generic-field { margin-bottom:10px; }
@@ -1628,7 +1830,7 @@ export class ApplicationPdfService {
     }
     .xyz-generic-word .ql-editor td > *, .xyz-generic-word .ql-editor th > * {
       margin:0 !important;
-      padding:0 !important;
+      padding:0 !important; 
       line-height:1 !important;
     }
     .xyz-generic-word .ql-editor p:last-child { margin-bottom:0; }

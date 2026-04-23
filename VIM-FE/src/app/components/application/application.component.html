@@ -384,7 +384,7 @@
                                             <tr>
                                                 <ng-container *ngFor="let section of sections">
                                                     <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                                        {{ getIndividualFooterUserLabel(slotUser, section) }}
+                                                        {{ getIndividualFooterUserLabelPlain(slotUser, section) }}
                                                     </td>
                                                 </ng-container>
                                             </tr>
@@ -552,7 +552,7 @@
                             </div>
                         </div>
 
-                        <!-- Generic Preview: A4-sized pages when individual pipeline footer exists; otherwise one scrollable sheet -->
+                        <!-- Generic preview: one scrollable A4-width sheet -->
                         <div *ngIf="!showBudgetApproval && !isCapfSelected() && selectedForm" class="app-preview-body">
                             <div class="app-preview-canvas" #previewCanvas>
                                 <div class="app-preview-scale" #previewScale>
@@ -615,7 +615,7 @@
                                                         <tr>
                                                             <ng-container *ngFor="let section of sections">
                                                                 <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                                                    {{ getIndividualFooterUserLabel(slotUser, section) }}
+                                                                    <span [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></span>
                                                                 </td>
                                                             </ng-container>
                                                         </tr>

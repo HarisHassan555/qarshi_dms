@@ -1,4 +1,4 @@
-import { AfterViewChecked, ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit, ViewChild } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
@@ -12,21 +12,12 @@ import { AbcComponent } from '../../pages/abc/abc.component';
 import { urls } from 'src/app/utils/urls';
 import { finalize, firstValueFrom, forkJoin } from 'rxjs';
 
-/** Blocks for DOM height–based generic pagination (same approach as /application preview). */
-interface DetailsGenericBlock {
-  key: string;
-  field: any;
-  showLabel: boolean;
-  /** Pre-split rich HTML for one measured block (optional). */
-  wordEditorChunkHtml?: string;
-}
-
 @Component({
   selector: 'app-application-details',
   templateUrl: './application-details.component.html',
   styleUrls: ['./application-details.component.css']
 })
-export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, OnDestroy {
+export class ApplicationDetailsComponent implements OnInit {
   applicationId: number | null = null;
   applicationDetails: any = null;
   formFields: any[] = [];
@@ -81,19 +72,6 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
   prCodeInput: string = '';
   isSavingPrCode: boolean = false;
 
-  /** For generic form: body fields split into pages (each page ≈ A4). */
-  genericPages: any[][] = [];
-  /** When individual footer pipeline: pages from real DOM height measurement (matches /application). */
-  genericMeasurePages: DetailsGenericBlock[][] = [];
-  /** Blocks rendered in the hidden measure row (kept in sync in rebuild). */
-  detailsGenericMeasureBlocks: DetailsGenericBlock[] = [];
-  private genericMeasureLayoutSignature = '';
-  private genericMeasureFrame: number | null = null;
-  private genericMeasurePending = false;
-  @ViewChild('genericMeasurePaper') genericMeasurePaper?: ElementRef<HTMLElement>;
-  @ViewChild('genericMeasureHeader') genericMeasureHeader?: ElementRef<HTMLElement>;
-  @ViewChild('genericMeasureContent') genericMeasureContent?: ElementRef<HTMLElement>;
-  @ViewChild('genericMeasureFooter') genericMeasureFooter?: ElementRef<HTMLElement>;
   /** For budget approval form: HTML content split into pages. */
   budgetPages: SafeHtml[] = [];
 
@@ -953,28 +931,6 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
     this.loadUsers();
   }
 
-  ngAfterViewChecked(): void {
-    if (typeof window === 'undefined' || !this.shouldUseMeasuredGenericPagination()) {
-      return;
-    }
-    if (this.genericMeasurePending) {
-      return;
-    }
-    this.genericMeasurePending = true;
-    this.genericMeasureFrame = window.requestAnimationFrame(() => {
-      this.genericMeasurePending = false;
-      this.genericMeasureFrame = null;
-      this.rebuildGenericMeasurePagesIfNeeded();
-    });
-  }
-
-  ngOnDestroy(): void {
-    if (this.genericMeasureFrame !== null && typeof window !== 'undefined') {
-      window.cancelAnimationFrame(this.genericMeasureFrame);
-      this.genericMeasureFrame = null;
-    }
-  }
-
   loadForms() {
     this.customFormService.getAll().subscribe(
       (data: any) => {
@@ -1053,9 +1009,6 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
       (data: any) => {
         if (data) {
           this.applicationDetails = data;
-          this.genericMeasureLayoutSignature = '';
-          this.genericMeasurePages = [];
-          this.detailsGenericMeasureBlocks = [];
 
           // If cfgTblCustomForm is null (lazy-load issue or API omission), fetch and attach it so isCapfForm() works
           if (!data.cfgTblCustomForm && data.serFormId) {
@@ -1063,7 +1016,6 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
               (formData: any) => {
                 if (formData) {
                   this.applicationDetails = { ...this.applicationDetails, cfgTblCustomForm: formData };
-                  this.buildGenericPages();
                   this.cdr.detectChanges();
                 }
               }
@@ -1168,7 +1120,6 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
 
           this.enrichPipelineWithDepartmentNames();
           this.applyDepartmentNamesToApprovalHistory();
-          this.buildGenericPages();
 
           // If formFields is empty (e.g. cfgTblCustomFormFields stripped by backend or forms not loaded yet),
           // fetch the form by ID to ensure CAPF and other form previews have the field structure
@@ -1187,7 +1138,6 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
                       txtFieldOptions: field.txtFieldOptions
                     }))
                     .sort((a: any, b: any) => (a.intFieldOrder || 0) - (b.intFieldOrder || 0));
-                  this.buildGenericPages();
                   this.cdr.detectChanges();
                 }
               }
@@ -1578,473 +1528,10 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
       (f: any) =>
         !this.isAttachmentType(f?.type) &&
         !this.isMultiAttachmentType(f?.type) &&
-        // Footer fields are rendered once at the end (last page only)
+        // Footer fields are rendered once at the end of the document
         (String(f?.type || '').toLowerCase().replace(/\s+/g, '_') !== 'footer') &&
         !this.isIndividualPipelineFooterType(f?.type)
     );
-  }
-
-  /** Split body fields into pages for generic form (each page ~A4). Header on every page, footer only on last. */
-  buildGenericPages(): void {
-    const allFields = this.getBodyPreviewFields() || [];
-    const pages: any[][] = [];
-    const individualLayout = this.useIndividualFooterDocumentLayout();
-    const hasFooterOnLastPage = individualLayout && this.hasIndividualPipelineFooter();
-    // Approximate A4 by text length (not field count).
-    // Keep this closer to `/application` preview chunking so details-page pagination
-    // matches what users saw while creating/submitting the same general form.
-    const MAX_CHARS_FIRST_PAGE = individualLayout ? 1500 : 2200;
-    const MAX_CHARS_OTHER_PAGES = individualLayout ? 1700 : 2400;
-    // Keep reserved room on the final page when signature footer is present.
-    const MAX_CHARS_LAST_PAGE = hasFooterOnLastPage ? 1200 : MAX_CHARS_OTHER_PAGES;
-    let current: any[] = [];
-    let currentChars = 0;
-    let pageIndex = 0;
-    for (const rawField of allFields) {
-      const expandedFields = this.expandWordEditorFieldIntoChunks(rawField);
-      for (const field of expandedFields) {
-        const queue: any[] = [field];
-        while (queue.length > 0) {
-          const part = queue.shift();
-          if (!part) continue;
-          const fieldText = this.getFieldTextLength(part);
-          const pageLimit = pageIndex === 0 ? MAX_CHARS_FIRST_PAGE : MAX_CHARS_OTHER_PAGES;
-          const remaining = pageLimit - currentChars;
-          const isSplittable =
-            this.isWordEditorType(part?.type) ||
-            this.isWordEditorChunkType(part?.type) ||
-            this.isHtmlPreviewField(part);
-
-          // Prefer splitting rich text to fill remaining space (even mid-sentence),
-          // instead of moving entire paragraph/chunk to next page.
-          if (isSplittable && fieldText > remaining && remaining > 80) {
-            const split = this.splitFieldByTextLength(part, remaining);
-            if (split) {
-              current.push(split.head);
-              currentChars += this.getFieldTextLength(split.head);
-              pages.push([...current]);
-              current = [];
-              currentChars = 0;
-              pageIndex++;
-              queue.unshift(split.tail);
-              continue;
-            }
-          }
-
-          // If this part still doesn't fit and page already has content, start next page.
-          if (current.length > 0 && currentChars + fieldText > pageLimit) {
-            pages.push([...current]);
-            current = [];
-            currentChars = 0;
-            pageIndex++;
-            queue.unshift(part);
-            continue;
-          }
-
-          // If single rich chunk is larger than empty page, force-split by page limit.
-          if (isSplittable && current.length === 0 && fieldText > pageLimit) {
-            const split = this.splitFieldByTextLength(part, pageLimit);
-            if (split) {
-              current.push(split.head);
-              currentChars += this.getFieldTextLength(split.head);
-              pages.push([...current]);
-              current = [];
-              currentChars = 0;
-              pageIndex++;
-              queue.unshift(split.tail);
-              continue;
-            }
-          }
-
-          current.push(part);
-          currentChars += fieldText;
-        }
-      }
-    }
-    if (current.length) pages.push([...current]);
-    if (pages.length > 0 && hasFooterOnLastPage) {
-      this.enforceGenericLastPageLimit(pages, MAX_CHARS_LAST_PAGE);
-    }
-    this.genericPages = pages.length > 0 ? pages : (allFields.length > 0 ? [[...allFields]] : [[]]);
-    if (this.shouldUseMeasuredGenericPagination()) {
-      this.detailsGenericMeasureBlocks = this.buildDetailsGenericBlocks();
-    } else {
-      this.detailsGenericMeasureBlocks = [];
-    }
-    this.cdr.markForCheck();
-  }
-
-  /** Same condition as /application paginated generic preview: individual pipeline footer on a general form. */
-  shouldUseMeasuredGenericPagination(): boolean {
-    return !this.isBudgetApprovalForm() && !this.isCapfForm() && this.hasIndividualPipelineFooter();
-  }
-
-  getGenericMeasurePagesForDisplay(): DetailsGenericBlock[][] {
-    if (!this.shouldUseMeasuredGenericPagination()) {
-      return [];
-    }
-    if (this.genericMeasurePages.length > 0) {
-      return this.genericMeasurePages;
-    }
-    const blocks = this.detailsGenericMeasureBlocks.length
-      ? this.detailsGenericMeasureBlocks
-      : this.buildDetailsGenericBlocks();
-    return blocks.length ? [blocks] : [[]];
-  }
-
-  getDetailsBlockWordHtml(block: DetailsGenericBlock): SafeHtml {
-    if (block.wordEditorChunkHtml !== undefined) {
-      return this.sanitizer.bypassSecurityTrustHtml(block.wordEditorChunkHtml);
-    }
-    return this.getWordEditorValue(block.field);
-  }
-
-  trackByDetailsBlockKey(_index: number, block: DetailsGenericBlock): string {
-    return block.key;
-  }
-
-  private isDetailsFormNameLabel(label: string | undefined): boolean {
-    const normalizedLabel = (label || '').trim().toLowerCase();
-    const normalizedFormName = (
-      this.applicationDetails?.cfgTblCustomForm?.txtFormName ||
-      this.applicationDetails?.formName ||
-      ''
-    ).trim()
-      .toLowerCase();
-    return !!normalizedLabel && !!normalizedFormName && normalizedLabel === normalizedFormName;
-  }
-
-  private buildDetailsGenericBlocks(): DetailsGenericBlock[] {
-    const fields = this.getBodyPreviewFields() || [];
-    const blocks: DetailsGenericBlock[] = [];
-    fields.forEach((field: any, index: number) => {
-      if (this.isDocumentHeaderType(field?.type)) {
-        return;
-      }
-      if (!this.isWordEditorType(field.type) && !this.isHtmlPreviewField(field)) {
-        blocks.push({
-          key: `f_${index}_${this.getFieldName(field.label)}`,
-          field,
-          showLabel: !this.isDetailsFormNameLabel(field.label)
-        });
-        return;
-      }
-      const rawHtml = this.getWordEditorHtml(field);
-      const normalizedHtml =
-        rawHtml === null || rawHtml === undefined || rawHtml === ''
-          ? '<p>-</p>'
-          : this.normalizeWordEditorHtmlForDisplay(String(rawHtml));
-      const chunks = this.splitDetailsWordEditorHtmlIntoChunks(normalizedHtml);
-      chunks.forEach((chunkHtml: string, chunkIndex: number) => {
-        blocks.push({
-          key: `f_${index}_${this.getFieldName(field.label)}_w_${chunkIndex}`,
-          field,
-          showLabel: chunkIndex === 0 && !this.isDetailsFormNameLabel(field.label),
-          wordEditorChunkHtml: chunkHtml
-        });
-      });
-    });
-    return blocks;
-  }
-
-  private splitDetailsWordEditorHtmlIntoChunks(html: string, maxChunkChars: number = 2200): string[] {
-    if (!html) {
-      return ['<p>-</p>'];
-    }
-    const wrapper = document.createElement('div');
-    wrapper.innerHTML = html;
-    const nodes = Array.from(wrapper.childNodes).filter((node: ChildNode) => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        return !!(node.textContent || '').trim();
-      }
-      return true;
-    });
-    if (nodes.length <= 1) {
-      return [html];
-    }
-    const chunks: string[] = [];
-    let current = '';
-    nodes.forEach((node: ChildNode) => {
-      const serialized =
-        node.nodeType === Node.ELEMENT_NODE
-          ? (node as HTMLElement).outerHTML
-          : `<p>${this.escapeHtml(node.textContent || '')}</p>`;
-      if (!current) {
-        current = serialized;
-        return;
-      }
-      if (current.length + serialized.length > maxChunkChars) {
-        chunks.push(current);
-        current = serialized;
-      } else {
-        current += serialized;
-      }
-    });
-    if (current) {
-      chunks.push(current);
-    }
-    return chunks.length > 0 ? chunks : [html];
-  }
-
-  private mmToPx(mm: number): number {
-    return (mm * 96) / 25.4;
-  }
-
-  private buildDetailsMeasureSignature(blocks: DetailsGenericBlock[]): string {
-    const fields = this.getBodyPreviewFields() || [];
-    const fieldValues = fields.map((f: any) => {
-      const key = this.getFieldName(f.label);
-      const v = this.applicationFormData?.[key];
-      if (v === null || v === undefined) {
-        return `${key}:`;
-      }
-      if (typeof v === 'string') {
-        return `${key}:${v.length}:${v}`;
-      }
-      if (typeof v === 'number' || typeof v === 'boolean') {
-        return `${key}:${String(v)}`;
-      }
-      try {
-        return `${key}:${JSON.stringify(v)}`;
-      } catch {
-        return `${key}:${String(v)}`;
-      }
-    });
-    const footerSig = JSON.stringify(this.getIndividualPipelineFooterFields() || []);
-    return [
-      String(this.applicationDetails?.serFormId || ''),
-      String(this.applicationId || ''),
-      this.getGenericDocumentHeading(),
-      fieldValues.join('|'),
-      String(blocks.length),
-      footerSig
-    ].join('::');
-  }
-
-  private rebuildGenericMeasurePagesIfNeeded(): void {
-    if (!this.shouldUseMeasuredGenericPagination()) {
-      this.genericMeasureLayoutSignature = '';
-      this.genericMeasurePages = [];
-      return;
-    }
-
-    const blocks = this.buildDetailsGenericBlocks();
-    this.detailsGenericMeasureBlocks = blocks;
-
-    const paperEl = this.genericMeasurePaper?.nativeElement;
-    const headerEl = this.genericMeasureHeader?.nativeElement;
-    const contentEl = this.genericMeasureContent?.nativeElement;
-    const footerEl = this.genericMeasureFooter?.nativeElement;
-    const signature = this.buildDetailsMeasureSignature(blocks);
-
-    if (
-      signature === this.genericMeasureLayoutSignature &&
-      this.genericMeasurePages.length > 0 &&
-      paperEl &&
-      headerEl &&
-      contentEl &&
-      footerEl
-    ) {
-      return;
-    }
-
-    if (!paperEl || !headerEl || !contentEl || !footerEl) {
-      this.genericMeasurePages = [blocks];
-      this.genericMeasureLayoutSignature = signature;
-      this.cdr.markForCheck();
-      return;
-    }
-
-    const styles = window.getComputedStyle(paperEl);
-    const minHeightPx = parseFloat(styles.minHeight || '0') || this.mmToPx(297);
-    const paddingTopPx = parseFloat(styles.paddingTop || '0') || 0;
-    const paddingBottomPx = parseFloat(styles.paddingBottom || '0') || 0;
-    const pageContentHeight = Math.max(minHeightPx - paddingTopPx - paddingBottomPx, 200);
-
-    const headerHeight = Math.max(headerEl.getBoundingClientRect().height, 0);
-    const footerHeight = Math.max(footerEl.getBoundingClientRect().height, 0);
-
-    // Slight pessimism so a block is not placed on a page when its measured height is a few
-    // subpixels short — that used to clip the last line on page 1 and show the same line again
-    // at the top of page 2 (next chunk).
-    const layoutFudgePx = 4;
-    const firstPageContentHeight = Math.max(
-      pageContentHeight - headerHeight - layoutFudgePx,
-      pageContentHeight * 0.3
-    );
-    const middlePageContentHeight = Math.max(pageContentHeight - layoutFudgePx, 200);
-    const lastPageContentHeight = Math.max(
-      pageContentHeight - footerHeight - layoutFudgePx,
-      pageContentHeight * 0.3
-    );
-
-    const measureBlocks = Array.from(contentEl.querySelectorAll('.xyz-measure-field-block')) as HTMLElement[];
-    if (!measureBlocks.length || measureBlocks.length !== blocks.length) {
-      this.genericMeasurePages = [blocks];
-      this.genericMeasureLayoutSignature = signature;
-      this.cdr.markForCheck();
-      return;
-    }
-
-    const blockHeights = measureBlocks.map((blockEl: HTMLElement) => {
-      const blockStyle = window.getComputedStyle(blockEl);
-      const marginTop = parseFloat(blockStyle.marginTop || '0') || 0;
-      const marginBottom = parseFloat(blockStyle.marginBottom || '0') || 0;
-      const h = blockEl.getBoundingClientRect().height + marginTop + marginBottom;
-      return Math.max(Math.ceil(h) + 1, 1);
-    });
-
-    const paged = this.chunkDetailsBlocksIntoPages(
-      blocks,
-      blockHeights,
-      firstPageContentHeight,
-      middlePageContentHeight,
-      lastPageContentHeight
-    );
-
-    this.genericMeasurePages = paged;
-    this.genericMeasureLayoutSignature = signature;
-    this.cdr.markForCheck();
-  }
-
-  private chunkDetailsBlocksIntoPages(
-    blocks: DetailsGenericBlock[],
-    blockHeights: number[],
-    firstPageCapacity: number,
-    middlePageCapacity: number,
-    lastPageCapacity: number
-  ): DetailsGenericBlock[][] {
-    if (!blocks.length || blocks.length !== blockHeights.length) {
-      return [blocks];
-    }
-
-    const pages: number[][] = [[]];
-    const pageHeights: number[] = [0];
-    let currentPageIndex = 0;
-
-    const getRegularPageCapacity = (pageIndex: number): number =>
-      pageIndex === 0 ? firstPageCapacity : middlePageCapacity;
-
-    blocks.forEach((_: DetailsGenericBlock, fieldIndex: number) => {
-      const blockHeight = blockHeights[fieldIndex];
-      const pageCapacity = getRegularPageCapacity(currentPageIndex);
-      const nextHeight = pageHeights[currentPageIndex] + blockHeight;
-      if (pages[currentPageIndex].length > 0 && nextHeight > pageCapacity) {
-        pages.push([]);
-        pageHeights.push(0);
-        currentPageIndex += 1;
-      }
-      pages[currentPageIndex].push(fieldIndex);
-      pageHeights[currentPageIndex] += blockHeight;
-    });
-
-    const footerReserve = Math.max(middlePageCapacity - lastPageCapacity, 0);
-    const getLastPageAllowedHeight = (): number =>
-      pages.length === 1
-        ? Math.max(firstPageCapacity - footerReserve, firstPageCapacity * 0.25)
-        : lastPageCapacity;
-
-    let safetyCounter = 0;
-    while (safetyCounter < blocks.length * 2) {
-      const lastPageIndex = pages.length - 1;
-      const allowedHeight = getLastPageAllowedHeight();
-      if (pageHeights[lastPageIndex] <= allowedHeight) {
-        break;
-      }
-
-      if (pages[lastPageIndex].length <= 1) {
-        break;
-      }
-
-      const movedToNextPage: number[] = [];
-      while (pageHeights[lastPageIndex] > allowedHeight && pages[lastPageIndex].length > 1) {
-        const movedFieldIndex = pages[lastPageIndex].pop() as number;
-        movedToNextPage.unshift(movedFieldIndex);
-        pageHeights[lastPageIndex] -= blockHeights[movedFieldIndex];
-      }
-
-      const movedHeight = movedToNextPage.reduce((sum: number, idx: number) => sum + blockHeights[idx], 0);
-      pages.push(movedToNextPage);
-      pageHeights.push(movedHeight);
-      safetyCounter += 1;
-    }
-
-    return pages.map((pageFieldIndices: number[]) => pageFieldIndices.map((idx: number) => blocks[idx]));
-  }
-
-  private splitFieldByTextLength(field: any, maxTextChars: number): { head: any; tail: any } | null {
-    if (!field || maxTextChars <= 0) return null;
-    const html = this.getWordEditorHtml(field);
-    if (!html) return null;
-    const split = this.splitHtmlAtTextLength(html, maxTextChars);
-    if (!split) return null;
-
-    const head = {
-      ...field,
-      type: 'word_editor_chunk',
-      _chunkHtml: split.headHtml
-    };
-    const tail = {
-      ...field,
-      type: 'word_editor_chunk',
-      _chunkHtml: split.tailHtml,
-      _hideLabel: true
-    };
-    if (this.getFieldTextLength(head) === 0 || this.getFieldTextLength(tail) === 0) return null;
-    return { head, tail };
-  }
-
-  private splitHtmlAtTextLength(html: string, maxTextChars: number): { headHtml: string; tailHtml: string } | null {
-    const normalized = this.normalizeWordEditorHtmlForDisplay(String(html || ''));
-    if (!normalized) return null;
-
-    const wrapper = document.createElement('div');
-    wrapper.innerHTML = normalized;
-
-    const container =
-      wrapper.children.length === 1 && wrapper.firstElementChild
-        ? (wrapper.firstElementChild as HTMLElement)
-        : wrapper;
-
-    const styleNodes = Array.from(container.querySelectorAll('style'));
-    const preservedStyleHtml = styleNodes.map((s) => s.outerHTML).join('');
-    styleNodes.forEach((s) => s.remove());
-
-    const textNodes = this.collectTextNodes(container);
-    if (textNodes.length === 0) return null;
-    const totalLen = textNodes.reduce((sum: number, n: Text) => sum + ((n.nodeValue || '').length), 0);
-    if (maxTextChars <= 0 || maxTextChars >= totalLen) return null;
-
-    const splitPos = this.locateTextPosition(textNodes, maxTextChars);
-    if (!splitPos) return null;
-
-    const headRange = document.createRange();
-    headRange.setStart(container, 0);
-    headRange.setEnd(splitPos.node, splitPos.offset);
-
-    const tailRange = document.createRange();
-    tailRange.setStart(splitPos.node, splitPos.offset);
-    tailRange.setEnd(container, container.childNodes.length);
-
-    const toHtml = (frag: DocumentFragment): string => {
-      const div = document.createElement('div');
-      div.appendChild(frag);
-      return div.innerHTML;
-    };
-
-    const headInner = toHtml(headRange.cloneContents()).trim();
-    const tailInner = toHtml(tailRange.cloneContents()).trim();
-    if (!headInner || !tailInner) return null;
-
-    const wrapperTag = container !== wrapper ? container.tagName.toLowerCase() : '';
-    const wrapperAttr = container !== wrapper ? this.serializeElementAttributes(container) : '';
-    const wrapOpen = wrapperTag ? `<${wrapperTag}${wrapperAttr}>` : '';
-    const wrapClose = wrapperTag ? `</${wrapperTag}>` : '';
-
-    return {
-      headHtml: `${preservedStyleHtml}${wrapOpen}${headInner}${wrapClose}`,
-      tailHtml: `${preservedStyleHtml}${wrapOpen}${tailInner}${wrapClose}`
-    };
   }
 
   private stripHtmlToText(html: string): string {
@@ -2063,45 +1550,6 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
       .trim();
   }
 
-  private getFieldTextLength(field: any): number {
-    if (!field) return 0;
-    const labelLen = String(field.label || '').trim().length;
-    try {
-      if (this.isWordEditorType(field.type) || this.isWordEditorChunkType(field.type) || this.isHtmlPreviewField(field)) {
-        const html = String(this.getWordEditorHtml(field) || '');
-        const textLen = this.stripHtmlToText(html).length;
-        const brCount = (html.match(/<br\s*\/?>/gi) || []).length;
-        const pCount = (html.match(/<\/p>/gi) || []).length;
-        const liCount = (html.match(/<li\b/gi) || []).length;
-        const trCount = (html.match(/<tr\b/gi) || []).length;
-        const imgCount = (html.match(/<img\b/gi) || []).length;
-        // Heuristic weight for visual height so long, sparse HTML paginates properly.
-        // Individual footer pipeline content often has many manual line breaks with
-        // little plain text; give structural breaks stronger weight.
-        const extra =
-          brCount * 42 +
-          pCount * 54 +
-          liCount * 42 +
-          trCount * 80 +
-          imgCount * 180;
-        return labelLen + textLen + extra;
-      }
-      if (this.isTableType(field.type)) {
-        const rawValue = this.getFieldValue(field);
-        if (Array.isArray(rawValue)) {
-          const rowCount = rawValue.length;
-          return labelLen + rowCount * 90;
-        }
-      }
-      const rawValue = this.getFieldValue(field);
-      const formatted = this.formatFieldValue(field, rawValue);
-      return labelLen + String(formatted ?? '').length;
-    } catch {
-      const rawValue = this.getFieldValue(field);
-      return labelLen + String(rawValue ?? '').length;
-    }
-  }
-
   private getWordEditorHtml(field: any): string {
     if (field && typeof field === 'object' && typeof field._chunkHtml === 'string') {
       return field._chunkHtml;
@@ -2117,69 +1565,6 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
       return this.sanitizer.bypassSecurityTrustHtml('<span>-</span>');
     }
     return this.sanitizer.bypassSecurityTrustHtml(html);
-  }
-
-  private expandWordEditorFieldIntoChunks(field: any): any[] {
-    if (!field || !(this.isWordEditorType(field.type) || this.isHtmlPreviewField(field))) return [field];
-    const html = this.getWordEditorHtml(field);
-    if (!html) return [field];
-
-    const wrapper = document.createElement('div');
-    wrapper.innerHTML = html;
-
-    // Preserve top-level wrapper styles/classes if the editor content is wrapped
-    // in a single container element.
-    const container =
-      wrapper.children.length === 1 && wrapper.firstElementChild
-        ? (wrapper.firstElementChild as HTMLElement)
-        : wrapper;
-
-    const styleNodes = Array.from(container.querySelectorAll('style'));
-    const preservedStyleHtml = styleNodes.map(s => s.outerHTML).join('');
-    styleNodes.forEach(s => s.remove());
-
-    const wrapperTag = container !== wrapper ? container.tagName.toLowerCase() : '';
-    const wrapperAttr = container !== wrapper ? this.serializeElementAttributes(container) : '';
-    const wrapOpen = wrapperTag ? `<${wrapperTag}${wrapperAttr}>` : '';
-    const wrapClose = wrapperTag ? `</${wrapperTag}>` : '';
-
-    const blocks = Array.from(container.childNodes).filter(n => {
-      if (n.nodeType === Node.TEXT_NODE) return (n.textContent || '').trim().length > 0;
-      if (n.nodeType !== Node.ELEMENT_NODE) return false;
-      const tag = (n as Element).tagName.toLowerCase();
-      return tag === 'p' || tag === 'div' || tag === 'table' || tag === 'ul' || tag === 'ol' || tag.startsWith('h');
-    });
-
-    const MAX_CHARS_PER_CHUNK = 4200;
-    const chunks: string[] = [];
-    let currentHtml = '';
-    let currentChars = 0;
-
-    for (const node of blocks) {
-      const nodeChunks = this.splitNodeToChunkHtml(node, MAX_CHARS_PER_CHUNK);
-      for (const nodeHtml of nodeChunks) {
-        const nodeTextLen = this.stripHtmlToText(nodeHtml).length;
-        if (currentChars > 0 && currentChars + nodeTextLen > MAX_CHARS_PER_CHUNK) {
-          chunks.push(currentHtml);
-          currentHtml = '';
-          currentChars = 0;
-        }
-        currentHtml += nodeHtml;
-        currentChars += nodeTextLen;
-      }
-    }
-
-    if (currentChars > 0) chunks.push(currentHtml);
-    if (chunks.length <= 1) return [field];
-
-    return chunks.map((chunkHtml, idx) => ({
-      ...field,
-      type: 'word_editor_chunk',
-      // Keep original wrapper styling + embedded styles on each chunk,
-      // so formatting doesn't disappear after pagination.
-      _chunkHtml: `${preservedStyleHtml}${wrapOpen}${chunkHtml}${wrapClose}`,
-      _hideLabel: idx > 0
-    }));
   }
 
   private serializeElementAttributes(el: HTMLElement): string {
@@ -2300,142 +1685,6 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
     if (!value) return false;
     // Consider as rich HTML if at least one common block/inline tag is present.
     return /<(p|div|span|a|strong|em|ul|ol|li|h[1-6]|table|tr|td|th|br)\b[\s\S]*?>/i.test(value);
-  }
-
-  private splitNodeToChunkHtml(node: ChildNode, maxChars: number): string[] {
-    const nodeHtml =
-      node.nodeType === Node.TEXT_NODE
-        ? `<p>${this.escapeHtml((node.textContent || '').trim())}</p>`
-        : (node as Element).outerHTML;
-    const nodeTextLen = this.stripHtmlToText(nodeHtml).length;
-    if (nodeTextLen <= maxChars) return [nodeHtml];
-
-    if (node.nodeType !== Node.ELEMENT_NODE) {
-      return this.splitTextIntoParagraphChunks(this.stripHtmlToText(nodeHtml), maxChars)
-        .map((piece: string) => `<p>${this.escapeHtml(piece)}</p>`);
-    }
-
-    const el = node as Element;
-    const tag = el.tagName.toLowerCase();
-    // Keep complex structural nodes unsplit to avoid malformed structure.
-    if (tag === 'table' || tag === 'ul' || tag === 'ol') return [nodeHtml];
-
-    return this.splitElementPreservingMarkup(el, maxChars);
-  }
-
-  private splitTextIntoParagraphChunks(text: string, maxChars: number): string[] {
-    const normalized = (text || '').replace(/\r\n/g, '\n').trim();
-    if (!normalized) return [];
-    if (normalized.length <= maxChars) return [normalized];
-
-    const words = normalized.split(/\s+/).filter(Boolean);
-    const out: string[] = [];
-    let current = '';
-    for (const w of words) {
-      const candidate = current ? `${current} ${w}` : w;
-      if (current && candidate.length > maxChars) {
-        out.push(current);
-        current = w;
-      } else {
-        current = candidate;
-      }
-    }
-    if (current) out.push(current);
-    return out.length > 0 ? out : [normalized];
-  }
-
-  private splitElementPreservingMarkup(el: Element, maxChars: number): string[] {
-    const totalTextLen = (el.textContent || '').length;
-    if (totalTextLen <= maxChars) return [el.outerHTML];
-
-    const textNodes = this.collectTextNodes(el);
-    if (textNodes.length === 0) return [el.outerHTML];
-
-    const chunks: string[] = [];
-    let startIndex = 0;
-
-    while (startIndex < totalTextLen) {
-      const endIndex = Math.min(startIndex + maxChars, totalTextLen);
-      const startPos = this.locateTextPosition(textNodes, startIndex);
-      const endPos = this.locateTextPosition(textNodes, endIndex);
-      if (!startPos || !endPos) break;
-
-      const range = document.createRange();
-      range.setStart(startPos.node, startPos.offset);
-      range.setEnd(endPos.node, endPos.offset);
-
-      const fragment = range.cloneContents();
-      const wrapper = document.createElement(el.tagName.toLowerCase());
-      for (let i = 0; i < el.attributes.length; i++) {
-        const attr = el.attributes.item(i);
-        if (attr) wrapper.setAttribute(attr.name, attr.value);
-      }
-      wrapper.appendChild(fragment);
-      const html = wrapper.outerHTML;
-      if (html && this.stripHtmlToText(html).trim().length > 0) {
-        chunks.push(html);
-      }
-
-      startIndex = endIndex;
-    }
-
-    return chunks.length > 0 ? chunks : [el.outerHTML];
-  }
-
-  private collectTextNodes(root: Node): Text[] {
-    const out: Text[] = [];
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let current = walker.nextNode();
-    while (current) {
-      const t = current as Text;
-      if ((t.nodeValue || '').length > 0) out.push(t);
-      current = walker.nextNode();
-    }
-    return out;
-  }
-
-  private locateTextPosition(nodes: Text[], absoluteIndex: number): { node: Text; offset: number } | null {
-    if (!nodes || nodes.length === 0) return null;
-    if (absoluteIndex <= 0) return { node: nodes[0], offset: 0 };
-
-    let remaining = absoluteIndex;
-    for (let i = 0; i < nodes.length; i++) {
-      const node = nodes[i];
-      const len = (node.nodeValue || '').length;
-      if (remaining <= len) {
-        return { node, offset: remaining };
-      }
-      remaining -= len;
-    }
-    const last = nodes[nodes.length - 1];
-    return { node: last, offset: (last.nodeValue || '').length };
-  }
-
-  private enforceGenericLastPageLimit(pages: any[][], maxLastChars: number): void {
-    if (!pages || pages.length === 0) return;
-    const last = pages[pages.length - 1];
-    if (!last || last.length === 0) return;
-    const currentLastChars = last.reduce((sum: number, f: any) => sum + this.getFieldTextLength(f), 0);
-    if (currentLastChars <= maxLastChars) return;
-
-    const head: any[] = [];
-    const tail: any[] = [];
-    let tailChars = 0;
-    for (let i = last.length - 1; i >= 0; i--) {
-      const field = last[i];
-      const len = this.getFieldTextLength(field);
-      if (tail.length === 0 || tailChars + len <= maxLastChars) {
-        tail.unshift(field);
-        tailChars += len;
-      } else {
-        head.unshift(field);
-      }
-    }
-    if (head.length > 0) {
-      pages.pop();
-      pages.push(head);
-      pages.push(tail);
-    }
   }
 
   useIndividualFooterDocumentLayout(): boolean {
@@ -4639,19 +3888,62 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
 
       const html2canvas = (html2canvasModule.default || html2canvasModule) as any;
       const jsPDF = (jsPDFModule.default || jsPDFModule) as any;
+      const isCapf = this.isCapfForm();
+
+      // Generic/budget previews already render as .xyz-paper pages. Use the shared
+      // service capture path (same one used for email/stored snapshots) to keep output stable.
+      if (!isCapf) {
+        const visiblePapers = (Array.from(element.querySelectorAll('.xyz-paper')) as HTMLElement[])
+          .filter((paper) => {
+            if (paper.classList.contains('xyz-paper-measured')) return false;
+            const cs = window.getComputedStyle(paper);
+            if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
+            const rect = paper.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          });
+        if (visiblePapers.length === 0) {
+          throw new Error('No visible pages found to generate PDF');
+        }
+
+        const pdfBlob = await this.applicationPdfService.renderMultiPageXyzPapersToPdfBlob(element as HTMLElement);
+        const pdfUrl = URL.createObjectURL(pdfBlob);
+        this.pdfBlobUrl = pdfUrl;
+        this.isGeneratingPdf = false;
+
+        if (download) {
+          const link = document.createElement('a');
+          link.href = pdfUrl;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+        return pdfBlob;
+      }
+
+      // Capture from an offscreen clone so on-screen preview never changes.
+      const captureHost = document.createElement('div');
+      captureHost.style.position = 'fixed';
+      captureHost.style.left = '-100000px';
+      captureHost.style.top = '0';
+      captureHost.style.opacity = '0';
+      captureHost.style.pointerEvents = 'none';
+      captureHost.style.zIndex = '-1';
+      const captureRoot = element.cloneNode(true) as HTMLElement;
+      captureHost.appendChild(captureRoot);
+      document.body.appendChild(captureHost);
 
       // ── Temporarily strip visual noise before screenshot ──────────────
-      const isCapf = this.isCapfForm();
       // Collect all .page elements inside the target and remove their
       // min-height (which adds huge empty space) and border.
-      const pageEls = Array.from(element.querySelectorAll('.page')) as HTMLElement[];
-      const paperEls = Array.from(element.querySelectorAll('.xyz-paper')) as HTMLElement[];
+      const pageEls = Array.from(captureRoot.querySelectorAll('.page')) as HTMLElement[];
+      const paperEls = Array.from(captureRoot.querySelectorAll('.xyz-paper')) as HTMLElement[];
 
       // Also strip the element itself if it has a border/min-height
       const savedElementStyles: { el: HTMLElement; minHeight: string; maxHeight: string; border: string; boxShadow: string; overflow: string }[] = [];
       if (!isCapf) {
         savedElementStyles.push(
-          ...[...pageEls, ...paperEls, element].map(el => {
+          ...[...pageEls, ...paperEls, captureRoot].map(el => {
             const saved = {
               el,
               minHeight: el.style.minHeight,
@@ -4670,14 +3962,14 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
         );
       }
 
-      const captureTarget = (element.querySelector('.page') as HTMLElement) || element;
-      const hadPdfCapture = element.classList.contains('pdf-capture');
-      const hadPdfFix = element.classList.contains('pdf-fix');
+      const captureTarget = (captureRoot.querySelector('.page') as HTMLElement) || captureRoot;
+      const hadPdfCapture = captureRoot.classList.contains('pdf-capture');
+      const hadPdfFix = captureRoot.classList.contains('pdf-fix');
       if (!hadPdfCapture && !isCapf) {
-        element.classList.add('pdf-capture');
+        captureRoot.classList.add('pdf-capture');
       }
       if (!hadPdfFix && isCapf) {
-        element.classList.add('pdf-fix');
+        captureRoot.classList.add('pdf-fix');
       }
 
       const emptyLineSnapshots: { el: HTMLElement; html: string }[] = [];
@@ -4685,7 +3977,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
       const boxcheckSpanSnapshots: { el: HTMLElement; transform: string }[] = [];
       const sbSubSnapshots: { el: HTMLElement; textAlign: string; width: string; display: string; paddingRight: string; boxSizing: string; marginLeft: string }[] = [];
       if (isCapf) {
-        element.querySelectorAll('.line, .date-line, .inline-line').forEach((el) => {
+        captureRoot.querySelectorAll('.line, .date-line, .inline-line').forEach((el) => {
           const ht = el as HTMLElement;
           if ((ht.textContent || '').trim() === '') {
             emptyLineSnapshots.push({ el: ht, html: ht.innerHTML });
@@ -4693,12 +3985,12 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
           }
         });
 
-        element.querySelectorAll('.boxcheck').forEach((el) => {
+        captureRoot.querySelectorAll('.boxcheck').forEach((el) => {
           const ht = el as HTMLElement;
           boxcheckSnapshots.push({ el: ht, transform: ht.style.transform });
           ht.style.transform = 'translateY(6px)';
         });
-        element.querySelectorAll('.boxcheck > span').forEach((el) => {
+        captureRoot.querySelectorAll('.boxcheck > span').forEach((el) => {
           const ht = el as HTMLElement;
           boxcheckSpanSnapshots.push({ el: ht, transform: ht.style.transform });
           ht.style.transform = 'translateY(-6px)';
@@ -4715,30 +4007,26 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
         compress: true
       });
       const pagesForPdf = !isCapf
-        ? (Array.from(element.querySelectorAll('.xyz-paper')) as HTMLElement[])
+        ? (Array.from(captureRoot.querySelectorAll('.xyz-paper')) as HTMLElement[])
+            .filter((paper: HTMLElement) => {
+              if (paper.classList.contains('xyz-paper-measured')) {
+                return false;
+              }
+              const style = window.getComputedStyle(paper);
+              if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                return false;
+              }
+              const rect = paper.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0;
+            })
         : [];
       const targets = pagesForPdf.length > 0 ? pagesForPdf : [captureTarget];
       const PDF_WIDTH = 210;
       const PDF_HEIGHT = 297;
-      const pxToMm = (px: number) => (px * 25.4) / 96;
+      let firstPdfPage = true;
 
       for (let i = 0; i < targets.length; i++) {
         const target = targets[i];
-        const rect = target.getBoundingClientRect();
-        const contentWidthPx = rect.width || target.scrollWidth;
-        const contentHeightPx = rect.height || target.scrollHeight;
-        const contentWidthMm = pxToMm(contentWidthPx);
-        const contentHeightMm = pxToMm(contentHeightPx);
-        const availableWidth = PDF_WIDTH;
-        const availableHeight = PDF_HEIGHT;
-        const scaleByWidth = availableWidth / contentWidthMm;
-        const scaleByHeight = availableHeight / contentHeightMm;
-        const finalScale = contentHeightMm * scaleByWidth <= availableHeight ? scaleByWidth : scaleByHeight;
-        const imgWidth = contentWidthMm * finalScale;
-        const imgHeight = contentHeightMm * finalScale;
-        const xOffset = (PDF_WIDTH - imgWidth) / 2;
-        const yOffset = (PDF_HEIGHT - imgHeight) / 2;
-
         const canvas = await html2canvas(target, {
           scale: 3,
           useCORS: true,
@@ -4750,11 +4038,39 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
           windowHeight: target.scrollHeight
         });
 
-        if (i > 0) {
-          pdf.addPage('a4', 'portrait');
+        // Chrome-like page sequence: slice captured canvas into true A4-height snapshots.
+        const pageSliceHeightPx = Math.max(Math.round((canvas.width * PDF_HEIGHT) / PDF_WIDTH), 1);
+        const totalSlices = Math.max(Math.ceil(canvas.height / pageSliceHeightPx), 1);
+
+        for (let sliceIndex = 0; sliceIndex < totalSlices; sliceIndex++) {
+          const srcY = sliceIndex * pageSliceHeightPx;
+          const remainingHeight = canvas.height - srcY;
+          const sliceHeightPx = Math.max(Math.min(pageSliceHeightPx, remainingHeight), 1);
+          // Ignore tiny tail slices that render as visually blank extra pages.
+          if (sliceHeightPx < 24) {
+            continue;
+          }
+
+          const pageCanvas = document.createElement('canvas');
+          pageCanvas.width = canvas.width;
+          pageCanvas.height = sliceHeightPx;
+          const pageCtx = pageCanvas.getContext('2d');
+          if (!pageCtx) {
+            throw new Error('Failed to create page canvas context');
+          }
+          pageCtx.fillStyle = '#ffffff';
+          pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+          pageCtx.drawImage(canvas, 0, srcY, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
+
+          const renderedHeightMm = (sliceHeightPx * PDF_WIDTH) / canvas.width;
+          const imgData = pageCanvas.toDataURL('image/jpeg', 0.98);
+
+          if (!firstPdfPage) {
+            pdf.addPage('a4', 'portrait');
+          }
+          pdf.addImage(imgData, 'JPEG', 0, 0, PDF_WIDTH, renderedHeightMm);
+          firstPdfPage = false;
         }
-        const imgData = canvas.toDataURL('image/jpeg', 0.98);
-        pdf.addImage(imgData, 'JPEG', xOffset, yOffset, imgWidth, imgHeight);
       }
 
       // ── Restore styles after capture ────────────────────────────────────
@@ -4766,10 +4082,10 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
         el.style.overflow = overflow;
       });
       if (!hadPdfCapture && !isCapf) {
-        element.classList.remove('pdf-capture');
+        captureRoot.classList.remove('pdf-capture');
       }
       if (!hadPdfFix && isCapf) {
-        element.classList.remove('pdf-fix');
+        captureRoot.classList.remove('pdf-fix');
       }
       emptyLineSnapshots.forEach(({ el, html }) => {
         el.innerHTML = html;
@@ -4788,6 +4104,9 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewChecked, On
         el.style.boxSizing = boxSizing;
         el.style.marginLeft = marginLeft;
       });
+      if (captureHost.parentNode) {
+        captureHost.parentNode.removeChild(captureHost);
+      }
 
       const pdfBlob = pdf.output('blob');
       const pdfUrl = URL.createObjectURL(pdfBlob);

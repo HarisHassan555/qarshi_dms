@@ -160,11 +160,9 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   };
   private previewFitPending = false;
   private previewFitFrame: number | null = null;
-  /** Paginated generic preview: each page is plain-text lines (fixed count per page). */
+  /** Generic preview: one continuous list of plain-text lines (body). */
   private genericPreviewLinePages: string[][] = [];
   private genericPreviewLayoutSignature = '';
-  /** Content lines per A4 sheet (body only; header/footer are outside this count). */
-  static readonly GENERIC_PREVIEW_LINES_PER_PAGE = 38;
   /** Approximate wrap width for long unbroken lines (~A4 content width). */
   static readonly GENERIC_PREVIEW_MAX_CHARS_PER_LINE = 88;
   private lastFocusedTableCellByEditor = new WeakMap<any, HTMLTableCellElement>();
@@ -475,7 +473,15 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   private getPreviewContentElement(scaleHostEl: HTMLElement): HTMLElement | null {
-    const selectors = ['.app-preview-pages', '.xyz-paper', '.abc-wrapper.embedded .page', '.abc-wrapper .page'];
+    const pages = scaleHostEl.querySelector('.app-preview-pages');
+    if (pages instanceof HTMLElement) {
+      const papers = pages.querySelectorAll(':scope > .xyz-paper');
+      if (papers.length === 1 && papers[0] instanceof HTMLElement) {
+        return papers[0] as HTMLElement;
+      }
+      return pages;
+    }
+    const selectors = ['.xyz-paper', '.abc-wrapper.embedded .page', '.abc-wrapper .page'];
     for (const selector of selectors) {
       const match = scaleHostEl.querySelector(selector);
       if (match instanceof HTMLElement) {
@@ -485,8 +491,33 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     return null;
   }
 
+  /**
+   * Line-list generic preview: offsetHeight/scrollHeight on the flex column can lag the last line's
+   * paint box, so the scale host ends short and digits paint past the white sheet onto the canvas.
+   */
+  private getLinePreviewPaperPaintExtentHeight(paper: HTMLElement): number {
+    const pr = paper.getBoundingClientRect();
+    let extentBottom = pr.bottom;
+    const lastLine = paper.querySelector('.xyz-preview-line:last-of-type');
+    if (lastLine instanceof HTMLElement) {
+      extentBottom = Math.max(extentBottom, lastLine.getBoundingClientRect().bottom);
+    }
+    paper.querySelectorAll('.xyz-footer').forEach((node) => {
+      if (node instanceof HTMLElement) {
+        extentBottom = Math.max(extentBottom, node.getBoundingClientRect().bottom);
+      }
+    });
+    return Math.ceil(extentBottom - pr.top);
+  }
+
   /** Total stacked height for multi-page preview; avoids scrollHeight / offsetTop gaps after scale transforms. */
   private getPreviewContentNaturalHeight(el: HTMLElement): number {
+    if (el.classList.contains('xyz-paper') && el.querySelector('.xyz-preview-line')) {
+      const paintExtent = this.getLinePreviewPaperPaintExtentHeight(el);
+      const base = Math.max(el.scrollHeight || 0, el.offsetHeight || 0, paintExtent);
+      return Math.max(base, 1);
+    }
+
     const base = Math.max(el.scrollHeight || 0, el.offsetHeight || 0);
     const children = el.children;
     if (!children.length) {
@@ -524,7 +555,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       return this.genericPreviewLinePages;
     }
     const lines = this.buildGenericPreviewFlatLines(this.getGenericPreviewFields());
-    return this.chunkLinesIntoPages(lines, ApplicationComponent.GENERIC_PREVIEW_LINES_PER_PAGE);
+    return [lines.length > 0 ? lines : ['-']];
   }
 
   private rebuildGenericPreviewPagesIfNeeded(): void {
@@ -542,8 +573,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     }
 
     const lines = this.buildGenericPreviewFlatLines(fields);
-    const pages = this.chunkLinesIntoPages(lines, ApplicationComponent.GENERIC_PREVIEW_LINES_PER_PAGE);
-    this.genericPreviewLinePages = pages.length > 0 ? pages : [['-']];
+    this.genericPreviewLinePages = [lines.length > 0 ? lines : ['-']];
     this.genericPreviewLayoutSignature = signature;
   }
 
@@ -575,7 +605,6 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       String(this.selectedForm?.serFormId || ''),
       this.getDocumentHeaderPreviewValue(),
       fieldValues.join('|'),
-      String(ApplicationComponent.GENERIC_PREVIEW_LINES_PER_PAGE),
       footerSignature
     ].join('::');
   }
@@ -587,9 +616,6 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
     for (const field of fields) {
       if (this.isWordEditorType(field.type)) {
-        if (!this.isFormNameLabel(field.label)) {
-          lines.push(`${field.label}:`);
-        }
         const raw = this.getPreviewFieldValue(field);
         lines.push(...this.wordEditorHtmlToPlainLines(raw === null || raw === undefined ? '' : String(raw)));
         lines.push('');
@@ -597,9 +623,6 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       }
 
       if (this.isTableType(field.type)) {
-        if (!this.isFormNameLabel(field.label)) {
-          lines.push(`${field.label}:`);
-        }
         const rows = this.getPreviewTableValue(field);
         if (rows.length === 0) {
           lines.push('-');
@@ -613,9 +636,6 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         continue;
       }
 
-      if (!this.isFormNameLabel(field.label)) {
-        lines.push(`${field.label}:`);
-      }
       const display = this.getPreviewFieldDisplayValue(field);
       const parts = String(display).split(/\r?\n/);
       parts.forEach((part) => {
@@ -633,18 +653,6 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       lines.pop();
     }
     return lines.length ? lines : ['-'];
-  }
-
-  private chunkLinesIntoPages(lines: string[], linesPerPage: number): string[][] {
-    const n = Math.max(1, Math.floor(linesPerPage));
-    if (lines.length === 0) {
-      return [['-']];
-    }
-    const pages: string[][] = [];
-    for (let i = 0; i < lines.length; i += n) {
-      pages.push(lines.slice(i, i + n));
-    }
-    return pages;
   }
 
   /** Word editor HTML → plain lines (newlines from &lt;br&gt;, &lt;/p&gt;, etc.), then wrap long lines. */
@@ -1474,12 +1482,6 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     return String(value);
   }
 
-  isFormNameLabel(label: string | undefined): boolean {
-    const normalizedLabel = (label || '').trim().toLowerCase();
-    const normalizedFormName = (this.selectedForm?.name || this.selectedForm?.txtFormName || '').trim().toLowerCase();
-    return !!normalizedLabel && !!normalizedFormName && normalizedLabel === normalizedFormName;
-  }
-
   getPreviewFieldValue(field: FormField): any {
     const key = this.getFieldName(field.label);
     return this.applicationForm?.get(key)?.value;
@@ -1708,16 +1710,39 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     return users.length > 0 ? users : [null];
   }
 
+  private getIndividualFooterUserParts(user: any): string[] {
+    if (!user) return [];
+    const name = user.txtUserName || user.userName || user.name || '';
+    const designation =
+      user.txtDesignation ||
+      user.designation ||
+      '';
+    const department =
+      user.txtDepartmentName ||
+      user.departmentName ||
+      user.hrTblDepartment?.txtDepartmentName ||
+      '';
+    return [name, designation, department]
+      .map((v: string) => String(v || '').trim())
+      .filter((v: string) => v.length > 0);
+  }
+
   getIndividualFooterUserLabel(user: any, section: IndividualPipelineFooterField): string {
     if (!user) return '';
-    const name = user.txtUserName || user.userName || user.name || '';
-    const role =
-      user.cfgTblRole?.txtRoleName ||
-      user.txtRoleName ||
-      user.roleName ||
-      '';
-    const roleLine = role ? `\n(${role})` : '';
-    return `${name}${roleLine}`;
+    const escapeHtml = (value: any): string =>
+      String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    return this.getIndividualFooterUserParts(user)
+      .map((v: string) => escapeHtml(v))
+      .join('<br>');
+  }
+
+  getIndividualFooterUserLabelPlain(user: any, section: IndividualPipelineFooterField): string {
+    return this.getIndividualFooterUserParts(user).join(' | ');
   }
 
   private richTextRequiredValidator(control: AbstractControl): ValidationErrors | null {
@@ -1968,11 +1993,17 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     const filename = `application_${formCode || applicationId}.pdf`;
 
     let pdfBlob: Blob;
-    const individualFooter = this.getPreviewIndividualFooterField();
-    if (individualFooter && !this.isCapfSelected()) {
-      const previewPages = document.querySelector('.app-preview-pages') as HTMLElement | null;
+    if (!this.isCapfSelected()) {
+      this.rebuildGenericPreviewPagesIfNeeded();
+      this.requestPreviewFit();
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      const previewScaleEl = this.previewScale?.nativeElement || null;
+      const previewPages = (previewScaleEl?.querySelector('.app-preview-pages') as HTMLElement | null)
+        || (document.querySelector('.app-preview-pages') as HTMLElement | null);
       const paperCount = previewPages ? previewPages.querySelectorAll('.xyz-paper').length : 0;
       if (previewPages && paperCount > 0) {
+        // Keep submission-email snapshot identical to on-screen generic preview pagination.
         pdfBlob = await this.applicationPdfService.renderMultiPageXyzPapersToPdfBlob(previewPages);
       } else {
         const htmlContent = this.applicationPdfService.buildPdfHtmlForApplication(

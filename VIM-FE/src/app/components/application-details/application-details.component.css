@@ -14,8 +14,8 @@
 
 /* Single scroll for the whole stack of pages (parent scrollable, pages not) */
 .xyz-pages-scroll {
-    max-height: 80vh;
-    overflow-y: auto;
+    max-height: none;
+    overflow-y: visible;
     padding-bottom: 24px;
 }
 
@@ -31,6 +31,8 @@
 #generic-pdf-content {
     position: relative;
     overflow-x: hidden;
+    overflow-y: visible;
+    height: auto;
 }
 
 .app-details-measure {
@@ -106,6 +108,8 @@
    Fixed 297mm + overflow:hidden was cutting off lines when pagination used char heuristics. */
 .xyz-paper {
     width: 210mm;
+    max-width: 100%;
+    min-width: 0;
     position: relative;
     min-height: 297mm;
     height: auto;
@@ -365,6 +369,8 @@
     border: none;
     padding: 0;
     margin-bottom: 8px;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .xyz-generic-label {
@@ -379,16 +385,26 @@
     line-height: 1.4;
     white-space: pre-wrap;
     word-break: break-word;
+    overflow-wrap: anywhere;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .xyz-generic-word {
     font-size: 13px;
     line-height: 1.4;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .xyz-generic-word .ql-editor {
     padding: 0;
     white-space: normal;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 /* Important: content rendered via [innerHTML] does not always inherit
@@ -399,6 +415,10 @@
     font-size: 13px;
     line-height: 1.45;
     color: #000;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
 }
 
 :host ::ng-deep .xyz-generic-word .ql-editor p,
@@ -498,18 +518,19 @@
     font-size: 14px;
     width: 100% !important;
     max-width: 100% !important;
+    min-width: 0;
     box-sizing: border-box;
     overflow-wrap: break-word;
     word-wrap: break-word;
-    overflow: visible;
-    /* Natural height from content (matches /application); avoid flex-shrink clipping */
-    flex: 0 1 auto;
-    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: visible;
+    /* Size to content: do not shrink below content height (was min-height:0 + flex-shrink → overflow past page). */
+    flex: 0 0 auto;
+    min-height: auto;
     display: block;
 }
 
 .xyz-content-body.xyz-content-centered,
-.xyz-content-body.xyz-content-centered .xyz-generic-label,
 .xyz-content-body.xyz-content-centered .xyz-generic-value,
 .xyz-content-body.xyz-content-centered .xyz-generic-word {
     text-align: center !important;
@@ -581,9 +602,9 @@
     flex-direction: column;
 }
 
-/* Default: content does not grow to fill page */
+/* Default: body height follows content (no flex-grow shrink trap). */
 .xyz-paper > .xyz-content-body {
-    flex-grow: 0;
+    flex: 0 0 auto;
 }
 
 /* Last page: at least A4; grow with body + footer so no text is clipped (same idea as /application) */
@@ -595,9 +616,10 @@
     max-height: none;
 }
 .xyz-paper.xyz-last-page > .xyz-content-body {
-    flex: 0 1 auto;
-    min-height: 0;
-    overflow: visible;
+    flex: 0 0 auto;
+    min-height: auto;
+    overflow-x: hidden;
+    overflow-y: visible;
 }
 .pdf-capture .xyz-paper.xyz-last-page {
     height: 297mm !important;
@@ -627,20 +649,33 @@
     flex-shrink: 0;
 }
 
+.xyz-paper.xyz-paper--footer-pinned {
+    /* Screen preview: footer-pinned sheet must still grow with long body content. */
+    min-height: 297mm;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+}
+
 .xyz-paper.xyz-paper--footer-pinned > .xyz-content-body {
-    flex: 0 1 auto !important;
-    min-height: 0;
-    overflow: hidden;
+    flex: 0 0 auto !important;
+    min-height: auto;
+    overflow-x: hidden;
+    overflow-y: visible;
+    max-height: none !important;
 }
 
 .xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-content-body.xyz-generic-measured-body {
-    flex: 0 1 auto !important;
-    min-height: 0;
-    overflow: hidden;
+    flex: 0 0 auto !important;
+    min-height: auto;
+    overflow-x: hidden;
+    overflow-y: visible;
 }
 
 .xyz-paper.xyz-paper--footer-pinned.xyz-last-page:not(.xyz-paper-measured) {
     min-height: 297mm;
+    height: auto;
+    max-height: none;
 }
 
 .pdf-capture .xyz-paper.xyz-paper--footer-pinned.xyz-last-page > .xyz-content-body,
