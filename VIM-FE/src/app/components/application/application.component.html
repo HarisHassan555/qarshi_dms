@@ -579,8 +579,26 @@
                                                 <div class="xyz-title">{{ getDocumentHeaderPreviewValue() }}</div>
                                             </ng-container>
 
-                                            <div class="xyz-generic-content xyz-generic-content--line-pages">
-                                                <div *ngFor="let line of pageLines" class="xyz-preview-line">{{ line }}</div>
+                                            <div class="xyz-generic-content">
+                                                <div *ngFor="let field of getGenericPreviewFields()" class="xyz-generic-field">
+                                                    <div *ngIf="isWordEditorType(field.type)" class="xyz-generic-word">
+                                                        <div class="ql-editor" [innerHTML]="getPreviewWordEditorValue(field)"></div>
+                                                    </div>
+
+                                                    <div *ngIf="isTableType(field.type)" class="overflow-x-auto">
+                                                        <table class="xyz-generic-table">
+                                                            <tbody>
+                                                                <tr *ngFor="let row of getPreviewTableValue(field)">
+                                                                    <td *ngFor="let cell of row">{{ cell ?? '-' }}</td>
+                                                                </tr>
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+
+                                                    <div *ngIf="!isWordEditorType(field.type) && !isTableType(field.type)" class="xyz-generic-value">
+                                                        {{ getPreviewFieldDisplayValue(field) }}
+                                                    </div>
+                                                </div>
                                             </div>
 
                                             <ng-container *ngIf="isLast">

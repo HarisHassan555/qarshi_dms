@@ -171,6 +171,34 @@
     line-height: 1.35;
 }
 
+.app-preview-paper-a4 .xyz-signatures {
+    table-layout: fixed;
+}
+
+.app-preview-paper-a4 .xyz-signatures th,
+.app-preview-paper-a4 .xyz-signatures td {
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    vertical-align: middle;
+    line-height: 1.2;
+}
+
+.app-preview-paper-a4 .xyz-signatures td > span {
+    display: block;
+    white-space: normal;
+}
+
+.app-preview-paper-a4 .xyz-generic-table {
+    table-layout: fixed;
+}
+
+.app-preview-paper-a4 .xyz-generic-table td {
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
 /* Line-based generic preview: one DOM row per logical line. */
 .xyz-generic-content--line-pages {
     font-family: "Times New Roman", Times, serif;
