@@ -4348,6 +4348,18 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         if (appData == null)
             return java.util.Collections.emptyList();
         Object obj = appData.get("footerFields");
+        if (!(obj instanceof List)) {
+            obj = appData.get("individual_pipeline_footer");
+        }
+        if (!(obj instanceof List)) {
+            obj = appData.get("field_footer");
+        }
+        if (!(obj instanceof List)) {
+            obj = appData.get("dynamicFooter");
+        }
+        if (!(obj instanceof List)) {
+            obj = appData.get("footer");
+        }
         if (!(obj instanceof List))
             return java.util.Collections.emptyList();
 
@@ -5659,28 +5671,37 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     private String findSignatureForUser(List<Map<String, Object>> history, Integer userId, String roleExpected,
             boolean allowFallback, Map<Integer, String> signatureFromDb) {
-        if (userId == null)
+        if (userId == null) {
             return "";
+        }
         if (history != null && !history.isEmpty()) {
-            for (Map<String, Object> entry : history) {
-                Object idObj = entry.get("approvedBy");
-                if (idObj == null)
+            // Walk newest -> oldest so we prefer the latest valid approval after any send-back reset.
+            for (int i = history.size() - 1; i >= 0; i--) {
+                Map<String, Object> entry = history.get(i);
+                if (entry == null) {
                     continue;
-                Integer id = idObj instanceof Integer ? (Integer) idObj : Integer.parseInt(idObj.toString());
-                if (!id.equals(userId))
+                }
+                Integer id = safeInt(entry.get("approvedBy"), safeInt(entry.get("userId"), null));
+                if (id == null || !id.equals(userId)) {
                     continue;
-                String role = entry.get("role") != null ? entry.get("role").toString() : "";
-                if (roleExpected != null && !roleExpected.equalsIgnoreCase(role))
+                }
+                if (!historyRoleMatches(entry, roleExpected)) {
                     continue;
-                String action = entry.get("action") != null ? entry.get("action").toString() : "";
-                if ("REJECTED".equalsIgnoreCase(action))
+                }
+                if (!isApprovedEntry(entry)) {
                     continue;
+                }
+                if (!isHistoryEntryAfterLatestReset(history, i)) {
+                    continue;
+                }
                 Object sigObj = entry.get("signaturePath");
-                if (sigObj == null)
-                    return "";
+                if (sigObj == null) {
+                    continue;
+                }
                 String sig = sigObj.toString();
-                if (!sig.trim().isEmpty())
+                if (!sig.trim().isEmpty()) {
                     return sig;
+                }
             }
         }
         if (allowFallback && signatureFromDb != null) {
@@ -5933,22 +5954,106 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         content.endText();
     }
 
-    private Map<String, Object> findApprovalEntryForUser(List<Map<String, Object>> history, Integer userId, String roleExpected) {
-        if (userId == null || history == null || history.isEmpty())
+    private boolean historyRoleMatches(Map<String, Object> entry, String roleExpected) {
+        if (entry == null) {
+            return false;
+        }
+        String expected = normalizeHistoryRole(roleExpected);
+        if (expected.isEmpty()) {
+            return true;
+        }
+
+        String role = normalizeHistoryRole(entry.get("role") != null ? String.valueOf(entry.get("role")) : null);
+        if (!role.isEmpty() && role.equals(expected)) {
+            return true;
+        }
+        String departmentName = normalizeHistoryRole(
+                entry.get("departmentName") != null ? String.valueOf(entry.get("departmentName")) : null);
+        if (!departmentName.isEmpty() && departmentName.equals(expected)) {
+            return true;
+        }
+        String txtDepartmentName = normalizeHistoryRole(
+                entry.get("txtDepartmentName") != null ? String.valueOf(entry.get("txtDepartmentName")) : null);
+        if (!txtDepartmentName.isEmpty() && txtDepartmentName.equals(expected)) {
+            return true;
+        }
+        String userDepartmentName = normalizeHistoryRole(
+                entry.get("userDepartmentName") != null ? String.valueOf(entry.get("userDepartmentName")) : null);
+        return !userDepartmentName.isEmpty() && userDepartmentName.equals(expected);
+    }
+
+    private String normalizeHistoryRole(String value) {
+        if (value == null) {
+            return "";
+        }
+        return normalizeDeptText(value);
+    }
+
+    private boolean isHistoryEntryAfterLatestReset(List<Map<String, Object>> history, int entryIndex) {
+        if (history == null || history.isEmpty() || entryIndex < 0 || entryIndex >= history.size()) {
+            return false;
+        }
+        Map<String, Object> entry = history.get(entryIndex);
+        Integer stageLevel = safeInt(entry.get("level"), safeInt(entry.get("intApprovalOrder"), null));
+        // Any later send-back marker invalidates this entry for the same stage.
+        for (int i = history.size() - 1; i > entryIndex; i--) {
+            Map<String, Object> later = history.get(i);
+            if (later == null) {
+                continue;
+            }
+            String action = later.get("action") != null ? String.valueOf(later.get("action")).toUpperCase() : "";
+            if (!"SENT_BACK".equals(action) && !"SENT_BACK_TO_INITIATOR".equals(action)) {
+                continue;
+            }
+
+            boolean resetsStage = false;
+            if ("SENT_BACK_TO_INITIATOR".equals(action)) {
+                // Initiator reset invalidates all non-zero stages. If stage is unknown, be conservative and reset it.
+                resetsStage = stageLevel == null || stageLevel >= 1;
+            } else {
+                Integer toLevel = safeInt(later.get("toLevel"), null);
+                if (toLevel == null) {
+                    Integer fromLevel = safeInt(later.get("fromLevel"), null);
+                    if (fromLevel != null && fromLevel > 1) {
+                        toLevel = fromLevel - 1;
+                    }
+                }
+                if (toLevel != null) {
+                    resetsStage = stageLevel == null || stageLevel >= toLevel;
+                } else {
+                    resetsStage = true;
+                }
+            }
+            if (resetsStage) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Map<String, Object> findApprovalEntryForUser(List<Map<String, Object>> history, Integer userId,
+            String roleExpected) {
+        if (userId == null || history == null || history.isEmpty()) {
             return null;
-        for (Map<String, Object> entry : history) {
-            Object idObj = entry.get("approvedBy");
-            if (idObj == null)
+        }
+        for (int i = history.size() - 1; i >= 0; i--) {
+            Map<String, Object> entry = history.get(i);
+            if (entry == null) {
                 continue;
-            Integer id = idObj instanceof Integer ? (Integer) idObj : Integer.parseInt(idObj.toString());
-            if (!id.equals(userId))
+            }
+            Integer id = safeInt(entry.get("approvedBy"), safeInt(entry.get("userId"), null));
+            if (id == null || !id.equals(userId)) {
                 continue;
-            String role = entry.get("role") != null ? entry.get("role").toString() : "";
-            if (roleExpected != null && !roleExpected.equalsIgnoreCase(role))
+            }
+            if (!historyRoleMatches(entry, roleExpected)) {
                 continue;
-            String action = entry.get("action") != null ? entry.get("action").toString() : "";
-            if ("REJECTED".equalsIgnoreCase(action))
+            }
+            if (!isApprovedEntry(entry)) {
                 continue;
+            }
+            if (!isHistoryEntryAfterLatestReset(history, i)) {
+                continue;
+            }
             return entry;
         }
         return null;
@@ -7897,7 +8002,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             List<Object> users = extractFooterUsers(field);
             String usersText = formatFooterUsers(users);
             float tx = x + colWidth * i + 4;
-            float ty = y + 8;
+            float ty = y + 11;
             for (String line : wrapText(usersText, PDType1Font.HELVETICA, 9, colWidth - 8)) {
                 content.beginText();
                 content.newLineAtOffset(tx, ty);
@@ -9020,9 +9125,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         float sigAreaHeight = rowNames - 8 - timestampRowHeight;
         float sigRowY = y + rowSig + rowHeader + 4;
         float sigRowHeight = rowNames - 8;
-        float sigAreaY = sigRowY + timestampRowHeight;
+        // PDF Y-axis grows upward; subtract to move content visually lower in the box.
+        float sigAreaY = sigRowY + timestampRowHeight - 9f;
         float maxSigDrawHeight = 14f;
-        float timestampY = sigRowY + 2f;
+        float timestampY = sigRowY - 10f;
         int slotIndex = 0;
         for (int i = 0; i < sections; i++) {
             Map<String, Object> field = footerFields.get(i);
@@ -9049,6 +9155,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 slotIndex++;
             }
         }
+
     }
 
     /**
@@ -9142,9 +9249,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         float timestampRowHeight = 10f;
         float sigAreaHeight = rowNames - 8 - timestampRowHeight;
         float sigRowY = y + rowSig + rowHeader + 4;
-        float sigAreaY = sigRowY + timestampRowHeight;
+        // PDF Y-axis grows upward; subtract to move content visually lower in the box.
+        float sigAreaY = sigRowY + timestampRowHeight - 9f;
         float maxSigDrawHeight = 14f;
-        float timestampY = sigRowY + 2f;
+        float timestampY = sigRowY - 10f;
         float cellX = x + colWidth * targetSlotIndex;
         float cellW = colWidth - 8;
         drawSignatureImage(document, content, sigPath, cellX + 4, sigAreaY, cellW, sigAreaHeight, true, maxSigDrawHeight);
@@ -9152,7 +9260,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         if (dateTimeStr != null && !dateTimeStr.isEmpty()) {
             drawTimestampBelowSignature(content, cellX + 4, timestampY, cellW, dateTimeStr);
         }
+
     }
+
 
     private List<Map<String, Object>> loadApprovalPipeline(CfgTblCustomForm form) {
         if (form == null || form.getTxtApprovalPipeline() == null || form.getTxtApprovalPipeline().trim().isEmpty()) {
@@ -9308,6 +9418,90 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             // Individual pipeline footer: always use the portal snapshot PDF (blbPdfData). Do not substitute
             // server-side "summary" PDFs — they do not match the multi-page application-details layout.
             if (hasDynamicFooterFlow) {
+                // Rebuild email preview from the original stage-0 snapshot when available, then overlay
+                // signatures from approval history. This keeps email PNG geometry in sync with latest
+                // positioning tweaks and avoids stacking duplicates on already-signed stage PDFs.
+                try {
+                    byte[] stage0Pdf = application != null ? application.getBlbPdfForStage(0) : null;
+                    if ((stage0Pdf == null || stage0Pdf.length == 0)) {
+                        CfgTblCustomFormApplication dbStageApp = null;
+                        EntityManager em = getEntityManager();
+                        try {
+                            if (application != null && application.getSerApplicationId() != null) {
+                                dbStageApp = em.find(CfgTblCustomFormApplication.class, application.getSerApplicationId());
+                                if (dbStageApp != null) {
+                                    stage0Pdf = dbStageApp.getBlbPdfForStage(0);
+                                }
+                            }
+                        } finally {
+                            if (em.isOpen()) {
+                                em.close();
+                            }
+                        }
+                    }
+                    if (stage0Pdf != null && stage0Pdf.length > 0) {
+                        String historyJson = application != null ? application.getTxtApprovalHistory() : null;
+                        byte[] rebuiltPdf = applyDynamicFooterSignaturesToPdf(
+                                stage0Pdf,
+                                appData != null ? appData : new java.util.HashMap<>(),
+                                historyJson,
+                                false);
+                        if (rebuiltPdf != null && rebuiltPdf.length > 0) {
+                            log.info("Dynamic-footer email preview source: rebuilt from stage-0 snapshot for appId={}",
+                                    application != null ? application.getSerApplicationId() : null);
+                            return rebuiltPdf;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed rebuilding dynamic-footer email preview from stage-0 snapshot: {}", e.getMessage());
+                }
+
+                // If stage-0 snapshot is unavailable (older records), rebuild from current form data and
+                // overlay approval signatures so preview uses latest signature positioning instead of stale
+                // already-signed blbPdfData bytes.
+                try {
+                    CfgTblCustomFormApplication src = application;
+                    CfgTblCustomForm useForm = form;
+                    if (src == null || useForm == null) {
+                        EntityManager em = getEntityManager();
+                        try {
+                            if (application != null && application.getSerApplicationId() != null) {
+                                CfgTblCustomFormApplication dbApp = em.find(CfgTblCustomFormApplication.class,
+                                        application.getSerApplicationId());
+                                if (src == null) {
+                                    src = dbApp;
+                                }
+                                if (useForm == null && dbApp != null) {
+                                    useForm = dbApp.getCfgTblCustomForm();
+                                }
+                            }
+                        } finally {
+                            if (em.isOpen()) {
+                                em.close();
+                            }
+                        }
+                    }
+                    if (src != null && useForm != null) {
+                        byte[] regeneratedBasePdf = generateApplicationPdf(src, useForm,
+                                appData != null ? appData : new java.util.HashMap<>());
+                        if (regeneratedBasePdf != null && regeneratedBasePdf.length > 0) {
+                            byte[] rebuiltPdf = applyDynamicFooterSignaturesToPdf(
+                                    regeneratedBasePdf,
+                                    appData != null ? appData : new java.util.HashMap<>(),
+                                    application != null ? application.getTxtApprovalHistory() : null,
+                                    false);
+                            if (rebuiltPdf != null && rebuiltPdf.length > 0) {
+                                log.info(
+                                        "Dynamic-footer email preview source: regenerated base + overlay for appId={}",
+                                        application != null ? application.getSerApplicationId() : null);
+                                return rebuiltPdf;
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed rebuilding dynamic-footer email preview from regenerated base: {}", e.getMessage());
+                }
+
                 if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
                     return application.getBlbPdfData();
                 }

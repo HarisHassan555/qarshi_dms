@@ -293,6 +293,12 @@
                                 </ng-container>
                             </tr>
                             <tr>
+                                <th *ngFor="let section of getIndividualPipelineFooterFields()"
+                                    [attr.colspan]="getIndividualFooterColSpan(section)">
+                                    {{ section.label || 'New Field' }}:
+                                </th>
+                            </tr>
+                            <tr>
                                 <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
                                     <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
                                         <div [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></div>
@@ -367,6 +373,13 @@
                                     </div>
                                 </td>
                             </ng-container>
+                        </tr>
+
+                        <!-- Labels Row -->
+                        <tr>
+                            <th *ngFor="let field of footerFields" [attr.colspan]="getFooterSlots(field).length || 1">
+                                {{ field?.label || 'New Field' }}:
+                            </th>
                         </tr>
 
                         <!-- User Details Row -->

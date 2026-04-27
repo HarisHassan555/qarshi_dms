@@ -260,15 +260,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       this.editData = state.editData;
       this.selectedFormId = String(this.editData.serFormId);
 
-      // We need to wait for forms to load to set showBudgetApproval correctly
-      // But typically we can just check the name/id if we have it
-      // Let's force it if it looks like a budget form
-      const name = (this.editData.formName || '').toUpperCase();
-      const code = (this.editData.txtFormCode || '').toUpperCase();
-      if (name.includes('BUDGET APPROVAL') || code.startsWith('BDG')) {
-        this.showBudgetApproval = true;
-        this.generatedApplicationCode = this.editData.txtFormCode;
-      }
+      this.generatedApplicationCode = this.editData.txtFormCode || null;
     }
   }
 
@@ -382,16 +374,10 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       this.selectedForm = this.customForms.find(f => f.serFormId === formId) || null;
       this.ensureSidebarHidden(true);
       if (this.selectedForm) {
-        const formName = (this.selectedForm.name || '').trim().toLowerCase();
-        if (formName === 'budget approval form') {
-          this.showBudgetApproval = true;
-          this.generateApplicationCode(formId);
-        } else {
-          this.showBudgetApproval = false;
-          this.buildDynamicForm(this.selectedForm);
-          // Generate next application code
-          this.generateApplicationCode(formId);
-        }
+        this.showBudgetApproval = false;
+        this.buildDynamicForm(this.selectedForm);
+        // Generate next application code
+        this.generateApplicationCode(formId);
       }
     } else {
       this.selectedForm = null;
@@ -543,7 +529,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
   /** Paginated A4 preview for all generic forms (not budget/CAPF). */
   shouldUsePaginatedGenericPreview(): boolean {
-    return !this.showBudgetApproval && !this.isCapfSelected() && !!this.selectedForm;
+    return !this.isCapfSelected() && !!this.selectedForm;
   }
 
   /** One A4 sheet = up to N plain-text lines; next line starts the next page immediately. */
