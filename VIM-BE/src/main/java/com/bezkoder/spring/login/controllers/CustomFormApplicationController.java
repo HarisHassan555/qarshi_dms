@@ -464,7 +464,7 @@ public class CustomFormApplicationController {
                         "Please enter comments before rejecting. Use your browser back button to return to the form.");
             }
             String finalRemarks = remarks.trim();
-            String status = customFormApplicationService.rejectApplication(applicationId, finalRemarks);
+            String status = getCustomFormApplicationDaoImpl().rejectApplication(applicationId, finalRemarks, userId);
             if ("Success".equals(status)) {
                 return renderEmailActionResultPage("Application Rejected", "The application has been rejected.");
             }
@@ -794,4 +794,3 @@ public class CustomFormApplicationController {
         return remoteAddr != null ? remoteAddr : "";
     }
 }
-

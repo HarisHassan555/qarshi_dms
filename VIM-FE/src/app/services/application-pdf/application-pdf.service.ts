@@ -573,6 +573,16 @@ export class ApplicationPdfService {
     captureHost.style.pointerEvents = 'none';
     captureHost.style.zIndex = '-1';
     const cloneRoot = container.cloneNode(true) as HTMLElement;
+    const captureScopeId = `pdf-capture-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+    cloneRoot.setAttribute('data-pdf-capture-scope', captureScopeId);
+    const captureStyle = document.createElement('style');
+    captureStyle.textContent = `
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-rule.thick::before,
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-rule.thick::after {
+        content: none !important;
+      }
+    `;
+    cloneRoot.prepend(captureStyle);
     captureHost.appendChild(cloneRoot);
     document.body.appendChild(captureHost);
 
@@ -647,6 +657,37 @@ export class ApplicationPdfService {
           savedStyles.push({ el, prop, value: el.style.getPropertyValue(prop) });
           el.style.setProperty(prop, value, 'important');
         };
+
+      // PDF-only hardening: force the header separator to render as 3 full-width lines
+      // without relying on pseudo-elements (which html2canvas can truncate on the right).
+      const thickRules = Array.from(target.querySelectorAll('.xyz-rule.thick')) as HTMLElement[];
+      thickRules.forEach((rule) => {
+        // Build 3 explicit 1px lines in the capture clone so html2canvas
+        // cannot merge/crop pseudo-element based separators.
+        rule.innerHTML = '<span class="pdf-rule-line"></span><span class="pdf-rule-line"></span><span class="pdf-rule-line"></span>';
+        setStyle(rule, 'display', 'flex');
+        setStyle(rule, 'flex-direction', 'column');
+        setStyle(rule, 'gap', '1px');
+        setStyle(rule, 'height', 'auto');
+        setStyle(rule, 'min-height', '5px');
+        setStyle(rule, 'background', 'transparent');
+        setStyle(rule, 'border', '0');
+        setStyle(rule, 'padding', '0');
+        setStyle(rule, 'box-sizing', 'border-box');
+        setStyle(rule, 'position', 'static');
+        setStyle(rule, 'overflow', 'visible');
+
+        const lineEls = Array.from(rule.querySelectorAll('.pdf-rule-line')) as HTMLElement[];
+        lineEls.forEach((lineEl, idx) => {
+          const isCenter = idx === 1;
+          setStyle(lineEl, 'display', 'block');
+          setStyle(lineEl, 'width', '100%');
+          setStyle(lineEl, 'height', isCenter ? '2px' : '1px');
+          setStyle(lineEl, 'min-height', isCenter ? '2px' : '1px');
+          setStyle(lineEl, 'background', '#000');
+          setStyle(lineEl, 'flex', isCenter ? '0 0 2px' : '0 0 1px');
+        });
+      });
 
       // Ensure export uses real paper metrics, not any preview scaling transform.
       setStyle(target, 'transform', 'none');
@@ -1699,6 +1740,23 @@ export class ApplicationPdfService {
     .pdf-generation-mode .xyz-paper-footer-pinned > .xyz-footer-spacer {
       flex: 1 1 auto !important;
     }
+    .pdf-generation-mode .xyz-rule.thick,
+    .xyz-paper.pdf-generation-mode .xyz-rule.thick {
+      height: 1px !important;
+      background: #000 !important;
+      border-top: 1px solid #000 !important;
+      border-bottom: 1px solid #000 !important;
+      padding: 1px 0 !important;
+      box-sizing: content-box !important;
+      position: static !important;
+      overflow: visible !important;
+    }
+    .pdf-generation-mode .xyz-rule.thick::before,
+    .pdf-generation-mode .xyz-rule.thick::after,
+    .xyz-paper.pdf-generation-mode .xyz-rule.thick::before,
+    .xyz-paper.pdf-generation-mode .xyz-rule.thick::after {
+      content: none !important;
+    }
     .xyz-header-container {
       flex-shrink: 0;
       background:#ffffff;
@@ -1725,8 +1783,8 @@ export class ApplicationPdfService {
     .xyz-company-name { font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif; font-size:30px; font-weight:700; }
     .xyz-company-address { font-family: Verdana, Arial, sans-serif; font-size:12px; color:#000; margin-top:2px; }
     .xyz-rule { height:1px; background:#000; margin:8px 0 12px 0; }
-    .xyz-rule.thick { position:relative; height:2px; background:#000; }
-    .xyz-rule.thick::before, .xyz-rule.thick::after { content:""; position:absolute; left:0; right:0; height:1px; background:#000; }
+    .xyz-rule.thick { position:relative; height:2px; background:#000; overflow:visible; }
+    .xyz-rule.thick::before, .xyz-rule.thick::after { content:""; position:absolute; left:0; width:100%; height:1px; background:#000; }
     .xyz-rule.thick::before { top:-2px; }
     .xyz-rule.thick::after { bottom:-2px; }
     .xyz-title { text-align:center; font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif; font-weight:700; font-size:26px; line-height:1.25; margin:6px 0 16px 0; }
