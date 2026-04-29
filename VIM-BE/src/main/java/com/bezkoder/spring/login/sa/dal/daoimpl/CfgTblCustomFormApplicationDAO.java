@@ -2001,9 +2001,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
             // Increment approval level (advance to next department)
             if (isCapfForm(form) && currentLevelBeforeApproval != null && currentLevelBeforeApproval == -1) {
-                // CAPF initial signer approval should move to first real stage (level 1),
-                // not to pending level 0 (which breaks email + UI stage targeting).
-                currentLevel = 1;
+                // CAPF initial signer approval moves to level 0 (initiator HOD stage).
+                // Level 0 is a virtual CAPF stage and must be processed before pipeline[0].
+                currentLevel = 0;
             } else {
                 currentLevel++;
             }
@@ -2762,7 +2762,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             
             // Send email notification to previous department after successful send back
             try {
-                sendBackEmailNotification(application, originalLevel, currentLevel, pipelines);
+                sendBackEmailNotification(application, originalLevel, currentLevel, pipelines, false);
             } catch (Exception emailEx) {
                 log.error("Error sending send-back email notification: " + emailEx.getMessage(), emailEx);
                 // Don't fail the send back if email fails
@@ -3101,28 +3101,39 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             // Send email notification after successful send back
             try {
                 if (useIndividualPipelineFlow) {
-                    // Send-back-to-initiator should notify initiator/submitted user (not first approver).
-                    if (application.getSerSubmittedBy() != null) {
-                        CfgTblUser submitter = entityManager.find(CfgTblUser.class, application.getSerSubmittedBy());
-                        if (submitter != null && submitter.getTxtAddress() != null
-                                && !submitter.getTxtAddress().trim().isEmpty()) {
+                    // For individual footer pipeline forms, restart the journey by notifying
+                    // the first pipeline user (sequence index 0), not the submitter.
+                    List<BudgetApprover> sequence = getBudgetApprovalSequence(appData, entityManager);
+                    if (sequence != null && !sequence.isEmpty()) {
+                        BudgetApprover firstApprover = sequence.get(0);
+                        if (firstApprover != null && firstApprover.userId != null
+                                && firstApprover.email != null
+                                && !firstApprover.email.trim().isEmpty()) {
                             String baseUrl = getBaseUrl();
                             String cid = isCapf ? "capf-inline" : "form-inline";
                             String formName = getResolvedFormName(form);
-                            String subject = formName + " Sent Back To Initiator - "
+                            String subject = formName + " Sent Back - Requires Your Approval - "
                                     + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+                            String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                                    + application.getSerApplicationId() + "&userId=" + firstApprover.userId;
+                            String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                                    + application.getSerApplicationId() + "&userId=" + firstApprover.userId;
+                            String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                                    + application.getSerApplicationId() + "&userId=" + firstApprover.userId;
+                            String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                                    + application.getSerApplicationId() + "&userId=" + firstApprover.userId;
                             String html = generateApprovalEmailHtml(
-                                    submitter.getTxtUserName() != null ? submitter.getTxtUserName() : "User",
-                                    (originalLevel != null ? originalLevel + 1 : 0),
+                                    firstApprover.name != null ? firstApprover.name : "User",
+                                    1,
                                     application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
                                     formName,
-                                    "SENT_BACK",
+                                    "IN_PROGRESS",
                                     application.getTxtRemarks(),
-                                    false,
-                                    null,
-                                    null,
-                                    null,
-                                    null,
+                                    true,
+                                    approveUrl,
+                                    rejectUrl,
+                                    sendBackUrl,
+                                    sendBackToInitiatorUrl,
                                     application.getTxtPriorApprovals() != null
                                             && !application.getTxtPriorApprovals().trim().isEmpty()
                                                     ? application.getTxtPriorApprovals()
@@ -3130,7 +3141,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                     baseUrl);
 
                             sendEmailWithInlineFormPreview(
-                                    java.util.Arrays.asList(submitter.getTxtAddress()),
+                                    java.util.Arrays.asList(firstApprover.email),
                                     subject,
                                     html,
                                     application,
@@ -3138,13 +3149,19 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                     isCapf,
                                     cid);
 
-                            log.info("Send-back-to-initiator notification email sent to submitter: {}",
-                                    submitter.getTxtAddress());
+                            log.info("Send-back-to-initiator notification email sent to first pipeline approver: {}",
+                                    firstApprover.email);
+                        } else {
+                            log.warn("Skipping send-back-to-initiator email: first pipeline approver is missing user/email for appId={}",
+                                    application.getSerApplicationId());
                         }
+                    } else {
+                        log.warn("Skipping send-back-to-initiator email: individual approval sequence is empty for appId={}",
+                                application.getSerApplicationId());
                     }
                 } else {
                     // For regular pipeline forms, use existing sendBackEmailNotification
-                    sendBackEmailNotification(application, originalLevel, currentLevel, pipelines);
+                    sendBackEmailNotification(application, originalLevel, currentLevel, pipelines, true);
                 }
             } catch (Exception emailEx) {
                 log.error("Error sending send-back email notification: " + emailEx.getMessage(), emailEx);
@@ -3393,7 +3410,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             // 2. Get email of the next level department head (if there is a next level)
-            // For CAPF, Level 0 was HOD. Level 1 is Pipeline Index 0.
+            // For CAPF, Level 0 is initiator HOD; Level >=1 maps to pipeline index (level - 1).
             int nextPipelineIndex = isCapf ? currentLevel - 1 : currentLevel;
 
             boolean isLastStage;
@@ -3411,6 +3428,98 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     sendFinanceEmails(application, form);
                 }
                 return;
+            }
+
+            if (isCapf && currentLevel != null && currentLevel == 0) {
+                try {
+                    Integer submitterDeptId = loadUserDepartmentId(emailEntityManager, application.getSerSubmittedBy());
+                    if (submitterDeptId != null) {
+                        String submitterDeptName = resolveDepartmentName(emailEntityManager, submitterDeptId, null);
+                        emailEntityManager.getTransaction().begin();
+                        HrTblDepartment submitterDept = emailEntityManager.find(HrTblDepartment.class, submitterDeptId);
+                        if (submitterDept != null) {
+                            java.util.List<Integer> headIds = new java.util.ArrayList<>();
+                            String headIdsStr = submitterDept.getSerDepartmentHeadId();
+                            if (headIdsStr != null && !headIdsStr.trim().isEmpty()) {
+                                for (String id : headIdsStr.split(",")) {
+                                    try {
+                                        headIds.add(Integer.parseInt(id.trim()));
+                                    } catch (Exception e) {
+                                    }
+                                }
+                            }
+                            if (headIds.isEmpty()) {
+                                Integer fallbackHeadId = findDepartmentHeadUserId(emailEntityManager, submitterDeptId);
+                                if (fallbackHeadId != null) {
+                                    headIds.add(fallbackHeadId);
+                                }
+                            }
+
+                            for (Integer currentHeadId : headIds) {
+                                CfgTblUser nextDeptHead = currentHeadId != null
+                                        ? emailEntityManager.find(CfgTblUser.class, currentHeadId)
+                                        : null;
+                                if (nextDeptHead == null || nextDeptHead.getTxtAddress() == null
+                                        || nextDeptHead.getTxtAddress().trim().isEmpty()) {
+                                    continue;
+                                }
+                                if (shouldSkipCeoForCapf(form, submitterDeptName, nextDeptHead)) {
+                                    continue;
+                                }
+
+                                String deptHeadSubject = formName + " Pending Approval - Level 0 - "
+                                        + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+                                String baseUrl = getBaseUrl();
+                                String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                                        + application.getSerApplicationId()
+                                        + "&userId=" + nextDeptHead.getSerUserId();
+                                String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                                        + application.getSerApplicationId()
+                                        + "&userId=" + nextDeptHead.getSerUserId();
+                                String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                                        + application.getSerApplicationId()
+                                        + "&userId=" + nextDeptHead.getSerUserId();
+                                String sendBackToInitiatorUrl = baseUrl
+                                        + "/sendBackToInitiatorFromEmail?applicationId="
+                                        + application.getSerApplicationId()
+                                        + "&userId=" + nextDeptHead.getSerUserId();
+                                String deptHeadHtmlMessage = generateApprovalEmailHtml(
+                                        nextDeptHead.getTxtUserName() != null
+                                                ? nextDeptHead.getTxtUserName()
+                                                : "Department Head",
+                                        0,
+                                        application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
+                                        formName,
+                                        application.getTxtStatus(),
+                                        null,
+                                        true,
+                                        approveUrl,
+                                        rejectUrl,
+                                        sendBackUrl,
+                                        sendBackToInitiatorUrl,
+                                        application.getTxtApprovalHistory(),
+                                        getBaseUrl());
+
+                                sendEmailWithInlineFormPreview(
+                                        java.util.Arrays.asList(nextDeptHead.getTxtAddress()),
+                                        deptHeadSubject,
+                                        deptHeadHtmlMessage,
+                                        application,
+                                        form,
+                                        isCapf,
+                                        "capf-inline");
+                            }
+                            emailEntityManager.getTransaction().commit();
+                            return;
+                        }
+                        emailEntityManager.getTransaction().rollback();
+                    }
+                } catch (Exception e) {
+                    if (emailEntityManager.getTransaction().isActive()) {
+                        emailEntityManager.getTransaction().rollback();
+                    }
+                    log.error("Error sending CAPF level-0 approval email: " + e.getMessage(), e);
+                }
             }
 
             if (pipelines != null && !pipelines.isEmpty() && nextPipelineIndex >= 0 && nextPipelineIndex < pipelines.size()) {
@@ -5161,7 +5270,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         content.setNonStrokingColor(0, 0, 0);
 
         content.setFont(PDType1Font.HELVETICA_BOLD, 9);
-        float headerY = y + rowSig + 6;
+        float headerFontSize = 9f;
+        // Vertically center header text in the header band.
+        float headerY = y + rowSig + (rowHeader - headerFontSize) / 2f + 5f; // hardcoded raise
         drawCenteredHeader(content, "Prepared by:", x, colWidth, headerY);
         drawCenteredHeader(content, "Reviewed by:", x + colWidth, colWidth * 2, headerY);
         drawCenteredHeader(content, "Recommended by:", x + colWidth * 3, colWidth * 2, headerY);
@@ -5222,15 +5333,19 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         };
 
         content.setFont(PDType1Font.HELVETICA, 9);
+        float bodyLineHeight = 10f;
         for (int i = 0; i < names.length; i++) {
             float tx = x + colWidth * i + 4;
-            float ty = y + 8;
-            for (String line : wrapText(names[i], PDType1Font.HELVETICA, 9, colWidth - 8)) {
+            List<String> lines = wrapText(names[i], PDType1Font.HELVETICA, 9, colWidth - 8);
+            float textBlockHeight = lines.size() * bodyLineHeight;
+            // Vertically center names in the bottom row cell.
+            float ty = y + (rowSig - textBlockHeight) / 2f + 9f; // hardcoded raise
+            for (String line : lines) {
                 content.beginText();
                 content.newLineAtOffset(tx, ty);
                 content.showText(line);
                 content.endText();
-                ty += 10;
+                ty += bodyLineHeight;
             }
         }
     }
@@ -8012,7 +8127,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         content.setNonStrokingColor(0, 0, 0);
 
         content.setFont(PDType1Font.HELVETICA_BOLD, 9);
-        float headerY = y + rowSig + 6;
+        float headerFontSize = 9f;
+        // Vertically center header text in the header band.
+        float headerY = y + rowSig + (rowHeader - headerFontSize) / 2f + 5f; // hardcoded raise
         for (int i = 0; i < cols; i++) {
             String label = footerFields.get(i) != null && footerFields.get(i).get("label") != null
                     ? String.valueOf(footerFields.get(i).get("label"))
@@ -8049,18 +8166,22 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
 
         content.setFont(PDType1Font.HELVETICA, 9);
+        float bodyLineHeight = 10f;
         for (int i = 0; i < cols; i++) {
             Map<String, Object> field = footerFields.get(i);
             List<Object> users = extractFooterUsers(field);
             String usersText = formatFooterUsers(users);
             float tx = x + colWidth * i + 4;
-            float ty = y + 8;
-            for (String line : wrapText(usersText, PDType1Font.HELVETICA, 9, colWidth - 8)) {
+            List<String> lines = wrapText(usersText, PDType1Font.HELVETICA, 9, colWidth - 8);
+            float textBlockHeight = lines.size() * bodyLineHeight;
+            // Vertically center user text in the bottom row cell.
+            float ty = y + (rowSig - textBlockHeight) / 2f + 9f; // hardcoded raise
+            for (String line : lines) {
                 content.beginText();
                 content.newLineAtOffset(tx, ty);
                 content.showText(line);
                 content.endText();
-                ty += 10;
+                ty += bodyLineHeight;
             }
         }
     }
@@ -8863,6 +8984,28 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
     }
 
+    private List<byte[]> renderPdfPagesToPng(byte[] pdfBytes, int maxPages) {
+        List<byte[]> pages = new java.util.ArrayList<>();
+        if (pdfBytes == null || pdfBytes.length == 0) {
+            return pages;
+        }
+        int limit = maxPages > 0 ? maxPages : Integer.MAX_VALUE;
+        try (PDDocument document = PDDocument.load(pdfBytes)) {
+            PDFRenderer renderer = new PDFRenderer(document);
+            int totalPages = document.getNumberOfPages();
+            int renderPages = Math.min(totalPages, limit);
+            for (int i = 0; i < renderPages; i++) {
+                BufferedImage image = renderer.renderImageWithDPI(i, 150);
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ImageIO.write(image, "png", baos);
+                pages.add(baos.toByteArray());
+            }
+        } catch (Exception e) {
+            log.warn("Error rendering PDF pages to PNG: " + e.getMessage(), e);
+        }
+        return pages;
+    }
+
     private byte[] renderPdfFirstPageToPng(byte[] pdfBytes) {
         if (pdfBytes == null || pdfBytes.length == 0)
             return null;
@@ -9171,9 +9314,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         float sigAreaHeight = rowNames - 8 - timestampRowHeight;
         float sigRowY = y + rowSig + rowHeader + 4;
         float sigRowHeight = rowNames - 8;
-        float sigAreaY = sigRowY + timestampRowHeight;
+        // PDF Y-axis grows upward; subtract to move content visually lower in the box.
+        float sigAreaY = sigRowY + timestampRowHeight - 11f;
         float maxSigDrawHeight = 14f;
-        float timestampY = sigRowY + 2f;
+        float timestampY = sigRowY - 12f;
         int slotIndex = 0;
         for (int i = 0; i < sections; i++) {
             Map<String, Object> field = footerFields.get(i);
@@ -9293,9 +9437,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         float timestampRowHeight = 10f;
         float sigAreaHeight = rowNames - 8 - timestampRowHeight;
         float sigRowY = y + rowSig + rowHeader + 4;
-        float sigAreaY = sigRowY + timestampRowHeight;
+        // PDF Y-axis grows upward; subtract to move content visually lower in the box.
+        float sigAreaY = sigRowY + timestampRowHeight - 11f;
         float maxSigDrawHeight = 14f;
-        float timestampY = sigRowY + 2f;
+        float timestampY = sigRowY - 12f;
         float cellX = x + colWidth * targetSlotIndex;
         float cellW = colWidth - 8;
         drawSignatureImage(document, content, sigPath, cellX + 4, sigAreaY, cellW, sigAreaHeight, true, maxSigDrawHeight);
@@ -9368,6 +9513,49 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 + "</td></tr></table>";
         String marker = "</body>";
         int idx = baseHtml.lastIndexOf(marker);
+        if (idx == -1) {
+            return baseHtml + fragment;
+        }
+        return baseHtml.substring(0, idx) + fragment + baseHtml.substring(idx);
+    }
+
+    private String appendInlinePdfImages(String baseHtml, List<String> imageCids, String altPrefix) {
+        if (baseHtml == null || baseHtml.trim().isEmpty() || imageCids == null || imageCids.isEmpty()) {
+            return baseHtml;
+        }
+        StringBuilder fragment = new StringBuilder();
+        for (int i = 0; i < imageCids.size(); i++) {
+            String cid = imageCids.get(i);
+            if (cid == null || cid.trim().isEmpty()) {
+                continue;
+            }
+            String alt = (altPrefix != null ? altPrefix : "Document") + " - Page " + (i + 1);
+            fragment.append("<table role='presentation' align='center' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:20px 0;'>")
+                    .append("<tr><td align='center' style='padding:10px 0;'>")
+                    .append("<img src='cid:").append(cid)
+                    .append("' style='max-width:820px;width:100%;height:auto;display:block;' alt='")
+                    .append(escapeHtml(alt))
+                    .append("' />")
+                    .append("</td></tr></table>");
+        }
+
+        // Keep order consistent with CAPF:
+        // inline form -> action buttons -> logs.
+        String actionMarker = "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:30px 0;'>";
+        int idx = baseHtml.indexOf(actionMarker);
+        if (idx != -1) {
+            return baseHtml.substring(0, idx) + fragment + baseHtml.substring(idx);
+        }
+
+        // If no action buttons, place form preview before logs.
+        String logsMarker = "<h3 style='margin:0 0 10px 0;font-size:16px;color:#333;'>Prior Approvals</h3>";
+        idx = baseHtml.indexOf(logsMarker);
+        if (idx != -1) {
+            return baseHtml.substring(0, idx) + fragment + baseHtml.substring(idx);
+        }
+
+        String marker = "</body>";
+        idx = baseHtml.lastIndexOf(marker);
         if (idx == -1) {
             return baseHtml + fragment;
         }
@@ -9663,6 +9851,37 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     return;
                 }
             }
+            // Non-CAPF: embed all PDF pages inline as PNG images (up to configured cap).
+            if (!isCapf && pdfBytes != null && pdfBytes.length > 0) {
+                List<byte[]> pageImages = renderPdfPagesToPng(pdfBytes, MAX_NON_CAPF_INLINE_PDF_PAGES);
+                if (pageImages != null && !pageImages.isEmpty()) {
+                    List<EmailService.InlineImage> inlineImages = new java.util.ArrayList<>();
+                    List<String> cids = new java.util.ArrayList<>();
+                    for (int i = 0; i < pageImages.size(); i++) {
+                        byte[] img = pageImages.get(i);
+                        if (img == null || img.length == 0) {
+                            continue;
+                        }
+                        String pageCid = cid + "-p" + (i + 1);
+                        cids.add(pageCid);
+                        inlineImages.add(new EmailService.InlineImage(
+                                img,
+                                "form-page-" + (i + 1) + ".png",
+                                "image/png",
+                                pageCid));
+                    }
+                    if (!inlineImages.isEmpty()) {
+                        String htmlWithImages = appendInlinePdfImages(html, cids, "Form Preview");
+                        emailService.sendHtmlEmailWithInlineImagesAndAttachments(
+                                recipients,
+                                subject,
+                                htmlWithImages,
+                                inlineImages,
+                                attachments);
+                        return;
+                    }
+                }
+            }
             if (!attachments.isEmpty()) {
                 emailService.sendHtmlEmailWithAttachments(recipients, subject, html, attachments);
             } else {
@@ -9802,9 +10021,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
      * Send email notification when an application is sent back to previous department
      * Uses the same format as approval emails with approve/reject buttons
      */
-    private void sendBackEmailNotification(CfgTblCustomFormApplication application, Integer oldLevelBeforeSendBack, 
-            Integer newLevelAfterSendBack, 
-            List<java.util.Map<String, Object>> pipelines) {
+    private void sendBackEmailNotification(CfgTblCustomFormApplication application, Integer oldLevelBeforeSendBack,
+            Integer newLevelAfterSendBack,
+            List<java.util.Map<String, Object>> pipelines,
+            boolean includeSubmitterActionButtons) {
         if (application == null || newLevelAfterSendBack == null) {
             log.info("Skipping send-back email: appId={}, newLevelAfterSendBack={}", 
                 application != null ? application.getSerApplicationId() : "null", newLevelAfterSendBack);
@@ -9883,6 +10103,28 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                     String submitterSubject = formName + " Requires Revision - " + 
                                         (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
                                     
+                                    boolean submitterShowActionButtons = includeSubmitterActionButtons && !isCapf;
+                                    String submitterApproveUrl = submitterShowActionButtons
+                                            ? baseUrl + "/approveApplicationFromEmail?applicationId="
+                                                    + application.getSerApplicationId() + "&userId="
+                                                    + submitter.getSerUserId()
+                                            : null;
+                                    String submitterRejectUrl = submitterShowActionButtons
+                                            ? baseUrl + "/rejectApplicationFromEmail?applicationId="
+                                                    + application.getSerApplicationId() + "&userId="
+                                                    + submitter.getSerUserId()
+                                            : null;
+                                    String submitterSendBackUrl = submitterShowActionButtons
+                                            ? baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                                                    + application.getSerApplicationId() + "&userId="
+                                                    + submitter.getSerUserId()
+                                            : null;
+                                    String submitterSendBackToInitiatorUrl = submitterShowActionButtons
+                                            ? baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                                                    + application.getSerApplicationId() + "&userId="
+                                                    + submitter.getSerUserId()
+                                            : null;
+
                                     String submitterHtml = generateApprovalEmailHtml(
                                         submitter.getTxtUserName() != null ? submitter.getTxtUserName() : "User",
                                         (oldLevelBeforeSendBack != null ? oldLevelBeforeSendBack + 1 : 0),
@@ -9890,8 +10132,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                         formName,
                                         "SENT_BACK",
                                         application.getTxtRemarks(),
-                                        false, // showActionButtons
-                                        null, null, null, null,
+                                        submitterShowActionButtons,
+                                        submitterApproveUrl,
+                                        submitterRejectUrl,
+                                        submitterSendBackUrl,
+                                        submitterSendBackToInitiatorUrl,
                                         application.getTxtApprovalHistory(),
                                         baseUrl
                                     );
@@ -9967,6 +10212,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return;
             }
             
+            Integer targetUserId = null;
             if (targetDeptId == null) {
                 java.util.Map<String, Object> targetPipeline = pipelines.get(targetLevelIndex);
                 if (targetPipeline == null) {
@@ -9978,24 +10224,84 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 // Log the target pipeline for debugging
                 log.info("Target pipeline for send-back: index={}, data={}", targetLevelIndex, targetPipeline);
                 
+                // Resolve individual stage first; this avoids dropping send-back approval emails
+                // when the target stage is user-based instead of department-based.
+                if (!isCapf && "individual".equalsIgnoreCase(String.valueOf(targetPipeline.get("type")))) {
+                    targetUserId = safeInt(targetPipeline.get("serUserId"),
+                            safeInt(targetPipeline.get("userId"), null));
+                }
+                
                 // Get department ID - try multiple key names
                 targetDeptId = safeInt(targetPipeline.get("serDepartmentId"), 
                     safeInt(targetPipeline.get("departmentId"), null));
                 
-                if (targetDeptId == null) {
+                if (targetDeptId == null && targetUserId == null) {
                     log.error("Could not find target department ID for send-back email, appId={}, pipeline={}", 
                         application.getSerApplicationId(), targetPipeline);
                     return;
                 }
             }
+
+            String baseUrl = getBaseUrl();
+            String cid = isCapf ? "capf-inline" : "form-inline";
+
+            if (targetUserId != null) {
+                emailEntityManager.getTransaction().begin();
+                CfgTblUser individualApprover = emailEntityManager.find(CfgTblUser.class, targetUserId);
+                if (individualApprover == null || individualApprover.getTxtAddress() == null
+                        || individualApprover.getTxtAddress().trim().isEmpty()) {
+                    emailEntityManager.getTransaction().rollback();
+                    log.warn("Individual target approver not found or has no email, userId={}", targetUserId);
+                    return;
+                }
+
+                String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                        + application.getSerApplicationId() + "&userId=" + individualApprover.getSerUserId();
+                String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                        + application.getSerApplicationId() + "&userId=" + individualApprover.getSerUserId();
+                String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                        + application.getSerApplicationId() + "&userId=" + individualApprover.getSerUserId();
+                String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                        + application.getSerApplicationId() + "&userId=" + individualApprover.getSerUserId();
+                String subject = formName + " Sent Back - Requires Your Approval - "
+                        + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+
+                String html = generateApprovalEmailHtml(
+                        individualApprover.getTxtUserName() != null ? individualApprover.getTxtUserName() : "User",
+                        newLevelAfterSendBack + 1,
+                        application.getTxtFormCode(),
+                        formName,
+                        "IN_PROGRESS",
+                        application.getTxtRemarks(),
+                        true,
+                        approveUrl,
+                        rejectUrl,
+                        sendBackUrl,
+                        sendBackToInitiatorUrl,
+                        application.getTxtApprovalHistory(),
+                        baseUrl
+                );
+
+                sendEmailWithInlineFormPreview(
+                        java.util.Arrays.asList(individualApprover.getTxtAddress()),
+                        subject,
+                        html,
+                        application,
+                        form,
+                        isCapf,
+                        cid
+                );
+                log.info("Send-back notification email sent to individual approver: {} (userId={})",
+                        individualApprover.getTxtAddress(), targetUserId);
+                emailEntityManager.getTransaction().commit();
+            } else {
+                log.info("Sending send-back email to department ID {} for appId={}, level={}", 
+                        targetDeptId, application.getSerApplicationId(), newLevelAfterSendBack);
             
-            log.info("Sending send-back email to department ID {} for appId={}, level={}", 
-                targetDeptId, application.getSerApplicationId(), newLevelAfterSendBack);
-            
-            // Get department head from HrTblDepartment table (like sendApprovalEmails does)
-            emailEntityManager.getTransaction().begin();
-            com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment prevDept = 
-                emailEntityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, targetDeptId);
+                // Get department head from HrTblDepartment table (like sendApprovalEmails does)
+                emailEntityManager.getTransaction().begin();
+                com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment prevDept = 
+                    emailEntityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, targetDeptId);
             
             java.util.List<Integer> headIds = new java.util.ArrayList<>();
             if (prevDept != null && prevDept.getSerDepartmentHeadId() != null) {
@@ -10023,15 +10329,12 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
             
             // Build URLs
-            String baseUrl = getBaseUrl();
             String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId=" + application.getSerApplicationId();
             String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId=" + application.getSerApplicationId();
             String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId=" + application.getSerApplicationId();
             String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
                     + application.getSerApplicationId();
             
-                String cid = isCapf ? "capf-inline" : "form-inline";
-
                 // Send email to each department head with inline preview/attachment
                 for (Integer headId : headIds) {
                     CfgTblUser deptHead = emailEntityManager.find(CfgTblUser.class, headId);
@@ -10083,6 +10386,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 }
                 
                 emailEntityManager.getTransaction().commit();
+            }
                 
                 // Also notify the submitter
                 if (application.getSerSubmittedBy() != null) {
@@ -10094,6 +10398,28 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                 (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
                             
                             // Use the same email format for submitter (without action buttons)
+                            boolean submitterShowActionButtons = includeSubmitterActionButtons && !isCapf;
+                            String submitterApproveUrl = submitterShowActionButtons
+                                    ? baseUrl + "/approveApplicationFromEmail?applicationId="
+                                            + application.getSerApplicationId() + "&userId="
+                                            + submitter.getSerUserId()
+                                    : null;
+                            String submitterRejectUrl = submitterShowActionButtons
+                                    ? baseUrl + "/rejectApplicationFromEmail?applicationId="
+                                            + application.getSerApplicationId() + "&userId="
+                                            + submitter.getSerUserId()
+                                    : null;
+                            String submitterSendBackUrl = submitterShowActionButtons
+                                    ? baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                                            + application.getSerApplicationId() + "&userId="
+                                            + submitter.getSerUserId()
+                                    : null;
+                            String submitterSendBackToInitiatorUrl = submitterShowActionButtons
+                                    ? baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                                            + application.getSerApplicationId() + "&userId="
+                                            + submitter.getSerUserId()
+                                    : null;
+
                             String submitterHtml = generateApprovalEmailHtml(
                                 submitter.getTxtUserName() != null ? submitter.getTxtUserName() : "User",
                                 (oldLevelBeforeSendBack != null ? oldLevelBeforeSendBack + 1 : 0), // from stage
@@ -10101,8 +10427,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                 formName,
                                 "SENT_BACK", // status set to SENT_BACK so applicant doesn't see "approved"
                                 application.getTxtRemarks(),
-                                false, // showActionButtons - submitter can't approve
-                                null, null, null, null,
+                                submitterShowActionButtons,
+                                submitterApproveUrl,
+                                submitterRejectUrl,
+                                submitterSendBackUrl,
+                                submitterSendBackToInitiatorUrl,
                                 application.getTxtApprovalHistory(),
                                 baseUrl
                             );
