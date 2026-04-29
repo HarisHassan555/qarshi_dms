@@ -2125,7 +2125,14 @@ export class ApplicationDetailsComponent implements OnInit {
 
   getApprovalLogLevel(entry: any): string {
     const level = entry?.level ?? entry?.intApprovalOrder;
-    return level != null && String(level).trim() !== '' ? String(level) : '--';
+    if (level == null || String(level).trim() === '') return '--';
+    const numericLevel = Number(level);
+    if (!Number.isNaN(numericLevel) && numericLevel === -99) return 'CEO';
+    const action = (entry?.action || entry?.status || '').toString().toUpperCase();
+    if (!Number.isNaN(numericLevel) && numericLevel === 999 && action === 'ASSET_CODE_ASSIGNED') {
+      return 'Asset Code';
+    }
+    return String(level);
   }
 
   getApprovalLogApprover(entry: any): string {
@@ -2150,8 +2157,14 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   getApprovalLogStatus(entry: any): string {
-    const action = entry?.action || entry?.status;
-    return action && String(action).trim() !== '' ? String(action) : '--';
+    const action = (entry?.action || entry?.status || '').toString().trim();
+    if (!action) return '--';
+    const normalized = action.toUpperCase();
+    if (normalized === 'ASSET_CODE_ASSIGNED') return 'Asset Code Assigned';
+    if (normalized === 'PR_CODE_ASSIGNED') return 'PR Code Assigned';
+    if (normalized === 'SENT_BACK_TO_INITIATOR') return 'Sent Back To Initiator';
+    if (normalized === 'SENT_BACK') return 'Sent Back';
+    return action;
   }
 
   getApprovalLogDate(entry: any): string {

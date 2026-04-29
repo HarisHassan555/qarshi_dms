@@ -1034,6 +1034,18 @@
     line-height: 1.3;
 }
 
+.prior-approvals-signature-cell {
+    height: 40px;
+    min-height: 40px;
+}
+
+.prior-approvals-signature-image {
+    max-height: 24px;
+    width: auto;
+    height: auto;
+    display: block;
+}
+
 @media (max-width: 768px) {
     .approval-node {
         min-width: 200px;

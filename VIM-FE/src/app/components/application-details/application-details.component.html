@@ -828,11 +828,11 @@
                                     {{ getApprovalLogComments(entry) }}
                                 </div>
                             </td>
-                            <td class="px-3 py-2 align-middle text-center">
+                            <td class="px-3 py-2 align-middle text-center prior-approvals-signature-cell">
                                 <img *ngIf="getApprovalLogSignatureUrl(entry)"
                                     [src]="getApprovalLogSignatureUrl(entry)"
                                     alt="Signature"
-                                    class="mx-auto max-h-8 object-contain" />
+                                    class="mx-auto object-contain prior-approvals-signature-image" />
                                 <span *ngIf="!getApprovalLogSignatureUrl(entry)" class="text-gray-400">--</span>
                             </td>
                         </tr>

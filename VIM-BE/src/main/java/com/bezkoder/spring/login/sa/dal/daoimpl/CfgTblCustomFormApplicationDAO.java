@@ -3257,6 +3257,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             application.setSerCurrentApprover(application.getSerSubmittedBy());
             appendHistoryEntry(entityManager, application, userId, "ASSET_CODE_ASSIGNED", "FINANCE", 999, "SYSTEM",
                     approvedIp);
+            appendLatestApprovalEntryToPriorApprovals(application);
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
             entityManager.merge(application);
             entityManager.getTransaction().commit();
@@ -3313,6 +3314,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
             appendHistoryEntry(entityManager, application, userId, "PR_CODE_ASSIGNED", "INITIATOR",
                     currentLevelSafe(application), "SYSTEM", approvedIp);
+            appendLatestApprovalEntryToPriorApprovals(application);
             entityManager.merge(application);
             entityManager.getTransaction().commit();
             try {
@@ -7977,12 +7979,12 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
             if (canSendBackToInitiator) {
                 html.append("<!--[if mso]>");
-                html.append("<v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='").append(sendBackToInitiatorUrl).append("' style='height:44px;v-text-anchor:middle;width:220px;' arcsize='12%' strokecolor='#c0392b' fillcolor='#c0392b'>");
+                html.append("<v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='").append(sendBackToInitiatorUrl).append("' style='height:44px;v-text-anchor:middle;width:270px;' arcsize='12%' strokecolor='#c0392b' fillcolor='#c0392b'>");
                 html.append("<w:anchorlock/><center style='color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:600;'>Send Back to Initiator</center>");
                 html.append("</v:roundrect>");
                 html.append("<![endif]-->");
                 html.append("<!--[if !mso]><!-- -->");
-                html.append("<a href='").append(sendBackToInitiatorUrl).append("' style='display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;background-color:#c0392b;color:#ffffff !important;'>Send Back to Initiator</a>");
+                html.append("<a href='").append(sendBackToInitiatorUrl).append("' style='display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;background-color:#c0392b;color:#ffffff !important;white-space:nowrap;min-width:270px;box-sizing:border-box;'>Send Back to Initiator</a>");
                 html.append("<!--<![endif]-->");
             }
             html.append("</td></tr>");
@@ -8039,20 +8041,22 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Role</th>");
             sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Status</th>");
             sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Date</th>");
+            sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Remarks</th>");
             sb.append("<th style='background:#f3f4f6;font-weight:600;border:1px solid #e5e7eb;padding:6px 8px;text-align:left;" + thWrap + "'>Signature</th>");
             sb.append("</tr></thead><tbody>");
 
             for (Map<String, Object> entry : list) {
-                String level = entry.get("level") != null ? String.valueOf(entry.get("level")) : "";
+                String level = formatApprovalHistoryLevelForDisplay(entry);
                 String name = entry.get("approverName") != null ? String.valueOf(entry.get("approverName")) : "";
                 String role = entry.get("role") != null ? String.valueOf(entry.get("role")) : "";
                 if (role == null || role.trim().isEmpty()) {
                     role = entry.get("departmentName") != null ? String.valueOf(entry.get("departmentName")) : "";
                 }
-                String action = entry.get("action") != null ? String.valueOf(entry.get("action"))
-                        : entry.get("status") != null ? String.valueOf(entry.get("status")) : "";
+                String action = formatApprovalHistoryActionForDisplay(entry);
                 String date = entry.get("approvedDate") != null ? String.valueOf(entry.get("approvedDate")) 
                         : (entry.get("sentBackDate") != null ? String.valueOf(entry.get("sentBackDate")) : "");
+                String remarks = entry.get("remarks") != null ? String.valueOf(entry.get("remarks"))
+                        : (entry.get("comment") != null ? String.valueOf(entry.get("comment")) : "");
                 String signaturePath = entry.get("signaturePath") != null ? String.valueOf(entry.get("signaturePath"))
                         : "";
                 String approvedBy = entry.get("approvedBy") != null ? String.valueOf(entry.get("approvedBy")) : "";
@@ -8062,11 +8066,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 if (!signaturePath.trim().isEmpty() && approvedBy != null && !approvedBy.trim().isEmpty()
                         && baseUrl != null) {
                     String sigUrl = baseUrl + "/getSignature?userId=" + approvedBy;
-                    sigHtml = "<img src='" + sigUrl + "' alt='Signature' style='max-height:24px;max-width:100%;width:auto;height:auto;display:block;margin:0 auto 4px auto;box-sizing:border-box;' />";
+                    sigHtml = "<img src='" + sigUrl + "' alt='Signature' style='max-height:24px;max-width:100%;width:auto;height:auto;display:block;margin:0 auto;box-sizing:border-box;' />";
                 } else {
                     String inlineSignature = buildInlineSignatureDataUri(signaturePath, approvedById);
                     if (inlineSignature != null && !inlineSignature.isEmpty()) {
-                        sigHtml = "<img src='" + inlineSignature + "' alt='Signature' style='max-height:24px;max-width:100%;width:auto;height:auto;display:block;margin:0 auto 4px auto;box-sizing:border-box;' />";
+                        sigHtml = "<img src='" + inlineSignature + "' alt='Signature' style='max-height:24px;max-width:100%;width:auto;height:auto;display:block;margin:0 auto;box-sizing:border-box;' />";
                     }
                 }
 
@@ -8077,7 +8081,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;" + tdWrap + "'>").append(escapeHtml(role)).append("</td>");
                 sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;" + tdWrap + "'>").append(escapeHtml(action)).append("</td>");
                 sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;" + tdWrap + "'>").append(escapeHtml(date)).append("</td>");
-                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:center;vertical-align:middle;" + tdWrap + "'>").append(sigHtml).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top;" + tdWrap + "'>").append(escapeHtml(remarks)).append("</td>");
+                sb.append("<td style='border:1px solid #e5e7eb;padding:6px 8px;text-align:center;vertical-align:middle;height:36px;line-height:1;" + tdWrap + "'>").append(sigHtml.isEmpty() ? "--" : sigHtml).append("</td>");
                 sb.append("</tr>");
             }
 
@@ -8089,6 +8094,47 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             log.warn("Error building approval history HTML: " + e.getMessage(), e);
             return "";
         }
+    }
+
+    private String formatApprovalHistoryLevelForDisplay(Map<String, Object> entry) {
+        Integer level = safeInt(entry != null ? entry.get("level") : null,
+                safeInt(entry != null ? entry.get("intApprovalOrder") : null, null));
+        if (level == null) {
+            return "";
+        }
+        if (level == -99) {
+            return "CEO";
+        }
+        String action = entry != null && entry.get("action") != null ? String.valueOf(entry.get("action")) : "";
+        if (level == 999 && "ASSET_CODE_ASSIGNED".equalsIgnoreCase(action)) {
+            return "Asset Code";
+        }
+        return String.valueOf(level);
+    }
+
+    private String formatApprovalHistoryActionForDisplay(Map<String, Object> entry) {
+        if (entry == null) {
+            return "";
+        }
+        String action = entry.get("action") != null ? String.valueOf(entry.get("action"))
+                : (entry.get("status") != null ? String.valueOf(entry.get("status")) : "");
+        if (action == null) {
+            return "";
+        }
+        String normalized = action.trim().toUpperCase();
+        if ("ASSET_CODE_ASSIGNED".equals(normalized)) {
+            return "Asset Code Assigned";
+        }
+        if ("PR_CODE_ASSIGNED".equals(normalized)) {
+            return "PR Code Assigned";
+        }
+        if ("SENT_BACK_TO_INITIATOR".equals(normalized)) {
+            return "Sent Back To Initiator";
+        }
+        if ("SENT_BACK".equals(normalized)) {
+            return "Sent Back";
+        }
+        return action;
     }
 
     private void drawDynamicBudgetSignatureTable(PDPageContentStream content,
@@ -9227,14 +9273,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (document.getNumberOfPages() <= 0) {
                 return pdfBytes;
             }
-            PDPage firstPage = document.getPage(0);
-            float pageWidth = firstPage.getMediaBox().getWidth();
+            int targetPageIndex = Math.max(0, document.getNumberOfPages() - 1);
+            PDPage targetPage = document.getPage(targetPageIndex);
+            float pageWidth = targetPage.getMediaBox().getWidth();
             float margin = 40f;
             float tableBottomY = 20f;
             float tableHeight = 110f;
             try (PDPageContentStream content = new PDPageContentStream(
                     document,
-                    firstPage,
+                    targetPage,
                     PDPageContentStream.AppendMode.APPEND,
                     true,
                     true)) {
@@ -10539,6 +10586,39 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             application.setTxtApprovalHistory(mapper.writeValueAsString(history));
         } catch (Exception e) {
             log.warn("appendHistoryEntry failed: {}", e.getMessage());
+        }
+    }
+
+    private void appendLatestApprovalEntryToPriorApprovals(CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return;
+        }
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            List<Map<String, Object>> history = new java.util.ArrayList<>();
+            if (application.getTxtApprovalHistory() != null && !application.getTxtApprovalHistory().trim().isEmpty()) {
+                history = mapper.readValue(application.getTxtApprovalHistory(),
+                        new TypeReference<List<Map<String, Object>>>() {
+                        });
+            }
+            if (history == null || history.isEmpty()) {
+                return;
+            }
+            Map<String, Object> latest = history.get(history.size() - 1);
+            if (latest == null || latest.isEmpty()) {
+                return;
+            }
+
+            List<Map<String, Object>> prior = new java.util.ArrayList<>();
+            if (application.getTxtPriorApprovals() != null && !application.getTxtPriorApprovals().trim().isEmpty()) {
+                prior = mapper.readValue(application.getTxtPriorApprovals(),
+                        new TypeReference<List<Map<String, Object>>>() {
+                        });
+            }
+            prior.add(new java.util.HashMap<>(latest));
+            application.setTxtPriorApprovals(mapper.writeValueAsString(prior));
+        } catch (Exception e) {
+            log.warn("appendLatestApprovalEntryToPriorApprovals failed: {}", e.getMessage());
         }
     }
 
