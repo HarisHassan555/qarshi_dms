@@ -15,6 +15,8 @@ export class ApplicationPdfService {
     applicationMeta?: { formName?: string; txtFormCode?: string; omitApprovalSignaturesInPdf?: boolean }
   ): string {
     let isCapf = this.isCapfFormMeta(data, form, applicationMeta);
+    const isExpenseClaim = this.isExpenseClaimFormMeta(data, form, applicationMeta);
+    const isTemporaryAdvanceSlip = this.isTemporaryAdvanceSlipFormMeta(data, form, applicationMeta);
 
     let htmlContent = '';
     let handledBudgetApproval = false;
@@ -71,6 +73,20 @@ export class ApplicationPdfService {
       if (!htmlContent || !htmlContent.includes('abc-wrapper')) {
         throw new Error('ABC HTML generation failed');
       }
+    } else if (!handledBudgetApproval && isExpenseClaim) {
+      htmlContent = this.generateExpenseClaimSlipPdfHtml(
+        data,
+        formFields,
+        applicationFormData,
+        applicationMeta
+      );
+    } else if (!handledBudgetApproval && isTemporaryAdvanceSlip) {
+      htmlContent = this.generateTemporaryAdvanceSlipPdfHtml(
+        data,
+        formFields,
+        applicationFormData,
+        applicationMeta
+      );
     } else if (!handledBudgetApproval) {
       let pipelines: any[] = [];
       if (form && form.cfgTblFormApprovalPipelines) {
@@ -421,6 +437,11 @@ export class ApplicationPdfService {
     });
 
     return pdf.output('blob');
+  }
+
+  /** Single-sheet DOM capture for a host that uses `.xyz-paper` (e.g. expense claim live preview). */
+  async renderXyzHostElementToPdf(element: HTMLElement): Promise<Blob> {
+    return this.renderXyzPdfFromElement(element);
   }
 
   private async renderXyzPdfFromElement(element: HTMLElement): Promise<Blob> {
@@ -854,6 +875,774 @@ export class ApplicationPdfService {
     const name = (applicationMeta?.formName || '').trim().toUpperCase();
     const code = (applicationMeta?.txtFormCode || '').trim().toUpperCase();
     return name === 'CAPF FORM' || code.startsWith('CAPF');
+  }
+
+  private isExpenseClaimFormMeta(data: any, form: any, applicationMeta?: { formName?: string; txtFormCode?: string }): boolean {
+    const codeFromData = (data?.txtFormCode || '').trim().toUpperCase();
+    if (codeFromData.startsWith('EXP-')) {
+      return true;
+    }
+    const codeMeta = (applicationMeta?.txtFormCode || '').trim().toUpperCase();
+    if (codeMeta.startsWith('EXP-')) {
+      return true;
+    }
+    const codeForm = (form?.txtFormCode || '').trim().toUpperCase();
+    if (codeForm.startsWith('EXP-')) {
+      return true;
+    }
+    const name = `${form?.txtFormName || form?.name || applicationMeta?.formName || ''}`.replace(/\s+/g, ' ').toLowerCase();
+    if (name.includes('expense claim')) {
+      return true;
+    }
+    const cfgName = `${data?.cfgTblCustomForm?.txtFormName || ''}`.replace(/\s+/g, ' ').toLowerCase();
+    return cfgName.includes('expense claim');
+  }
+
+  private isTemporaryAdvanceSlipFormMeta(data: any, form: any, applicationMeta?: { formName?: string; txtFormCode?: string }): boolean {
+    const codeFromData = (data?.txtFormCode || '').trim().toUpperCase();
+    if (codeFromData.startsWith('TAS-')) {
+      return true;
+    }
+    const codeMeta = (applicationMeta?.txtFormCode || '').trim().toUpperCase();
+    if (codeMeta.startsWith('TAS-')) {
+      return true;
+    }
+    const codeForm = (form?.txtFormCode || '').trim().toUpperCase();
+    if (codeForm.startsWith('TAS-')) {
+      return true;
+    }
+    const name = `${form?.txtFormName || form?.name || applicationMeta?.formName || ''}`.replace(/\s+/g, ' ').toLowerCase();
+    if (name.includes('temporary advance')) {
+      return true;
+    }
+    const cfgName = `${data?.cfgTblCustomForm?.txtFormName || ''}`.replace(/\s+/g, ' ').toLowerCase();
+    return cfgName.includes('temporary advance');
+  }
+
+  /**
+   * HTML/PDF snapshot for expense claim slips (EXP-*). Matches portal slip preview; used when DOM capture is unavailable.
+   */
+  private generateExpenseClaimSlipPdfHtml(
+    application: any,
+    formFields: any[],
+    applicationFormData: any,
+    applicationMeta?: { formName?: string; txtFormCode?: string; omitApprovalSignaturesInPdf?: boolean }
+  ): string {
+    const omitApprovalSignatures = !!applicationMeta?.omitApprovalSignaturesInPdf;
+    const escapeHtml = (text: string): string => {
+      const div = document.createElement('div');
+      div.textContent = text ?? '';
+      return div.innerHTML;
+    };
+    const normalizeFieldType = (fieldType: any): string => String(fieldType || '').toLowerCase().replace(/\s+/g, '_');
+    const slugify = (label: string): string =>
+      String(label || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+    const getFieldLabel = (field: any): string =>
+      field?.label || field?.txtFieldLabel || field?.name || field?.txtFieldName || 'Field';
+    const getFieldValue = (field: any): any => {
+      if (!applicationFormData || typeof applicationFormData !== 'object') {
+        return null;
+      }
+      const label = getFieldLabel(field);
+      const slug = slugify(label);
+      const directKeys = [
+        label,
+        slug,
+        field?.name,
+        field?.key,
+        field?.fieldName,
+        field?.txtFieldName,
+        field?.txtFieldLabel,
+        field?.txtFieldLabel ? slugify(field.txtFieldLabel) : null,
+        field?.serFieldId ? `field_${field.serFieldId}` : null
+      ].filter(Boolean);
+      for (const key of directKeys) {
+        if ((applicationFormData as any)[key] !== undefined) {
+          return (applicationFormData as any)[key];
+        }
+      }
+      return null;
+    };
+    const getHeaderPreview = (...needles: string[]): string => {
+      const lowered = needles.map((n) => n.toLowerCase());
+      for (const field of formFields || []) {
+        const label = getFieldLabel(field).toLowerCase();
+        if (!lowered.some((needle) => label.includes(needle))) {
+          continue;
+        }
+        const value = getFieldValue(field);
+        if (value !== undefined && value !== null && String(value).trim().length > 0) {
+          return String(value);
+        }
+      }
+      return '';
+    };
+    const slipCell = (v: string | undefined | null): string => {
+      const t = (v ?? '').trim();
+      return escapeHtml(t.length > 0 ? t : '\u00a0');
+    };
+
+    const rawLines = Array.isArray(applicationFormData?.expenseClaimLines) ? applicationFormData.expenseClaimLines : [];
+    const rows = rawLines.map((row: any) => ({
+      description: row?.description != null ? String(row.description) : '',
+      deptName: row?.deptName != null ? String(row.deptName) : row?.deptt_name != null ? String(row.deptt_name) : '',
+      sign: row?.sign != null ? String(row.sign) : '',
+      amount: row?.amount != null ? String(row.amount) : ''
+    }));
+    let sum = 0;
+    for (const row of rawLines) {
+      const raw = String(row?.amount ?? '').trim().replace(/,/g, '');
+      const n = parseFloat(raw);
+      if (!Number.isNaN(n)) {
+        sum += n;
+      }
+    }
+    const hasAmount = rawLines.some((r: any) => String(r?.amount ?? '').trim() !== '');
+    const totalDisplay =
+      sum !== 0 || hasAmount ? sum.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '';
+
+    let approvalHistory: any[] = [];
+    if (application?.txtApprovalHistory) {
+      try {
+        approvalHistory = JSON.parse(application.txtApprovalHistory);
+      } catch {
+        approvalHistory = [];
+      }
+    }
+    let footerFields: any[] = Array.isArray(applicationFormData?.footerFields) ? [...applicationFormData.footerFields] : [];
+    footerFields = footerFields.sort((a: any, b: any) => (Number(a?.order) || 0) - (Number(b?.order) || 0));
+
+    const getUserId = (user: any): number | null => {
+      if (!user) {
+        return null;
+      }
+      return user.serUserId || user.userId || user.id || null;
+    };
+    const getUserSignatureUrl = (user: any, sectionLabel?: string): string => {
+      const userId = getUserId(user);
+      if (!userId) {
+        return '';
+      }
+      const entry = approvalHistory.find((e: any) => {
+        const entryUserId = e.approvedBy || e.userId;
+        if (entryUserId !== userId) {
+          return false;
+        }
+        if (sectionLabel) {
+          const entryRole = (e.role || '').toString().trim();
+          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
+        }
+        return true;
+      });
+      if (!entry || !entry.signaturePath) {
+        return '';
+      }
+      return `${urls.API_URL}getSignature?userId=${userId}`;
+    };
+    const isUserApproved = (user: any, sectionLabel?: string): boolean => {
+      const userId = getUserId(user);
+      if (!userId || !approvalHistory.length) {
+        return false;
+      }
+      const entry = approvalHistory.find((e: any) => {
+        const entryUserId = e.approvedBy || e.userId;
+        if (entryUserId !== userId) {
+          return false;
+        }
+        if (sectionLabel) {
+          const entryRole = (e.role || '').toString().trim();
+          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
+        }
+        return true;
+      });
+      if (!entry || !entry.signaturePath) {
+        return false;
+      }
+      const action = (entry.action || entry.status || '').toString().toUpperCase();
+      if (action === 'REJECTED') {
+        return false;
+      }
+      if (action === 'APPROVED') {
+        return true;
+      }
+      return !!entry.approvedDate;
+    };
+    const getUserApprovalDate = (user: any, sectionLabel?: string): string => {
+      const userId = getUserId(user);
+      if (!userId || !approvalHistory.length) {
+        return '';
+      }
+      const entry = approvalHistory.find((e: any) => {
+        const entryUserId = e.approvedBy || e.userId;
+        if (entryUserId !== userId) {
+          return false;
+        }
+        if (sectionLabel) {
+          const entryRole = (e.role || '').toString().trim();
+          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
+        }
+        return true;
+      });
+      if (!entry || !entry.approvedDate) {
+        return '';
+      }
+      try {
+        const dt = new Date(entry.approvedDate);
+        if (isNaN(dt.getTime())) {
+          return String(entry.approvedDate);
+        }
+        return dt.toLocaleString();
+      } catch {
+        return String(entry.approvedDate);
+      }
+    };
+    const getFooterSlots = (section: any): any[] => {
+      const users = Array.isArray(section?.users) ? section.users : [];
+      return users.length > 0 ? users : [null];
+    };
+    const renderUserCell = (user: any, sectionLabel?: string): string => {
+      if (omitApprovalSignatures || !user) {
+        return '';
+      }
+      const sigUrl = getUserSignatureUrl(user, sectionLabel);
+      const sigDate = getUserApprovalDate(user, sectionLabel);
+      const approved = isUserApproved(user, sectionLabel);
+      const content = `
+        ${approved && sigUrl ? `<img class="xyz-sig-img" src="${sigUrl}" alt="" crossorigin="anonymous" />` : ''}
+        ${approved && sigDate ? `<div class="xyz-sig-time">${escapeHtml(sigDate)}</div>` : ''}
+      `;
+      return approved ? `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;">${content}</div>` : '';
+    };
+    const renderFooterUserSlot = (user: any, section: any): string => {
+      if (!user) {
+        return '&nbsp;';
+      }
+      const name = user?.txtUserName || user?.userName || user?.name || '';
+      const designation = user?.txtDesignation || user?.designation || '';
+      const role = user?.cfgTblRole?.txtRoleName || user?.roleName || '';
+      let dept = user?.hrTblDepartment?.txtDepartmentName || user?.departmentName || user?.txtDepartmentName || '';
+      if (!dept) {
+        const userId = getUserId(user);
+        const entry = userId ? approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId) : null;
+        dept = entry?.departmentName || '';
+      }
+      const parts = [name, designation, dept, role ? `(${role})` : ''].filter((p: string) => !!p);
+      return parts.map((p) => escapeHtml(p)).join('<br>');
+    };
+
+    const tbodyRows = rows
+      .map(
+        (row: { description: string; deptName: string; sign: string; amount: string }, i: number) => `
+        <tr>
+          <td class="text-center">${i + 1}</td>
+          <td>${slipCell(row.description)}</td>
+          <td>${slipCell(row.deptName)}</td>
+          <td>${slipCell(row.sign)}</td>
+          <td class="text-right">${slipCell(row.amount)}</td>
+        </tr>`
+      )
+      .join('');
+    const totalCell = slipCell(totalDisplay);
+
+    const hasPipelineFooter = footerFields.length > 0;
+    const pipelineFooterHtml = hasPipelineFooter
+      ? `
+      <div class="ec-slip-pipeline-footer">
+        <table class="xyz-signatures">
+          <tr class="xyz-signatures-blank">
+            ${footerFields
+              .map((section: any) =>
+                getFooterSlots(section)
+                  .map(
+                    (slotUser: any) =>
+                      `<td>${slotUser && isUserApproved(slotUser, section.label) ? renderUserCell(slotUser, section.label) : ''}</td>`
+                  )
+                  .join('')
+              )
+              .join('')}
+          </tr>
+          <tr>
+            ${footerFields
+              .map(
+                (section: any) =>
+                  `<th colspan="${getFooterSlots(section).length}">${escapeHtml(section.label || 'New Field')}:</th>`
+              )
+              .join('')}
+          </tr>
+          <tr>
+            ${footerFields
+              .map((section: any) =>
+                getFooterSlots(section)
+                  .map((slotUser: any) => `<td><div class="xyz-footer-user">${renderFooterUserSlot(slotUser, section)}</div></td>`)
+                  .join('')
+              )
+              .join('')}
+          </tr>
+        </table>
+      </div>`
+      : '';
+
+    const formCode = (application?.txtFormCode || applicationMeta?.txtFormCode || '—').toString();
+
+    const slipCss = `
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 12px; background: #f3f4f6; }
+    .abc-wrapper { width: 210mm; max-width: 100%; margin: 0 auto; text-align: left; }
+    .expense-claim-preview-root.xyz-paper.ec-slip {
+      font-family: Helvetica, Arial, sans-serif;
+      color: #000;
+      background: #fff;
+      border: 1px solid #cfcfcf;
+      padding: 18px 20px 28px !important;
+      display: flex !important;
+      flex-direction: column !important;
+      min-height: 297mm !important;
+      max-height: 297mm !important;
+      height: 297mm !important;
+      overflow: hidden !important;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    }
+    .ec-slip-main { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+    .ec-slip-footer-fixed { flex: 0 0 auto; width: 100%; padding-top: 6px; background: #fff; }
+    .ec-slip-title-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+    .ec-slip-title { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: 0.02em; }
+    .ec-slip-title-rule { width: 100%; border-bottom: 1px solid #000; margin-top: 6px; margin-bottom: 4px; height: 0; }
+    .ec-slip-logo { width: 52px; height: auto; display: block; }
+    .ec-slip-meta-rows { margin-top: 12px; margin-bottom: 10px; font-size: 11px; }
+    .ec-slip-meta-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 32px; margin-bottom: 6px; }
+    .ec-slip-field { display: flex; flex-direction: row; align-items: flex-end; gap: 8px; min-width: 0; padding: 4px 10px; }
+    .ec-slip-label { flex-shrink: 0; font-weight: 700; text-transform: uppercase; font-size: 9px; white-space: nowrap; }
+    .ec-slip-value { flex: 1; min-width: 0; min-height: 1.15em; border-bottom: 1px solid #000; font-size: 11px; padding: 0 2px 2px; word-break: break-word; }
+    .expense-claim-preview-table-wrap { display: flex; justify-content: center; width: 100%; margin-top: 18px; }
+    .expense-claim-preview-table { width: 100%; max-width: 96%; border-collapse: collapse; font-size: 12px; }
+    .expense-claim-preview-table th, .expense-claim-preview-table td { border: 1px solid #000; padding: 6px 8px; vertical-align: middle; }
+    .expense-claim-preview-table th { font-weight: 700; text-align: center; background: #f3f4f6; font-size: 11px; }
+    .ec-total-row td { border-top-width: 2px; }
+    .ec-total-label { text-align: right; font-weight: 700; text-transform: uppercase; font-size: 11px; }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .font-bold { font-weight: 700; }
+    .ec-slip-pipeline-footer .xyz-signatures { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 6px; }
+    .ec-slip-pipeline-footer .xyz-signatures th, .ec-slip-pipeline-footer .xyz-signatures td { border: 1px solid #000; padding: 4px 6px; text-align: center; vertical-align: middle; }
+    .ec-slip-pipeline-footer .xyz-signatures-blank td { height: 48px; vertical-align: top !important; }
+    .xyz-sig-img { max-height: 14px; max-width: 85%; display: block; margin: 0 auto; }
+    .xyz-sig-time { font-size: 7px; color: #6b7280; }
+    .ec-slip-footer-box { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid #000; margin-top: 16px; font-size: 9px; }
+    .ec-slip-footer-cell { border-right: 1px solid #000; padding: 6px 8px; min-height: 40px; display: flex; flex-direction: column; justify-content: space-between; }
+    .ec-slip-footer-cell:last-child { border-right: none; }
+    .ec-slip-footer-key { font-weight: 700; }
+    .ec-slip-footer-meta { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10px; }
+    `;
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>${slipCss}</style>
+</head>
+<body>
+  <div class="abc-wrapper">
+    <div class="expense-claim-preview-root xyz-paper ec-slip">
+      <div class="ec-slip-main">
+        <div class="ec-slip-top">
+          <div class="ec-slip-title-row">
+            <h1 class="ec-slip-title">Expense Claim Slip</h1>
+            <div class="ec-slip-logo-wrap"><img class="ec-slip-logo" src="assets/images/qarshi-logo.png" alt="" /></div>
+          </div>
+          <div class="ec-slip-title-rule" aria-hidden="true"></div>
+        </div>
+        <div class="ec-slip-meta-rows">
+          <div class="ec-slip-meta-row">
+            <div class="ec-slip-field"><span class="ec-slip-label">ACCOUNT HEAD:</span><span class="ec-slip-value">${slipCell(getHeaderPreview('account head'))}</span></div>
+            <div class="ec-slip-field"><span class="ec-slip-label">DATED:</span><span class="ec-slip-value">${slipCell(getHeaderPreview('dated', 'date'))}</span></div>
+          </div>
+          <div class="ec-slip-meta-row">
+            <div class="ec-slip-field"><span class="ec-slip-label">APPROVED BUDGET HEAD:</span><span class="ec-slip-value">${slipCell(getHeaderPreview('approved budget head', 'budget head'))}</span></div>
+            <div class="ec-slip-field"><span class="ec-slip-label">BUDGET PERIOD:</span><span class="ec-slip-value">${slipCell(getHeaderPreview('budget period', 'period'))}</span></div>
+          </div>
+        </div>
+        <div class="expense-claim-preview-table-wrap">
+          <table class="expense-claim-preview-table">
+            <thead>
+              <tr>
+                <th rowspan="2" style="width:36px;">S.no.</th>
+                <th rowspan="2">Description</th>
+                <th colspan="2">EXPENSE CHARGED TO DEPARTMENT</th>
+                <th rowspan="2" style="width:72px;">AMOUNT</th>
+              </tr>
+              <tr><th>DEPTT. NAME</th><th>SIGN.</th></tr>
+            </thead>
+            <tbody>
+              ${tbodyRows}
+              <tr class="ec-total-row">
+                <td colspan="4" class="ec-total-label">TOTAL</td>
+                <td class="text-right font-bold">${totalCell}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="ec-slip-footer-fixed">
+        ${pipelineFooterHtml}
+        <div class="ec-slip-footer-box">
+          <div class="ec-slip-footer-cell"><div class="ec-slip-footer-key">Version:</div><div>1</div></div>
+          <div class="ec-slip-footer-cell"><div class="ec-slip-footer-key">Published Date:</div><div>25.11.2022</div></div>
+          <div class="ec-slip-footer-cell"><div class="ec-slip-footer-key">Number:</div><div>FIN_BKP_FM-07</div></div>
+        </div>
+        <div class="ec-slip-footer-meta">
+          <span>ID: ${escapeHtml(formCode)}</span>
+          <span>Page 1 of 1</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+  }
+
+  private generateTemporaryAdvanceSlipPdfHtml(
+    application: any,
+    formFields: any[],
+    applicationFormData: any,
+    applicationMeta?: { formName?: string; txtFormCode?: string; omitApprovalSignaturesInPdf?: boolean }
+  ): string {
+    const omitApprovalSignatures = !!applicationMeta?.omitApprovalSignaturesInPdf;
+    const escapeHtml = (text: string): string => {
+      const div = document.createElement('div');
+      div.textContent = text ?? '';
+      return div.innerHTML;
+    };
+    const getFieldLabel = (field: any): string =>
+      field?.label || field?.txtFieldLabel || field?.name || field?.txtFieldName || 'Field';
+    const slugify = (label: string): string =>
+      String(label || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+    const getFieldValue = (field: any): any => {
+      if (!applicationFormData || typeof applicationFormData !== 'object') {
+        return null;
+      }
+      const label = getFieldLabel(field);
+      const slug = slugify(label);
+      const directKeys = [
+        label,
+        slug,
+        field?.name,
+        field?.key,
+        field?.fieldName,
+        field?.txtFieldName,
+        field?.txtFieldLabel,
+        field?.txtFieldLabel ? slugify(field.txtFieldLabel) : null,
+        field?.serFieldId ? `field_${field.serFieldId}` : null
+      ].filter(Boolean);
+      for (const key of directKeys) {
+        if ((applicationFormData as any)[key] !== undefined) {
+          return (applicationFormData as any)[key];
+        }
+      }
+      return null;
+    };
+    const getHeaderPreview = (...needles: string[]): string => {
+      const lowered = needles.map((n) => n.toLowerCase());
+      for (const field of formFields || []) {
+        const label = getFieldLabel(field).toLowerCase();
+        if (!lowered.some((needle) => label.includes(needle))) {
+          continue;
+        }
+        const value = getFieldValue(field);
+        if (value !== undefined && value !== null && String(value).trim().length > 0) {
+          return String(value);
+        }
+      }
+      return '';
+    };
+    const slipCell = (v: string | undefined | null): string => {
+      const t = (v ?? '').trim();
+      return escapeHtml(t.length > 0 ? t : '\u00a0');
+    };
+    const firstNonEmpty = (a: string, fallback: string): string => {
+      const t = (a ?? '').trim();
+      return t.length > 0 ? t : fallback;
+    };
+
+    let approvalHistory: any[] = [];
+    if (application?.txtApprovalHistory) {
+      try {
+        approvalHistory = JSON.parse(application.txtApprovalHistory);
+      } catch {
+        approvalHistory = [];
+      }
+    }
+    let footerFields: any[] = Array.isArray(applicationFormData?.footerFields) ? [...applicationFormData.footerFields] : [];
+    footerFields = footerFields.sort((a: any, b: any) => (Number(a?.order) || 0) - (Number(b?.order) || 0));
+
+    const getUserId = (user: any): number | null => {
+      if (!user) {
+        return null;
+      }
+      return user.serUserId || user.userId || user.id || null;
+    };
+    const getUserSignatureUrl = (user: any, sectionLabel?: string): string => {
+      const userId = getUserId(user);
+      if (!userId) {
+        return '';
+      }
+      const entry = approvalHistory.find((e: any) => {
+        const entryUserId = e.approvedBy || e.userId;
+        if (entryUserId !== userId) {
+          return false;
+        }
+        if (sectionLabel) {
+          const entryRole = (e.role || '').toString().trim();
+          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
+        }
+        return true;
+      });
+      if (!entry || !entry.signaturePath) {
+        return '';
+      }
+      return `${urls.API_URL}getSignature?userId=${userId}`;
+    };
+    const isUserApproved = (user: any, sectionLabel?: string): boolean => {
+      const userId = getUserId(user);
+      if (!userId || !approvalHistory.length) {
+        return false;
+      }
+      const entry = approvalHistory.find((e: any) => {
+        const entryUserId = e.approvedBy || e.userId;
+        if (entryUserId !== userId) {
+          return false;
+        }
+        if (sectionLabel) {
+          const entryRole = (e.role || '').toString().trim();
+          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
+        }
+        return true;
+      });
+      if (!entry || !entry.signaturePath) {
+        return false;
+      }
+      const action = (entry.action || entry.status || '').toString().toUpperCase();
+      if (action === 'REJECTED') {
+        return false;
+      }
+      if (action === 'APPROVED') {
+        return true;
+      }
+      return !!entry.approvedDate;
+    };
+    const getFooterSlots = (section: any): any[] => {
+      const users = Array.isArray(section?.users) ? section.users : [];
+      return users.length > 0 ? users : [null];
+    };
+    const renderUserCell = (user: any, sectionLabel?: string): string => {
+      if (omitApprovalSignatures || !user) {
+        return '';
+      }
+      const sigUrl = getUserSignatureUrl(user, sectionLabel);
+      const approved = isUserApproved(user, sectionLabel);
+      const content = approved && sigUrl ? `<img class="xyz-sig-img" src="${sigUrl}" alt="" crossorigin="anonymous" />` : '';
+      return approved ? `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;">${content}</div>` : '';
+    };
+    const renderFooterUserSlot = (user: any, section: any): string => {
+      if (!user) {
+        return '&nbsp;';
+      }
+      const name = user?.txtUserName || user?.userName || user?.name || '';
+      const designation = user?.txtDesignation || user?.designation || '';
+      const role = user?.cfgTblRole?.txtRoleName || user?.roleName || '';
+      let dept = user?.hrTblDepartment?.txtDepartmentName || user?.departmentName || user?.txtDepartmentName || '';
+      if (!dept) {
+        const userId = getUserId(user);
+        const entry = userId ? approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId) : null;
+        dept = entry?.departmentName || '';
+      }
+      const parts = [name, designation, dept, role ? `(${role})` : ''].filter((p: string) => !!p);
+      return parts.map((p) => escapeHtml(p)).join('<br>');
+    };
+
+    const hasPipelineFooter = footerFields.length > 0;
+    const pipelineFooterHtml = hasPipelineFooter
+      ? `
+      <div class="ec-slip-pipeline-footer">
+        <table class="xyz-signatures">
+          <tr class="xyz-signatures-blank">
+            ${footerFields
+              .map((section: any) =>
+                getFooterSlots(section)
+                  .map(
+                    (slotUser: any) =>
+                      `<td>${slotUser && isUserApproved(slotUser, section.label) ? renderUserCell(slotUser, section.label) : ''}</td>`
+                  )
+                  .join('')
+              )
+              .join('')}
+          </tr>
+          <tr>
+            ${footerFields
+              .map(
+                (section: any) =>
+                  `<th colspan="${getFooterSlots(section).length}">${escapeHtml(section.label || 'New Field')}:</th>`
+              )
+              .join('')}
+          </tr>
+          <tr>
+            ${footerFields
+              .map((section: any) =>
+                getFooterSlots(section)
+                  .map((slotUser: any) => `<td><div class="xyz-footer-user">${renderFooterUserSlot(slotUser, section)}</div></td>`)
+                  .join('')
+              )
+              .join('')}
+          </tr>
+        </table>
+      </div>`
+      : '';
+
+    const dateLine = firstNonEmpty(
+      getHeaderPreview('slip date', 'dated', 'form date', 'advance date'),
+      application?.dteCreatedDate
+        ? new Date(application.dteCreatedDate).toLocaleDateString('en-GB')
+        : new Date().toLocaleDateString('en-GB')
+    );
+
+    const purposeText = firstNonEmpty(
+      getHeaderPreview('for the purpose', 'purpose of', 'purpose'),
+      ''
+    );
+
+    const slipCss = `
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 12px; background: #f3f4f6; }
+    .abc-wrapper { width: 210mm; max-width: 100%; margin: 0 auto; text-align: left; }
+    .tas-slip-preview-root.xyz-paper.tas-slip {
+      font-family: Helvetica, Arial, sans-serif;
+      color: #000;
+      background: #fff;
+      border: 1px solid #000;
+      padding: 16px 18px 28px !important;
+      display: flex !important;
+      flex-direction: column !important;
+      min-height: 297mm !important;
+      max-height: 297mm !important;
+      height: 297mm !important;
+      overflow: hidden !important;
+    }
+    .tas-slip-main { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+    .tas-slip-footer-fixed { flex: 0 0 auto; width: 100%; padding-top: 6px; background: #fff; display: flex; flex-direction: column; }
+    .tas-slip-company-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .tas-slip-logo { width: 40px; height: auto; display: block; }
+    .tas-slip-company-name { font-weight: 700; font-size: 13px; letter-spacing: 0.02em; font-family: "Times New Roman", Times, Georgia, serif; }
+    .tas-slip-admin-unified { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 9px; border: 1px solid #000; margin: 0; }
+    .tas-slip-admin-unified col { width: 8.333333%; }
+    .tas-slip-admin-unified td { border: 1px solid #000; padding: 5px 7px; vertical-align: top; text-align: left; word-break: break-word; }
+    .tas-slip-banner { background: #d8dadc; text-align: center; font-weight: 700; font-size: 11px; font-family: "Times New Roman", Times, Georgia, serif; padding: 7px 8px; margin: 8px 0 10px; border: 1px solid #9ca3af; letter-spacing: 0.06em; }
+    .tas-slip-body { font-size: 11px; }
+    .tas-slip-field-row { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 10px; }
+    .tas-slip-field-row--tight { flex-wrap: wrap; }
+    .tas-slip-label { font-weight: 700; font-size: 9px; text-transform: uppercase; flex-shrink: 0; }
+    .tas-slip-label--long { font-size: 8px; max-width: 58%; line-height: 1.25; }
+    .tas-slip-value { flex: 1; min-width: 0; border-bottom: 1px solid #000; min-height: 1.2em; padding: 0 2px 2px; word-break: break-word; }
+    .tas-slip-purpose-label { font-weight: 700; font-size: 9px; text-transform: uppercase; margin: 4px 0 2px; }
+    .tas-slip-purpose-line { border-bottom: 1px solid #000; min-height: 1.15em; margin-bottom: 5px; font-size: 11px; white-space: pre-wrap; }
+    .tas-slip-sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 28px; margin-top: 14px; margin-bottom: 12px; }
+    .tas-slip-sig-cell { display: flex; flex-direction: column; align-items: stretch; }
+    .tas-slip-sig-line { border-bottom: 1px solid #000; min-height: 28px; width: 100%; }
+    .tas-slip-sig-caption { font-size: 8px; font-weight: 700; text-align: center; text-transform: uppercase; margin-bottom: 6px; line-height: 1.25; }
+    .tas-slip-bottom-row { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 9px; margin-top: 4px; }
+    .tas-slip-footer-prepared { margin-top: 10px; }
+    .tas-slip-footer-prepared.tas-slip-bottom-row td { width: 33.33%; vertical-align: middle; padding: 0; border: 1px solid #000; height: auto; min-height: 36px; }
+    .tas-slip-bottom-cell-inner { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; min-height: 28px; padding: 8px 10px; box-sizing: border-box; }
+    .tas-slip-bottom-key { font-weight: 700; flex-shrink: 0; text-align: left; text-transform: none; }
+    .tas-slip-bottom-sig-slot { flex: 1 1 auto; min-width: 16px; min-height: 1.35em; }
+    .ec-slip-pipeline-footer .xyz-signatures { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 6px; }
+    .ec-slip-pipeline-footer .xyz-signatures th, .ec-slip-pipeline-footer .xyz-signatures td { border: 1px solid #000; padding: 4px 6px; text-align: center; vertical-align: middle; }
+    .ec-slip-pipeline-footer .xyz-signatures-blank td { height: 48px; vertical-align: top !important; }
+    .xyz-sig-img { max-height: 14px; max-width: 85%; display: block; margin: 0 auto; }
+    `;
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>${slipCss}</style>
+</head>
+<body>
+  <div class="abc-wrapper">
+    <div class="tas-slip-preview-root xyz-paper tas-slip">
+      <div class="tas-slip-main">
+        <div class="tas-slip-company-row">
+          <img class="tas-slip-logo" src="assets/images/qarshi-logo.png" alt="" />
+          <div class="tas-slip-company-name">QARSHI INDUSTRIES (PVT.) LTD.</div>
+        </div>
+        <table class="tas-slip-admin tas-slip-admin-unified">
+          <colgroup>
+            <col /><col /><col /><col /><col /><col /><col /><col /><col /><col /><col /><col />
+          </colgroup>
+          <tr>
+            <td colspan="4">Division: ${slipCell(firstNonEmpty(getHeaderPreview('division'), 'Finance'))}</td>
+            <td colspan="4">Department: ${slipCell(firstNonEmpty(getHeaderPreview('department', 'dept'), 'Book Keeping'))}</td>
+            <td colspan="4">Section: ${slipCell(firstNonEmpty(getHeaderPreview('section'), '***'))}</td>
+          </tr>
+          <tr>
+            <td colspan="4">Document No. ${slipCell(firstNonEmpty(getHeaderPreview('document no', 'fin-bkp', 'form number'), 'FIN-BKP-FM-06'))}</td>
+            <td colspan="4">Original Issue: ${slipCell(firstNonEmpty(getHeaderPreview('original issue'), '01-06-2006'))}</td>
+            <td colspan="2">Rev.# ${slipCell(getHeaderPreview('rev #', 'rev.', 'revision'))}</td>
+            <td colspan="2">Rev. Date: ${slipCell(getHeaderPreview('rev. date', 'revision date', 'rev date'))}</td>
+          </tr>
+        </table>
+        <div class="tas-slip-banner">TEMPORARY ADVANCE SLIP</div>
+        <div class="tas-slip-body">
+          <div class="tas-slip-field-row">
+            <span class="tas-slip-label">DATE:</span>
+            <span class="tas-slip-value">${slipCell(dateLine)}</span>
+          </div>
+          <div class="tas-slip-field-row">
+            <span class="tas-slip-label">PLEASE PAY RS.:</span>
+            <span class="tas-slip-value">${slipCell(getHeaderPreview('please pay', 'pay rs', 'amount rs'))}</span>
+          </div>
+          <div class="tas-slip-field-row">
+            <span class="tas-slip-label">RUPEES:</span>
+            <span class="tas-slip-value">${slipCell(getHeaderPreview('rupees', 'in words'))}</span>
+          </div>
+          <div class="tas-slip-field-row">
+            <span class="tas-slip-label">TO MR. / MS.:</span>
+            <span class="tas-slip-value">${slipCell(getHeaderPreview('to mr', 'payee', 'mr/ms', 'mr / ms'))}</span>
+          </div>
+          <div class="tas-slip-purpose-label">FOR THE PURPOSE OF:</div>
+          <div class="tas-slip-purpose-line">${slipCell(purposeText)}</div>
+          <div class="tas-slip-purpose-line">${slipCell('')}</div>
+          <div class="tas-slip-purpose-line">${slipCell('')}</div>
+          <div class="tas-slip-field-row tas-slip-field-row--tight">
+            <span class="tas-slip-label tas-slip-label--long">THE AMOUNT WILL BE ADJUSTED ON OR BEFORE:</span>
+            <span class="tas-slip-value">${slipCell(getHeaderPreview('adjusted', 'on or before', 'adjust'))}</span>
+          </div>
+        </div>
+        <div class="tas-slip-sig-grid">
+          <div class="tas-slip-sig-cell"><div class="tas-slip-sig-caption">SIGNATURE BY<br/>APPLICANT</div><div class="tas-slip-sig-line"></div></div>
+          <div class="tas-slip-sig-cell"><div class="tas-slip-sig-caption">APPROVED BY<br/>FINANCE WING</div><div class="tas-slip-sig-line"></div></div>
+          <div class="tas-slip-sig-cell"><div class="tas-slip-sig-caption">RECOMMENDED BY<br/>DEPTT. HEAD</div><div class="tas-slip-sig-line"></div></div>
+          <div class="tas-slip-sig-cell"><div class="tas-slip-sig-caption">RECEIVED<br/>BY</div><div class="tas-slip-sig-line"></div></div>
+        </div>
+      </div>
+      <div class="tas-slip-footer-fixed">
+        ${pipelineFooterHtml}
+        <table class="tas-slip-bottom-row tas-slip-footer-prepared">
+          <tr>
+            <td><div class="tas-slip-bottom-cell-inner"><span class="tas-slip-bottom-key">Prepared by:</span><span class="tas-slip-bottom-sig-slot"></span></div></td>
+            <td><div class="tas-slip-bottom-cell-inner"><span class="tas-slip-bottom-key">Reviewed By:</span><span class="tas-slip-bottom-sig-slot"></span></div></td>
+            <td><div class="tas-slip-bottom-cell-inner"><span class="tas-slip-bottom-key">Approved By:</span><span class="tas-slip-bottom-sig-slot"></span></div></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
   }
 
   private generatePDFContent(application: any, formName: string, formFields: any[], applicationFormData: any, pipelines: any[]): string {

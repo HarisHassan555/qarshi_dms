@@ -538,3 +538,523 @@
     padding: 2px;
 }
 
+/* Expense claim: input grid (left) + preview table (right) */
+.expense-claim-input-table,
+.expense-claim-preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.expense-claim-input-table th,
+.expense-claim-input-table td,
+.expense-claim-preview-table th,
+.expense-claim-preview-table td {
+    border: 1px solid #000;
+    padding: 6px 8px;
+    vertical-align: middle;
+}
+
+.expense-claim-input-table th,
+.expense-claim-preview-table th {
+    font-family: Helvetica, Arial, sans-serif;
+    font-weight: 700;
+    text-align: center;
+    background: #f3f4f6;
+    font-size: 11px;
+}
+
+.expense-claim-preview-root .expense-claim-preview-table-wrap {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    margin-top: 18px;
+    padding-left: 4px;
+    padding-right: 4px;
+    box-sizing: border-box;
+}
+
+.expense-claim-preview-root .expense-claim-preview-table {
+    width: 100%;
+    max-width: 96%;
+}
+
+.expense-claim-preview-table .ec-col-sn {
+    width: 36px;
+}
+
+.expense-claim-preview-table .ec-col-desc {
+    min-width: 120px;
+}
+
+.expense-claim-preview-table .ec-col-dept-head {
+    text-align: center;
+}
+
+.expense-claim-preview-table .ec-col-amt {
+    width: 72px;
+}
+
+.expense-claim-preview-table .ec-total-row td {
+    border-top-width: 2px;
+}
+
+.expense-claim-preview-table .ec-total-label {
+    text-align: right;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 11px;
+}
+
+/* Slip-style expense claim preview (matches printed slip) */
+.ec-slip {
+    font-family: Helvetica, Arial, sans-serif;
+    color: #000;
+    padding: 18px 20px 28px !important;
+}
+
+/* One A4 sheet: header + table scroll in the middle; signatures + version table + ID row fixed at bottom */
+.expense-claim-preview-root.xyz-paper.app-preview-paper-a4.ec-slip {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 297mm !important;
+    max-height: 297mm !important;
+    min-height: 297mm !important;
+    overflow: hidden !important;
+}
+
+.expense-claim-preview-root .ec-slip-main {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+.expense-claim-preview-root .ec-slip-footer-fixed {
+    flex: 0 0 auto;
+    width: 100%;
+    padding-top: 6px;
+    background: #fff;
+}
+
+.expense-claim-preview-root .ec-slip-pipeline-footer .xyz-signatures {
+    margin-top: 6px;
+    margin-bottom: 0;
+}
+
+.ec-slip-top {
+    margin-bottom: 0;
+}
+
+.ec-slip-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14px;
+}
+
+.ec-slip-title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    flex: 1;
+    min-width: 0;
+}
+
+/* Full-width rule from left margin across to under the logo */
+.ec-slip-title-rule {
+    width: 100%;
+    border-bottom: 1px solid #000;
+    margin-top: 6px;
+    margin-bottom: 4px;
+    height: 0;
+    box-sizing: border-box;
+}
+
+.ec-slip-logo-wrap {
+    flex-shrink: 0;
+}
+
+.ec-slip-logo {
+    width: 52px;
+    height: auto;
+    display: block;
+}
+
+.ec-slip-meta-rows {
+    margin-top: 12px;
+    margin-bottom: 10px;
+    font-size: 11px;
+}
+
+.ec-slip-meta-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px 32px;
+    margin-bottom: 6px;
+}
+
+.ec-slip-meta-row:last-child {
+    margin-bottom: 0;
+}
+
+/* Label + value on one row; ruled line runs to the right of the label (not under it). */
+.ec-slip-field {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    gap: 8px;
+    min-width: 0;
+    padding: 4px 10px;
+    box-sizing: border-box;
+}
+
+.ec-slip-label {
+    flex-shrink: 0;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 9px;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+    padding-bottom: 2px;
+    max-width: none;
+    white-space: nowrap;
+}
+
+.ec-slip-value {
+    flex: 1;
+    min-width: 0;
+    min-height: 1.15em;
+    border-bottom: 1px solid #000;
+    font-size: 11px;
+    font-weight: 400;
+    padding: 0 2px 2px;
+    word-break: break-word;
+    line-height: 1.2;
+    text-align: left;
+}
+
+.ec-slip-signatures {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px 24px;
+    margin-top: 16px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.ec-slip-sign-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ec-slip-sig-line {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    gap: 6px;
+    min-width: 0;
+}
+
+.ec-slip-sig-line--tall {
+    align-items: stretch;
+}
+
+.ec-slip-sig-line--tall .ec-slip-sig-label {
+    align-self: flex-end;
+    padding-bottom: 2px;
+}
+
+.ec-slip-sig-line--tall .ec-slip-sig-blank--tall {
+    min-height: 2.4em;
+    align-self: stretch;
+}
+
+.ec-slip-sig-label {
+    flex-shrink: 0;
+    letter-spacing: 0.02em;
+    font-size: 9px;
+    line-height: 1.2;
+    padding-bottom: 2px;
+    max-width: 48%;
+}
+
+.ec-slip-sig-blank {
+    flex: 1;
+    min-width: 0;
+    border-bottom: 1px solid #000;
+    min-height: 1em;
+}
+
+.ec-slip-footer-box {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border: 1px solid #000;
+    margin-top: 20px;
+    font-size: 9px;
+}
+
+.ec-slip-footer-cell {
+    border-right: 1px solid #000;
+    padding: 6px 8px;
+    min-height: 44px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.ec-slip-footer-cell:last-child {
+    border-right: none;
+}
+
+.ec-slip-footer-key {
+    font-weight: 700;
+    text-transform: capitalize;
+}
+
+.ec-slip-footer-val {
+    font-weight: 400;
+    margin-top: 4px;
+}
+
+.ec-slip-footer-meta {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 10px;
+    font-weight: 400;
+}
+
+/* Temporary Advance Slip (TAS-*) — matches FIN-BKP-FM-06 layout */
+.tas-slip-preview-root.xyz-paper.tas-slip {
+    font-family: Helvetica, Arial, sans-serif;
+    color: #000;
+    background: #fff;
+    border: 1px solid #000;
+    padding: 16px 18px 12px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 297mm !important;
+    max-height: 297mm !important;
+    height: 297mm !important;
+    overflow: hidden !important;
+    box-sizing: border-box;
+}
+
+.tas-slip-preview-root .tas-slip-main {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+.tas-slip-preview-root .tas-slip-footer-fixed {
+    flex: 0 0 auto;
+    width: 100%;
+    padding-top: 6px;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+}
+
+.tas-slip-footer-prepared {
+    margin-top: 10px;
+    width: 100%;
+}
+
+.tas-slip-preview-root .ec-slip-pipeline-footer .xyz-signatures {
+    margin-top: 6px;
+    margin-bottom: 0;
+}
+
+.tas-slip-company-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.tas-slip-logo {
+    width: 40px;
+    height: auto;
+    display: block;
+    flex-shrink: 0;
+}
+
+.tas-slip-company-name {
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    font-family: "Times New Roman", Times, Georgia, serif;
+}
+
+/* 12-column grid: row1 = 4+4+4, row2 = 4+4+2+2 so vertical rules align with thirds, Rev split in last third */
+.tas-slip-admin-unified {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 9px;
+    border: 1px solid #000;
+    margin: 0 0 0;
+}
+
+.tas-slip-admin-unified col {
+    width: 8.333333%;
+}
+
+.tas-slip-admin-unified td {
+    border: 1px solid #000;
+    padding: 5px 7px;
+    vertical-align: top;
+    text-align: left;
+    word-break: break-word;
+}
+
+.tas-slip-banner {
+    background: #d8dadc;
+    text-align: center;
+    font-weight: 700;
+    font-size: 11px;
+    font-family: "Times New Roman", Times, Georgia, serif;
+    padding: 7px 8px;
+    margin: 8px 0 10px;
+    letter-spacing: 0.06em;
+    border: 1px solid #9ca3af;
+}
+
+.tas-slip-body {
+    font-size: 11px;
+}
+
+.tas-slip-field-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    margin-bottom: 10px;
+    min-width: 0;
+}
+
+.tas-slip-field-row--full .tas-slip-value {
+    flex: 1;
+}
+
+.tas-slip-field-row--tight {
+    flex-wrap: wrap;
+    align-items: flex-end;
+}
+
+.tas-slip-label {
+    font-weight: 700;
+    flex-shrink: 0;
+    font-size: 9px;
+    text-transform: uppercase;
+}
+
+.tas-slip-label--long {
+    font-size: 8px;
+    line-height: 1.25;
+    max-width: 58%;
+}
+
+.tas-slip-value {
+    flex: 1;
+    min-width: 0;
+    border-bottom: 1px solid #000;
+    min-height: 1.2em;
+    padding: 0 2px 2px;
+    word-break: break-word;
+}
+
+.tas-slip-purpose-label {
+    font-weight: 700;
+    font-size: 9px;
+    text-transform: uppercase;
+    margin: 4px 0 2px;
+}
+
+.tas-slip-purpose-lines {
+    margin-bottom: 10px;
+}
+
+.tas-slip-purpose-line {
+    border-bottom: 1px solid #000;
+    min-height: 1.15em;
+    margin-bottom: 5px;
+    font-size: 11px;
+    white-space: pre-wrap;
+}
+
+.tas-slip-sig-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 28px;
+    margin-top: 14px;
+    margin-bottom: 12px;
+}
+
+.tas-slip-sig-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.tas-slip-sig-caption {
+    font-size: 8px;
+    font-weight: 700;
+    text-align: center;
+    text-transform: uppercase;
+    line-height: 1.25;
+    margin-bottom: 6px;
+}
+
+.tas-slip-sig-line {
+    border-bottom: 1px solid #000;
+    min-height: 28px;
+    width: 100%;
+}
+
+.tas-slip-bottom-row {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 9px;
+    margin-top: 4px;
+}
+
+.tas-slip-footer-prepared.tas-slip-bottom-row td {
+    width: 33.33%;
+    vertical-align: middle;
+    padding: 0;
+    border: 1px solid #000;
+    height: auto;
+    min-height: 36px;
+}
+
+.tas-slip-bottom-cell-inner {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+    min-height: 28px;
+    padding: 8px 10px;
+    box-sizing: border-box;
+}
+
+.tas-slip-bottom-key {
+    font-weight: 700;
+    flex-shrink: 0;
+    text-align: left;
+    text-transform: none;
+}
+
+.tas-slip-bottom-sig-slot {
+    flex: 1 1 auto;
+    min-width: 16px;
+    min-height: 1.35em;
+}

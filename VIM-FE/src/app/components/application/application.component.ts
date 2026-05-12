@@ -103,6 +103,14 @@ interface CustomForm {
   cfgTblCustomFormApprovalPipelines?: any[];
 }
 
+/** Hardcoded expense lines for EXP / Expense Claim forms (synced to preview + submission JSON). */
+interface ExpenseClaimLineRow {
+  description: string;
+  deptName: string;
+  sign: string;
+  amount: string;
+}
+
 @Component({
   selector: 'app-application',
   templateUrl: './application.component.html',
@@ -113,6 +121,12 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   @ViewChild('previewCanvas') previewCanvas?: ElementRef<HTMLElement>;
   @ViewChild('previewScale') previewScale?: ElementRef<HTMLElement>;
   search = '';
+
+  /** Default number of expense line rows when opening the expense claim form. */
+  readonly expenseClaimInitialRows = 1;
+  /** Upper bound for rows added via the + control (prevents runaway growth). */
+  readonly expenseClaimMaxRows = 100;
+  expenseClaimLines: ExpenseClaimLineRow[] = [];
   customForms: CustomForm[] = [];
   selectedForm: CustomForm | null = null;
   applicationForm!: FormGroup;
@@ -266,6 +280,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
   initializeForm() {
     this.applicationForm = this.fb.group({});
+    this.expenseClaimLines = [];
   }
 
   loadForms() {
@@ -376,6 +391,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       if (this.selectedForm) {
         this.showBudgetApproval = false;
         this.buildDynamicForm(this.selectedForm);
+        this.initExpenseClaimLinesForSelectedForm();
         // Generate next application code
         this.generateApplicationCode(formId);
       }
@@ -459,6 +475,14 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   private getPreviewContentElement(scaleHostEl: HTMLElement): HTMLElement | null {
+    const tasRoot = scaleHostEl.querySelector(':scope > .tas-slip-preview-root');
+    if (tasRoot instanceof HTMLElement) {
+      return tasRoot;
+    }
+    const expenseRoot = scaleHostEl.querySelector(':scope > .expense-claim-preview-root');
+    if (expenseRoot instanceof HTMLElement) {
+      return expenseRoot;
+    }
     const pages = scaleHostEl.querySelector('.app-preview-pages');
     if (pages instanceof HTMLElement) {
       const papers = pages.querySelectorAll(':scope > .xyz-paper');
@@ -529,7 +553,12 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
   /** Paginated A4 preview for all generic forms (not budget/CAPF). */
   shouldUsePaginatedGenericPreview(): boolean {
-    return !this.isCapfSelected() && !!this.selectedForm;
+    return (
+      !this.isCapfSelected() &&
+      !this.isExpenseClaimSelected() &&
+      !this.isTemporaryAdvanceSlipSelected() &&
+      !!this.selectedForm
+    );
   }
 
   /** One A4 sheet = up to N plain-text lines; next line starts the next page immediately. */
@@ -726,9 +755,230 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     return name.includes('capf');
   }
 
+  isExpenseClaimSelected(): boolean {
+    if (!this.selectedForm) {
+      return false;
+    }
+    const name = (this.selectedForm.name || this.selectedForm.txtFormName || '').toLowerCase();
+    const code = (this.selectedForm.txtFormCode || '').trim().toUpperCase();
+    if (code.startsWith('EXP-') || code === 'EXP-0001') {
+      return true;
+    }
+    return name.includes('expense claim');
+  }
+
+  /** Temporary Advance Slip: form code TAS-* or name contains "temporary advance". */
+  isTemporaryAdvanceSlipSelected(): boolean {
+    if (!this.selectedForm) {
+      return false;
+    }
+    const name = (this.selectedForm.name || this.selectedForm.txtFormName || '').toLowerCase();
+    const code = (this.selectedForm.txtFormCode || '').trim().toUpperCase();
+    if (code.startsWith('TAS-')) {
+      return true;
+    }
+    return name.includes('temporary advance');
+  }
+
   isBudgetSelected(): boolean {
     const name = (this.selectedForm?.name || this.selectedForm?.txtFormName || '').toLowerCase();
     return name.includes('budget approval');
+  }
+
+  private initExpenseClaimLinesForSelectedForm(): void {
+    if (this.isExpenseClaimSelected()) {
+      this.resetExpenseClaimLines();
+    } else {
+      this.expenseClaimLines = [];
+    }
+  }
+
+  private createEmptyExpenseClaimLine(): ExpenseClaimLineRow {
+    return {
+      description: '',
+      deptName: '',
+      sign: '',
+      amount: ''
+    };
+  }
+
+  private resetExpenseClaimLines(): void {
+    this.expenseClaimLines = Array.from({ length: this.expenseClaimInitialRows }, () =>
+      this.createEmptyExpenseClaimLine()
+    );
+  }
+
+  addExpenseClaimRow(): void {
+    if (this.expenseClaimLines.length >= this.expenseClaimMaxRows) {
+      return;
+    }
+    this.expenseClaimLines = [...this.expenseClaimLines, this.createEmptyExpenseClaimLine()];
+    this.requestPreviewFit();
+  }
+
+  canAddExpenseClaimRow(): boolean {
+    return this.expenseClaimLines.length < this.expenseClaimMaxRows;
+  }
+
+  onExpenseClaimLineChanged(): void {
+    this.requestPreviewFit();
+  }
+
+  /** Shown on slip underlines: blank cell still reserves line height. */
+  getExpenseClaimSlipFieldDisplay(value: string | undefined | null): string {
+    const v = (value ?? '').trim();
+    return v.length > 0 ? v : '\u00a0';
+  }
+
+  getExpenseClaimHeaderPreviewValue(...needles: string[]): string {
+    const value = this.getExpenseClaimHeaderRawValue(...needles);
+    return this.getExpenseClaimSlipFieldDisplay(value);
+  }
+
+  private getExpenseClaimHeaderRawValue(...needles: string[]): string {
+    if (!this.selectedForm || !this.applicationForm || !needles.length) {
+      return '';
+    }
+    const loweredNeedles = needles.map((n) => n.toLowerCase());
+    const raw = this.applicationForm.getRawValue() || {};
+    for (const field of this.selectedForm.fields || []) {
+      const label = (field.label || '').toLowerCase();
+      if (!loweredNeedles.some((needle) => label.includes(needle))) {
+        continue;
+      }
+      const key = this.getFieldName(field.label);
+      const value = raw[key];
+      if (value !== undefined && value !== null && String(value).trim().length > 0) {
+        return String(value);
+      }
+    }
+    return '';
+  }
+
+  private mergeExpenseClaimPayload(formData: any): void {
+    if (!this.isExpenseClaimSelected()) {
+      return;
+    }
+    if (this.expenseClaimLines.length) {
+      formData.expenseClaimLines = this.expenseClaimLines.map((row, index) => ({
+        sNo: index + 1,
+        description: row.description,
+        deptName: row.deptName,
+        sign: row.sign,
+        amount: row.amount
+      }));
+    }
+  }
+
+  trackByExpenseClaimIndex(index: number, _row: ExpenseClaimLineRow): number {
+    return index;
+  }
+
+  getExpenseClaimPreviewCell(value: string | undefined | null): string {
+    const v = (value ?? '').trim();
+    return v.length > 0 ? v : '\u00a0';
+  }
+
+  getExpenseClaimAmountTotal(): string {
+    let sum = 0;
+    for (const row of this.expenseClaimLines) {
+      const raw = (row.amount ?? '').trim().replace(/,/g, '');
+      const n = parseFloat(raw);
+      if (!Number.isNaN(n)) {
+        sum += n;
+      }
+    }
+    if (sum === 0 && !this.expenseClaimLines.some((r) => (r.amount ?? '').trim() !== '')) {
+      return '';
+    }
+    return sum.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
+
+  getExpenseClaimTotalCellDisplay(): string {
+    const t = this.getExpenseClaimAmountTotal();
+    return t && t.trim().length > 0 ? t : '\u00a0';
+  }
+
+  getTemporaryAdvanceSlipSlipFieldDisplay(value: string | undefined | null): string {
+    const v = (value ?? '').trim();
+    return v.length > 0 ? v : '\u00a0';
+  }
+
+  getTemporaryAdvanceSlipPreviewValue(...needles: string[]): string {
+    const value = this.getTemporaryAdvanceSlipHeaderRawValue(...needles);
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(value);
+  }
+
+  getTemporaryAdvanceSlipPurposeDisplay(): string {
+    const raw = this.getTemporaryAdvanceSlipHeaderRawValue(
+      'for the purpose',
+      'purpose of',
+      'purpose'
+    );
+    return raw.trim().length > 0 ? raw : '\u00a0';
+  }
+
+  private getTemporaryAdvanceSlipHeaderRawValue(...needles: string[]): string {
+    if (!this.selectedForm || !this.applicationForm || !needles.length) {
+      return '';
+    }
+    const loweredNeedles = needles.map((n) => n.toLowerCase());
+    const raw = this.applicationForm.getRawValue() || {};
+    for (const field of this.selectedForm.fields || []) {
+      const label = (field.label || '').toLowerCase();
+      if (!loweredNeedles.some((needle) => label.includes(needle))) {
+        continue;
+      }
+      const key = this.getFieldName(field.label);
+      const value = raw[key];
+      if (value !== undefined && value !== null && String(value).trim().length > 0) {
+        return String(value);
+      }
+    }
+    return '';
+  }
+
+  getTemporaryAdvanceSlipMetaDivision(): string {
+    const v = this.getTemporaryAdvanceSlipHeaderRawValue('division').trim();
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(v || 'Finance');
+  }
+
+  getTemporaryAdvanceSlipMetaDepartment(): string {
+    const v = this.getTemporaryAdvanceSlipHeaderRawValue('department', 'dept').trim();
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(v || 'Book Keeping');
+  }
+
+  getTemporaryAdvanceSlipMetaSection(): string {
+    const v = this.getTemporaryAdvanceSlipHeaderRawValue('section').trim();
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(v || '***');
+  }
+
+  getTemporaryAdvanceSlipMetaDocumentNo(): string {
+    const v = this.getTemporaryAdvanceSlipHeaderRawValue('document no', 'fin-bkp', 'form number').trim();
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(v || 'FIN-BKP-FM-06');
+  }
+
+  getTemporaryAdvanceSlipMetaOriginalIssue(): string {
+    const v = this.getTemporaryAdvanceSlipHeaderRawValue('original issue').trim();
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(v || '01-06-2006');
+  }
+
+  getTemporaryAdvanceSlipMetaRev(): string {
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(this.getTemporaryAdvanceSlipHeaderRawValue('rev #', 'rev.', 'revision'));
+  }
+
+  getTemporaryAdvanceSlipMetaRevDate(): string {
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(
+      this.getTemporaryAdvanceSlipHeaderRawValue('rev. date', 'revision date', 'rev date')
+    );
+  }
+
+  getTemporaryAdvanceSlipDateLine(): string {
+    const v = this.getTemporaryAdvanceSlipHeaderRawValue('slip date', 'dated', 'form date', 'advance date').trim();
+    if (v) {
+      return this.getTemporaryAdvanceSlipSlipFieldDisplay(v);
+    }
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(this.previewDate);
   }
 
   getPreviewFormData(): any {
@@ -742,6 +992,9 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       data[field.label] = value;
       data[key] = value;
     });
+    if (this.isExpenseClaimSelected()) {
+      this.mergeExpenseClaimPayload(data);
+    }
     return data;
   }
 
@@ -1833,6 +2086,10 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
       const formData = { ...this.applicationForm.value };
 
+      if (this.isExpenseClaimSelected()) {
+        this.mergeExpenseClaimPayload(formData);
+      }
+
       // Ensure multi-select attachments (attachment/file and multi_attachment) are captured as base64 payloads
       const multiAttachmentFieldNames = new Set<string>();
       this.selectedForm.fields.forEach((field: FormField) => {
@@ -1978,20 +2235,29 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
     const filename = `application_${formCode || applicationId}.pdf`;
 
-    let pdfBlob: Blob;
+    let pdfBlob: Blob | undefined;
     if (!this.isCapfSelected()) {
       this.rebuildGenericPreviewPagesIfNeeded();
       this.requestPreviewFit();
       await new Promise((resolve) => setTimeout(resolve, 80));
 
       const previewScaleEl = this.previewScale?.nativeElement || null;
+      const tasPreviewRoot = previewScaleEl?.querySelector('.tas-slip-preview-root') as HTMLElement | null;
+      if (this.isTemporaryAdvanceSlipSelected() && tasPreviewRoot) {
+        pdfBlob = await this.applicationPdfService.renderXyzHostElementToPdf(tasPreviewRoot);
+      }
+      const expensePreviewRoot = previewScaleEl?.querySelector('.expense-claim-preview-root') as HTMLElement | null;
+      if (!pdfBlob && this.isExpenseClaimSelected() && expensePreviewRoot) {
+        pdfBlob = await this.applicationPdfService.renderXyzHostElementToPdf(expensePreviewRoot);
+      }
+
       const previewPages = (previewScaleEl?.querySelector('.app-preview-pages') as HTMLElement | null)
         || (document.querySelector('.app-preview-pages') as HTMLElement | null);
       const paperCount = previewPages ? previewPages.querySelectorAll('.xyz-paper').length : 0;
-      if (previewPages && paperCount > 0) {
+      if (!pdfBlob && previewPages && paperCount > 0) {
         // Keep submission-email snapshot identical to on-screen generic preview pagination.
         pdfBlob = await this.applicationPdfService.renderMultiPageXyzPapersToPdfBlob(previewPages);
-      } else {
+      } else if (!pdfBlob) {
         const htmlContent = this.applicationPdfService.buildPdfHtmlForApplication(
           application,
           form,
@@ -2016,6 +2282,9 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         throw new Error('PDF HTML generation failed');
       }
       pdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(htmlContent, filename);
+    }
+    if (!pdfBlob) {
+      throw new Error('PDF generation failed');
     }
     const pdfResponse: any = await firstValueFrom(
       this.customFormApplicationService.updateApplicationPdf(applicationId, pdfBlob, filename)

@@ -430,6 +430,67 @@
                         </div>
                         </ng-container>
 
+                        <!-- Expense Claim (EXP-*): slip header + expense lines table (saved in application JSON) -->
+                        <div *ngIf="isExpenseClaimSelected()" class="mb-6 rounded-md border border-[#e0e6ed] p-4 dark:border-[#1b2e4b]">
+                            <h6 class="mb-3 text-sm font-semibold dark:text-white-light">Expense claim slip</h6>
+                            <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                <h6 class="text-xs font-semibold uppercase text-gray-600 dark:text-gray-400">
+                                    Expense lines ({{ expenseClaimLines.length }})
+                                </h6>
+                                <button type="button" class="btn btn-sm btn-outline-primary flex items-center gap-1"
+                                    [disabled]="!canAddExpenseClaimRow()" (click)="addExpenseClaimRow()"
+                                    title="Add another line">
+                                    <span class="text-lg leading-none font-bold" aria-hidden="true">+</span>
+                                    <span>Add row</span>
+                                </button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="expense-claim-input-table">
+                                    <thead>
+                                        <tr>
+                                            <th rowspan="2" class="w-10">S.no.</th>
+                                            <th rowspan="2" class="min-w-[140px]">Description</th>
+                                            <th colspan="2">EXPENSE CHARGED TO DEPARTMENT</th>
+                                            <th rowspan="2" class="w-24">Amount</th>
+                                        </tr>
+                                        <tr>
+                                            <th>DEPTT. NAME</th>
+                                            <th>SIGN.</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr *ngFor="let row of expenseClaimLines; let i = index; trackBy: trackByExpenseClaimIndex">
+                                            <td class="text-center font-medium">{{ i + 1 }}</td>
+                                            <td>
+                                                <input type="text" class="form-input w-full text-sm py-1"
+                                                    [(ngModel)]="expenseClaimLines[i].description"
+                                                    [ngModelOptions]="{standalone: true}"
+                                                    (ngModelChange)="onExpenseClaimLineChanged()" />
+                                            </td>
+                                            <td>
+                                                <input type="text" class="form-input w-full text-sm py-1"
+                                                    [(ngModel)]="expenseClaimLines[i].deptName"
+                                                    [ngModelOptions]="{standalone: true}"
+                                                    (ngModelChange)="onExpenseClaimLineChanged()" />
+                                            </td>
+                                            <td>
+                                                <input type="text" class="form-input w-full text-sm py-1"
+                                                    [(ngModel)]="expenseClaimLines[i].sign"
+                                                    [ngModelOptions]="{standalone: true}"
+                                                    (ngModelChange)="onExpenseClaimLineChanged()" />
+                                            </td>
+                                            <td>
+                                                <input type="text" class="form-input w-full text-sm py-1"
+                                                    [(ngModel)]="expenseClaimLines[i].amount"
+                                                    [ngModelOptions]="{standalone: true}"
+                                                    (ngModelChange)="onExpenseClaimLineChanged()" />
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                         <!-- Approval Pipeline Section -->
                         <div *ngIf="selectedForm && selectedForm.approvalPipelines && selectedForm.approvalPipelines.length > 0"
                             class="mt-8 pt-6 border-t border-[#e0e6ed] dark:border-[#1b2e4b]">
@@ -486,8 +547,252 @@
                             </div>
                         </div>
 
+                        <!-- Expense Claim (EXP-*) live preview — slip layout -->
+                        <div *ngIf="isExpenseClaimSelected()" class="app-preview-body">
+                            <div class="app-preview-canvas" #previewCanvas>
+                                <div class="app-preview-scale" #previewScale>
+                                    <div class="expense-claim-preview-root xyz-paper app-preview-paper-a4 ec-slip">
+                                        <div class="ec-slip-main">
+                                            <div class="ec-slip-top">
+                                                <div class="ec-slip-title-row">
+                                                    <h1 class="ec-slip-title">Expense Claim Slip</h1>
+                                                    <div class="ec-slip-logo-wrap">
+                                                        <img class="ec-slip-logo" src="assets/images/qarshi-logo.png" alt="" />
+                                                    </div>
+                                                </div>
+                                                <div class="ec-slip-title-rule" aria-hidden="true"></div>
+                                            </div>
+
+                                            <div class="ec-slip-meta-rows">
+                                                <div class="ec-slip-meta-row">
+                                                    <div class="ec-slip-field">
+                                                        <span class="ec-slip-label">ACCOUNT HEAD:</span>
+                                                        <span class="ec-slip-value">{{ getExpenseClaimHeaderPreviewValue('account head') }}</span>
+                                                    </div>
+                                                    <div class="ec-slip-field">
+                                                        <span class="ec-slip-label">DATED:</span>
+                                                        <span class="ec-slip-value">{{ getExpenseClaimHeaderPreviewValue('dated', 'date') }}</span>
+                                                    </div>
+                                                </div>
+                                                <div class="ec-slip-meta-row">
+                                                    <div class="ec-slip-field">
+                                                        <span class="ec-slip-label">APPROVED BUDGET HEAD:</span>
+                                                        <span class="ec-slip-value">{{ getExpenseClaimHeaderPreviewValue('approved budget head', 'budget head') }}</span>
+                                                    </div>
+                                                    <div class="ec-slip-field">
+                                                        <span class="ec-slip-label">BUDGET PERIOD:</span>
+                                                        <span class="ec-slip-value">{{ getExpenseClaimHeaderPreviewValue('budget period', 'period') }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div class="expense-claim-preview-table-wrap">
+                                                <table class="expense-claim-preview-table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th rowspan="2" class="ec-col-sn">S.no.</th>
+                                                            <th rowspan="2" class="ec-col-desc">Description</th>
+                                                            <th colspan="2" class="ec-col-dept-head">EXPENSE CHARGED TO DEPARTMENT</th>
+                                                            <th rowspan="2" class="ec-col-amt">AMOUNT</th>
+                                                        </tr>
+                                                        <tr>
+                                                            <th>DEPTT. NAME</th>
+                                                            <th>SIGN.</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <tr *ngFor="let row of expenseClaimLines; let i = index; trackBy: trackByExpenseClaimIndex">
+                                                            <td class="text-center">{{ i + 1 }}</td>
+                                                            <td>{{ getExpenseClaimPreviewCell(row.description) }}</td>
+                                                            <td>{{ getExpenseClaimPreviewCell(row.deptName) }}</td>
+                                                            <td>{{ getExpenseClaimPreviewCell(row.sign) }}</td>
+                                                            <td class="text-right">{{ getExpenseClaimPreviewCell(row.amount) }}</td>
+                                                        </tr>
+                                                        <tr class="ec-total-row">
+                                                            <td colspan="4" class="ec-total-label">TOTAL</td>
+                                                            <td class="text-right font-bold">{{ getExpenseClaimTotalCellDisplay() }}</td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+
+                                        <div class="ec-slip-footer-fixed">
+                                            <div class="ec-slip-pipeline-footer" *ngIf="getPreviewIndividualFooterField() as footerField">
+                                                <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields(footerField) as sections">
+                                                    <tr class="xyz-signatures-blank">
+                                                        <ng-container *ngFor="let section of sections">
+                                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
+                                                        </ng-container>
+                                                    </tr>
+                                                    <tr>
+                                                        <th *ngFor="let section of sections"
+                                                            [attr.colspan]="getIndividualFooterColSpan(section)">
+                                                            {{ section.label || 'New Field' }}:
+                                                        </th>
+                                                    </tr>
+                                                    <tr>
+                                                        <ng-container *ngFor="let section of sections">
+                                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                                                <span [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></span>
+                                                            </td>
+                                                        </ng-container>
+                                                    </tr>
+                                                </table>
+                                            </div>
+
+                                            <div class="ec-slip-footer-box">
+                                                <div class="ec-slip-footer-cell">
+                                                    <div class="ec-slip-footer-key">Version:</div>
+                                                    <div class="ec-slip-footer-val">1</div>
+                                                </div>
+                                                <div class="ec-slip-footer-cell">
+                                                    <div class="ec-slip-footer-key">Published Date:</div>
+                                                    <div class="ec-slip-footer-val">25.11.2022</div>
+                                                </div>
+                                                <div class="ec-slip-footer-cell">
+                                                    <div class="ec-slip-footer-key">Number:</div>
+                                                    <div class="ec-slip-footer-val">FIN_BKP_FM-07</div>
+                                                </div>
+                                            </div>
+                                            <div class="ec-slip-footer-meta">
+                                                <span>ID: {{ generatedApplicationCode || '—' }}</span>
+                                                <span>Page 1 of 1</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Temporary Advance Slip (TAS-*) live preview -->
+                        <div *ngIf="isTemporaryAdvanceSlipSelected()" class="app-preview-body">
+                            <div class="app-preview-canvas" #previewCanvas>
+                                <div class="app-preview-scale" #previewScale>
+                                    <div class="tas-slip-preview-root xyz-paper app-preview-paper-a4 tas-slip">
+                                        <div class="tas-slip-main">
+                                            <div class="tas-slip-company-row">
+                                                <img class="tas-slip-logo" src="assets/images/qarshi-logo.png" alt="" />
+                                                <div class="tas-slip-company-name">QARSHI INDUSTRIES (PVT.) LTD.</div>
+                                            </div>
+                                            <table class="tas-slip-admin tas-slip-admin-unified" aria-hidden="true">
+                                                <colgroup>
+                                                    <col /><col /><col /><col /><col /><col />
+                                                    <col /><col /><col /><col /><col /><col />
+                                                </colgroup>
+                                                <tr>
+                                                    <td colspan="4">Division: {{ getTemporaryAdvanceSlipMetaDivision() }}</td>
+                                                    <td colspan="4">Department: {{ getTemporaryAdvanceSlipMetaDepartment() }}</td>
+                                                    <td colspan="4">Section: {{ getTemporaryAdvanceSlipMetaSection() }}</td>
+                                                </tr>
+                                                <tr>
+                                                    <td colspan="4">Document No. {{ getTemporaryAdvanceSlipMetaDocumentNo() }}</td>
+                                                    <td colspan="4">Original Issue: {{ getTemporaryAdvanceSlipMetaOriginalIssue() }}</td>
+                                                    <td colspan="2">Rev.# {{ getTemporaryAdvanceSlipMetaRev() }}</td>
+                                                    <td colspan="2">Rev. Date: {{ getTemporaryAdvanceSlipMetaRevDate() }}</td>
+                                                </tr>
+                                            </table>
+                                            <div class="tas-slip-banner">TEMPORARY ADVANCE SLIP</div>
+                                            <div class="tas-slip-body">
+                                                <div class="tas-slip-field-row">
+                                                    <span class="tas-slip-label">DATE:</span>
+                                                    <span class="tas-slip-value">{{ getTemporaryAdvanceSlipDateLine() }}</span>
+                                                </div>
+                                                <div class="tas-slip-field-row">
+                                                    <span class="tas-slip-label">PLEASE PAY RS.:</span>
+                                                    <span class="tas-slip-value">{{ getTemporaryAdvanceSlipPreviewValue('please pay', 'pay rs', 'amount rs') }}</span>
+                                                </div>
+                                                <div class="tas-slip-field-row tas-slip-field-row--full">
+                                                    <span class="tas-slip-label">RUPEES:</span>
+                                                    <span class="tas-slip-value">{{ getTemporaryAdvanceSlipPreviewValue('rupees', 'in words') }}</span>
+                                                </div>
+                                                <div class="tas-slip-field-row tas-slip-field-row--full">
+                                                    <span class="tas-slip-label">TO MR. / MS.:</span>
+                                                    <span class="tas-slip-value">{{ getTemporaryAdvanceSlipPreviewValue('to mr', 'payee', 'mr/ms', 'mr / ms') }}</span>
+                                                </div>
+                                                <div class="tas-slip-purpose-label">FOR THE PURPOSE OF:</div>
+                                                <div class="tas-slip-purpose-lines">
+                                                    <div class="tas-slip-purpose-line">{{ getTemporaryAdvanceSlipPurposeDisplay() }}</div>
+                                                    <div class="tas-slip-purpose-line">&nbsp;</div>
+                                                    <div class="tas-slip-purpose-line">&nbsp;</div>
+                                                </div>
+                                                <div class="tas-slip-field-row tas-slip-field-row--tight">
+                                                    <span class="tas-slip-label tas-slip-label--long">THE AMOUNT WILL BE ADJUSTED ON OR BEFORE:</span>
+                                                    <span class="tas-slip-value">{{ getTemporaryAdvanceSlipPreviewValue('adjusted', 'on or before', 'adjust') }}</span>
+                                                </div>
+                                            </div>
+                                            <div class="tas-slip-sig-grid">
+                                                <div class="tas-slip-sig-cell">
+                                                    <div class="tas-slip-sig-caption">SIGNATURE BY<br />APPLICANT</div>
+                                                    <div class="tas-slip-sig-line"></div>
+                                                </div>
+                                                <div class="tas-slip-sig-cell">
+                                                    <div class="tas-slip-sig-caption">APPROVED BY<br />FINANCE WING</div>
+                                                    <div class="tas-slip-sig-line"></div>
+                                                </div>
+                                                <div class="tas-slip-sig-cell">
+                                                    <div class="tas-slip-sig-caption">RECOMMENDED BY<br />DEPTT. HEAD</div>
+                                                    <div class="tas-slip-sig-line"></div>
+                                                </div>
+                                                <div class="tas-slip-sig-cell">
+                                                    <div class="tas-slip-sig-caption">RECEIVED<br />BY</div>
+                                                    <div class="tas-slip-sig-line"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="tas-slip-footer-fixed">
+                                            <div class="ec-slip-pipeline-footer" *ngIf="getPreviewIndividualFooterField() as footerField">
+                                                <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields(footerField) as sections">
+                                                    <tr class="xyz-signatures-blank">
+                                                        <ng-container *ngFor="let section of sections">
+                                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
+                                                        </ng-container>
+                                                    </tr>
+                                                    <tr>
+                                                        <th *ngFor="let section of sections"
+                                                            [attr.colspan]="getIndividualFooterColSpan(section)">
+                                                            {{ section.label || 'New Field' }}:
+                                                        </th>
+                                                    </tr>
+                                                    <tr>
+                                                        <ng-container *ngFor="let section of sections">
+                                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                                                <span [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></span>
+                                                            </td>
+                                                        </ng-container>
+                                                    </tr>
+                                                </table>
+                                            </div>
+                                            <table class="tas-slip-bottom-row tas-slip-footer-prepared" aria-hidden="true">
+                                                <tr>
+                                                    <td>
+                                                        <div class="tas-slip-bottom-cell-inner">
+                                                            <span class="tas-slip-bottom-key">Prepared by:</span>
+                                                            <span class="tas-slip-bottom-sig-slot" aria-hidden="true"></span>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <div class="tas-slip-bottom-cell-inner">
+                                                            <span class="tas-slip-bottom-key">Reviewed By:</span>
+                                                            <span class="tas-slip-bottom-sig-slot" aria-hidden="true"></span>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <div class="tas-slip-bottom-cell-inner">
+                                                            <span class="tas-slip-bottom-key">Approved By:</span>
+                                                            <span class="tas-slip-bottom-sig-slot" aria-hidden="true"></span>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Generic preview: one scrollable A4-width sheet -->
-                        <div *ngIf="!isCapfSelected() && selectedForm" class="app-preview-body">
+                        <div *ngIf="!isCapfSelected() && !isExpenseClaimSelected() && !isTemporaryAdvanceSlipSelected() && selectedForm" class="app-preview-body">
                             <div class="app-preview-canvas" #previewCanvas>
                                 <div class="app-preview-scale" #previewScale>
                                     <div class="app-preview-pages">

@@ -3603,6 +3603,196 @@ export class ApplicationDetailsComponent implements OnInit {
     return false;
   }
 
+  /** Saved expense claims (EXP-*): same slip preview as create-flow live preview. */
+  isExpenseClaimForm(): boolean {
+    if (!this.applicationDetails) return false;
+    const appCode = (this.applicationDetails.txtFormCode || '').trim().toUpperCase();
+    if (appCode.startsWith('EXP-')) return true;
+    const name = (this.applicationDetails.cfgTblCustomForm?.txtFormName || this.applicationDetails.formName || '')
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+    if (name.includes('expense claim')) return true;
+    const cfgCode = (this.applicationDetails.cfgTblCustomForm?.txtFormCode || '').trim().toUpperCase();
+    if (cfgCode.startsWith('EXP-')) return true;
+    const formId = this.applicationDetails.serFormId;
+    if (formId && this.forms?.length) {
+      const form = this.forms.find((f: any) => f.serFormId === formId);
+      const fc = (form?.txtFormCode || form?.cfgTblCustomForm?.txtFormCode || '').trim().toUpperCase();
+      const fn = (form?.txtFormName || form?.cfgTblCustomForm?.txtFormName || '').toLowerCase();
+      if (fc.startsWith('EXP-') || fn.includes('expense claim')) return true;
+    }
+    return false;
+  }
+
+  getExpenseClaimLinesForPreview(): Array<{ description?: string; deptName?: string; sign?: string; amount?: string }> {
+    const raw = this.applicationFormData?.expenseClaimLines;
+    if (!Array.isArray(raw)) return [];
+    return raw.map((row: any) => ({
+      description: row?.description != null ? String(row.description) : '',
+      deptName: row?.deptName != null ? String(row.deptName) : row?.deptt_name != null ? String(row.deptt_name) : '',
+      sign: row?.sign != null ? String(row.sign) : '',
+      amount: row?.amount != null ? String(row.amount) : ''
+    }));
+  }
+
+  trackByExpenseClaimDetailIndex(index: number): number {
+    return index;
+  }
+
+  getExpenseClaimSlipFieldDisplay(value: string | undefined | null): string {
+    const v = (value ?? '').trim();
+    return v.length > 0 ? v : '\u00a0';
+  }
+
+  getExpenseClaimHeaderPreviewValue(...needles: string[]): string {
+    return this.getExpenseClaimSlipFieldDisplay(this.getExpenseClaimHeaderRawValue(...needles));
+  }
+
+  private getExpenseClaimHeaderRawValue(...needles: string[]): string {
+    if (!this.formFields?.length || !needles.length) return '';
+    const loweredNeedles = needles.map((n) => n.toLowerCase());
+    for (const field of this.formFields) {
+      const label = (field.label || '').toLowerCase();
+      if (!loweredNeedles.some((needle) => label.includes(needle))) continue;
+      const value = this.getFieldValue(field);
+      if (value !== undefined && value !== null && String(value).trim().length > 0) {
+        return String(value);
+      }
+    }
+    return '';
+  }
+
+  getExpenseClaimPreviewCell(value: string | undefined | null): string {
+    const v = (value ?? '').trim();
+    return v.length > 0 ? v : '\u00a0';
+  }
+
+  getExpenseClaimAmountTotal(): string {
+    const lines = this.applicationFormData?.expenseClaimLines;
+    if (!Array.isArray(lines)) return '';
+    let sum = 0;
+    for (const row of lines) {
+      const raw = String(row?.amount ?? '').trim().replace(/,/g, '');
+      const n = parseFloat(raw);
+      if (!Number.isNaN(n)) sum += n;
+    }
+    if (sum === 0 && !lines.some((r: any) => String(r?.amount ?? '').trim() !== '')) {
+      return '';
+    }
+    return sum.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
+
+  getExpenseClaimTotalCellDisplay(): string {
+    const t = this.getExpenseClaimAmountTotal();
+    return t && t.trim().length > 0 ? t : '\u00a0';
+  }
+
+  isTemporaryAdvanceSlipForm(): boolean {
+    if (!this.applicationDetails) return false;
+    const appCode = (this.applicationDetails.txtFormCode || '').trim().toUpperCase();
+    if (appCode.startsWith('TAS-')) return true;
+    const name = (this.applicationDetails.cfgTblCustomForm?.txtFormName || this.applicationDetails.formName || '')
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+    if (name.includes('temporary advance')) return true;
+    const cfgCode = (this.applicationDetails.cfgTblCustomForm?.txtFormCode || '').trim().toUpperCase();
+    if (cfgCode.startsWith('TAS-')) return true;
+    const formId = this.applicationDetails.serFormId;
+    if (formId && this.forms?.length) {
+      const form = this.forms.find((f: any) => f.serFormId === formId);
+      const fc = (form?.txtFormCode || form?.cfgTblCustomForm?.txtFormCode || '').trim().toUpperCase();
+      const fn = (form?.txtFormName || form?.cfgTblCustomForm?.txtFormName || '').toLowerCase();
+      if (fc.startsWith('TAS-') || fn.includes('temporary advance')) return true;
+    }
+    return false;
+  }
+
+  getTemporaryAdvanceSlipSlipFieldDisplay(value: string | undefined | null): string {
+    const v = (value ?? '').trim();
+    return v.length > 0 ? v : '\u00a0';
+  }
+
+  getTemporaryAdvanceSlipPreviewValue(...needles: string[]): string {
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(this.getTemporaryAdvanceSlipHeaderRawValue(...needles));
+  }
+
+  getTemporaryAdvanceSlipPurposeDisplay(): string {
+    const raw = this.getTemporaryAdvanceSlipHeaderRawValue('for the purpose', 'purpose of', 'purpose');
+    return raw.trim().length > 0 ? raw : '\u00a0';
+  }
+
+  private getTemporaryAdvanceSlipHeaderRawValue(...needles: string[]): string {
+    if (!this.formFields?.length || !needles.length) return '';
+    const loweredNeedles = needles.map((n) => n.toLowerCase());
+    for (const field of this.formFields) {
+      const label = (field.label || '').toLowerCase();
+      if (!loweredNeedles.some((needle) => label.includes(needle))) continue;
+      const value = this.getFieldValue(field);
+      if (value !== undefined && value !== null && String(value).trim().length > 0) {
+        return String(value);
+      }
+    }
+    return '';
+  }
+
+  getTemporaryAdvanceSlipMetaDivision(): string {
+    const v = this.getTemporaryAdvanceSlipHeaderRawValue('division').trim();
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(v || 'Finance');
+  }
+
+  getTemporaryAdvanceSlipMetaDepartment(): string {
+    const v = this.getTemporaryAdvanceSlipHeaderRawValue('department', 'dept').trim();
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(v || 'Book Keeping');
+  }
+
+  getTemporaryAdvanceSlipMetaSection(): string {
+    const v = this.getTemporaryAdvanceSlipHeaderRawValue('section').trim();
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(v || '***');
+  }
+
+  getTemporaryAdvanceSlipMetaDocumentNo(): string {
+    const v = this.getTemporaryAdvanceSlipHeaderRawValue('document no', 'fin-bkp', 'form number').trim();
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(v || 'FIN-BKP-FM-06');
+  }
+
+  getTemporaryAdvanceSlipMetaOriginalIssue(): string {
+    const v = this.getTemporaryAdvanceSlipHeaderRawValue('original issue').trim();
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(v || '01-06-2006');
+  }
+
+  getTemporaryAdvanceSlipMetaRev(): string {
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(
+      this.getTemporaryAdvanceSlipHeaderRawValue('rev #', 'rev.', 'revision')
+    );
+  }
+
+  getTemporaryAdvanceSlipMetaRevDate(): string {
+    return this.getTemporaryAdvanceSlipSlipFieldDisplay(
+      this.getTemporaryAdvanceSlipHeaderRawValue('rev. date', 'revision date', 'rev date')
+    );
+  }
+
+  getTemporaryAdvanceSlipDateLine(): string {
+    const v = this.getTemporaryAdvanceSlipHeaderRawValue('slip date', 'dated', 'form date', 'advance date').trim();
+    if (v) {
+      return this.getTemporaryAdvanceSlipSlipFieldDisplay(v);
+    }
+    const d = this.applicationDetails?.dteCreatedDate;
+    if (d) {
+      try {
+        const formatted = new Date(d).toLocaleDateString('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric'
+        });
+        return this.getTemporaryAdvanceSlipSlipFieldDisplay(formatted.replace(/ /g, '-'));
+      } catch {
+        return '\u00a0';
+      }
+    }
+    return '\u00a0';
+  }
+
   private isCurrentUserCapfInitialSigner(): boolean {
     const rawSigner = this.applicationFormData?.initial_signer;
     if (rawSigner == null) return false;

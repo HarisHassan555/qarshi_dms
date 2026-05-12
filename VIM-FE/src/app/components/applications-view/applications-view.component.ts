@@ -61,6 +61,14 @@ interface Application {
   styleUrls: ['./applications-view.component.css']
 })
 export class ApplicationsViewComponent implements OnInit {
+  private static readonly MAX_ATTACHMENT_TOTAL_BYTES = 5 * 1024 * 1024;
+  private static readonly ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
+    'application/pdf',
+    'image/webp',
+    'image/png',
+    'image/jpeg'
+  ]);
+  private static readonly ALLOWED_ATTACHMENT_EXTENSIONS = new Set(['pdf', 'webp', 'png', 'jpeg', 'jpg']);
   search = '';
   applications: Application[] = [];
   pendingApprovals: Application[] = [];
@@ -92,6 +100,7 @@ export class ApplicationsViewComponent implements OnInit {
   editForm!: FormGroup;
   selectedApplicationForEdit: Application | null = null;
   editFormFields: any[] = [];
+  editAttachmentPayloads: Record<string, { fileName: string; mimeType: string; dataUrl: string; base64: string }[]> = {};
   isSubmitting: boolean = false;
   isGeneratingPDF: boolean = false; // Flag to prevent multiple simultaneous PDF generations
   isPreparingApprovalPdf: boolean = false;
@@ -124,6 +133,158 @@ export class ApplicationsViewComponent implements OnInit {
     private fb: FormBuilder
   ) {
     this.editForm = this.fb.group({});
+  }
+
+  private normalizeFieldType(fieldType: string | undefined): string {
+    return (fieldType || '').toString().trim().toLowerCase().replace(/\s+/g, '_');
+  }
+
+  isAttachmentType(fieldType: string | undefined): boolean {
+    const normalized = this.normalizeFieldType(fieldType);
+    return normalized === 'attachment' || normalized === 'file' || normalized === 'multi_attachment';
+  }
+
+  private isAllowedAttachmentFile(file: File): boolean {
+    const mime = String(file?.type || '').trim().toLowerCase();
+    if (mime && ApplicationsViewComponent.ALLOWED_ATTACHMENT_MIME_TYPES.has(mime)) {
+      return true;
+    }
+    const name = String(file?.name || '').toLowerCase();
+    const dotIndex = name.lastIndexOf('.');
+    const ext = dotIndex >= 0 ? name.substring(dotIndex + 1) : '';
+    return !!ext && ApplicationsViewComponent.ALLOWED_ATTACHMENT_EXTENSIONS.has(ext);
+  }
+
+  private async buildAttachmentPayload(file: File): Promise<{ fileName: string; mimeType: string; dataUrl: string; base64: string }> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result || '');
+        const base64 = dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : '';
+        resolve({
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          dataUrl,
+          base64
+        });
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  private normalizeExistingAttachmentPayloads(value: any): { fileName: string; mimeType: string; dataUrl: string; base64: string }[] {
+    const list = Array.isArray(value) ? value : (value ? [value] : []);
+    const normalized: { fileName: string; mimeType: string; dataUrl: string; base64: string }[] = [];
+    for (const item of list) {
+      if (!item || typeof item !== 'object') {
+        continue;
+      }
+      const fileName = String(item.fileName || item.name || '').trim();
+      const mimeType = String(item.mimeType || item.type || '').trim() || 'application/octet-stream';
+      const dataUrl = String(item.dataUrl || '').trim();
+      const base64 = String(item.base64 || (dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : '')).trim();
+      if (!fileName) {
+        continue;
+      }
+      normalized.push({ fileName, mimeType, dataUrl, base64 });
+    }
+    return normalized;
+  }
+
+  private getTotalAttachmentBytesWithCandidate(fieldName: string, candidateFiles: File[], includeCurrentField: boolean): number {
+    const otherBytes = Object.entries(this.editAttachmentPayloads).reduce((sum, [key, payloads]) => {
+      if (key === fieldName && !includeCurrentField) {
+        return sum;
+      }
+      const fieldBytes = (payloads || []).reduce((inner, payload) => {
+        const base64 = String(payload?.base64 || '').trim();
+        return inner + (base64 ? Math.ceil((base64.length * 3) / 4) : 0);
+      }, 0);
+      return sum + fieldBytes;
+    }, 0);
+    const candidateBytes = (candidateFiles || []).reduce((sum, file) => sum + (Number(file?.size) || 0), 0);
+    return otherBytes + candidateBytes;
+  }
+
+  private syncAttachmentControlValue(fieldName: string): void {
+    const control = this.editForm.get(fieldName);
+    if (!control) {
+      return;
+    }
+    const names = (this.editAttachmentPayloads[fieldName] || []).map((payload) => payload.fileName);
+    control.setValue(names, { emitEvent: true });
+    control.markAsTouched();
+    control.updateValueAndValidity({ emitEvent: true });
+  }
+
+  async onEditAttachmentChange(field: any, event: Event, replaceExisting: boolean = false): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = input?.files ? Array.from(input.files) : [];
+    const fieldName = this.getFieldName(field.label);
+    const control = this.editForm.get(fieldName);
+
+    if (!files.length) {
+      input.value = '';
+      return;
+    }
+
+    const disallowed = files.filter((f) => !this.isAllowedAttachmentFile(f));
+    if (disallowed.length > 0) {
+      control?.setErrors({ ...(control?.errors || {}), invalidType: true });
+      control?.markAsTouched();
+      this.notificationService.showMessage('Only PDF, WEBP, PNG, and JPEG files are allowed for attachments.', 'danger');
+      input.value = '';
+      return;
+    }
+
+    const bytesCandidate = this.getTotalAttachmentBytesWithCandidate(fieldName, files, !replaceExisting);
+    if (bytesCandidate > ApplicationsViewComponent.MAX_ATTACHMENT_TOTAL_BYTES) {
+      control?.setErrors({
+        ...(control?.errors || {}),
+        maxSize: { max: ApplicationsViewComponent.MAX_ATTACHMENT_TOTAL_BYTES, actual: bytesCandidate }
+      });
+      control?.markAsTouched();
+      this.notificationService.showMessage(
+        `Combined attachment size (${(bytesCandidate / (1024 * 1024)).toFixed(2)} MB) exceeds 5 MB.`,
+        'danger'
+      );
+      input.value = '';
+      return;
+    }
+
+    try {
+      const newPayloads = await Promise.all(files.map((file) => this.buildAttachmentPayload(file)));
+      const existingPayloads = replaceExisting ? [] : (this.editAttachmentPayloads[fieldName] || []);
+      this.editAttachmentPayloads[fieldName] = [...existingPayloads, ...newPayloads];
+      if (control?.errors) {
+        const nextErrors = { ...control.errors };
+        delete nextErrors['invalidType'];
+        delete nextErrors['maxSize'];
+        control.setErrors(Object.keys(nextErrors).length ? nextErrors : null);
+      }
+      this.syncAttachmentControlValue(fieldName);
+    } catch (err) {
+      console.error('Failed generating attachment payload', err);
+      this.notificationService.showMessage('Failed to process selected files.', 'danger');
+    } finally {
+      input.value = '';
+    }
+  }
+
+  removeEditAttachment(field: any, indexToRemove: number): void {
+    const fieldName = this.getFieldName(field.label);
+    const existing = this.editAttachmentPayloads[fieldName] || [];
+    if (indexToRemove < 0 || indexToRemove >= existing.length) {
+      return;
+    }
+    existing.splice(indexToRemove, 1);
+    if (existing.length) {
+      this.editAttachmentPayloads[fieldName] = existing;
+    } else {
+      delete this.editAttachmentPayloads[fieldName];
+    }
+    this.syncAttachmentControlValue(fieldName);
   }
 
   ngOnInit() {
@@ -659,6 +820,7 @@ export class ApplicationsViewComponent implements OnInit {
 
     this.selectedApplicationForEdit = application;
     this.editFormFields = [];
+    this.editAttachmentPayloads = {};
     this.isSubmitting = false;
 
     // Fetch full application details
@@ -673,7 +835,7 @@ export class ApplicationsViewComponent implements OnInit {
                 .map((field: any) => ({
                   serFieldId: field.serFieldId,
                   label: field.txtFieldLabel,
-                  type: field.txtFieldType,
+                  type: this.normalizeFieldType(field.txtFieldType),
                   required: field.blIsRequired || false,
                   placeholder: field.txtPlaceholder || '',
                   intFieldOrder: field.intFieldOrder || 0,
@@ -685,7 +847,7 @@ export class ApplicationsViewComponent implements OnInit {
                 .map((field: any) => ({
                   serFieldId: field.serFieldId,
                   label: field.txtFieldLabel,
-                  type: field.txtFieldType,
+                  type: this.normalizeFieldType(field.txtFieldType),
                   required: field.blIsRequired || false,
                   placeholder: field.txtPlaceholder || '',
                   intFieldOrder: field.intFieldOrder || 0,
@@ -748,9 +910,19 @@ export class ApplicationsViewComponent implements OnInit {
                 // Get existing value
                 let existingValue = applicationData[fieldName] || applicationData[field.label] || null;
 
+                if (this.isAttachmentType(field.type)) {
+                  const existingPayloads = this.normalizeExistingAttachmentPayloads(existingValue);
+                  if (existingPayloads.length) {
+                    this.editAttachmentPayloads[fieldName] = existingPayloads;
+                  }
+                  existingValue = existingPayloads.map((payload) => payload.fileName);
+                }
+
                 // Set default value based on field type
                 if (existingValue === null || existingValue === undefined) {
-                  existingValue = field.type === 'checkbox' ? false : '';
+                  existingValue = this.isAttachmentType(field.type)
+                    ? []
+                    : (field.type === 'checkbox' ? false : '');
                 }
 
                 formControls[fieldName] = [existingValue, validators];
@@ -854,6 +1026,10 @@ export class ApplicationsViewComponent implements OnInit {
         if (tableArray) {
           formData[fieldName] = tableArray.value;
         }
+      } else if (this.isAttachmentType(field.type)) {
+        const fieldName = this.getFieldName(field.label);
+        const payloads = this.editAttachmentPayloads[fieldName] || [];
+        formData[fieldName] = payloads;
       }
     });
 

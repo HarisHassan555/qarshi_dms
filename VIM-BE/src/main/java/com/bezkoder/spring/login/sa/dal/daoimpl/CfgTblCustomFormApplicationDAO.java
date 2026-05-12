@@ -939,6 +939,42 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
             entityManager.merge(existingApplication);
             entityManager.getTransaction().commit();
+
+            // When initiator edits an in-flight application, notify the current approver level
+            // so reviewers can act on the latest content.
+            try {
+                Integer editorUserId = null;
+                try {
+                    editorUserId = commonService.getCurrentLoggedInUser();
+                } catch (Exception ignored) {
+                }
+
+                Integer submitterUserId = existingApplication.getSerSubmittedBy();
+                Integer payloadSubmittedBy = application != null ? application.getSerSubmittedBy() : null;
+
+                boolean isInitiatorEdit = false;
+                if (submitterUserId != null) {
+                    // Primary check: authenticated editor is initiator.
+                    if (editorUserId != null && editorUserId.equals(submitterUserId)) {
+                        isInitiatorEdit = true;
+                    }
+                    // Fallback for flows where user context is not reliably available.
+                    else if (payloadSubmittedBy != null && payloadSubmittedBy.equals(submitterUserId)) {
+                        isInitiatorEdit = true;
+                    }
+                }
+
+                if (isInitiatorEdit) {
+                    notifyCurrentLevelApproversOnInitiatorEdit(existingApplication);
+                } else {
+                    log.info(
+                            "Skipping initiator-edit notification for appId={} (editorUserId={}, submitterUserId={}, payloadSubmittedBy={})",
+                            existingApplication.getSerApplicationId(), editorUserId, submitterUserId, payloadSubmittedBy);
+                }
+            } catch (Exception emailEx) {
+                log.error("Error sending update notification emails after initiator edit: " + emailEx.getMessage(),
+                        emailEx);
+            }
             return "Success";
         } catch (Exception e) {
             if (entityManager.getTransaction().isActive()) {
@@ -955,6 +991,328 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         } finally {
             if (entityManager.isOpen()) {
                 entityManager.close();
+            }
+        }
+    }
+
+    private void notifyCurrentLevelApproversOnInitiatorEdit(CfgTblCustomFormApplication application) {
+        if (application == null || application.getSerApplicationId() == null) {
+            return;
+        }
+
+        EntityManager emailEntityManager = getEntityManager();
+        try {
+            emailEntityManager.getTransaction().begin();
+
+            CfgTblCustomFormApplication dbApp = emailEntityManager.find(CfgTblCustomFormApplication.class,
+                    application.getSerApplicationId());
+            if (dbApp == null) {
+                emailEntityManager.getTransaction().rollback();
+                return;
+            }
+
+            CfgTblCustomForm form = dbApp.getCfgTblCustomForm();
+            if (form == null && dbApp.getSerFormId() != null) {
+                form = emailEntityManager.find(CfgTblCustomForm.class, dbApp.getSerFormId());
+            }
+
+            String formName = form != null && form.getTxtFormName() != null ? form.getTxtFormName() : "Application";
+            boolean isCapf = isCapfForm(form);
+            Integer currentLevel = dbApp.getIntCurrentApprovalLevel();
+            if (currentLevel == null) {
+                emailEntityManager.getTransaction().commit();
+                return;
+            }
+
+            List<java.util.Map<String, Object>> pipelines = new java.util.ArrayList<>();
+            if (form != null && form.getTxtApprovalPipeline() != null && !form.getTxtApprovalPipeline().trim().isEmpty()) {
+                try {
+                    ObjectMapper mapper = new ObjectMapper();
+                    pipelines = mapper.readValue(form.getTxtApprovalPipeline(),
+                            new TypeReference<List<java.util.Map<String, Object>>>() {
+                            });
+                } catch (Exception parseEx) {
+                    log.warn("Error parsing approval pipeline for edit notification appId={}: {}",
+                            dbApp.getSerApplicationId(), parseEx.getMessage());
+                }
+            }
+
+            String baseUrl = getBaseUrl();
+            Integer displayLevel = currentLevel;
+
+            // CAPF initial signer stage (before level 0)
+            if (isCapf && currentLevel == -1) {
+                Integer initialSignerId = extractInitialSignerId(dbApp);
+                if (initialSignerId != null) {
+                    CfgTblUser initialSigner = emailEntityManager.find(CfgTblUser.class, initialSignerId);
+                    if (initialSigner != null && initialSigner.getTxtAddress() != null
+                            && !initialSigner.getTxtAddress().trim().isEmpty()) {
+                        String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                                + dbApp.getSerApplicationId() + "&userId=" + initialSigner.getSerUserId();
+                        String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                                + dbApp.getSerApplicationId() + "&userId=" + initialSigner.getSerUserId();
+                        String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                                + dbApp.getSerApplicationId() + "&userId=" + initialSigner.getSerUserId();
+                        String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                                + dbApp.getSerApplicationId() + "&userId=" + initialSigner.getSerUserId();
+
+                        String subject = formName + " Updated - Pending Approval - Level 0 - "
+                                + (dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A");
+                        String html = generateApprovalEmailHtml(
+                                initialSigner.getTxtUserName() != null ? initialSigner.getTxtUserName() : "User",
+                                0,
+                                dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A",
+                                formName,
+                                dbApp.getTxtStatus(),
+                                "Application has been updated by initiator. Please review the latest version.",
+                                true,
+                                approveUrl,
+                                rejectUrl,
+                                sendBackUrl,
+                                sendBackToInitiatorUrl,
+                                dbApp.getTxtApprovalHistory(),
+                                baseUrl);
+
+                        sendEmailWithInlineFormPreview(
+                                java.util.Arrays.asList(initialSigner.getTxtAddress()),
+                                subject,
+                                html,
+                                dbApp,
+                                form,
+                                isCapf,
+                                "capf-inline");
+                    }
+                }
+                emailEntityManager.getTransaction().commit();
+                return;
+            }
+
+            Integer targetDeptId = null;
+            String targetDeptName = null;
+
+            if (isCapf && currentLevel == 0) {
+                targetDeptId = loadUserDepartmentId(emailEntityManager, dbApp.getSerSubmittedBy());
+                targetDeptName = resolveDepartmentName(emailEntityManager, targetDeptId, null);
+                displayLevel = 0;
+            } else {
+                int pipelineIndex;
+                if (isCapf) {
+                    pipelineIndex = currentLevel - 1;
+                } else {
+                    // General forms are expected to be 0-based, but some data paths may carry
+                    // a 1-based value. Try both to avoid dropping edit notifications.
+                    int candidate = currentLevel;
+                    if (pipelines != null && !pipelines.isEmpty()
+                            && (candidate < 0 || candidate >= pipelines.size())
+                            && currentLevel > 0 && (currentLevel - 1) < pipelines.size()) {
+                        candidate = currentLevel - 1;
+                    }
+                    pipelineIndex = candidate;
+                }
+
+                if (pipelines == null || pipelines.isEmpty() || pipelineIndex < 0 || pipelineIndex >= pipelines.size()) {
+                    emailEntityManager.getTransaction().commit();
+                    return;
+                }
+
+                java.util.Map<String, Object> currentPipeline = pipelines.get(pipelineIndex);
+                displayLevel = safeInt(currentPipeline.get("intApprovalOrder"), currentLevel);
+
+                // Individual-user stage (common in general forms): notify specific approver directly.
+                if (!isCapf && "individual".equalsIgnoreCase(String.valueOf(currentPipeline.get("type")))) {
+                    Integer targetUserId = safeInt(currentPipeline.get("serUserId"),
+                            safeInt(currentPipeline.get("userId"), dbApp.getSerCurrentApprover()));
+                    if (targetUserId != null) {
+                        CfgTblUser individualApprover = emailEntityManager.find(CfgTblUser.class, targetUserId);
+                        if (individualApprover != null && individualApprover.getTxtAddress() != null
+                                && !individualApprover.getTxtAddress().trim().isEmpty()) {
+                            String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                                    + dbApp.getSerApplicationId() + "&userId=" + individualApprover.getSerUserId();
+                            String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                                    + dbApp.getSerApplicationId() + "&userId=" + individualApprover.getSerUserId();
+                            String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                                    + dbApp.getSerApplicationId() + "&userId=" + individualApprover.getSerUserId();
+                            String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                                    + dbApp.getSerApplicationId() + "&userId=" + individualApprover.getSerUserId();
+
+                            String subject = formName + " Updated - Pending Approval - Level "
+                                    + (displayLevel != null ? displayLevel : currentLevel)
+                                    + " - "
+                                    + (dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A");
+                            String html = generateApprovalEmailHtml(
+                                    individualApprover.getTxtUserName() != null ? individualApprover.getTxtUserName()
+                                            : "Approver",
+                                    displayLevel != null ? displayLevel : currentLevel,
+                                    dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A",
+                                    formName,
+                                    dbApp.getTxtStatus(),
+                                    "Application has been updated by initiator. Please review the latest version.",
+                                    true,
+                                    approveUrl,
+                                    rejectUrl,
+                                    sendBackUrl,
+                                    sendBackToInitiatorUrl,
+                                    dbApp.getTxtApprovalHistory(),
+                                    baseUrl);
+
+                            sendEmailWithInlineFormPreview(
+                                    java.util.Arrays.asList(individualApprover.getTxtAddress()),
+                                    subject,
+                                    html,
+                                    dbApp,
+                                    form,
+                                    isCapf,
+                                    "form-inline");
+                        }
+                    }
+                    emailEntityManager.getTransaction().commit();
+                    return;
+                }
+
+                targetDeptId = safeInt(currentPipeline.get("serDepartmentId"),
+                        safeInt(currentPipeline.get("departmentId"), null));
+                targetDeptName = resolveDepartmentName(emailEntityManager, targetDeptId, currentPipeline);
+
+                if (isUserDepartmentHodStage(currentPipeline, targetDeptName)) {
+                    Integer submitterDeptId = loadUserDepartmentId(emailEntityManager, dbApp.getSerSubmittedBy());
+                    if (submitterDeptId != null) {
+                        targetDeptId = submitterDeptId;
+                        targetDeptName = resolveDepartmentName(emailEntityManager, targetDeptId, null);
+                    }
+                }
+            }
+
+            if (targetDeptId == null && dbApp.getSerCurrentApprover() != null) {
+                // Fallback for general flows where current approver is explicitly tracked by user ID.
+                CfgTblUser explicitApprover = emailEntityManager.find(CfgTblUser.class, dbApp.getSerCurrentApprover());
+                if (explicitApprover != null && explicitApprover.getTxtAddress() != null
+                        && !explicitApprover.getTxtAddress().trim().isEmpty()) {
+                    String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                            + dbApp.getSerApplicationId() + "&userId=" + explicitApprover.getSerUserId();
+                    String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                            + dbApp.getSerApplicationId() + "&userId=" + explicitApprover.getSerUserId();
+                    String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                            + dbApp.getSerApplicationId() + "&userId=" + explicitApprover.getSerUserId();
+                    String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                            + dbApp.getSerApplicationId() + "&userId=" + explicitApprover.getSerUserId();
+                    String subject = formName + " Updated - Pending Approval - Level "
+                            + (displayLevel != null ? displayLevel : currentLevel)
+                            + " - "
+                            + (dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A");
+                    String html = generateApprovalEmailHtml(
+                            explicitApprover.getTxtUserName() != null ? explicitApprover.getTxtUserName() : "Approver",
+                            displayLevel != null ? displayLevel : currentLevel,
+                            dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A",
+                            formName,
+                            dbApp.getTxtStatus(),
+                            "Application has been updated by initiator. Please review the latest version.",
+                            true,
+                            approveUrl,
+                            rejectUrl,
+                            sendBackUrl,
+                            sendBackToInitiatorUrl,
+                            dbApp.getTxtApprovalHistory(),
+                            baseUrl);
+
+                    sendEmailWithInlineFormPreview(
+                            java.util.Arrays.asList(explicitApprover.getTxtAddress()),
+                            subject,
+                            html,
+                            dbApp,
+                            form,
+                            isCapf,
+                            isCapf ? "capf-inline" : "form-inline");
+                }
+                emailEntityManager.getTransaction().commit();
+                return;
+            }
+
+            if (targetDeptId == null) {
+                emailEntityManager.getTransaction().commit();
+                return;
+            }
+
+            HrTblDepartment targetDept = emailEntityManager.find(HrTblDepartment.class, targetDeptId);
+            if (targetDept == null) {
+                emailEntityManager.getTransaction().commit();
+                return;
+            }
+
+            java.util.List<Integer> headIds = new java.util.ArrayList<>();
+            String headIdsStr = targetDept.getSerDepartmentHeadId();
+            if (headIdsStr != null && !headIdsStr.trim().isEmpty()) {
+                for (String id : headIdsStr.split(",")) {
+                    try {
+                        headIds.add(Integer.parseInt(id.trim()));
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+            if (headIds.isEmpty()) {
+                Integer fallbackHeadId = findDepartmentHeadUserId(emailEntityManager, targetDeptId);
+                if (fallbackHeadId != null) {
+                    headIds.add(fallbackHeadId);
+                }
+            }
+
+            for (Integer headId : headIds) {
+                CfgTblUser approver = headId != null ? emailEntityManager.find(CfgTblUser.class, headId) : null;
+                if (approver == null || approver.getTxtAddress() == null || approver.getTxtAddress().trim().isEmpty()) {
+                    continue;
+                }
+
+                if (shouldSkipCeoForCapf(form, targetDeptName, approver)) {
+                    continue;
+                }
+
+                String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                        + dbApp.getSerApplicationId() + "&userId=" + approver.getSerUserId();
+                String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                        + dbApp.getSerApplicationId() + "&userId=" + approver.getSerUserId();
+                String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                        + dbApp.getSerApplicationId() + "&userId=" + approver.getSerUserId();
+                String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                        + dbApp.getSerApplicationId() + "&userId=" + approver.getSerUserId();
+
+                String subject = formName + " Updated - Pending Approval - Level "
+                        + (displayLevel != null ? displayLevel : currentLevel)
+                        + " - "
+                        + (dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A");
+
+                String html = generateApprovalEmailHtml(
+                        approver.getTxtUserName() != null ? approver.getTxtUserName() : "Approver",
+                        displayLevel != null ? displayLevel : currentLevel,
+                        dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A",
+                        formName,
+                        dbApp.getTxtStatus(),
+                        "Application has been updated by initiator. Please review the latest version.",
+                        true,
+                        approveUrl,
+                        rejectUrl,
+                        sendBackUrl,
+                        sendBackToInitiatorUrl,
+                        dbApp.getTxtApprovalHistory(),
+                        baseUrl);
+
+                sendEmailWithInlineFormPreview(
+                        java.util.Arrays.asList(approver.getTxtAddress()),
+                        subject,
+                        html,
+                        dbApp,
+                        form,
+                        isCapf,
+                        isCapf ? "capf-inline" : "form-inline");
+            }
+
+            emailEntityManager.getTransaction().commit();
+        } catch (Exception e) {
+            if (emailEntityManager.getTransaction().isActive()) {
+                emailEntityManager.getTransaction().rollback();
+            }
+            log.error("Error notifying current level approvers after initiator edit: " + e.getMessage(), e);
+        } finally {
+            if (emailEntityManager.isOpen()) {
+                emailEntityManager.close();
             }
         }
     }
@@ -4735,6 +5093,12 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (isCapfForm(form)) {
                 return generateCapfPdf(application, form, appData);
             }
+            if (isTemporaryAdvanceSlipForm(form, application)) {
+                return generateTemporaryAdvanceSlipPdf(application, form, appData);
+            }
+            if (isExpenseClaimForm(form, application)) {
+                return generateExpenseClaimPdf(application, form, appData);
+            }
         } catch (Exception e) {
             log.warn("Error generating budget approval PDF, falling back to summary: " + e.getMessage());
         }
@@ -5088,6 +5452,426 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
     }
 
+    /** Reads {@code appData.expenseClaimHeader.<childKey>} from JSON when the UI posts the slip header object. */
+    private String getExpenseClaimHeaderField(Map<String, Object> appData, String childKey) {
+        if (appData == null || childKey == null) {
+            return null;
+        }
+        Object parent = appData.get("expenseClaimHeader");
+        if (!(parent instanceof Map)) {
+            return null;
+        }
+        Object v = ((Map<?, ?>) parent).get(childKey);
+        if (v == null) {
+            return null;
+        }
+        String s = String.valueOf(v).trim();
+        return s.isEmpty() ? null : s;
+    }
+
+    private byte[] generateExpenseClaimPdf(CfgTblCustomFormApplication application,
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+            Map<String, Object> appData) {
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            document.addPage(page);
+
+            PDPageContentStream content = new PDPageContentStream(document, page);
+            float pageWidth = page.getMediaBox().getWidth();
+            float pageHeight = page.getMediaBox().getHeight();
+            float margin = 40f;
+            float xStart = margin;
+            float xEnd = pageWidth - margin;
+            float y = pageHeight - 56f;
+
+            String dateStr = application != null && application.getDteCreatedDate() != null
+                    ? new java.text.SimpleDateFormat("dd/MM/yyyy").format(application.getDteCreatedDate())
+                    : new java.text.SimpleDateFormat("dd/MM/yyyy").format(new java.util.Date());
+
+            String accountHead = pickFirstNonEmpty(
+                    getExpenseClaimHeaderField(appData, "accountHead"),
+                    getValueByKey(appData, "Account Head"),
+                    getValueByKeyContains(appData, "account head"),
+                    getValueByKeyContains(appData, "account_head"),
+                    getValueByKeyContains(appData, "account"));
+            String datedField = pickFirstNonEmpty(
+                    getExpenseClaimHeaderField(appData, "dated"),
+                    getValueByKey(appData, "DATED"),
+                    getValueByKeyContains(appData, "dated"));
+            String datedDisplay = pickFirstNonEmpty(datedField, dateStr);
+            String approvedBudgetHead = pickFirstNonEmpty(
+                    getExpenseClaimHeaderField(appData, "approvedBudgetHead"),
+                    getValueByKey(appData, "Approved Budget Head"),
+                    getValueByKeyContains(appData, "approved budget head"),
+                    getValueByKeyContains(appData, "budget head"),
+                    getValueByKeyContains(appData, "approved_budget_head"));
+            String budgetPeriod = pickFirstNonEmpty(
+                    getExpenseClaimHeaderField(appData, "budgetPeriod"),
+                    getValueByKey(appData, "Budget Period"),
+                    getValueByKeyContains(appData, "budget period"),
+                    getValueByKeyContains(appData, "period"),
+                    getValueByKeyContains(appData, "budget_period"));
+
+            // Title
+            content.setFont(PDType1Font.TIMES_ROMAN, 16);
+            content.beginText();
+            content.newLineAtOffset(xStart, y);
+            content.showText("Expense Claim Slip");
+            content.endText();
+
+            // Top logo
+            drawLogo(document, content, xEnd - 70, y - 12, 52);
+
+            y -= 30f;
+            content.setFont(PDType1Font.HELVETICA_BOLD, 10);
+            y = drawLineWithRightLabel(content, xStart, xEnd, y, "ACCOUNT HEAD:", nullSafe(accountHead),
+                    "DATED:", nullSafe(datedDisplay));
+            y -= 10f;
+            y = drawLineWithRightLabel(content, xStart, xEnd, y, "APPROVED BUDGET HEAD:", nullSafe(approvedBudgetHead),
+                    "BUDGET PERIOD:", nullSafe(budgetPeriod));
+
+            // Main expense table block
+            y -= 20f;
+            float tableTop = y;
+            float tableBottom = y - 350f;
+            float[] cols = new float[] {
+                    xStart, // S.NO
+                    xStart + 52f, // DESCRIPTION
+                    xStart + 300f, // DEPTT NAME
+                    xStart + 410f, // SIGN
+                    xStart + 468f, // AMOUNT
+                    xEnd
+            };
+
+            // Outer border
+            drawRect(content, xStart, tableBottom, xEnd - xStart, tableTop - tableBottom);
+            // Vertical lines
+            for (int i = 1; i < cols.length - 1; i++) {
+                drawLine(content, cols[i], tableBottom, cols[i], tableTop);
+            }
+
+            float headerBottom = tableTop - 44f;
+            drawLine(content, xStart, headerBottom, xEnd, headerBottom);
+            // Sub-header for EXPENSE CHARGED TO DEPARTMENT
+            float deptHeaderSplit = tableTop - 22f;
+            drawLine(content, cols[2], deptHeaderSplit, cols[4], deptHeaderSplit);
+
+            // Body rows
+            float rowHeight = 32f;
+            for (float rowY = headerBottom - rowHeight; rowY > tableBottom + 34f; rowY -= rowHeight) {
+                drawLine(content, xStart, rowY, xEnd, rowY);
+            }
+            // Total row separator
+            float totalRowTop = tableBottom + 34f;
+            drawLine(content, xStart, totalRowTop, xEnd, totalRowTop);
+
+            // Header text
+            content.setFont(PDType1Font.HELVETICA_BOLD, 9);
+            drawCenteredText(content, "S. NO.", cols[0], cols[1], tableTop - 28f);
+            drawCenteredText(content, "DESCRIPTION", cols[1], cols[2], tableTop - 28f);
+            drawCenteredText(content, "EXPENSE CHARGED", cols[2], cols[4], tableTop - 14f);
+            drawCenteredText(content, "TO DEPARTMENT", cols[2], cols[4], tableTop - 27f);
+            drawCenteredText(content, "DEPTT.", cols[2], cols[3], tableTop - 39f);
+            drawCenteredText(content, "SIGN.", cols[3], cols[4], tableTop - 39f);
+            drawCenteredText(content, "AMOUNT", cols[4], cols[5], tableTop - 28f);
+
+            content.setFont(PDType1Font.HELVETICA_BOLD, 9);
+            content.beginText();
+            content.newLineAtOffset(cols[4] - 36f, tableBottom + 12f);
+            content.showText("TOTAL");
+            content.endText();
+
+            // Signature and verification block
+            float sectionTop = tableBottom - 26f;
+            float sectionMid = (xStart + xEnd) / 2f;
+            float sigLineWidth = 150f;
+            content.setFont(PDType1Font.HELVETICA_BOLD, 10);
+
+            drawLabelAndBlank(content, xStart + 2f, sectionTop, "SIGNATURE :", sigLineWidth);
+            drawLabelAndBlank(content, sectionMid + 8f, sectionTop, "VERIFIED BY DIVISION HEAD", sigLineWidth);
+
+            drawLabelAndBlank(content, xStart + 2f, sectionTop - 30f, "NAME :", sigLineWidth);
+            drawLabelAndBlank(content, sectionMid + 8f, sectionTop - 30f, "", sigLineWidth);
+
+            drawLabelAndBlank(content, xStart + 2f, sectionTop - 60f, "ADDRESS :", sigLineWidth);
+            drawLabelAndBlank(content, sectionMid + 8f, sectionTop - 60f, "APPROVED BY FINANCE DIV.", sigLineWidth);
+
+            // Footer revision block
+            float footerTop = 95f;
+            float footerBottom = 58f;
+            float f1 = xStart;
+            float f2 = xStart + 135f;
+            float f3 = xStart + 300f;
+            drawRect(content, xStart, footerBottom, xEnd - xStart, footerTop - footerBottom);
+            drawLine(content, f2, footerBottom, f2, footerTop);
+            drawLine(content, f3, footerBottom, f3, footerTop);
+            drawLine(content, xStart, (footerTop + footerBottom) / 2f, xEnd, (footerTop + footerBottom) / 2f);
+
+            content.setFont(PDType1Font.HELVETICA, 7.5f);
+            content.beginText();
+            content.newLineAtOffset(f1 + 4f, footerTop - 12f);
+            content.showText("Version:");
+            content.endText();
+
+            content.beginText();
+            content.newLineAtOffset(f2 + 4f, footerTop - 12f);
+            content.showText("Published date:");
+            content.endText();
+
+            content.beginText();
+            content.newLineAtOffset(f3 + 4f, footerTop - 12f);
+            content.showText("Number:");
+            content.endText();
+
+            content.beginText();
+            content.newLineAtOffset(f1 + 4f, footerBottom + 7f);
+            content.showText("1");
+            content.endText();
+
+            content.beginText();
+            content.newLineAtOffset(f2 + 4f, footerBottom + 7f);
+            content.showText("25.11.2022");
+            content.endText();
+
+            String slipFormNumber = "FIN_BKP_FM-07";
+            content.beginText();
+            content.newLineAtOffset(f3 + 4f, footerBottom + 7f);
+            content.showText(slipFormNumber);
+            content.endText();
+
+            content.setFont(PDType1Font.HELVETICA, 8f);
+            content.beginText();
+            content.newLineAtOffset(xStart, 44f);
+            content.showText("ID: "
+                    + (application != null && application.getTxtFormCode() != null
+                            && !application.getTxtFormCode().trim().isEmpty()
+                                    ? application.getTxtFormCode().trim()
+                                    : String.valueOf(application != null ? application.getSerApplicationId() : "")));
+            content.endText();
+
+            content.beginText();
+            content.newLineAtOffset(xEnd - 58f, 44f);
+            content.showText("Page 1 of 1");
+            content.endText();
+
+            content.close();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            document.save(baos);
+            return baos.toByteArray();
+        } catch (Exception e) {
+            log.warn("Error generating Expense Claim PDF: " + e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /** Server-side slip PDF when no portal snapshot exists (same role as expense slip PDF). */
+    private byte[] generateTemporaryAdvanceSlipPdf(CfgTblCustomFormApplication application,
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+            Map<String, Object> appData) {
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            document.addPage(page);
+
+            PDPageContentStream content = new PDPageContentStream(document, page);
+            float pageWidth = page.getMediaBox().getWidth();
+            float pageHeight = page.getMediaBox().getHeight();
+            float margin = 36f;
+            float lineStart = margin;
+            float lineEnd = pageWidth - margin;
+            float contentWidth = lineEnd - lineStart;
+            float y = pageHeight - 52f;
+
+            String division = pickFirstNonEmpty(getValueByKeyContains(appData, "division"), "Finance");
+            String department = pickFirstNonEmpty(getValueByKeyContains(appData, "department"), "Book Keeping");
+            String section = pickFirstNonEmpty(getValueByKeyContains(appData, "section"), "***");
+            String documentNo = pickFirstNonEmpty(getValueByKeyContains(appData, "document no"),
+                    getValueByKeyContains(appData, "fin-bkp"), "FIN-BKP-FM-06");
+            String originalIssue = pickFirstNonEmpty(getValueByKeyContains(appData, "original issue"), "01-06-2006");
+            String rev = pickFirstNonEmpty(getValueByKeyContains(appData, "rev #"), getValueByKeyContains(appData, "rev."),
+                    getValueByKeyContains(appData, "revision #"), "");
+            String revDate = pickFirstNonEmpty(getValueByKeyContains(appData, "rev. date"),
+                    getValueByKeyContains(appData, "revision date"), "");
+
+            String slipDate = pickFirstNonEmpty(getValueByKeyContains(appData, "slip date"),
+                    getValueByKeyContains(appData, "dated"),
+                    application != null && application.getDteCreatedDate() != null
+                            ? new java.text.SimpleDateFormat("dd/MM/yyyy").format(application.getDteCreatedDate())
+                            : new java.text.SimpleDateFormat("dd/MM/yyyy").format(new java.util.Date()));
+            String payRs = pickFirstNonEmpty(getValueByKeyContains(appData, "please pay"),
+                    getValueByKeyContains(appData, "pay rs"), getValueByKeyContains(appData, "amount rs"));
+            String rupees = pickFirstNonEmpty(getValueByKeyContains(appData, "rupees"),
+                    getValueByKeyContains(appData, "in words"));
+            String payee = pickFirstNonEmpty(getValueByKeyContains(appData, "to mr"), getValueByKeyContains(appData, "payee"),
+                    getValueByKeyContains(appData, "mr / ms"), getValueByKeyContains(appData, "mr/ms"));
+            String purpose = pickFirstNonEmpty(getValueByKeyContains(appData, "purpose"),
+                    getValueByKeyContains(appData, "for the purpose"));
+            String adjustBy = pickFirstNonEmpty(getValueByKeyContains(appData, "adjusted"),
+                    getValueByKeyContains(appData, "on or before"), getValueByKeyContains(appData, "adjust"));
+
+            content.setLineWidth(0.7f);
+            content.addRect(margin, margin, pageWidth - margin * 2, pageHeight - margin * 2);
+            content.stroke();
+
+            drawLogo(document, content, margin + 6, y - 26, 22);
+            content.setFont(PDType1Font.TIMES_BOLD, 12);
+            content.beginText();
+            content.newLineAtOffset(margin + 38, y - 14);
+            content.showText("QARSHI INDUSTRIES (PVT.) LTD.");
+            content.endText();
+
+            y -= 34;
+            float metaHeight = 32f;
+            drawRect(content, lineStart, y - metaHeight, contentWidth, metaHeight);
+            float c1 = lineStart + contentWidth / 3f;
+            float c2 = lineStart + 2f * contentWidth / 3f;
+            float cRevSplit = lineStart + 5f * contentWidth / 6f;
+            drawLine(content, lineStart, y - 16, lineEnd, y - 16);
+            drawLine(content, c1, y, c1, y - metaHeight);
+            drawLine(content, c2, y, c2, y - metaHeight);
+            drawLine(content, cRevSplit, y - 16, cRevSplit, y - metaHeight);
+            float metaY = y - 12;
+            content.setFont(PDType1Font.HELVETICA, 8);
+            drawMeta(content, lineStart + 4, metaY, "Division: " + nullSafe(division));
+            drawMeta(content, c1 + 4, metaY, "Department: " + nullSafe(department));
+            drawMeta(content, c2 + 4, metaY, "Section: " + nullSafe(section));
+            drawMeta(content, lineStart + 4, metaY - 16, "Document No. " + nullSafe(documentNo));
+            drawMeta(content, c1 + 4, metaY - 16, "Original Issue: " + nullSafe(originalIssue));
+            drawMeta(content, c2 + 4, metaY - 16, "Rev.# " + nullSafe(rev));
+            drawMeta(content, cRevSplit + 4, metaY - 16, "Rev. Date: " + nullSafe(revDate));
+            y -= (metaHeight + 8);
+
+            float bannerH = 22f;
+            content.setNonStrokingColor(0.86f, 0.87f, 0.88f);
+            content.addRect(lineStart, y - bannerH, contentWidth, bannerH);
+            content.fill();
+            content.setNonStrokingColor(0f, 0f, 0f);
+            content.setFont(PDType1Font.TIMES_BOLD, 11);
+            String bannerText = "TEMPORARY ADVANCE SLIP";
+            float bannerTextWidth = PDType1Font.TIMES_BOLD.getStringWidth(bannerText) / 1000f * 11f;
+            content.beginText();
+            content.newLineAtOffset((pageWidth - bannerTextWidth) / 2f, y - 14);
+            content.showText(bannerText);
+            content.endText();
+            y -= (bannerH + 14);
+
+            float labelWidth = 200f;
+            content.setFont(PDType1Font.HELVETICA, 9);
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DATE:", nullSafe(slipDate));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "PLEASE PAY RS.:", nullSafe(payRs));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "RUPEES:", nullSafe(rupees));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "TO MR. / MS.:", nullSafe(payee));
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "FOR THE PURPOSE OF:", nullSafe(purpose));
+            drawLine(content, lineStart + 8f, y + 14f, lineEnd, y + 14f);
+            drawLine(content, lineStart + 8f, y + 26f, lineEnd, y + 26f);
+            y -= 34f;
+            y = drawLabeledLine(content, lineStart, y, labelWidth + 100f, lineEnd,
+                    "THE AMOUNT WILL BE ADJUSTED ON OR BEFORE:", nullSafe(adjustBy));
+
+            float sectionTop = y - 18f;
+            float sectionMid = (lineStart + lineEnd) / 2f;
+            float sigLineWidth = 150f;
+            float sigSecondRowY = sectionTop - 38f;
+            drawTasSignatureCaptionAndLine(content, lineStart + 2f, sectionTop, "SIGNATURE BY", "APPLICANT", sigLineWidth);
+            drawTasSignatureCaptionAndLine(content, sectionMid + 8f, sectionTop, "APPROVED BY", "FINANCE WING", sigLineWidth);
+            drawTasSignatureCaptionAndLine(content, lineStart + 2f, sigSecondRowY, "RECOMMENDED BY", "DEPTT. HEAD", sigLineWidth);
+            drawTasSignatureCaptionAndLine(content, sectionMid + 8f, sigSecondRowY, "RECEIVED", "BY", sigLineWidth);
+
+            float footerTop = 95f;
+            float footerBottom = 58f;
+            float f1 = lineStart;
+            float f2 = lineStart + (contentWidth / 3f);
+            float f3 = lineStart + (contentWidth * 2f / 3f);
+            drawRect(content, lineStart, footerBottom, contentWidth, footerTop - footerBottom);
+            drawLine(content, f2, footerBottom, f2, footerTop);
+            drawLine(content, f3, footerBottom, f3, footerTop);
+            content.setFont(PDType1Font.HELVETICA, 8f);
+            float footerLabelY = footerTop - 10f;
+            drawMeta(content, f1 + 4, footerLabelY, "Prepared by:");
+            drawMeta(content, f2 + 4, footerLabelY, "Reviewed By:");
+            drawMeta(content, f3 + 4, footerLabelY, "Approved By:");
+
+            content.close();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            document.save(baos);
+            return baos.toByteArray();
+        } catch (Exception e) {
+            log.warn("Error generating Temporary Advance Slip PDF: " + e.getMessage(), e);
+            return null;
+        }
+    }
+
+    private float drawLineWithRightLabel(PDPageContentStream content, float xStart, float xEnd, float y,
+            String leftLabel, String leftValue, String rightLabel, String rightValue) throws java.io.IOException {
+        float mid = xStart + (xEnd - xStart) * 0.55f;
+        float leftTextY = y + 3f;
+
+        content.setFont(PDType1Font.HELVETICA_BOLD, 10);
+        content.beginText();
+        content.newLineAtOffset(xStart, leftTextY);
+        content.showText(leftLabel);
+        content.endText();
+        content.beginText();
+        content.newLineAtOffset(mid + 8f, leftTextY);
+        content.showText(rightLabel);
+        content.endText();
+
+        content.setFont(PDType1Font.HELVETICA, 9.5f);
+        content.beginText();
+        content.newLineAtOffset(xStart + 95f, leftTextY);
+        content.showText(truncateForPdf(leftValue, 42));
+        content.endText();
+        content.beginText();
+        content.newLineAtOffset(mid + 62f, leftTextY);
+        content.showText(truncateForPdf(rightValue, 24));
+        content.endText();
+
+        drawLine(content, xStart + 94f, y, mid - 6f, y);
+        drawLine(content, mid + 60f, y, xEnd, y);
+        return y;
+    }
+
+    private void drawCenteredText(PDPageContentStream content, String text, float xStart, float xEnd, float y)
+            throws java.io.IOException {
+        if (text == null) {
+            return;
+        }
+        float fontSize = 9f;
+        float textWidth = PDType1Font.HELVETICA_BOLD.getStringWidth(text) / 1000f * fontSize;
+        float textX = xStart + ((xEnd - xStart) - textWidth) / 2f;
+        content.beginText();
+        content.newLineAtOffset(textX, y);
+        content.showText(text);
+        content.endText();
+    }
+
+    /** Two-line caption (e.g. "SIGNATURE BY" / "APPLICANT") with signature line below — Temporary Advance Slip. */
+    private void drawTasSignatureCaptionAndLine(PDPageContentStream content, float x, float y, String line1, String line2,
+            float lineWidth) throws java.io.IOException {
+        content.setFont(PDType1Font.HELVETICA_BOLD, 8f);
+        content.beginText();
+        content.newLineAtOffset(x, y);
+        content.showText(line1 != null ? line1 : "");
+        content.endText();
+        content.beginText();
+        content.newLineAtOffset(x, y - 10f);
+        content.showText(line2 != null ? line2 : "");
+        content.endText();
+        float lineY = y - 22f;
+        drawLine(content, x, lineY, x + lineWidth, lineY);
+    }
+
+    private void drawLabelAndBlank(PDPageContentStream content, float x, float y, String label, float lineWidth)
+            throws java.io.IOException {
+        if (label != null && !label.trim().isEmpty()) {
+            content.beginText();
+            content.newLineAtOffset(x, y + 2f);
+            content.showText(label);
+            content.endText();
+        }
+        float lineStart = x + (label != null ? Math.min(140f, Math.max(0f, label.length() * 5.7f)) : 0f);
+        drawLine(content, lineStart + 6f, y, lineStart + 6f + lineWidth, y);
+    }
+
     private void drawLogo(PDDocument document, PDPageContentStream content, float x, float y, float size) {
         try (InputStream is = getClass().getClassLoader().getResourceAsStream("static/assets/images/qarshi-logo.png")) {
             if (is == null)
@@ -5189,6 +5973,20 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return v.trim();
         }
         return null;
+    }
+
+    private String truncateForPdf(String value, int maxLength) {
+        if (value == null) {
+            return "";
+        }
+        String trimmed = value.trim();
+        if (maxLength <= 0 || trimmed.length() <= maxLength) {
+            return trimmed;
+        }
+        if (maxLength <= 3) {
+            return trimmed.substring(0, maxLength);
+        }
+        return trimmed.substring(0, maxLength - 3) + "...";
     }
 
     private float drawWrappedText(PDPageContentStream content, String text,
@@ -6916,6 +7714,54 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         if (code != null) {
             String lower = code.toLowerCase();
             if (lower.startsWith("capf") || lower.contains("capf"))
+                return true;
+        }
+        return false;
+    }
+
+    private boolean isExpenseClaimForm(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+            CfgTblCustomFormApplication application) {
+        if (application != null && application.getTxtFormCode() != null) {
+            String ac = application.getTxtFormCode().trim().toUpperCase();
+            if (ac.startsWith("EXP-"))
+                return true;
+        }
+        if (form == null)
+            return false;
+        String name = form.getTxtFormName();
+        String code = form.getTxtFormCode();
+        if (name != null) {
+            String lower = name.toLowerCase();
+            if (lower.contains("expense claim") || lower.contains("expense claim slip"))
+                return true;
+        }
+        if (code != null) {
+            String upper = code.trim().toUpperCase();
+            if (upper.startsWith("EXP-"))
+                return true;
+        }
+        return false;
+    }
+
+    private boolean isTemporaryAdvanceSlipForm(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form,
+            CfgTblCustomFormApplication application) {
+        if (application != null && application.getTxtFormCode() != null) {
+            String ac = application.getTxtFormCode().trim().toUpperCase();
+            if (ac.startsWith("TAS-"))
+                return true;
+        }
+        if (form == null)
+            return false;
+        String name = form.getTxtFormName();
+        String code = form.getTxtFormCode();
+        if (name != null) {
+            String lower = name.toLowerCase();
+            if (lower.contains("temporary advance slip") || lower.contains("temporary advance"))
+                return true;
+        }
+        if (code != null) {
+            String upper = code.trim().toUpperCase();
+            if (upper.startsWith("TAS-"))
                 return true;
         }
         return false;
@@ -9642,6 +10488,31 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return generateApplicationPdf(application, form, appData != null ? appData : new java.util.HashMap<>());
             }
 
+            // Expense claim slips and temporary advance slips: prefer the PDF uploaded from the portal (same slip as live preview).
+            // Also avoids the dynamic-footer branch keeping a single-page generic snapshot for email.
+            if (isExpenseClaimForm(form, application) || isTemporaryAdvanceSlipForm(form, application)) {
+                java.util.Map<String, Object> expAppData = appData != null ? appData : parseApplicationData(application);
+                if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                    return application.getBlbPdfData();
+                }
+                EntityManager expEm = getEntityManager();
+                try {
+                    if (application != null && application.getSerApplicationId() != null) {
+                        CfgTblCustomFormApplication dbApp = expEm.find(CfgTblCustomFormApplication.class,
+                                application.getSerApplicationId());
+                        if (dbApp != null && dbApp.getBlbPdfData() != null && dbApp.getBlbPdfData().length > 0) {
+                            return dbApp.getBlbPdfData();
+                        }
+                    }
+                } finally {
+                    if (expEm.isOpen()) {
+                        expEm.close();
+                    }
+                }
+                return generateApplicationPdf(application, form,
+                        expAppData != null ? expAppData : new java.util.HashMap<>());
+            }
+
             // For CAPF, prefer the stored frontend snapshot so the email matches the application view.
             if (isCapfForm(form)) {
                 if (application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
@@ -9843,6 +10714,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     private void sendEmailWithInlineFormPreview(List<String> recipients, String subject, String html,
             CfgTblCustomFormApplication application, CfgTblCustomForm form, boolean isCapf, String imageCid) {
         try {
+            final boolean isExpenseClaim = isExpenseClaimForm(form, application)
+                    || isTemporaryAdvanceSlipForm(form, application);
             String cidBase = imageCid != null ? imageCid : (isCapf ? "capf-inline" : "form-inline");
             String appIdPart = application != null && application.getSerApplicationId() != null
                     ? String.valueOf(application.getSerApplicationId())
@@ -9859,9 +10732,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 }
             }
 
-            byte[] pdfBytes = resolveBestPdfBytesForEmail(application, form);
+            // Expense claims (EXP-*) and temporary advance slips (TAS-*): email body keeps action buttons + approval log only — no form PDF attachment or inline page images.
+            byte[] pdfBytes = null;
+            if (!isExpenseClaim) {
+                pdfBytes = resolveBestPdfBytesForEmail(application, form);
+            }
             // Always send form snapshot as file attachment (never inline image).
-            if (pdfBytes != null && pdfBytes.length > 0) {
+            if (!isExpenseClaim && pdfBytes != null && pdfBytes.length > 0) {
                 String pdfName = (application != null && application.getTxtPdfName() != null
                         && !application.getTxtPdfName().trim().isEmpty())
                                 ? application.getTxtPdfName().trim()
@@ -9898,8 +10775,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     return;
                 }
             }
-            // Non-CAPF: embed all PDF pages inline as PNG images (up to configured cap).
-            if (!isCapf && pdfBytes != null && pdfBytes.length > 0) {
+            // Non-CAPF: embed all PDF pages inline as PNG images (up to configured cap). Skipped for expense claims (see above).
+            if (!isCapf && !isExpenseClaim && pdfBytes != null && pdfBytes.length > 0) {
                 List<byte[]> pageImages = renderPdfPagesToPng(pdfBytes, MAX_NON_CAPF_INLINE_PDF_PAGES);
                 if (pageImages != null && !pageImages.isEmpty()) {
                     List<EmailService.InlineImage> inlineImages = new java.util.ArrayList<>();
