@@ -84,6 +84,7 @@ export class AssignAssetCodeComponent implements OnInit {
           this.applicationFormData = parseApplicationFormData(fullApp.txtApplicationData);
           this.approvalHistory = parseApprovalHistory(fullApp.txtApprovalHistory);
           this.showCapfPreview = isCapfLike(fullApp, this.approvalHistory);
+          this.assetCode = (fullApp?.txtAssetCode || '').toString().trim();
           this.isLoading = false;
         };
 
@@ -126,8 +127,8 @@ export class AssignAssetCodeComponent implements OnInit {
     this.appService.assignAssetCode(this.applicationId!, this.assetCode.trim()).subscribe({
       next: () => {
         this.isSaving = false;
-        this.notification.showMessage('Asset code saved. Application approved.', 'success');
-        this.router.navigateByUrl('/pending-approvals');
+        this.notification.showMessage('Asset code saved successfully', 'success');
+        this.load();
       },
       error: () => {
         this.isSaving = false;

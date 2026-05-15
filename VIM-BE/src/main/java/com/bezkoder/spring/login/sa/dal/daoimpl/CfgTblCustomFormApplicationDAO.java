@@ -940,8 +940,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             entityManager.merge(existingApplication);
             entityManager.getTransaction().commit();
 
-            // When initiator edits an in-flight application, notify the current approver level
-            // so reviewers can act on the latest content.
+            // When initiator edits an in-flight application, notify the current approver level.
+            // CAPF/general forms refresh the PDF snapshot immediately after this call; defer email
+            // until updateApplicationPdf so the HOD receives the updated form attachment.
             try {
                 Integer editorUserId = null;
                 try {
@@ -949,27 +950,18 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 } catch (Exception ignored) {
                 }
 
-                Integer submitterUserId = existingApplication.getSerSubmittedBy();
-                Integer payloadSubmittedBy = application != null ? application.getSerSubmittedBy() : null;
-
-                boolean isInitiatorEdit = false;
-                if (submitterUserId != null) {
-                    // Primary check: authenticated editor is initiator.
-                    if (editorUserId != null && editorUserId.equals(submitterUserId)) {
-                        isInitiatorEdit = true;
-                    }
-                    // Fallback for flows where user context is not reliably available.
-                    else if (payloadSubmittedBy != null && payloadSubmittedBy.equals(submitterUserId)) {
-                        isInitiatorEdit = true;
-                    }
-                }
-
-                if (isInitiatorEdit) {
+                boolean deferNotification = shouldDeferApproverNotificationUntilPdfRefresh(existingApplication);
+                if (!deferNotification && isInitiatorEditingApplication(existingApplication, editorUserId)) {
                     notifyCurrentLevelApproversOnInitiatorEdit(existingApplication);
+                } else if (deferNotification && isInitiatorEditingApplication(existingApplication, editorUserId)) {
+                    log.info(
+                            "Deferring initiator-edit notification until PDF refresh for appId={} (editorUserId={})",
+                            existingApplication.getSerApplicationId(), editorUserId);
                 } else {
                     log.info(
-                            "Skipping initiator-edit notification for appId={} (editorUserId={}, submitterUserId={}, payloadSubmittedBy={})",
-                            existingApplication.getSerApplicationId(), editorUserId, submitterUserId, payloadSubmittedBy);
+                            "Skipping initiator-edit notification for appId={} (editorUserId={}, submitterUserId={})",
+                            existingApplication.getSerApplicationId(), editorUserId,
+                            existingApplication.getSerSubmittedBy());
                 }
             } catch (Exception emailEx) {
                 log.error("Error sending update notification emails after initiator edit: " + emailEx.getMessage(),
@@ -1064,7 +1056,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                 dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A",
                                 formName,
                                 dbApp.getTxtStatus(),
-                                "Application has been updated by initiator. Please review the latest version.",
+                                buildInitiatorEditNotificationRemarks(dbApp),
                                 true,
                                 approveUrl,
                                 rejectUrl,
@@ -1146,7 +1138,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                     dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A",
                                     formName,
                                     dbApp.getTxtStatus(),
-                                    "Application has been updated by initiator. Please review the latest version.",
+                                    buildInitiatorEditNotificationRemarks(dbApp),
                                     true,
                                     approveUrl,
                                     rejectUrl,
@@ -1205,7 +1197,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A",
                             formName,
                             dbApp.getTxtStatus(),
-                            "Application has been updated by initiator. Please review the latest version.",
+                            buildInitiatorEditNotificationRemarks(dbApp),
                             true,
                             approveUrl,
                             rejectUrl,
@@ -1285,7 +1277,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A",
                         formName,
                         dbApp.getTxtStatus(),
-                        "Application has been updated by initiator. Please review the latest version.",
+                        buildInitiatorEditNotificationRemarks(dbApp),
                         true,
                         approveUrl,
                         rejectUrl,
@@ -1353,6 +1345,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 entityManager.merge(application);
                 entityManager.getTransaction().commit();
                 log.info("CAPF PDF base refreshed and signatures re-applied for applicationId={}", applicationId);
+                maybeNotifyApproversAfterInitiatorEdit(applicationId);
                 return "Success";
             }
 
@@ -1379,6 +1372,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             application.setTxtPdfMime(pdfMime != null && !pdfMime.trim().isEmpty() ? pdfMime : "application/pdf");
             entityManager.merge(application);
             entityManager.getTransaction().commit();
+            maybeNotifyApproversAfterInitiatorEdit(applicationId);
             return "Success";
         } catch (Exception e) {
             if (entityManager.getTransaction().isActive()) {
@@ -3601,8 +3595,14 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 entityManager.getTransaction().rollback();
                 return "Failure: Application not found";
             }
-            if (!"ASSET_PENDING".equalsIgnoreCase(application.getTxtStatus())
-                    && !"ASSET_CODE_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
+            String status = application.getTxtStatus() != null ? application.getTxtStatus().trim() : "";
+            boolean isFirstAssignment = application.getTxtAssetCode() == null
+                    || application.getTxtAssetCode().trim().isEmpty();
+            boolean allowedStatus = "ASSET_PENDING".equalsIgnoreCase(status)
+                    || "ASSET_CODE_PENDING".equalsIgnoreCase(status)
+                    || "PR_PENDING".equalsIgnoreCase(status)
+                    || "APPROVED".equalsIgnoreCase(status);
+            if (!allowedStatus) {
                 entityManager.getTransaction().rollback();
                 return "Failure: Application is not pending asset code";
             }
@@ -3610,20 +3610,30 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 entityManager.getTransaction().rollback();
                 return "Failure: Asset code is required";
             }
-            application.setTxtAssetCode(assetCode.trim());
-            application.setTxtStatus("PR_PENDING");
-            application.setSerCurrentApprover(application.getSerSubmittedBy());
-            appendHistoryEntry(entityManager, application, userId, "ASSET_CODE_ASSIGNED", "FINANCE", 999, "SYSTEM",
+            String trimmedCode = assetCode.trim();
+            if (!isFirstAssignment && trimmedCode.equalsIgnoreCase(application.getTxtAssetCode().trim())) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Asset code is unchanged";
+            }
+            application.setTxtAssetCode(trimmedCode);
+            if (isFirstAssignment) {
+                application.setTxtStatus("PR_PENDING");
+                application.setSerCurrentApprover(application.getSerSubmittedBy());
+            }
+            appendHistoryEntry(entityManager, application, userId,
+                    isFirstAssignment ? "ASSET_CODE_ASSIGNED" : "ASSET_CODE_UPDATED", "FINANCE", 999, "SYSTEM",
                     approvedIp);
             appendLatestApprovalEntryToPriorApprovals(application);
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
             entityManager.merge(application);
             entityManager.getTransaction().commit();
 
-            try {
-                sendPrCodeRequestEmail(application);
-            } catch (Exception e) {
-                log.warn("Failed to send PR code request email after asset code: {}", e.getMessage());
+            if (isFirstAssignment) {
+                try {
+                    sendPrCodeRequestEmail(application);
+                } catch (Exception e) {
+                    log.warn("Failed to send PR code request email after asset code: {}", e.getMessage());
+                }
             }
             return "Success";
         } catch (Exception e) {
@@ -3650,7 +3660,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 entityManager.getTransaction().rollback();
                 return "Failure: Application not found";
             }
-            if (!"PR_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
+            String status = application.getTxtStatus() != null ? application.getTxtStatus().trim() : "";
+            boolean isFirstAssignment = application.getTxtPrCode() == null
+                    || application.getTxtPrCode().trim().isEmpty();
+            if (!"PR_PENDING".equalsIgnoreCase(status) && !"APPROVED".equalsIgnoreCase(status)) {
                 entityManager.getTransaction().rollback();
                 return "Failure: Application is not pending PR code";
             }
@@ -3662,23 +3675,29 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 entityManager.getTransaction().rollback();
                 return "Failure: Asset code must be assigned first";
             }
-            if (application.getTxtPrCode() != null && prCode.trim().equalsIgnoreCase(application.getTxtPrCode())) {
+            String trimmedCode = prCode.trim();
+            if (!isFirstAssignment && trimmedCode.equalsIgnoreCase(application.getTxtPrCode().trim())) {
                 entityManager.getTransaction().rollback();
                 return "Failure: PR code is unchanged";
             }
-            application.setTxtPrCode(prCode.trim());
-            application.setTxtStatus("APPROVED");
-            application.setSerCurrentApprover(null);
+            application.setTxtPrCode(trimmedCode);
+            if (isFirstAssignment) {
+                application.setTxtStatus("APPROVED");
+                application.setSerCurrentApprover(null);
+            }
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
-            appendHistoryEntry(entityManager, application, userId, "PR_CODE_ASSIGNED", "INITIATOR",
+            appendHistoryEntry(entityManager, application, userId,
+                    isFirstAssignment ? "PR_CODE_ASSIGNED" : "PR_CODE_UPDATED", "INITIATOR",
                     currentLevelSafe(application), "SYSTEM", approvedIp);
             appendLatestApprovalEntryToPriorApprovals(application);
             entityManager.merge(application);
             entityManager.getTransaction().commit();
-            try {
-                sendFinalInitiatorEmail(application);
-            } catch (Exception e) {
-                log.warn("Failed to send final initiator email after PR code: {}", e.getMessage());
+            if (isFirstAssignment) {
+                try {
+                    sendFinalInitiatorEmail(application);
+                } catch (Exception e) {
+                    log.warn("Failed to send final initiator email after PR code: {}", e.getMessage());
+                }
             }
             return "Success";
         } catch (Exception e) {
@@ -4368,17 +4387,18 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             return baseHtml;
         }
         boolean hasAssetCode = application.getTxtAssetCode() != null && !application.getTxtAssetCode().trim().isEmpty();
-        boolean hasPrCode = application.getTxtPrCode() != null && !application.getTxtPrCode().trim().isEmpty();
-        if (!hasAssetCode || hasPrCode) {
+        if (!hasAssetCode) {
             return baseHtml;
         }
 
+        boolean hasPrCode = application.getTxtPrCode() != null && !application.getTxtPrCode().trim().isEmpty();
         String prCodeUrl = getBaseUrl() + "/pr-code/" + application.getSerApplicationId();
+        String buttonLabel = hasPrCode ? "Update PR Code" : "Add PR Code";
         String fragment = "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:20px 0;'>"
                 + "<tr><td align='center' style='padding:10px 0;'>"
                 + "<a href='" + prCodeUrl
                 + "' style='display:inline-block;padding:12px 28px;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;background-color:#2c7be5;color:#ffffff !important;'>"
-                + "Add PR Code</a>"
+                + buttonLabel + "</a>"
                 + "</td></tr></table>";
 
         String marker = "</body>";
@@ -7697,6 +7717,182 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         return null;
     }
 
+    /**
+     * Resolves the CAPF initiator user from the form's user_select field (label contains "initiator").
+     */
+    private Integer extractCapfInitiatorUserId(CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return null;
+        }
+        try {
+            Map<String, Object> appData = parseApplicationData(application);
+            if (appData == null || appData.isEmpty()) {
+                return null;
+            }
+            String[] preferredKeys = { "initiator", "Initiator", "initiator_name", "INITIATOR" };
+            for (String key : preferredKeys) {
+                if (!appData.containsKey(key)) {
+                    continue;
+                }
+                Integer id = resolveInitiatorUserIdFromFieldValue(appData.get(key));
+                if (id != null) {
+                    return id;
+                }
+            }
+            for (Map.Entry<String, Object> entry : appData.entrySet()) {
+                String key = entry.getKey();
+                if (key == null || !key.toLowerCase().contains("initiator")) {
+                    continue;
+                }
+                Integer id = resolveInitiatorUserIdFromFieldValue(entry.getValue());
+                if (id != null) {
+                    return id;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Error extracting CAPF initiator user id: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private Integer resolveInitiatorUserIdFromFieldValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        Integer id = extractUserId(value);
+        if (id != null) {
+            return id;
+        }
+        String name = extractUserName(value);
+        if (name != null && !name.trim().isEmpty()) {
+            return resolveUserIdByName(name);
+        }
+        if (value instanceof String && !((String) value).trim().isEmpty()) {
+            return resolveUserIdByName(((String) value).trim());
+        }
+        return null;
+    }
+
+    private boolean hasRecentSendBackToInitiator(CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return false;
+        }
+        String historyJson = application.getTxtApprovalHistory();
+        if (historyJson == null || historyJson.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            List<Map<String, Object>> history = mapper.readValue(historyJson,
+                    new TypeReference<List<Map<String, Object>>>() {
+                    });
+            for (Map<String, Object> entry : history) {
+                if (entry == null) {
+                    continue;
+                }
+                String action = entry.get("action") != null ? String.valueOf(entry.get("action")).toUpperCase() : "";
+                if ("SENT_BACK_TO_INITIATOR".equals(action)) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Error checking send-back-to-initiator history: {}", e.getMessage());
+        }
+        return false;
+    }
+
+    private String buildInitiatorEditNotificationRemarks(CfgTblCustomFormApplication application) {
+        if (hasRecentSendBackToInitiator(application)) {
+            return "Application was sent back for revision and has been updated by the initiator. "
+                    + "Please review the latest version to see what changed.";
+        }
+        return "Application has been updated by initiator. Please review the latest version.";
+    }
+
+    private boolean isInitiatorEditingApplication(CfgTblCustomFormApplication existingApplication,
+            Integer editorUserId) {
+        if (existingApplication == null || editorUserId == null || editorUserId <= 0) {
+            return false;
+        }
+        Integer submitterId = existingApplication.getSerSubmittedBy();
+        if (submitterId != null && submitterId.equals(editorUserId)) {
+            return true;
+        }
+        CfgTblCustomForm form = existingApplication.getCfgTblCustomForm();
+        if (form == null && existingApplication.getSerFormId() != null) {
+            EntityManager em = getEntityManager();
+            try {
+                form = em.find(CfgTblCustomForm.class, existingApplication.getSerFormId());
+            } finally {
+                if (em.isOpen()) {
+                    em.close();
+                }
+            }
+        }
+        if (isCapfForm(form)) {
+            Integer capfInitiatorId = extractCapfInitiatorUserId(existingApplication);
+            if (capfInitiatorId != null && capfInitiatorId.equals(editorUserId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean shouldDeferApproverNotificationUntilPdfRefresh(CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return false;
+        }
+        CfgTblCustomForm form = application.getCfgTblCustomForm();
+        if (form == null && application.getSerFormId() != null) {
+            EntityManager em = getEntityManager();
+            try {
+                form = em.find(CfgTblCustomForm.class, application.getSerFormId());
+            } finally {
+                if (em.isOpen()) {
+                    em.close();
+                }
+            }
+        }
+        if (isCapfForm(form)) {
+            return true;
+        }
+        if (isBudgetApprovalForm(form) || hasDynamicFooterFlow(application)) {
+            return false;
+        }
+        return true;
+    }
+
+    private void maybeNotifyApproversAfterInitiatorEdit(Integer applicationId) {
+        if (applicationId == null) {
+            return;
+        }
+        EntityManager em = getEntityManager();
+        try {
+            CfgTblCustomFormApplication app = em.find(CfgTblCustomFormApplication.class, applicationId);
+            if (app == null) {
+                return;
+            }
+            Integer editorUserId = null;
+            try {
+                editorUserId = commonService.getCurrentLoggedInUser();
+            } catch (Exception ignored) {
+            }
+            if (!isInitiatorEditingApplication(app, editorUserId)) {
+                log.info("Skipping initiator-edit notification after PDF update for appId={} (editorUserId={})",
+                        applicationId, editorUserId);
+                return;
+            }
+            notifyCurrentLevelApproversOnInitiatorEdit(app);
+        } catch (Exception e) {
+            log.error("Error sending update notification emails after initiator PDF refresh for appId={}: {}",
+                    applicationId, e.getMessage(), e);
+        } finally {
+            if (em.isOpen()) {
+                em.close();
+            }
+        }
+    }
+
     private boolean hasInitialSigner(CfgTblCustomFormApplication application) {
         return extractInitialSignerId(application) != null;
     }
@@ -8952,7 +9148,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             return "CEO";
         }
         String action = entry != null && entry.get("action") != null ? String.valueOf(entry.get("action")) : "";
-        if (level == 999 && "ASSET_CODE_ASSIGNED".equalsIgnoreCase(action)) {
+        if (level == 999 && ("ASSET_CODE_ASSIGNED".equalsIgnoreCase(action)
+                || "ASSET_CODE_UPDATED".equalsIgnoreCase(action))) {
             return "Asset Code";
         }
         return String.valueOf(level);
@@ -8971,8 +9168,14 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         if ("ASSET_CODE_ASSIGNED".equals(normalized)) {
             return "Asset Code Assigned";
         }
+        if ("ASSET_CODE_UPDATED".equals(normalized)) {
+            return "Asset Code Updated";
+        }
         if ("PR_CODE_ASSIGNED".equals(normalized)) {
             return "PR Code Assigned";
+        }
+        if ("PR_CODE_UPDATED".equals(normalized)) {
+            return "PR Code Updated";
         }
         if ("SENT_BACK_TO_INITIATOR".equals(normalized)) {
             return "Sent Back To Initiator";
