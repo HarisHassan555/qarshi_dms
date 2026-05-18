@@ -1492,17 +1492,11 @@ export class ApplicationDetailsComponent implements OnInit {
       user.txtDepartmentName ||
       user.departmentName ||
       '';
-    const role =
-      user.cfgTblRole?.txtRoleName ||
-      user.txtRoleName ||
-      user.roleName ||
-      '';
     
     const designationLine = designation ? `<br>${designation}` : '';
     const departmentLine = department ? `<br>${department}` : '';
-    const roleLine = role ? `<br>(${role})` : '';
     
-    return `${name}${designationLine}${departmentLine}${roleLine}`;
+    return `${name}${designationLine}${departmentLine}`;
   }
 
   isDocumentHeaderType(fieldType: string | undefined): boolean {

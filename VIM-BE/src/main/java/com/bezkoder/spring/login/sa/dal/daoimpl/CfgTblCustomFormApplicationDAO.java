@@ -3309,38 +3309,18 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     entityManager.getTransaction().rollback();
                     return "Failure: Approval sequence is not configured";
                 }
-
-                // Resolve stage robustly for individual pipeline:
-                // prefer current level if it matches, then fallback to nearest matching stage by user.
-                Integer normalizedLevel = null;
-                if (originalLevel != null && originalLevel >= 0 && originalLevel < sequence.size()) {
-                    BudgetApprover expected = sequence.get(originalLevel);
-                    if (expected != null && expected.userId != null && expected.userId.equals(currentUserId)) {
-                        normalizedLevel = originalLevel;
-                        sendBackRole = expected.role;
-                    }
-                }
-
-                if (normalizedLevel == null) {
-                    int scanFrom = originalLevel != null ? Math.min(originalLevel, sequence.size() - 1)
-                            : (sequence.size() - 1);
-                    for (int i = scanFrom; i >= 0; i--) {
-                        BudgetApprover candidate = sequence.get(i);
-                        if (candidate != null && candidate.userId != null && candidate.userId.equals(currentUserId)) {
-                            normalizedLevel = i;
-                            if (sendBackRole == null) {
-                                sendBackRole = candidate.role;
-                            }
-                            break;
-                        }
-                    }
-                }
-
-                if (normalizedLevel == null) {
+                // Strict stage check: only the approver assigned to the current level can send back to initiator.
+                if (originalLevel == null || originalLevel < 0 || originalLevel >= sequence.size()) {
                     entityManager.getTransaction().rollback();
                     return "Failure: You are not authorized to perform this action at this stage";
                 }
-                originalLevel = normalizedLevel;
+
+                BudgetApprover expected = sequence.get(originalLevel);
+                if (expected == null || expected.userId == null || !expected.userId.equals(currentUserId)) {
+                    entityManager.getTransaction().rollback();
+                    return "Failure: You are not authorized to perform this action at this stage";
+                }
+                sendBackRole = expected.role;
             } else if (currentRequiredUserId != null) {
                 if (!currentRequiredUserId.equals(currentUserId)) {
                     entityManager.getTransaction().rollback();
@@ -8066,9 +8046,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         if (data == null || data.isEmpty())
             return "";
         String name = data.getOrDefault("name", "");
-        String role = data.getOrDefault("role", "");
-        if (!role.isEmpty())
-            return name + " (" + role + ")";
+        // Never append role in UI/email display; show only user identity text.
         return name;
     }
 
