@@ -1368,14 +1368,13 @@ export class ApplicationPdfService {
       }
       const name = user?.txtUserName || user?.userName || user?.name || '';
       const designation = user?.txtDesignation || user?.designation || '';
-      const role = user?.cfgTblRole?.txtRoleName || user?.roleName || '';
       let dept = user?.hrTblDepartment?.txtDepartmentName || user?.departmentName || user?.txtDepartmentName || '';
       if (!dept) {
         const userId = getUserId(user);
         const entry = userId ? approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId) : null;
         dept = entry?.departmentName || '';
       }
-      const parts = [name, designation, dept, role ? `(${role})` : ''].filter((p: string) => !!p);
+      const parts = [name, designation, dept].filter((p: string) => !!p);
       return parts.map((p) => escapeHtml(p)).join('<br>');
     };
 
@@ -1700,14 +1699,13 @@ export class ApplicationPdfService {
       }
       const name = user?.txtUserName || user?.userName || user?.name || '';
       const designation = user?.txtDesignation || user?.designation || '';
-      const role = user?.cfgTblRole?.txtRoleName || user?.roleName || '';
       let dept = user?.hrTblDepartment?.txtDepartmentName || user?.departmentName || user?.txtDepartmentName || '';
       if (!dept) {
         const userId = getUserId(user);
         const entry = userId ? approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId) : null;
         dept = entry?.departmentName || '';
       }
-      const parts = [name, designation, dept, role ? `(${role})` : ''].filter((p: string) => !!p);
+      const parts = [name, designation, dept].filter((p: string) => !!p);
       return parts.map((p) => escapeHtml(p)).join('<br>');
     };
 
@@ -2695,18 +2693,14 @@ export class ApplicationPdfService {
       if (!user) return '&nbsp;';
       const name = user?.txtUserName || user?.userName || user?.name || '';
       const designation = user?.txtDesignation || user?.designation || '';
-      const role = user?.cfgTblRole?.txtRoleName || user?.roleName || '';
       let dept = user?.hrTblDepartment?.txtDepartmentName || user?.departmentName || user?.txtDepartmentName || '';
       if (!dept) {
         const userId = getUserId(user);
         const entry = userId ? approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId) : null;
         dept = entry?.departmentName || '';
       }
-      const parts = [name];
-      if (designation) parts.push(designation);
-      if (dept) parts.push(dept);
-      if (role) parts.push(`(${role})`);
-      const safe = parts.filter((p: string) => !!p).map((p: string) => {
+      const parts = [name, designation, dept].filter((p: string) => !!p);
+      const safe = parts.map((p: string) => {
         const div = document.createElement('div');
         div.textContent = p;
         return div.innerHTML;

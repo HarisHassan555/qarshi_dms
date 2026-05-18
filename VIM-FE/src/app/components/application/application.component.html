@@ -541,7 +541,7 @@
                         <div *ngIf="isCapfSelected()" class="app-preview-body">
                             <div class="app-preview-canvas" #previewCanvas>
                                 <div class="app-preview-scale" #previewScale>
-                                    <app-abc [formData]="getPreviewFormData()" [formFields]="selectedForm?.fields || []"
+                                    <app-abc [formData]="getPreviewFormData()" [formFields]="selectedForm.fields || []"
                                         [application]="getPreviewApplication()" [isEmbedded]="true"></app-abc>
                                 </div>
                             </div>
