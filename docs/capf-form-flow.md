@@ -84,6 +84,14 @@ For **`isCapf == true`**, `sendEmailWithInlineFormPreview` (DAO):
 
 So the **“email version of the output”** the user sees as a **picture of the form** is primarily **first page of the stored/generated PDF**, not the fragment template alone.
 
+**Practical layout note:** the CAPF form image used in emails is usually generated from the Angular PDF capture in `VIM-FE/src/app/services/application-pdf/application-pdf.service.ts` (`generateCapfAbcHtml` + `renderCapfPdfFromElement`). For visible CAPF email-output spacing fixes, update that frontend PDF HTML/CSS first. Existing stored CAPF PDF blobs will keep the old layout until the PDF snapshot is regenerated or a new CAPF is submitted.
+
+Recent CAPF email-output layout adjustments live in that service:
+
+- Header/meta grid cells use vertical-middle alignment with safer padding/line-height so the text sits inside the boxes instead of touching the lower border.
+- The PART-1 heading text is balanced vertically and `CONCERNED` is not underlined.
+- The bottom job-completion signature row uses extra bottom spacing so the border under `(Sign & Desg.)` is lower and does not crowd the label.
+
 ### 2.6 HTML snippet / template path (`capf-email-fragment.html`)
 
 The repo includes **`src/main/resources/templates/capf-email-fragment.html`** — a large, **email-safe** HTML fragment styled like the CAPF print layout (logo, fields, checkboxes, etc.).

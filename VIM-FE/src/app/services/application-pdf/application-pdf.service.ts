@@ -3662,9 +3662,10 @@ export class ApplicationPdfService {
     .grid td,
     .grid th {
       border: 1px solid var(--line);
-      padding: 4px 6px;
-      vertical-align: top;
+      padding: 5px 6px;
+      vertical-align: middle;
       font-size: 12px;
+      line-height: 1.2;
       box-sizing: border-box;
       word-wrap: break-word !important;
       overflow-wrap: break-word !important;
@@ -3711,6 +3712,7 @@ export class ApplicationPdfService {
       text-align: center;
       font-weight: 700;
       padding: 6px 8px;
+      line-height: 1.2;
       margin-top: 6px;
       margin-bottom: 8px;
       letter-spacing: .5px;
@@ -3728,9 +3730,10 @@ export class ApplicationPdfService {
     .box-title {
       text-align: center;
       font-weight: 700;
-      margin: -2px 0 8px 0;
+      margin: 0 0 8px 0;
       letter-spacing: .2px;
       font-size: 13px;
+      line-height: 1.25;
     }
 
     /* FORM ROWS */
@@ -4114,6 +4117,10 @@ export class ApplicationPdfService {
       margin-top: 8px;
     }
 
+    .job-sign {
+      margin-bottom: 8px;
+    }
+
     .sign-block {
       width: 48%;
       max-width: 48%;
@@ -4466,7 +4473,7 @@ export class ApplicationPdfService {
 
       <!-- PART 1 -->
       <div class="box">
-        <div class="box-title">PART-1 (TO BE FILLED BY <span class="u">CONCERNED</span> DEPARTMENT)</div>
+        <div class="box-title">PART-1 (TO BE FILLED BY CONCERNED DEPARTMENT)</div>
 
         <div class="row">
           <div class="capf-right" style="margin-left: auto;">

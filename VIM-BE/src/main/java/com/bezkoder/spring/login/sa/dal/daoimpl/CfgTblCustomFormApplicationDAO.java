@@ -7924,6 +7924,12 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         applicationId, editorUserId);
                 return;
             }
+            if (!hasInitiatorEditMetadata(app)) {
+                log.info(
+                        "Skipping initiator-edit notification after initial PDF upload for appId={} (editorUserId={})",
+                        applicationId, editorUserId);
+                return;
+            }
             notifyCurrentLevelApproversOnInitiatorEdit(app);
         } catch (Exception e) {
             log.error("Error sending update notification emails after initiator PDF refresh for appId={}: {}",
@@ -7932,6 +7938,25 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (em.isOpen()) {
                 em.close();
             }
+        }
+    }
+
+    private boolean hasInitiatorEditMetadata(CfgTblCustomFormApplication application) {
+        if (application == null || application.getDteModifiedDate() == null) {
+            return false;
+        }
+        String dataJson = application.getTxtApplicationData();
+        if (dataJson == null || dataJson.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            Map<String, Object> data = new ObjectMapper().readValue(dataJson,
+                    new TypeReference<Map<String, Object>>() {
+                    });
+            return data != null
+                    && (data.containsKey("approvedTimestamp") || data.containsKey("approvedBySignature"));
+        } catch (Exception e) {
+            return dataJson.contains("\"approvedTimestamp\"") || dataJson.contains("\"approvedBySignature\"");
         }
     }
 
