@@ -50,6 +50,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             java.util.Arrays.asList("application/pdf", "image/webp", "image/png", "image/jpeg"));
     /** Non-CAPF notification emails: render each PDF page as an inline image (same visual as multi-page preview). */
     private static final int MAX_NON_CAPF_INLINE_PDF_PAGES = 30;
+    private static final float EMAIL_DYNAMIC_FOOTER_SIGNATURE_LIFT = 5f;
+    private static final float FE_JS_PDF_CONTENT_WIDTH_MM = 200f;
 
     /**
      * Matches {@code ApplicationPdfService.renderXyzPdfFromElement}: jsPDF uses {@code marginX}/{@code marginY}
@@ -61,6 +63,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     private static float mmToPdfPoints(float mm) {
         return mm * MM_TO_PDF_POINTS;
+    }
+
+    private static float tableWidthForPage(float pageWidth) {
+        float sideMargin = mmToPdfPoints(FE_JS_PDF_MARGIN_MM);
+        return Math.max(0f, pageWidth - sideMargin * 2);
     }
 
     @Autowired
@@ -1739,8 +1746,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             Integer departmentId = null;
             Integer requiredUserId = null;
             String departmentName = null;
+            Integer pipelineOrder = null;
 
             if (currentPipeline != null) {
+                pipelineOrder = safeInt(currentPipeline.get("intApprovalOrder"), null);
                 if ("individual".equalsIgnoreCase(String.valueOf(currentPipeline.get("type")))) {
                     requiredUserId = safeInt(currentPipeline.get("serUserId"), safeInt(currentPipeline.get("userId"), null));
                 } else {
@@ -1751,7 +1760,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             if (requiredUserId != null)
-                return requiredUserId.equals(userId);
+                return requiredUserId.equals(userId)
+                        && !capfUserAlreadyApprovedOpenStage(application, isCapf, currentLevel, pipelineOrder,
+                                departmentId, departmentName, userId);
 
             // For CAPF forms, the first stage ALWAYS routes to the initiator's (submitter's) HOD.
             if (isCapf && currentLevel == 0) {
@@ -1759,13 +1770,20 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                         userDepartmentCache);
                 if (submitterDeptId != null) {
                     departmentId = submitterDeptId;
+                    departmentName = resolveDepartmentName(entityManager, departmentId, null, departmentNameCache);
                 }
             } else if (currentPipeline != null && isUserDepartmentHodStage(currentPipeline, departmentName)) {
                 Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy(),
                         userDepartmentCache);
                 if (submitterDeptId != null) {
                     departmentId = submitterDeptId;
+                    departmentName = resolveDepartmentName(entityManager, departmentId, null, departmentNameCache);
                 }
+            }
+
+            if (capfUserAlreadyApprovedOpenStage(application, isCapf, currentLevel, pipelineOrder,
+                    departmentId, departmentName, userId)) {
+                return false;
             }
 
             Integer userDepartmentId = loadUserDepartmentId(entityManager, userId, userDepartmentCache);
@@ -2239,6 +2257,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 if (requiredUserId != null && !requiredUserId.equals(resolvedApproverId)) {
                     // Check if this user already approved this application recently (duplicate click)
                     if (isUserAlreadyInApprovedHistory(application, resolvedApproverId)) {
+                        if (isCapf) {
+                            entityManager.getTransaction().rollback();
+                            return "Failure: User not authenticated";
+                        }
                         entityManager.getTransaction().commit();
                         return "Success";
                     }
@@ -2250,6 +2272,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 if (approverDeptId == null || !departmentId.equals(approverDeptId)) {
                     // Check if this user already approved this application recently (duplicate click)
                     if (isUserAlreadyInApprovedHistory(application, resolvedApproverId)) {
+                        if (isCapf) {
+                            entityManager.getTransaction().rollback();
+                            return "Failure: User not authenticated";
+                        }
                         entityManager.getTransaction().commit();
                         return "Success";
                     }
@@ -2275,16 +2301,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             boolean skipCeoHistory = shouldSkipCeoForCapf(form, departmentName, approverUser);
+            Integer historyLevel = capfHistoryLevelForStage(isCapf, currentLevel, pipelineOrder);
+            if (isCapf && !skipCeoHistory && userAlreadyApprovedStage(approvalHistory, resolvedApproverId,
+                    historyLevel, departmentId, departmentName)) {
+                entityManager.getTransaction().rollback();
+                return "Failure: User not authenticated";
+            }
             if (!skipCeoHistory) {
                 // Add current approval to history
                 // For CAPF, Level 0 is the virtual Initiator HOD stage
-                Integer historyLevel;
-                if (isCapf && currentLevel == 0) {
-                    historyLevel = 0;
-                } else {
-                    historyLevel = pipelineOrder != null ? pipelineOrder : (currentLevel + 1);
-                }
-
                 java.util.Map<String, Object> approvalEntry = new java.util.HashMap<>();
                 approvalEntry.put("level", historyLevel);
                 approvalEntry.put("departmentId", departmentId);
@@ -2325,12 +2350,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
             // Enforce multi-HOD approval: if a department lists multiple HOD IDs, require
             // all to approve before advancing
-            Integer pipelineLevelIndex;
-            if (isCapf && currentLevel == 0) {
-                pipelineLevelIndex = 0;
-            } else {
-                pipelineLevelIndex = pipelineOrder != null ? pipelineOrder : (currentLevel + 1);
-            }
+            Integer pipelineLevelIndex = historyLevel;
             Set<Integer> requiredHods = parseDepartmentHeadIds(entityManager, departmentId);
             if (!requiredHods.isEmpty()) {
                 Set<Integer> approvedHods = getApprovedHodsForStage(approvalHistory, departmentId, pipelineLevelIndex);
@@ -2512,12 +2532,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             // Validate that the current user is the authorized approver for this level (prevent Level 2 acting on behalf of Level 3)
             Map<String, Object> appData = parseApplicationData(application);
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
+            boolean isCapf = form != null && isCapfForm(form);
             boolean isBudgetApproval = form != null && isBudgetApprovalForm(form);
-            boolean useIndividualPipelineFlow = !isCapfForm(form) && (isBudgetApproval || hasDynamicFooterFlow);
+            boolean useIndividualPipelineFlow = !isCapf && (isBudgetApproval || hasDynamicFooterFlow);
             Integer currentLevel = application.getIntCurrentApprovalLevel();
             if (currentLevel == null) {
                 currentLevel = 0;
             }
+            Integer actionDepartmentId = null;
+            String actionDepartmentName = null;
+            Integer actionRequiredUserId = null;
+            Integer actionPipelineOrder = null;
 
             if (useIndividualPipelineFlow) {
                 List<BudgetApprover> sequence = getBudgetApprovalSequence(appData, entityManager);
@@ -2537,35 +2562,39 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     List<java.util.Map<String, Object>> pipelines = mapper.readValue(
                             form.getTxtApprovalPipeline(),
                             new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {});
-                    boolean isCapf = isCapfForm(form);
                     int pipelineIndex = isCapf ? currentLevel - 1 : currentLevel;
-                    Integer departmentId = null;
-                    Integer requiredUserId = null;
                     if (!pipelines.isEmpty() && pipelineIndex >= 0 && pipelineIndex < pipelines.size()) {
                         java.util.Map<String, Object> currentPipeline = pipelines.get(pipelineIndex);
                         if (currentPipeline != null) {
+                            actionPipelineOrder = safeInt(currentPipeline.get("intApprovalOrder"), null);
                             if ("individual".equalsIgnoreCase(String.valueOf(currentPipeline.get("type")))) {
                                 Object uidObj = currentPipeline.get("serUserId");
-                                requiredUserId = uidObj != null ? (uidObj instanceof Integer ? (Integer) uidObj : Integer.parseInt(uidObj.toString())) : null;
+                                actionRequiredUserId = uidObj != null ? (uidObj instanceof Integer ? (Integer) uidObj : Integer.parseInt(uidObj.toString())) : null;
+                                if (actionRequiredUserId != null) {
+                                    actionDepartmentName = resolveUserName(entityManager, actionRequiredUserId, currentPipeline);
+                                }
                             } else {
                                 Object deptIdObj = currentPipeline.get("serDepartmentId");
                                 if (deptIdObj != null) {
-                                    departmentId = deptIdObj instanceof Integer ? (Integer) deptIdObj
+                                    actionDepartmentId = deptIdObj instanceof Integer ? (Integer) deptIdObj
                                             : Integer.parseInt(deptIdObj.toString());
+                                    actionDepartmentName = resolveDepartmentName(entityManager, actionDepartmentId,
+                                            currentPipeline);
                                 }
                             }
                         }
                     } else if (isCapf && currentLevel == 0) {
-                        departmentId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
+                        actionDepartmentId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
+                        actionDepartmentName = resolveDepartmentName(entityManager, actionDepartmentId, null);
                     }
-                    if (requiredUserId != null) {
-                        if (!requiredUserId.equals(resolvedApproverId)) {
+                    if (actionRequiredUserId != null) {
+                        if (!actionRequiredUserId.equals(resolvedApproverId)) {
                             entityManager.getTransaction().rollback();
                             return "Failure: You are not authorized to perform this action at this stage";
                         }
-                    } else if (departmentId != null) {
+                    } else if (actionDepartmentId != null) {
                         Integer userDepartmentId = loadUserDepartmentId(entityManager, resolvedApproverId);
-                        if (userDepartmentId == null || !departmentId.equals(userDepartmentId)) {
+                        if (userDepartmentId == null || !actionDepartmentId.equals(userDepartmentId)) {
                             entityManager.getTransaction().rollback();
                             return "Failure: You are not authorized to perform this action at this stage";
                         }
@@ -2573,6 +2602,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 } catch (Exception e) {
                     log.warn("Error validating reject authorization: " + e.getMessage());
                 }
+            }
+
+            if (isCapf && userAlreadyApprovedStage(parseApprovalHistory(application.getTxtApprovalHistory()),
+                    resolvedApproverId, capfHistoryLevelForStage(true, currentLevel, actionPipelineOrder),
+                    actionDepartmentId, actionDepartmentName)) {
+                entityManager.getTransaction().rollback();
+                return "Failure: User not authenticated";
             }
 
             application.setTxtStatus("REJECTED");
@@ -2599,7 +2635,6 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
                             });
 
-                    boolean isCapf = isCapfForm(form);
                     int pipelineIndex = isCapf ? currentLevel - 1 : currentLevel;
 
                     if (!pipelines.isEmpty() && pipelineIndex >= 0 && pipelineIndex < pipelines.size()) {
@@ -2865,6 +2900,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     entityManager.getTransaction().rollback();
                     return "Failure: You are not authorized to perform this action at this stage";
                 }
+            }
+
+            if (isCapf && userAlreadyApprovedStage(approvalHistory, currentUserId,
+                    capfHistoryLevelForStage(true, originalLevel, currentPipelineOrder),
+                    currentDepartmentId, currentDepartmentName)) {
+                entityManager.getTransaction().rollback();
+                return "Failure: User not authenticated";
             }
 
             // For individual pipeline footer forms, get the role from the sequence
@@ -9223,8 +9265,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
         content.setFont(PDType1Font.HELVETICA_BOLD, 9);
         float headerFontSize = 9f;
-        // Vertically center header text in the header band.
-        float headerY = y + rowSig + (rowHeader - headerFontSize) / 2f + 5f; // hardcoded raise
+        // Vertically center header text in the header band with padding from borders.
+        float headerY = y + rowSig + (rowHeader - headerFontSize) / 2f + 7f;
         for (int i = 0; i < cols; i++) {
             String label = footerFields.get(i) != null && footerFields.get(i).get("label") != null
                     ? String.valueOf(footerFields.get(i).get("label"))
@@ -9244,8 +9286,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         Integer[] userIds = allUserIds.toArray(new Integer[0]);
         Map<Integer, String> signatureFromDb = loadUserSignaturePaths(userIds);
 
-        float sigRowY = y + rowSig + rowHeader + 4;
-        float sigRowHeight = rowNames - 8;
+        float sigBandTop = y + rowSig + rowHeader;
+        float sigBandHeight = Math.max(rowNames, 24f);
+        float sigRowHeight = Math.min(28f, sigBandHeight - 8f);
+        float sigTopPad = 6f;
+        float sigRowY = sigBandTop + sigBandHeight - sigRowHeight - sigTopPad;
         for (int i = 0; i < cols; i++) {
             Map<String, Object> field = footerFields.get(i);
             String role = field != null && field.get("label") != null ? String.valueOf(field.get("label")) : "APPROVER";
@@ -9269,8 +9314,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             float tx = x + colWidth * i + 4;
             List<String> lines = wrapText(usersText, PDType1Font.HELVETICA, 9, colWidth - 8);
             float textBlockHeight = lines.size() * bodyLineHeight;
-            // Vertically center user text in the bottom row cell.
-            float ty = y + (rowSig - textBlockHeight) / 2f + 9f; // hardcoded raise
+            // Bottom row: top-align user text below the header line, away from the lower cell border.
+            float bottomPadding = 12f;
+            float ty = y + rowSig - bottomPadding - textBlockHeight;
             for (String line : lines) {
                 content.beginText();
                 content.newLineAtOffset(tx, ty);
@@ -10311,6 +10357,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     private byte[] applyDynamicFooterSignaturesToPdf(byte[] pdfBytes, Map<String, Object> appData,
             String approvalHistoryJson, boolean onlyLastEntry) {
+        return applyDynamicFooterSignaturesToPdf(pdfBytes, appData, approvalHistoryJson, onlyLastEntry, 0f);
+    }
+
+    private byte[] applyDynamicFooterSignaturesToPdf(byte[] pdfBytes, Map<String, Object> appData,
+            String approvalHistoryJson, boolean onlyLastEntry, float signatureLift) {
         if (pdfBytes == null || pdfBytes.length == 0) {
             return null;
         }
@@ -10326,6 +10377,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             PDPage targetPage = document.getPage(targetPageIndex);
             float pageWidth = targetPage.getMediaBox().getWidth();
             float margin = 40f;
+            float tableX = margin;
+            float tableWidth = pageWidth - margin * 2;
+            if (signatureLift > 0f) {
+                float emailTableWidth = Math.min(mmToPdfPoints(FE_JS_PDF_CONTENT_WIDTH_MM), tableWidthForPage(pageWidth));
+                tableX = (pageWidth - emailTableWidth) / 2f;
+                tableWidth = emailTableWidth;
+            }
             float tableBottomY = 20f;
             float tableHeight = 110f;
             try (PDPageContentStream content = new PDPageContentStream(
@@ -10337,23 +10395,25 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 if (onlyLastEntry) {
                     drawDynamicFooterSignatureLastEntryOnly(
                             content,
-                            margin,
+                            tableX,
                             tableBottomY,
-                            pageWidth - margin * 2,
+                            tableWidth,
                             tableHeight,
                             footerFields,
                             approvalHistoryJson,
-                            document);
+                            document,
+                            signatureLift);
                 } else {
                     drawDynamicFooterSignaturesOnly(
                             content,
-                            margin,
+                            tableX,
                             tableBottomY,
-                            pageWidth - margin * 2,
+                            tableWidth,
                             tableHeight,
                             footerFields,
                             approvalHistoryJson,
-                            document);
+                            document,
+                            signatureLift);
                 }
             }
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -10365,11 +10425,44 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
     }
 
+    /**
+     * Y layout for signature overlay on individual-pipeline footer PDFs.
+     * Returns [sigImageBottomY, sigAreaHeight, timestampBaselineY, maxSigDrawHeight].
+     * signatureLift raises only the signature image; timestamps stay on the normal baseline.
+     */
+    private float[] computeDynamicFooterOverlaySignatureYs(float tableBottomY, float tableHeight,
+            float signatureLift) {
+        float rowSig = 50f;
+        float rowHeader = 22f;
+        float rowNames = tableHeight - rowSig - rowHeader;
+        float sigBandBottom = tableBottomY + rowSig + rowHeader;
+        float timestampRowHeight = 10f;
+        float timestampPad = 9f;
+        float gapBetweenSigAndTime = 2f;
+        float overlayRaise = 6f;
+        float maxSigDrawHeight = 16f;
+        float timestampBaselineY = sigBandBottom + timestampPad + overlayRaise;
+        float sigImageBottomY = timestampBaselineY + timestampRowHeight + gapBetweenSigAndTime + signatureLift;
+        float sigAreaHeight = Math.max(rowNames - 8f, 18f);
+        return new float[] { sigImageBottomY, sigAreaHeight, timestampBaselineY, maxSigDrawHeight };
+    }
+
+    private void clearSignatureImageArea(PDPageContentStream content, float x, float y, float width, float height)
+            throws java.io.IOException {
+        content.saveGraphicsState();
+        content.setNonStrokingColor(255, 255, 255);
+        content.addRect(x, y - 1f, width, height + 3f);
+        content.fill();
+        content.restoreGraphicsState();
+        content.setNonStrokingColor(0, 0, 0);
+    }
+
     private void drawDynamicFooterSignaturesOnly(PDPageContentStream content,
             float x, float y, float width, float height,
             List<Map<String, Object>> footerFields,
             String approvalHistoryJson,
-            PDDocument document) throws java.io.IOException {
+            PDDocument document,
+            float signatureLift) throws java.io.IOException {
         int sections = footerFields != null ? footerFields.size() : 0;
         if (sections <= 0) {
             return;
@@ -10390,9 +10483,6 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             return;
         }
         float colWidth = width / totalSlots;
-        float rowSig = 50f;
-        float rowHeader = 22f;
-        float rowNames = height - rowSig - rowHeader;
 
         List<Map<String, Object>> approvalHistory = parseApprovalHistory(approvalHistoryJson);
         java.util.Set<Integer> allUserIds = new java.util.LinkedHashSet<>();
@@ -10406,14 +10496,12 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         Integer[] userIds = allUserIds.toArray(new Integer[0]);
         Map<Integer, String> signatureFromDb = loadUserSignaturePaths(userIds);
 
-        float timestampRowHeight = 10f;
-        float sigAreaHeight = rowNames - 8 - timestampRowHeight;
-        float sigRowY = y + rowSig + rowHeader + 4;
-        float sigRowHeight = rowNames - 8;
-        // PDF Y-axis grows upward; subtract to move content visually lower in the box.
-        float sigAreaY = sigRowY + timestampRowHeight - 11f;
-        float maxSigDrawHeight = 14f;
-        float timestampY = sigRowY - 12f;
+        float[] overlayYs = computeDynamicFooterOverlaySignatureYs(y, height, signatureLift);
+        float sigAreaY = overlayYs[0];
+        float sigAreaHeight = overlayYs[1];
+        float timestampY = overlayYs[2];
+        float maxSigDrawHeight = overlayYs[3];
+        float[] baselineOverlayYs = signatureLift > 0f ? computeDynamicFooterOverlaySignatureYs(y, height, 0f) : null;
         int slotIndex = 0;
         for (int i = 0; i < sections; i++) {
             Map<String, Object> field = footerFields.get(i);
@@ -10428,6 +10516,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 if (sigPath != null && !sigPath.trim().isEmpty()) {
                     float cellX = x + colWidth * slotIndex;
                     float cellW = colWidth - 8;
+                    if (baselineOverlayYs != null) {
+                        clearSignatureImageArea(content, cellX + 4, baselineOverlayYs[0], cellW, baselineOverlayYs[3]);
+                    }
                     drawSignatureImage(document, content, sigPath, cellX + 4, sigAreaY, cellW, sigAreaHeight, true, maxSigDrawHeight);
                     Map<String, Object> entry = findApprovalEntryForUser(approvalHistory, uid, role);
                     if (entry != null) {
@@ -10450,7 +10541,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             float x, float y, float width, float height,
             List<Map<String, Object>> footerFields,
             String approvalHistoryJson,
-            PDDocument document) throws java.io.IOException {
+            PDDocument document,
+            float signatureLift) throws java.io.IOException {
         List<Map<String, Object>> approvalHistory = parseApprovalHistory(approvalHistoryJson);
         if (approvalHistory == null || approvalHistory.isEmpty()) {
             return;
@@ -10527,18 +10619,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             return;
         }
         float colWidth = width / totalSlots;
-        float rowSig = 50f;
-        float rowHeader = 22f;
-        float rowNames = height - rowSig - rowHeader;
-        float timestampRowHeight = 10f;
-        float sigAreaHeight = rowNames - 8 - timestampRowHeight;
-        float sigRowY = y + rowSig + rowHeader + 4;
-        // PDF Y-axis grows upward; subtract to move content visually lower in the box.
-        float sigAreaY = sigRowY + timestampRowHeight - 11f;
-        float maxSigDrawHeight = 14f;
-        float timestampY = sigRowY - 12f;
+        float[] overlayYs = computeDynamicFooterOverlaySignatureYs(y, height, signatureLift);
+        float sigAreaY = overlayYs[0];
+        float sigAreaHeight = overlayYs[1];
+        float timestampY = overlayYs[2];
+        float maxSigDrawHeight = overlayYs[3];
         float cellX = x + colWidth * targetSlotIndex;
         float cellW = colWidth - 8;
+        if (signatureLift > 0f) {
+            float[] baselineOverlayYs = computeDynamicFooterOverlaySignatureYs(y, height, 0f);
+            clearSignatureImageArea(content, cellX + 4, baselineOverlayYs[0], cellW, baselineOverlayYs[3]);
+        }
         drawSignatureImage(document, content, sigPath, cellX + 4, sigAreaY, cellW, sigAreaHeight, true, maxSigDrawHeight);
         String dateTimeStr = formatApprovalDateTime(lastEntry.get("approvedDate"));
         if (dateTimeStr != null && !dateTimeStr.isEmpty()) {
@@ -10851,6 +10942,70 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         return null;
     }
 
+    private byte[] resolveStageZeroPdfForEmailPreview(CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return null;
+        }
+        byte[] stageZeroPdf = application.getBlbPdfForStage(0);
+        if (stageZeroPdf != null && stageZeroPdf.length > 0) {
+            return stageZeroPdf;
+        }
+        EntityManager em = getEntityManager();
+        try {
+            if (application.getSerApplicationId() != null) {
+                CfgTblCustomFormApplication dbApp = em.find(CfgTblCustomFormApplication.class,
+                        application.getSerApplicationId());
+                if (dbApp != null) {
+                    stageZeroPdf = dbApp.getBlbPdfForStage(0);
+                    if (stageZeroPdf != null && stageZeroPdf.length > 0) {
+                        return stageZeroPdf;
+                    }
+                }
+            }
+        } finally {
+            if (em.isOpen()) {
+                em.close();
+            }
+        }
+        return null;
+    }
+
+    private byte[] buildGeneralFooterEmailPreviewPdf(CfgTblCustomFormApplication application,
+            CfgTblCustomForm form,
+            byte[] fallbackPdfBytes) {
+        try {
+            if (application == null || isCapfForm(form) || isBudgetApprovalForm(form)
+                    || !hasDynamicFooterFlow(application)) {
+                return fallbackPdfBytes;
+            }
+            Map<String, Object> appData = parseApplicationData(application);
+            if (extractFooterFields(appData).isEmpty()) {
+                return fallbackPdfBytes;
+            }
+            byte[] basePdf = resolveStageZeroPdfForEmailPreview(application);
+            if (basePdf == null || basePdf.length == 0) {
+                return fallbackPdfBytes;
+            }
+            if (fallbackPdfBytes != null && fallbackPdfBytes.length > 0) {
+                int fallbackPages = getPdfPageCount(fallbackPdfBytes);
+                int basePages = getPdfPageCount(basePdf);
+                if (fallbackPages > basePages) {
+                    return fallbackPdfBytes;
+                }
+            }
+            byte[] previewPdf = applyDynamicFooterSignaturesToPdf(
+                    basePdf,
+                    appData,
+                    application.getTxtApprovalHistory(),
+                    false,
+                    EMAIL_DYNAMIC_FOOTER_SIGNATURE_LIFT);
+            return previewPdf != null && previewPdf.length > 0 ? previewPdf : fallbackPdfBytes;
+        } catch (Exception e) {
+            log.warn("Unable to build email-only dynamic-footer preview PDF: {}", e.getMessage());
+            return fallbackPdfBytes;
+        }
+    }
+
     private List<com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService.EmailAttachment> extractEmailAttachmentsFromAppData(Map<String, Object> appData) {
         List<com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService.EmailAttachment> emailAttachments = new java.util.ArrayList<>();
         if (appData == null) return emailAttachments;
@@ -10980,7 +11135,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
             // Non-CAPF: embed all PDF pages inline as PNG images (up to configured cap). Skipped for expense claims (see above).
             if (!isCapf && !isExpenseClaim && pdfBytes != null && pdfBytes.length > 0) {
-                List<byte[]> pageImages = renderPdfPagesToPng(pdfBytes, MAX_NON_CAPF_INLINE_PDF_PAGES);
+                byte[] previewPdfBytes = buildGeneralFooterEmailPreviewPdf(application, form, pdfBytes);
+                List<byte[]> pageImages = renderPdfPagesToPng(previewPdfBytes, MAX_NON_CAPF_INLINE_PDF_PAGES);
                 if (pageImages != null && !pageImages.isEmpty()) {
                     List<EmailService.InlineImage> inlineImages = new java.util.ArrayList<>();
                     List<String> cids = new java.util.ArrayList<>();
@@ -11615,6 +11771,83 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     private int currentLevelSafe(CfgTblCustomFormApplication application) {
         Integer lvl = application != null ? application.getIntCurrentApprovalLevel() : null;
         return lvl != null ? lvl : 0;
+    }
+
+    private Integer capfHistoryLevelForStage(boolean isCapf, Integer currentLevel, Integer pipelineOrder) {
+        int level = currentLevel != null ? currentLevel : 0;
+        if (isCapf && level == 0) {
+            return 0;
+        }
+        return pipelineOrder != null ? pipelineOrder : level + 1;
+    }
+
+    private boolean capfUserAlreadyApprovedOpenStage(CfgTblCustomFormApplication application, boolean isCapf,
+            Integer currentLevel, Integer pipelineOrder, Integer departmentId, String departmentName, Integer userId) {
+        if (!isCapf || application == null) {
+            return false;
+        }
+        Integer stageLevel = capfHistoryLevelForStage(true, currentLevel, pipelineOrder);
+        List<Map<String, Object>> approvalHistory = parseApprovalHistory(application.getTxtApprovalHistory());
+        return userAlreadyApprovedStage(approvalHistory, userId, stageLevel, departmentId, departmentName);
+    }
+
+    private boolean userAlreadyApprovedStage(List<Map<String, Object>> approvalHistory, Integer userId,
+            Integer level, Integer departmentId, String departmentName) {
+        if (approvalHistory == null || approvalHistory.isEmpty() || userId == null || level == null) {
+            return false;
+        }
+        long cutoffEpoch = getLatestResetEpochForStage(approvalHistory, level);
+        for (Map<String, Object> entry : approvalHistory) {
+            if (entry == null || !isApprovedEntry(entry)) {
+                continue;
+            }
+            Integer approvedBy = extractApprovalUserId(entry);
+            if (approvedBy == null || !approvedBy.equals(userId)) {
+                continue;
+            }
+            Integer entryLevel = safeInt(entry.get("level"), safeInt(entry.get("intApprovalOrder"), null));
+            if (entryLevel == null || !entryLevel.equals(level)) {
+                continue;
+            }
+            if (cutoffEpoch > 0L && getHistoryEntryEpoch(entry) <= cutoffEpoch) {
+                continue;
+            }
+            if (!approvalEntryMatchesStage(entry, departmentId, departmentName)) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private boolean approvalEntryMatchesStage(Map<String, Object> entry, Integer departmentId, String departmentName) {
+        if (entry == null) {
+            return false;
+        }
+        Integer entryDeptId = safeInt(entry.get("departmentId"), safeInt(entry.get("serDepartmentId"), null));
+        if (departmentId != null) {
+            if (departmentId.equals(entryDeptId)) {
+                return true;
+            }
+            return entryDeptId == null && approvalEntryMatchesStageName(entry, departmentName);
+        }
+
+        String expectedName = normalizeDeptText(departmentName);
+        if (expectedName.isEmpty()) {
+            return true;
+        }
+        return approvalEntryMatchesStageName(entry, departmentName);
+    }
+
+    private boolean approvalEntryMatchesStageName(Map<String, Object> entry, String departmentName) {
+        String expectedName = normalizeDeptText(departmentName);
+        if (expectedName.isEmpty()) {
+            return false;
+        }
+        String entryDepartmentName = normalizeDeptText(
+                entry.get("departmentName") != null ? String.valueOf(entry.get("departmentName")) : "");
+        String entryRole = normalizeDeptText(entry.get("role") != null ? String.valueOf(entry.get("role")) : "");
+        return expectedName.equals(entryDepartmentName) || expectedName.equals(entryRole);
     }
 
     private boolean userHasRole(CfgTblUser user, String roleName) {

@@ -184,6 +184,18 @@
     line-height: 1.2;
 }
 
+.app-preview-paper-a4 .xyz-signatures tr:nth-child(2) th {
+    padding-top: 10px;
+    padding-bottom: 10px;
+    line-height: 1.45;
+}
+
+.app-preview-paper-a4 .xyz-signatures tr:last-child td {
+    vertical-align: top;
+    padding-top: 6px;
+    line-height: 1.45;
+}
+
 .app-preview-paper-a4 .xyz-signatures td > span {
     display: block;
     white-space: normal;
@@ -438,6 +450,19 @@
 .xyz-signatures td {
     font-family: Calibri, "Calibri (Body)", Arial, sans-serif;
     font-size: 12px;
+}
+
+/* Individual pipeline footer: keep header/user text off the row border in preview + email PDF capture */
+.xyz-paper-footer-pinned .xyz-signatures tr:nth-child(2) th {
+    padding-top: 10px;
+    padding-bottom: 10px;
+    line-height: 1.45;
+}
+
+.xyz-paper-footer-pinned .xyz-signatures tr:last-child td {
+    vertical-align: top;
+    padding-top: 8px;
+    line-height: 1.45;
 }
 
 @media (max-width: 900px) {

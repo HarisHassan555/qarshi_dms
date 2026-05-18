@@ -206,9 +206,24 @@ export class ApplicationPdfService {
             // Add a class to the element to trigger PDF-specific styles
             element.classList.add('pdf-generation-mode');
             const paperElement = (element.querySelector('.xyz-paper') as HTMLElement) || element;
-            const footerPinned = paperElement?.classList.contains('xyz-paper-footer-pinned');
+            const hasIndividualPipelineSignatures = !!paperElement?.querySelector(
+              '.xyz-footer .xyz-signatures, .ec-slip-pipeline-footer .xyz-signatures'
+            );
+            const footerPinned =
+              !!paperElement &&
+              (paperElement.classList.contains('xyz-paper-footer-pinned') ||
+                paperElement.classList.contains('xyz-paper--footer-pinned') ||
+                !!paperElement.querySelector('.xyz-footer-spacer'));
             if (paperElement) {
               paperElement.classList.add('pdf-generation-mode');
+              if (hasIndividualPipelineSignatures) {
+                const setIframeStyle = (el: HTMLElement | null, prop: string, value: string) => {
+                  if (el) {
+                    el.style.setProperty(prop, value, 'important');
+                  }
+                };
+                this.applyIndividualPipelineFooterPdfCaptureStyles(paperElement, setIframeStyle);
+              }
               if (footerPinned) {
                 paperElement.style.setProperty('display', 'flex', 'important');
                 paperElement.style.setProperty('flex-direction', 'column', 'important');
@@ -584,6 +599,149 @@ export class ApplicationPdfService {
    * Matches {@link ApplicationDetailsComponent.generatePdf} non-CAPF path so stored PDF/email previews align with on-screen line breaks.
    * Do not use for CAPF.
    */
+  /**
+   * Email/stored PDF capture for individual pipeline footer tables: inline styles so html2canvas
+   * keeps header and user-name text off the cell borders (stylesheet-only rules are often ignored).
+   * See VIM-FE/docs/individual-pipeline-footer-pdf-spacing.md
+   */
+  private applyIndividualPipelineFooterPdfCaptureStyles(
+    root: HTMLElement,
+    setStyle: (el: HTMLElement | null, prop: string, value: string) => void
+  ): void {
+    const tables = Array.from(
+      root.querySelectorAll('.xyz-footer .xyz-signatures, .ec-slip-pipeline-footer .xyz-signatures')
+    ) as HTMLElement[];
+    tables.forEach((table) => {
+      const sigCells = Array.from(table.querySelectorAll('tr.xyz-signatures-blank td')) as HTMLElement[];
+      sigCells.forEach((cell) => {
+        const hasSigContent = !!cell.querySelector('.xyz-sig-img, .xyz-sig-time');
+        setStyle(cell, 'vertical-align', 'top');
+        setStyle(cell, 'padding-top', '2px');
+        setStyle(cell, 'padding-bottom', '2px');
+        setStyle(cell, 'height', '46px');
+        setStyle(cell, 'min-height', '46px');
+        setStyle(cell, 'box-sizing', 'border-box');
+        if (hasSigContent) {
+          setStyle(cell, 'position', 'relative');
+        }
+
+        let wrapper: HTMLElement | null = null;
+        for (const child of Array.from(cell.children)) {
+          if (child instanceof HTMLElement && !child.classList.contains('pdf-footer-sig-top-spacer')) {
+            wrapper = child;
+            break;
+          }
+        }
+
+        if (wrapper && hasSigContent) {
+          setStyle(wrapper, 'position', 'absolute');
+          setStyle(wrapper, 'top', '1px');
+          setStyle(wrapper, 'left', '0');
+          setStyle(wrapper, 'right', '0');
+          setStyle(wrapper, 'display', 'flex');
+          setStyle(wrapper, 'flex-direction', 'column');
+          setStyle(wrapper, 'align-items', 'center');
+          setStyle(wrapper, 'justify-content', 'flex-start');
+          setStyle(wrapper, 'height', 'auto');
+          setStyle(wrapper, 'min-height', '0');
+          setStyle(wrapper, 'margin', '0');
+          setStyle(wrapper, 'padding', '0');
+          setStyle(wrapper, 'box-sizing', 'border-box');
+        }
+
+        const img = cell.querySelector('.xyz-sig-img') as HTMLElement | null;
+        if (img) {
+          setStyle(img, 'display', 'block');
+          setStyle(img, 'margin', '0 auto 2px auto');
+          setStyle(img, 'max-height', '14px');
+        }
+
+        const timeEl = cell.querySelector('.xyz-sig-time') as HTMLElement | null;
+        if (timeEl) {
+          setStyle(timeEl, 'display', 'block');
+          setStyle(timeEl, 'margin', '0 auto');
+          setStyle(timeEl, 'line-height', '1.1');
+          setStyle(timeEl, 'font-size', '7px');
+        }
+      });
+
+      const headerCells = Array.from(table.querySelectorAll('tr:nth-child(2) th')) as HTMLElement[];
+      headerCells.forEach((cell) => {
+        setStyle(cell, 'padding-top', '12px');
+        setStyle(cell, 'padding-bottom', '12px');
+        setStyle(cell, 'line-height', '1.45');
+        setStyle(cell, 'vertical-align', 'middle');
+        setStyle(cell, 'box-sizing', 'border-box');
+      });
+
+      const userRow = table.querySelector('tr:last-child') as HTMLElement | null;
+      if (userRow) {
+        setStyle(userRow, 'height', '58px');
+      }
+
+      const userCells = Array.from(table.querySelectorAll('tr:last-child td')) as HTMLElement[];
+      userCells.forEach((cell) => {
+        setStyle(cell, 'vertical-align', 'top');
+        setStyle(cell, 'padding-top', '10px');
+        setStyle(cell, 'padding-bottom', '0');
+        setStyle(cell, 'padding-left', '6px');
+        setStyle(cell, 'padding-right', '6px');
+        setStyle(cell, 'min-height', '58px');
+        setStyle(cell, 'height', '58px');
+        setStyle(cell, 'line-height', '1.45');
+        setStyle(cell, 'box-sizing', 'border-box');
+
+        let inner: HTMLElement | null = null;
+        for (const child of Array.from(cell.children)) {
+          if (!(child instanceof HTMLElement) || child.classList.contains('pdf-footer-cell-pad')) {
+            continue;
+          }
+          const tag = child.tagName.toLowerCase();
+          if (tag === 'span' || tag === 'div') {
+            inner = child;
+            break;
+          }
+        }
+
+        if (!inner && (cell.textContent || '').trim()) {
+          inner = document.createElement('div');
+          inner.className = 'pdf-footer-user-inner';
+          while (cell.firstChild) {
+            inner.appendChild(cell.firstChild);
+          }
+          cell.insertBefore(inner, cell.firstChild);
+        }
+
+        if (inner) {
+          setStyle(inner, 'display', 'block');
+          setStyle(inner, 'padding-top', '0');
+          setStyle(inner, 'padding-bottom', '0');
+          setStyle(inner, 'margin', '0');
+          setStyle(inner, 'line-height', '1.45');
+          setStyle(inner, 'box-sizing', 'border-box');
+        }
+
+        let pad = cell.querySelector('.pdf-footer-cell-pad') as HTMLElement | null;
+        if (!pad) {
+          pad = document.createElement('div');
+          pad.className = 'pdf-footer-cell-pad';
+          pad.setAttribute('aria-hidden', 'true');
+          cell.appendChild(pad);
+        }
+        setStyle(pad, 'display', 'block');
+        setStyle(pad, 'width', '100%');
+        setStyle(pad, 'height', '16px');
+        setStyle(pad, 'min-height', '16px');
+        setStyle(pad, 'margin', '0');
+        setStyle(pad, 'padding', '0');
+        setStyle(pad, 'border', '0');
+        setStyle(pad, 'box-sizing', 'border-box');
+        setStyle(pad, 'background', 'transparent');
+        setStyle(pad, 'pointer-events', 'none');
+      });
+    });
+  }
+
   async renderMultiPageXyzPapersToPdfBlob(container: HTMLElement): Promise<Blob> {
     // Capture from an offscreen clone so live /application preview never changes while snapshot is generated.
     const captureHost = document.createElement('div');
@@ -601,6 +759,90 @@ export class ApplicationPdfService {
       [data-pdf-capture-scope="${captureScopeId}"] .xyz-rule.thick::before,
       [data-pdf-capture-scope="${captureScopeId}"] .xyz-rule.thick::after {
         content: none !important;
+      }
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr.xyz-signatures-blank td,
+      [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr.xyz-signatures-blank td {
+        vertical-align: top !important;
+        padding-top: 6px !important;
+        padding-bottom: 2px !important;
+        height: 46px !important;
+        min-height: 46px !important;
+        box-sizing: border-box !important;
+      }
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr.xyz-signatures-blank td:has(.xyz-sig-img),
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr.xyz-signatures-blank td:has(.xyz-sig-time),
+      [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr.xyz-signatures-blank td:has(.xyz-sig-img),
+      [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr.xyz-signatures-blank td:has(.xyz-sig-time) {
+        position: relative !important;
+      }
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr.xyz-signatures-blank td > div,
+      [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr.xyz-signatures-blank td > div {
+        position: absolute !important;
+        top: 1px !important;
+        left: 0 !important;
+        right: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        height: auto !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        box-sizing: border-box !important;
+      }
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr.xyz-signatures-blank .xyz-sig-img,
+      [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr.xyz-signatures-blank .xyz-sig-img {
+        display: block !important;
+        margin: 0 auto 2px auto !important;
+      }
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr.xyz-signatures-blank .xyz-sig-time,
+      [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr.xyz-signatures-blank .xyz-sig-time {
+        display: block !important;
+        margin: 0 auto !important;
+        line-height: 1.1 !important;
+      }
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr:nth-child(2) th,
+      [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr:nth-child(2) th {
+        padding-top: 12px !important;
+        padding-bottom: 12px !important;
+        line-height: 1.45 !important;
+        vertical-align: middle !important;
+        box-sizing: border-box !important;
+      }
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr:last-child,
+      [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr:last-child {
+        height: 58px !important;
+      }
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr:last-child td,
+      [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr:last-child td {
+        vertical-align: top !important;
+        padding-top: 10px !important;
+        padding-bottom: 0 !important;
+        min-height: 58px !important;
+        height: 58px !important;
+        line-height: 1.45 !important;
+        box-sizing: border-box !important;
+      }
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr:last-child td > span,
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr:last-child td > div:not(.pdf-footer-cell-pad),
+      [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr:last-child td > span,
+      [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr:last-child td > div:not(.pdf-footer-cell-pad) {
+        display: block !important;
+        margin: 0 !important;
+        line-height: 1.45 !important;
+        box-sizing: border-box !important;
+      }
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures .pdf-footer-cell-pad,
+      [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures .pdf-footer-cell-pad {
+        display: block !important;
+        width: 100% !important;
+        height: 16px !important;
+        min-height: 16px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        box-sizing: border-box !important;
       }
     `;
     cloneRoot.prepend(captureStyle);
@@ -719,13 +961,13 @@ export class ApplicationPdfService {
       setStyle(target, 'font-size', '13.5px');
       setStyle(target, 'line-height', '1.35');
 
-      const hasFooter = !!target.querySelector('.xyz-footer');
+      const individualSignatureSelector =
+        '.xyz-footer .xyz-signatures, .ec-slip-pipeline-footer .xyz-signatures';
+      const hasIndividualPipelineSignatures = !!target.querySelector(individualSignatureSelector);
       const footerPinned =
         target.classList.contains('xyz-paper-footer-pinned') ||
         target.classList.contains('xyz-paper--footer-pinned') ||
-        // Application preview generic papers usually don't carry a pinned class;
-        // if last paper has footer, treat it as footer-pinned for email/export parity.
-        (hasFooter && i === papers.length - 1);
+        (!!target.querySelector('.xyz-footer-spacer') && hasIndividualPipelineSignatures);
       let targetPageHeightPx = 0;
       if (footerPinned) {
         const contentArea = (target.querySelector('.xyz-content-area') ||
@@ -767,6 +1009,10 @@ export class ApplicationPdfService {
         const snappedHeightPx = Math.ceil(naturalHeightPx / pageHeightPx) * pageHeightPx;
         setStyle(target, 'height', `${snappedHeightPx}px`);
         setStyle(target, 'min-height', `${snappedHeightPx}px`);
+      }
+
+      if (hasIndividualPipelineSignatures) {
+        this.applyIndividualPipelineFooterPdfCaptureStyles(target, setStyle);
       }
 
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -2303,6 +2549,7 @@ export class ApplicationPdfService {
     headingText = headingText.trim();
     
     const dateStr = application?.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleDateString() : new Date().toLocaleDateString();
+    const individualPipelineFooter = Array.isArray(dynamicFooterFields) && dynamicFooterFields.length > 0;
     return this.generateBudgetApprovalXyzHtml(
       headingText,
       dateStr,
@@ -2313,7 +2560,10 @@ export class ApplicationPdfService {
       [],
       undefined,
       Array.isArray(dynamicFooterFields) ? dynamicFooterFields : [],
-      applicationMeta
+      {
+        ...applicationMeta,
+        individualPipelineFooter,
+      }
     );
   }
 
@@ -2327,9 +2577,10 @@ export class ApplicationPdfService {
     recommenders: any[] = [],
     approver?: any,
     footerFields: any[] = [],
-    applicationMeta?: { omitApprovalSignaturesInPdf?: boolean }
+    applicationMeta?: { omitApprovalSignaturesInPdf?: boolean; individualPipelineFooter?: boolean }
   ): string {
     const omitApprovalSignatures = !!applicationMeta?.omitApprovalSignaturesInPdf;
+    const isIndividualPipelineEmail = !!applicationMeta?.individualPipelineFooter;
     let approvalHistory: any[] = [];
     if (approvalHistoryJson) {
       try {
@@ -2460,9 +2711,14 @@ export class ApplicationPdfService {
         div.textContent = p;
         return div.innerHTML;
       });
-      return safe.join('<br>');
+      const inner = safe.join('<br>');
+      if (isIndividualPipelineEmail) {
+        return `<div class="xyz-footer-user-text">${inner}</div>`;
+      }
+      return inner;
     };
     const hasDynamicFooter = Array.isArray(footerFields) && footerFields.length > 0;
+    const paperExtraClass = isIndividualPipelineEmail ? ' xyz-individual-pipeline-email' : '';
     const css = `
     * { box-sizing: border-box; }
     body { margin: 0; padding: 0; background:#ffffff; color:#000; text-align: center; }
@@ -2652,6 +2908,10 @@ export class ApplicationPdfService {
     .xyz-sig-img { max-height: 14px; max-width: 85%; width: auto; height: auto; object-fit: contain; display:block; margin:0 auto 1px auto; box-sizing:border-box; vertical-align:bottom; }
     .xyz-signatures-blank td .xyz-sig-img { max-height: 14px !important; max-width: calc(85% - 8px) !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 0 auto 1px auto !important; vertical-align: bottom !important; }
     .xyz-signatures-blank td > div { text-align:center; vertical-align:middle; display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; padding-top:2px; margin-top:0; }
+    .xyz-paper.xyz-individual-pipeline-email .xyz-signatures-blank td { padding-top:2px !important; padding-bottom:2px !important; vertical-align:top !important; }
+    .xyz-paper.xyz-individual-pipeline-email .xyz-signatures-blank td > div { justify-content:flex-start !important; height:auto !important; min-height:0 !important; padding-top:0 !important; }
+    .xyz-paper.xyz-individual-pipeline-email .xyz-signatures-blank .xyz-sig-img { margin:0 auto 2px auto !important; }
+    .xyz-paper.xyz-individual-pipeline-email .xyz-signatures-blank .xyz-sig-time { display:block !important; margin:0 auto !important; line-height:1.1 !important; }
     .xyz-sig-time { font-size:7px; color:#6b7280; margin-top:0; line-height:1.1; }
     .xyz-signatures-blank td .xyz-sig-time { font-size: 7px !important; margin-top: 0 !important; }
     .xyz-generic-field { margin-bottom:10px; }
@@ -2685,6 +2945,23 @@ export class ApplicationPdfService {
     .xyz-generic-word .ql-align-right { text-align:right; }
     .xyz-generic-word .ql-align-justify { text-align:justify; }
     .xyz-footer-user { text-align:center; }
+    .xyz-paper.xyz-individual-pipeline-email .xyz-signatures tr:nth-child(2) th {
+      padding-top: 10px !important;
+      padding-bottom: 10px !important;
+      line-height: 1.45 !important;
+    }
+    .xyz-paper.xyz-individual-pipeline-email .xyz-signatures tr:last-child td,
+    .xyz-paper.xyz-individual-pipeline-email .xyz-signatures td.xyz-footer-user {
+      vertical-align: top !important;
+      padding-top: 8px !important;
+      padding-bottom: 14px !important;
+      line-height: 1.45 !important;
+    }
+    .xyz-paper.xyz-individual-pipeline-email .xyz-footer-user-text {
+      display: block;
+      padding-bottom: 6px;
+      line-height: 1.45;
+    }
     `;
 
     return `<!DOCTYPE html>
@@ -2696,7 +2973,7 @@ export class ApplicationPdfService {
     <div class="abc-wrapper">
     <style>${css}</style>
     <div class="xyz-page">
-      <div class="xyz-paper${hasDynamicFooter ? ' xyz-paper-footer-pinned' : ''}">
+      <div class="xyz-paper${hasDynamicFooter ? ' xyz-paper-footer-pinned' : ''}${paperExtraClass}">
       <div class="xyz-header-container">
         <div class="xyz-date-row"><div class="xyz-date">Date: ${dateStr}</div></div>
         <div class="xyz-header">
