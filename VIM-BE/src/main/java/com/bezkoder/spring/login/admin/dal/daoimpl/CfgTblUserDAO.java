@@ -258,8 +258,51 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 		EntityManager entityManager = getEntityManager();
 		try {
 			entityManager.getTransaction().begin();
-			 if(CfgTblUser.getCfgTblRole()!=null)
-				  CfgTblUser.setTxtrole(CfgTblUser.getCfgTblRole().getTxtRoleName());
+			if (CfgTblUser == null || CfgTblUser.getSerUserId() == null) {
+				entityManager.getTransaction().rollback();
+				return "Failure";
+			}
+
+			CfgTblUser existingUser = entityManager.find(CfgTblUser.class, CfgTblUser.getSerUserId());
+			if (existingUser == null) {
+				entityManager.getTransaction().rollback();
+				return "Failure";
+			}
+
+			// Preserve existing values for any field not provided by the client to avoid accidental data loss.
+			if (CfgTblUser.getBlIsActive() == null) CfgTblUser.setBlIsActive(existingUser.getBlIsActive());
+			if (CfgTblUser.getBlnStatus() == null) CfgTblUser.setBlnStatus(existingUser.getBlnStatus());
+			if (CfgTblUser.getDteCreatedDate() == null) CfgTblUser.setDteCreatedDate(existingUser.getDteCreatedDate());
+			if (CfgTblUser.getDteModifiedDate() == null) CfgTblUser.setDteModifiedDate(existingUser.getDteModifiedDate());
+			if (CfgTblUser.getNumSubMenuOrder() == null) CfgTblUser.setNumSubMenuOrder(existingUser.getNumSubMenuOrder());
+			if (CfgTblUser.getSerCreatedUser() == null) CfgTblUser.setSerCreatedUser(existingUser.getSerCreatedUser());
+			if (CfgTblUser.getSerModifiedUser() == null) CfgTblUser.setSerModifiedUser(existingUser.getSerModifiedUser());
+			if (isBlank(CfgTblUser.getTxtAddress())) CfgTblUser.setTxtAddress(existingUser.getTxtAddress());
+			if (isBlank(CfgTblUser.getTxtCnic())) CfgTblUser.setTxtCnic(existingUser.getTxtCnic());
+			if (isBlank(CfgTblUser.getTxtContactNo())) CfgTblUser.setTxtContactNo(existingUser.getTxtContactNo());
+			if (isBlank(CfgTblUser.getTxtPassword())) CfgTblUser.setTxtPassword(existingUser.getTxtPassword());
+			if (isBlank(CfgTblUser.getTxtUserName())) CfgTblUser.setTxtUserName(existingUser.getTxtUserName());
+			if (isBlank(CfgTblUser.getTxtrole())) CfgTblUser.setTxtrole(existingUser.getTxtrole());
+			if (CfgTblUser.getCfgTblUserRoles() == null) CfgTblUser.setCfgTblUserRoles(existingUser.getCfgTblUserRoles());
+			if (CfgTblUser.getSerGroupId() == null) CfgTblUser.setSerGroupId(existingUser.getSerGroupId());
+			if (CfgTblUser.getBlIsDeleted() == null) CfgTblUser.setBlIsDeleted(existingUser.getBlIsDeleted());
+			if (CfgTblUser.getCfgTblRole() == null) CfgTblUser.setCfgTblRole(existingUser.getCfgTblRole());
+			if (CfgTblUser.getBlIsPasswordChang() == null) CfgTblUser.setBlIsPasswordChang(existingUser.getBlIsPasswordChang());
+			if (CfgTblUser.getCfgTblManager() == null) CfgTblUser.setCfgTblManager(existingUser.getCfgTblManager());
+			if (CfgTblUser.getCfgTblPasswordPolicy() == null) CfgTblUser.setCfgTblPasswordPolicy(existingUser.getCfgTblPasswordPolicy());
+			if (CfgTblUser.getDteExpiryDate() == null) CfgTblUser.setDteExpiryDate(existingUser.getDteExpiryDate());
+			if (CfgTblUser.getNumAttempt() == null) CfgTblUser.setNumAttempt(existingUser.getNumAttempt());
+			if (CfgTblUser.getCfgTblCustomer() == null) CfgTblUser.setCfgTblCustomer(existingUser.getCfgTblCustomer());
+			if (CfgTblUser.getBlIsGroupCustomer() == null) CfgTblUser.setBlIsGroupCustomer(existingUser.getBlIsGroupCustomer());
+			if (CfgTblUser.getHrTblDepartment() == null) CfgTblUser.setHrTblDepartment(existingUser.getHrTblDepartment());
+			if (isBlank(CfgTblUser.getTxtSignaturePath())) CfgTblUser.setTxtSignaturePath(existingUser.getTxtSignaturePath());
+			if (isBlank(CfgTblUser.getTxtDepartmentName())) CfgTblUser.setTxtDepartmentName(existingUser.getTxtDepartmentName());
+			if (isBlank(CfgTblUser.getTxtDesignation())) CfgTblUser.setTxtDesignation(existingUser.getTxtDesignation());
+
+			if (CfgTblUser.getCfgTblRole() != null && isBlank(CfgTblUser.getTxtrole())) {
+				CfgTblUser.setTxtrole(CfgTblUser.getCfgTblRole().getTxtRoleName());
+			}
+
 			entityManager.merge(CfgTblUser);
 			entityManager.getTransaction().commit();
 			entityManager.close();
@@ -268,6 +311,10 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			log.error(e.getMessage(), e);
 			return "Failure";
 		}
+	}
+
+	private boolean isBlank(String value) {
+		return value == null || value.trim().isEmpty();
 	}
 
 	@Override
