@@ -156,6 +156,14 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         return ids;
     }
 
+    private boolean isUserDepartmentHead(EntityManager em, Integer departmentId, Integer userId) {
+        if (em == null || departmentId == null || userId == null || userId <= 0) {
+            return false;
+        }
+        Set<Integer> headIds = parseDepartmentHeadIds(em, departmentId);
+        return !headIds.isEmpty() && headIds.contains(userId);
+    }
+
     private Set<Integer> getApprovedHodsForStage(List<java.util.Map<String, Object>> approvalHistory,
             Integer departmentId, Integer level) {
         Set<Integer> approved = new HashSet<>();
@@ -219,7 +227,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     /**
      * Find latest reset marker that invalidates prior approvals for a stage level.
-     * `SENT_BACK_TO_INITIATOR` resets all normal stages (>=1).
+     * `SENT_BACK_TO_INITIATOR` resets workflow stages from level 0 onward.
      * `SENT_BACK` resets stages at/after its `toLevel`.
      */
     private long getLatestResetEpochForStage(List<java.util.Map<String, Object>> approvalHistory, Integer stageLevel) {
@@ -238,7 +246,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
             boolean resetsStage = false;
             if ("SENT_BACK_TO_INITIATOR".equals(action)) {
-                resetsStage = stageLevel >= 1;
+                // After send-back-to-initiator, CAPF stage 0 (Initiator HOD) must be re-approvable.
+                // Keep only special pre-workflow levels (e.g., -1 initial signer) outside this reset.
+                resetsStage = stageLevel >= 0;
             } else {
                 Integer toLevel = safeInt(entry.get("toLevel"), null);
                 if (toLevel == null) {
@@ -1787,7 +1797,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             Integer userDepartmentId = loadUserDepartmentId(entityManager, userId, userDepartmentCache);
-            return departmentId != null && userDepartmentId != null && departmentId.equals(userDepartmentId);
+            boolean sameDepartment = departmentId != null && userDepartmentId != null && departmentId.equals(userDepartmentId);
+            if (!sameDepartment) {
+                return false;
+            }
+            // CAPF level 0 is Initiator's HOD stage only.
+            if (isCapf && currentLevel == 0) {
+                return isUserDepartmentHead(entityManager, departmentId, userId);
+            }
+            return true;
         } catch (Exception e) {
             log.warn("Error filtering pending app {} for user {}: {}", application.getSerApplicationId(), userId,
                     e.getMessage());
@@ -2282,6 +2300,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     entityManager.getTransaction().rollback();
                     return "Failure: You are not authorized to approve this department step.";
                 }
+                if (isCapf && currentLevel != null && currentLevel == 0
+                        && !isUserDepartmentHead(entityManager, departmentId, resolvedApproverId)) {
+                    entityManager.getTransaction().rollback();
+                    return "Failure: Only initiator's department head can approve at stage 0.";
+                }
             }
 
             // Get or create approval history array
@@ -2543,6 +2566,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             String actionDepartmentName = null;
             Integer actionRequiredUserId = null;
             Integer actionPipelineOrder = null;
+            boolean authorizationContextResolved = false;
 
             if (useIndividualPipelineFlow) {
                 List<BudgetApprover> sequence = getBudgetApprovalSequence(appData, entityManager);
@@ -2572,6 +2596,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                 actionRequiredUserId = uidObj != null ? (uidObj instanceof Integer ? (Integer) uidObj : Integer.parseInt(uidObj.toString())) : null;
                                 if (actionRequiredUserId != null) {
                                     actionDepartmentName = resolveUserName(entityManager, actionRequiredUserId, currentPipeline);
+                                    authorizationContextResolved = true;
                                 }
                             } else {
                                 Object deptIdObj = currentPipeline.get("serDepartmentId");
@@ -2580,12 +2605,14 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                                             : Integer.parseInt(deptIdObj.toString());
                                     actionDepartmentName = resolveDepartmentName(entityManager, actionDepartmentId,
                                             currentPipeline);
+                                    authorizationContextResolved = true;
                                 }
                             }
                         }
                     } else if (isCapf && currentLevel == 0) {
                         actionDepartmentId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
                         actionDepartmentName = resolveDepartmentName(entityManager, actionDepartmentId, null);
+                        authorizationContextResolved = actionDepartmentId != null;
                     }
                     if (actionRequiredUserId != null) {
                         if (!actionRequiredUserId.equals(resolvedApproverId)) {
@@ -2598,10 +2625,22 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             entityManager.getTransaction().rollback();
                             return "Failure: You are not authorized to perform this action at this stage";
                         }
+                        if (isCapf && currentLevel != null && currentLevel == 0
+                                && !isUserDepartmentHead(entityManager, actionDepartmentId, resolvedApproverId)) {
+                            entityManager.getTransaction().rollback();
+                            return "Failure: Only initiator's department head can perform this action at stage 0";
+                        }
                     }
                 } catch (Exception e) {
                     log.warn("Error validating reject authorization: " + e.getMessage());
+                    entityManager.getTransaction().rollback();
+                    return "Failure: You are not authorized to perform this action at this stage";
                 }
+            }
+
+            if (!useIndividualPipelineFlow && !authorizationContextResolved) {
+                entityManager.getTransaction().rollback();
+                return "Failure: You are not authorized to perform this action at this stage";
             }
 
             if (isCapf && userAlreadyApprovedStage(parseApprovalHistory(application.getTxtApprovalHistory()),
@@ -2899,6 +2938,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 if (userDepartmentId == null || !currentDepartmentId.equals(userDepartmentId)) {
                     entityManager.getTransaction().rollback();
                     return "Failure: You are not authorized to perform this action at this stage";
+                }
+                if (isCapf && originalLevel != null && originalLevel == 0
+                        && !isUserDepartmentHead(entityManager, currentDepartmentId, currentUserId)) {
+                    entityManager.getTransaction().rollback();
+                    return "Failure: Only initiator's department head can perform this action at stage 0";
                 }
             }
 
@@ -3266,7 +3310,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 }
             }
 
-            // Reset to 0 for send back to first person in pipeline
+            // Reset to stage 0 (Initiator's HOD) for send-back-to-initiator.
             Integer originalLevel = currentLevel;
             currentLevel = 0; 
 
@@ -3332,6 +3376,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     entityManager.getTransaction().rollback();
                     return "Failure: You are not authorized to perform this action at this stage";
                 }
+                if (isCapf && originalLevel != null && originalLevel == 0
+                        && !isUserDepartmentHead(entityManager, currentDepartmentId, currentUserId)) {
+                    entityManager.getTransaction().rollback();
+                    return "Failure: Only initiator's department head can perform this action at stage 0";
+                }
             }
 
             // Add send-back action to history with proper data
@@ -3340,9 +3389,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             
             int fromLevel = originalLevel != null ? originalLevel : 0;
             
-            sendBackEntry.put("level", fromLevel + 1); // 1-indexed for consistency with approval entries
+            sendBackEntry.put("level", fromLevel + 1); // sender stage (1-indexed)
             sendBackEntry.put("fromLevel", fromLevel + 1); 
-            sendBackEntry.put("toLevel", 1);     
+            // Target stage is CAPF level 0 (Initiator's HOD / first approver)
+            sendBackEntry.put("toLevel", 0);     
             sendBackEntry.put("departmentId", currentDepartmentId);
             
             // For individual pipeline footer forms, use role as departmentName
@@ -3373,7 +3423,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 sendBackEntry.put("approverName", "");
             }
             
-            log.info("Application sent back to first person in pipeline from Stage {} for appId={}", 
+            log.info("Application sent back to stage 0 (Initiator HOD) from Stage {} for appId={}", 
                 fromLevel + 1, application.getSerApplicationId());
             
             updatedHistory.add(sendBackEntry);
