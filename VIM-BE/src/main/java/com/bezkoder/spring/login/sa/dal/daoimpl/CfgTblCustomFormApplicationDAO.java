@@ -1813,6 +1813,208 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
     }
 
+    private static class CapfStageAuthorizationContext {
+        Integer currentLevel;
+        Integer historyLevel;
+        Integer pipelineOrder;
+        Integer departmentId;
+        Integer requiredUserId;
+        String departmentName;
+    }
+
+    private String validateCapfCurrentStageActionAuthorization(EntityManager entityManager,
+            CfgTblCustomFormApplication application,
+            CfgTblCustomForm form,
+            Integer actorUserId) {
+        if (!isCapfForm(form)) {
+            return null;
+        }
+        if (application == null) {
+            return "Failure: Application not found";
+        }
+        if (actorUserId == null || actorUserId <= 0) {
+            return "Failure: User not authenticated";
+        }
+
+        String status = application.getTxtStatus() != null
+                ? application.getTxtStatus().trim().toUpperCase(Locale.ROOT)
+                : "";
+        if (!status.isEmpty() && !"PENDING".equals(status) && !"IN_PROGRESS".equals(status)) {
+            return "Failure: Application is not pending CAPF departmental approval";
+        }
+
+        CapfStageAuthorizationContext context = resolveCapfStageAuthorizationContext(entityManager, application, form);
+        if (context == null) {
+            return "Failure: You are not authorized to perform this action at this stage";
+        }
+
+        if (context.requiredUserId != null) {
+            if (!context.requiredUserId.equals(actorUserId)) {
+                return "Failure: You are not authorized to perform this action at this stage";
+            }
+        } else if (context.departmentId != null) {
+            Integer actorDepartmentId = loadUserDepartmentId(entityManager, actorUserId);
+            if (actorDepartmentId == null || !context.departmentId.equals(actorDepartmentId)) {
+                return "Failure: You are not authorized to perform this action at this stage";
+            }
+
+            Set<Integer> authorizedHeadIds = resolveDepartmentHeadIdsForApproval(entityManager, context.departmentId);
+            if (authorizedHeadIds.isEmpty()) {
+                return "Failure: No department head is configured for this CAPF approval stage";
+            }
+            if (!authorizedHeadIds.contains(actorUserId)) {
+                return "Failure: You are not authorized to perform this action at this stage";
+            }
+        } else {
+            return "Failure: You are not authorized to perform this action at this stage";
+        }
+
+        if (userAlreadyApprovedStage(parseApprovalHistory(application.getTxtApprovalHistory()),
+                actorUserId,
+                context.historyLevel,
+                context.departmentId,
+                context.departmentName)) {
+            return "Failure: User not authenticated";
+        }
+
+        return null;
+    }
+
+    private CapfStageAuthorizationContext resolveCapfStageAuthorizationContext(EntityManager entityManager,
+            CfgTblCustomFormApplication application,
+            CfgTblCustomForm form) {
+        if (entityManager == null || application == null || form == null || !isCapfForm(form)) {
+            return null;
+        }
+
+        Integer currentLevel = application.getIntCurrentApprovalLevel();
+        if (currentLevel == null) {
+            currentLevel = 0;
+        }
+
+        CapfStageAuthorizationContext context = new CapfStageAuthorizationContext();
+        context.currentLevel = currentLevel;
+
+        if (currentLevel == -1) {
+            context.requiredUserId = extractInitialSignerId(application);
+            context.departmentName = "Initial Signer";
+            context.historyLevel = -1;
+            return context.requiredUserId != null ? context : null;
+        }
+
+        if (currentLevel == 0) {
+            Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
+            if (submitterDeptId == null) {
+                return null;
+            }
+            context.departmentId = submitterDeptId;
+            context.departmentName = resolveDepartmentName(entityManager, submitterDeptId, null);
+            context.historyLevel = 0;
+            return context;
+        }
+
+        List<Map<String, Object>> pipelines = loadApprovalPipeline(form);
+        int pipelineIndex = currentLevel - 1;
+        if (pipelines.isEmpty() || pipelineIndex < 0 || pipelineIndex >= pipelines.size()) {
+            return null;
+        }
+
+        Map<String, Object> pipeline = pipelines.get(pipelineIndex);
+        if (pipeline == null) {
+            return null;
+        }
+
+        context.pipelineOrder = extractPipelineOrder(pipeline, currentLevel);
+        context.historyLevel = capfHistoryLevelForStage(true, currentLevel, context.pipelineOrder);
+
+        if ("individual".equalsIgnoreCase(String.valueOf(pipeline.get("type")))) {
+            context.requiredUserId = extractPipelineUserId(pipeline);
+            if (context.requiredUserId != null) {
+                context.departmentName = resolveUserName(entityManager, context.requiredUserId, pipeline);
+            }
+            return context.requiredUserId != null ? context : null;
+        }
+
+        context.departmentId = extractPipelineDepartmentId(pipeline);
+        context.departmentName = resolveDepartmentName(entityManager, context.departmentId, pipeline);
+        if (isUserDepartmentHodStage(pipeline, context.departmentName)) {
+            Integer submitterDeptId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
+            if (submitterDeptId != null) {
+                context.departmentId = submitterDeptId;
+                context.departmentName = resolveDepartmentName(entityManager, submitterDeptId, null);
+            }
+        }
+
+        return context.departmentId != null ? context : null;
+    }
+
+    private Set<Integer> resolveDepartmentHeadIdsForApproval(EntityManager entityManager, Integer departmentId) {
+        Set<Integer> headIds = new HashSet<>();
+        if (entityManager == null || departmentId == null) {
+            return headIds;
+        }
+
+        headIds.addAll(parseDepartmentHeadIds(entityManager, departmentId));
+        if (headIds.isEmpty()) {
+            java.util.List<Integer> fallbackHeadIds = findDepartmentHeadUserIds(entityManager, departmentId);
+            if (fallbackHeadIds != null) {
+                headIds.addAll(fallbackHeadIds);
+            }
+        }
+        if (headIds.isEmpty()) {
+            Integer fallbackHeadId = findDepartmentHeadUserId(entityManager, departmentId);
+            if (fallbackHeadId != null) {
+                headIds.add(fallbackHeadId);
+            }
+        }
+        return headIds;
+    }
+
+    private Integer extractPipelineDepartmentId(Map<String, Object> pipeline) {
+        if (pipeline == null) {
+            return null;
+        }
+        Integer departmentId = safeInt(pipeline.get("serDepartmentId"),
+                safeInt(pipeline.get("departmentId"), null));
+        if (departmentId != null) {
+            return departmentId;
+        }
+
+        Object deptObj = pipeline.get("hrTblDepartment");
+        if (deptObj instanceof Map<?, ?>) {
+            Map<?, ?> deptMap = (Map<?, ?>) deptObj;
+            departmentId = safeInt(deptMap.get("serDepartmentId"),
+                    safeInt(deptMap.get("departmentId"), safeInt(deptMap.get("id"), null)));
+        }
+        return departmentId;
+    }
+
+    private Integer extractPipelineUserId(Map<String, Object> pipeline) {
+        if (pipeline == null) {
+            return null;
+        }
+        Integer userId = safeInt(pipeline.get("serUserId"), safeInt(pipeline.get("userId"), null));
+        if (userId != null) {
+            return userId;
+        }
+
+        Object userObj = pipeline.get("hrTblUser");
+        if (userObj instanceof Map<?, ?>) {
+            Map<?, ?> userMap = (Map<?, ?>) userObj;
+            userId = safeInt(userMap.get("serUserId"),
+                    safeInt(userMap.get("userId"), safeInt(userMap.get("id"), null)));
+        }
+        return userId;
+    }
+
+    private Integer extractPipelineOrder(Map<String, Object> pipeline, Integer fallback) {
+        if (pipeline == null) {
+            return fallback;
+        }
+        return safeInt(pipeline.get("intApprovalOrder"),
+                safeInt(pipeline.get("approvalOrder"), fallback));
+    }
+
     @Override
     public String approveApplication(Integer applicationId, String remarks) {
         return approveApplication(applicationId, remarks, null, "SYSTEM", null);
@@ -1952,6 +2154,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (form == null) {
                 entityManager.getTransaction().rollback();
                 return "Failure: Form not found";
+            }
+
+            String capfAuthorizationFailure = validateCapfCurrentStageActionAuthorization(entityManager, application,
+                    form, resolvedApproverId);
+            if (capfAuthorizationFailure != null) {
+                entityManager.getTransaction().rollback();
+                return capfAuthorizationFailure;
             }
 
             boolean isBudgetApproval = isBudgetApprovalForm(form);
@@ -2552,6 +2761,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
             CfgTblUser approverUser = commonService.getCurrentUser(resolvedApproverId);
 
+            String capfAuthorizationFailure = validateCapfCurrentStageActionAuthorization(entityManager, application,
+                    form, resolvedApproverId);
+            if (capfAuthorizationFailure != null) {
+                entityManager.getTransaction().rollback();
+                return capfAuthorizationFailure;
+            }
+
             // Validate that the current user is the authorized approver for this level (prevent Level 2 acting on behalf of Level 3)
             Map<String, Object> appData = parseApplicationData(application);
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
@@ -2913,6 +3129,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             CfgTblUser currentUser = commonService.getCurrentUser(currentUserId);
             if (currentUser == null) {
                 currentUser = entityManager.find(CfgTblUser.class, currentUserId);
+            }
+
+            String capfAuthorizationFailure = validateCapfCurrentStageActionAuthorization(entityManager, application,
+                    form, currentUserId);
+            if (capfAuthorizationFailure != null) {
+                entityManager.getTransaction().rollback();
+                return capfAuthorizationFailure;
             }
 
             // Validate that the current user is the authorized approver for this level (prevent Level 2 acting on behalf of Level 3)
@@ -3343,6 +3566,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             CfgTblUser currentUser = commonService.getCurrentUser(currentUserId);
             if (currentUser == null) {
                 currentUser = entityManager.find(CfgTblUser.class, currentUserId);
+            }
+
+            String capfAuthorizationFailure = validateCapfCurrentStageActionAuthorization(entityManager, application,
+                    form, currentUserId);
+            if (capfAuthorizationFailure != null) {
+                entityManager.getTransaction().rollback();
+                return capfAuthorizationFailure;
             }
 
             // Validate that the current user is the authorized approver for this level (prevent Level 2 acting on behalf of Level 3)
