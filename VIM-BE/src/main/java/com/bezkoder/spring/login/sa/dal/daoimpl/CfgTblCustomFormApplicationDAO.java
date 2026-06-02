@@ -1832,14 +1832,15 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         if (application == null) {
             return "Failure: Application not found";
         }
-        if (actorUserId == null || actorUserId <= 0) {
+if (actorUserId == null || actorUserId <= 0) {
             return "Failure: User not authenticated";
         }
 
         String status = application.getTxtStatus() != null
                 ? application.getTxtStatus().trim().toUpperCase(Locale.ROOT)
                 : "";
-        if (!status.isEmpty() && !"PENDING".equals(status) && !"IN_PROGRESS".equals(status)) {
+        if (!status.isEmpty() && !"PENDING".equals(status) && !"IN_PROGRESS".equals(status)
+                && !"CEO_PENDING".equals(status)) {
             return "Failure: Application is not pending CAPF departmental approval";
         }
 
@@ -1865,6 +1866,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (!authorizedHeadIds.contains(actorUserId)) {
                 return "Failure: You are not authorized to perform this action at this stage";
             }
+        } else if ("CEO".equals(context.departmentName)) {
+            CfgTblUser actorUser = entityManager.find(CfgTblUser.class, actorUserId);
+            if (actorUser == null || !userHasRole(actorUser, "CEO")) {
+                return "Failure: Only CEO can perform this action at this stage";
+            }
         } else {
             return "Failure: You are not authorized to perform this action at this stage";
         }
@@ -1883,7 +1889,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     private CapfStageAuthorizationContext resolveCapfStageAuthorizationContext(EntityManager entityManager,
             CfgTblCustomFormApplication application,
             CfgTblCustomForm form) {
-        if (entityManager == null || application == null || form == null || !isCapfForm(form)) {
+if (entityManager == null || application == null || form == null || !isCapfForm(form)) {
             return null;
         }
 
@@ -1894,6 +1900,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
         CapfStageAuthorizationContext context = new CapfStageAuthorizationContext();
         context.currentLevel = currentLevel;
+
+        // Handle CEO pending status - CEO approval is at level beyond pipeline
+        String status = application.getTxtStatus() != null
+                ? application.getTxtStatus().trim().toUpperCase(Locale.ROOT)
+                : "";
+        if ("CEO_PENDING".equals(status)) {
+            context.requiredUserId = null;  // CEO role-based, not user-specific
+            context.departmentName = "CEO";
+            context.historyLevel = -99;  // CEO level in history
+            return context;
+        }
 
         if (currentLevel == -1) {
             context.requiredUserId = extractInitialSignerId(application);
@@ -4402,18 +4419,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     application.getTxtApprovalHistory(),
                     getBaseUrl());
 
-            if (isCapfForm(form)) {
-                String cid = "capf-inline";
-                byte[] imageBytes = buildCapfPreviewPng(application, form);
-                if (imageBytes != null && imageBytes.length > 0) {
-                    html = appendCapfInlineImage(html, cid);
-                    emailService.sendHtmlEmailWithInlineImage(ceoEmails, subject, html, imageBytes, "image/png", cid);
-                } else {
-                    emailService.sendHtmlEmail(ceoEmails, subject, html);
-                }
-            } else {
-                emailService.sendHtmlEmail(ceoEmails, subject, html);
-            }
+            // Same path as departmental approvers: inline preview + stored PDF + feasibility/quotation files.
+            boolean isCapf = isCapfForm(form);
+            sendEmailWithInlineFormPreview(ceoEmails, subject, html, application, form, isCapf,
+                    isCapf ? "capf-inline" : "form-inline");
             emailEntityManager.getTransaction().commit();
             log.info("CEO approval emails sent for appId={} to {}", application.getSerApplicationId(), ceoEmails);
         } catch (Exception e) {
@@ -4460,20 +4469,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     "<p>If you need to reject or send back, use the standard action buttons in the application.</p>");
             html.append("<p>Thank you.</p>");
 
-            if (isCapfForm(form)) {
-                String cid = "capf-inline";
-                byte[] imageBytes = buildCapfPreviewPng(application, form);
-                String htmlStr = html.toString();
-                if (imageBytes != null && imageBytes.length > 0) {
-                    htmlStr = appendCapfInlineImage(htmlStr, cid);
-                    emailService.sendHtmlEmailWithInlineImage(financeEmails, subject, htmlStr, imageBytes, "image/png",
-                            cid);
-                } else {
-                    emailService.sendHtmlEmail(financeEmails, subject, htmlStr);
-                }
-            } else {
-                emailService.sendHtmlEmail(financeEmails, subject, html.toString());
-            }
+            boolean isCapf = isCapfForm(form);
+            sendEmailWithInlineFormPreview(financeEmails, subject, html.toString(), application, form, isCapf,
+                    isCapf ? "capf-inline" : "form-inline");
             emailEntityManager.getTransaction().commit();
             log.info("Finance emails sent for appId={} to {}", application.getSerApplicationId(), financeEmails);
         } catch (Exception e) {

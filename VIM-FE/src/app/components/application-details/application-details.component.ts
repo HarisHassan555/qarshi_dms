@@ -2059,6 +2059,7 @@ export class ApplicationDetailsComponent implements OnInit {
   getDepartmentApproverApprovalDate(pipelineOrder: number, departmentId: number | undefined, approverId: number): string {
     if (!departmentId) return '';
     if (this.isSentBackToInitiatorState()) return '';
+    if (this.getDepartmentHeadStatus(pipelineOrder, departmentId, approverId) !== 'APPROVED') return '';
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
     const isVirtualInitiatorStage = pipelineOrder < 0;
     const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
@@ -2077,6 +2078,7 @@ export class ApplicationDetailsComponent implements OnInit {
   getDepartmentApproverRemarks(pipelineOrder: number, departmentId: number | undefined, approverId: number): string {
     if (!departmentId) return '';
     if (this.isSentBackToInitiatorState()) return '';
+    if (this.getDepartmentHeadStatus(pipelineOrder, departmentId, approverId) !== 'APPROVED') return '';
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
     const isVirtualInitiatorStage = pipelineOrder < 0;
     const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
@@ -2546,6 +2548,7 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   getCapfExtraStageApprovedBy(type: string | undefined): string {
+    if (this.getCapfExtraStageStatus(type) !== 'APPROVED') return '';
     const t = (type || '').toString().toLowerCase();
     if (t === 'capf_ceo') {
       const e = this.findApprovalHistoryEntry((x: any) => {
@@ -2571,6 +2574,7 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   getCapfExtraStageApprovedAt(type: string | undefined): string {
+    if (this.getCapfExtraStageStatus(type) !== 'APPROVED') return '';
     const t = (type || '').toString().toLowerCase();
     const match = (x: any) => {
       if (t === 'capf_ceo') {
@@ -2598,6 +2602,7 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   getCapfExtraStageRemarks(type: string | undefined): string {
+    if (this.getCapfExtraStageStatus(type) !== 'APPROVED') return '';
     const t = (type || '').toString().toLowerCase();
     const e = this.findApprovalHistoryEntry((x: any) => {
       const action = (x.action || x.status || '').toString().toUpperCase();
@@ -2611,6 +2616,7 @@ export class ApplicationDetailsComponent implements OnInit {
   }
 
   getCapfExtraStageApprovedVia(type: string | undefined): string {
+    if (this.getCapfExtraStageStatus(type) !== 'APPROVED') return '';
     const t = (type || '').toString().toLowerCase();
     const e = this.findApprovalHistoryEntry((x: any) => {
       const action = (x.action || x.status || '').toString().toUpperCase();
@@ -2626,6 +2632,7 @@ export class ApplicationDetailsComponent implements OnInit {
   getDepartmentApproverIp(pipelineOrder: number, departmentId: number | undefined, approverId: number): string {
     if (!departmentId) return '';
     if (this.isSentBackToInitiatorState()) return '';
+    if (this.getDepartmentHeadStatus(pipelineOrder, departmentId, approverId) !== 'APPROVED') return '';
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel ?? 0;
     const isVirtualInitiatorStage = pipelineOrder < 0;
     const pend = this.getCapfPendingExclusiveMinHistoryLevelFe();
@@ -3371,10 +3378,12 @@ export class ApplicationDetailsComponent implements OnInit {
   // Get approver name for a stage
   getStageApproverName(pipelineOrder: number, departmentId?: number): string {
     if (this.isSentBackToInitiatorState()) return '';
-    // 1. History always takes precedence (who actually approved it)
-    const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
-    if (entry) {
-      return entry.approverName || entry.approvedBy || entry.userName || '';
+    // 1. History only when this stage is fully approved (avoid same user’s earlier step bleeding in)
+    if (this.isDepartmentApproved(pipelineOrder)) {
+      const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
+      if (entry) {
+        return entry.approverName || entry.approvedByName || entry.userName || '';
+      }
     }
 
     // 2. For Budget Approval, show the assigned individual's name
@@ -3442,6 +3451,7 @@ export class ApplicationDetailsComponent implements OnInit {
   // Get approved via channel
   getStageApprovedVia(pipelineOrder: number, departmentId?: number): string {
     if (this.isSentBackToInitiatorState()) return '';
+    if (!this.isDepartmentApproved(pipelineOrder)) return '';
     const entry = this.getStageHistoryEntry(pipelineOrder, departmentId);
     if (entry) {
       return entry.approvedIp || entry.ipAddress || entry.ip || '--';
