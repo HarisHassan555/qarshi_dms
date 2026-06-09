@@ -101,6 +101,7 @@ import { PendingApprovalsComponent } from './components/pending-approvals/pendin
 import { ApplicationDetailsComponent } from './components/application-details/application-details.component';
 import { AssignAssetCodeComponent } from './components/assign-asset-code/assign-asset-code.component';
 import { PrCodeComponent } from './components/pr-code/pr-code.component';
+import { PoCodeComponent } from './components/po-code/po-code.component';
 import { FormBuilderComponent } from './components/form-builder/form-builder.component';
 import { EmailApprovalComponent } from './components/email-approval/email-approval.component';
 import { OrderListComponent } from "./apps/order/list";
@@ -226,6 +227,7 @@ import { SubmenuListComponent } from './components/submenu-list/submenu-list.com
         ApplicationDetailsComponent,
         AssignAssetCodeComponent,
         PrCodeComponent,
+        PoCodeComponent,
         FormBuilderComponent,
         EmailApprovalComponent,
         OrderListComponent,

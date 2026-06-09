@@ -130,6 +130,16 @@ export class CustomFormApplicationService {
     });
   }
 
+  assignPoCode(applicationId: number, poCode: string, userId?: number) {
+    return this.http.post(urls.API_URL + 'assignPoCode', null, {
+      params: {
+        applicationId: applicationId as any,
+        poCode: poCode,
+        userId: userId ?? ''
+      }
+    });
+  }
+
   private stripTransientFields(payload: any): any {
     if (!payload || typeof payload !== 'object') return payload;
     const sanitized = { ...payload };

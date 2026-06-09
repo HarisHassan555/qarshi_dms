@@ -1,5 +1,11 @@
 import { Injectable } from '@angular/core';
 import { urls } from 'src/app/utils/urls';
+import {
+  resolveCapfLogoPath,
+  resolveCapfBrandTitle,
+  resolveCapfLogoCssClass,
+  resolveCapfFormNameFromSources,
+} from 'src/app/utils/capf-logo.util';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
@@ -1112,15 +1118,15 @@ export class ApplicationPdfService {
     if (data?.txtFormCode && data.txtFormCode.trim().toUpperCase().startsWith('CAPF')) {
       return true;
     }
-    if (form && form.txtFormName && form.txtFormName.trim().toUpperCase() === 'CAPF FORM') {
+    if (form && form.txtFormName && form.txtFormName.trim().toUpperCase().includes('CAPF')) {
       return true;
     }
-    if (data?.cfgTblCustomForm && data.cfgTblCustomForm.txtFormName && data.cfgTblCustomForm.txtFormName.trim().toUpperCase() === 'CAPF FORM') {
+    if (data?.cfgTblCustomForm && data.cfgTblCustomForm.txtFormName && data.cfgTblCustomForm.txtFormName.trim().toUpperCase().includes('CAPF')) {
       return true;
     }
     const name = (applicationMeta?.formName || '').trim().toUpperCase();
     const code = (applicationMeta?.txtFormCode || '').trim().toUpperCase();
-    return name === 'CAPF FORM' || code.startsWith('CAPF');
+    return name.includes('CAPF') || code.startsWith('CAPF');
   }
 
   private isExpenseClaimFormMeta(data: any, form: any, applicationMeta?: { formName?: string; txtFormCode?: string }): boolean {
@@ -1259,6 +1265,9 @@ export class ApplicationPdfService {
       }
     }
     let footerFields: any[] = Array.isArray(applicationFormData?.footerFields) ? [...applicationFormData.footerFields] : [];
+    if (footerFields.length === 0 && Array.isArray(applicationFormData?.slipApprovalPipeline)) {
+      footerFields = [...applicationFormData.slipApprovalPipeline];
+    }
     footerFields = footerFields.sort((a: any, b: any) => (Number(a?.order) || 0) - (Number(b?.order) || 0));
 
     const getUserId = (user: any): number | null => {
@@ -1623,6 +1632,9 @@ export class ApplicationPdfService {
       }
     }
     let footerFields: any[] = Array.isArray(applicationFormData?.footerFields) ? [...applicationFormData.footerFields] : [];
+    if (footerFields.length === 0 && Array.isArray(applicationFormData?.slipApprovalPipeline)) {
+      footerFields = [...applicationFormData.slipApprovalPipeline];
+    }
     footerFields = footerFields.sort((a: any, b: any) => (Number(a?.order) || 0) - (Number(b?.order) || 0));
 
     const getUserId = (user: any): number | null => {
@@ -3039,6 +3051,10 @@ export class ApplicationPdfService {
     applicationMeta?: { formName?: string; txtFormCode?: string; omitApprovalSignaturesInPdf?: boolean }
   ): string {
     const omitApprovalSignaturesInPdf = !!applicationMeta?.omitApprovalSignaturesInPdf;
+    const capfFormName = resolveCapfFormNameFromSources(applicationMeta?.formName, application);
+    const capfLogoPath = resolveCapfLogoPath(capfFormName);
+    const capfBrandTitle = resolveCapfBrandTitle(capfFormName);
+    const capfLogoClass = resolveCapfLogoCssClass();
     // Helper function to get field value - completely self-contained, no dependency on abc component
     const getFieldValue = (fieldLabel: string): string => {
       // Helper: Slugify label to match backend keys
@@ -3690,8 +3706,9 @@ export class ApplicationPdfService {
     }
 
     .logo img {
-      max-width: 64px;
-      height: auto;
+      height: 32px;
+      width: auto;
+      max-width: none;
     }
 
     .brand-title {
@@ -4364,7 +4381,9 @@ export class ApplicationPdfService {
     }
 
     :host-context(.pdf-compact) .logo img {
-      max-width: 36px !important;
+      height: 18px !important;
+      width: auto !important;
+      max-width: none !important;
     }
 
     :host-context(.pdf-compact) .checks {
@@ -4440,9 +4459,9 @@ export class ApplicationPdfService {
       <!-- Header -->
       <div class="brand-row">
         <div class="logo">
-          <img src="assets/images/qarshi-logo.png" alt="" class="ml-[5px] w-16 flex-none">
+          <img src="${capfLogoPath}" alt="" class="${capfLogoClass}">
         </div>
-        <div class="brand-title">Qarshi Industries (Pvt) Ltd.</div>
+        <div class="brand-title">${capfBrandTitle}</div>
       </div>
 
       <table class="grid">

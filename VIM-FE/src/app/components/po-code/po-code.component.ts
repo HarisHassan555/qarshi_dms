@@ -22,31 +22,31 @@ import {
 } from 'src/app/utils/application-email-view.util';
 
 @Component({
-  selector: 'app-assign-asset-code',
-  templateUrl: './assign-asset-code.component.html',
-  styleUrls: ['./assign-asset-code.component.css'],
+  selector: 'app-po-code',
+  templateUrl: './po-code.component.html',
+  styleUrls: ['./po-code.component.css'],
 })
-export class AssignAssetCodeComponent implements OnInit {
+export class PoCodeComponent implements OnInit {
   applicationId: number | null = null;
   application: any = null;
+  poCode = '';
   isLoading = true;
   isSaving = false;
-  assetCode = '';
+  currentUser: any = null;
 
   formFields: any[] = [];
   applicationFormData: Record<string, any> = {};
   approvalHistory: any[] = [];
   showCapfPreview = false;
   userNameMap = new Map<number, string>();
-  currentUser: any = null;
 
   constructor(
     private route: ActivatedRoute,
     public router: Router,
     private appService: CustomFormApplicationService,
     private customFormService: CustomFormService,
-    private userService: UserService,
-    private notification: NotificationService
+    private notification: NotificationService,
+    private userService: UserService
   ) {}
 
   ngOnInit(): void {
@@ -88,7 +88,7 @@ export class AssignAssetCodeComponent implements OnInit {
           this.applicationFormData = parseApplicationFormData(fullApp.txtApplicationData);
           this.approvalHistory = parseApprovalHistory(fullApp.txtApprovalHistory);
           this.showCapfPreview = isCapfLike(fullApp, this.approvalHistory);
-          this.assetCode = (fullApp?.txtAssetCode || '').toString().trim();
+          this.poCode = (fullApp as any)?.txtPoCode || '';
           this.isLoading = false;
         };
 
@@ -123,28 +123,28 @@ export class AssignAssetCodeComponent implements OnInit {
   }
 
   save(): void {
-    if (!this.assetCode.trim()) {
-      this.notification.showMessage('Asset code is required', 'warning');
+    if (!this.poCode.trim()) {
+      this.notification.showMessage('PO code is required', 'warning');
       return;
     }
     this.isSaving = true;
     const userId = this.currentUser?.serUserId ?? this.currentUser?.userId ?? this.currentUser?.id;
-    this.appService.assignAssetCode(this.applicationId!, this.assetCode.trim(), userId).subscribe({
+    this.appService.assignPoCode(this.applicationId!, this.poCode.trim(), userId).subscribe({
       next: (res: any) => {
         this.isSaving = false;
         if (isAssignCodeApiFailure(res)) {
           this.notification.showMessage(
-            getAssignCodeApiErrorMessage(res, 'Failed to save asset code'),
+            getAssignCodeApiErrorMessage(res, 'Failed to save PO code'),
             'danger'
           );
           return;
         }
-        this.notification.showMessage(res?.message || 'Asset code saved successfully', 'success');
+        this.notification.showMessage(res?.message || 'PO code saved successfully', 'success');
         this.load();
       },
       error: (err) => {
         this.isSaving = false;
-        this.notification.showMessage(getAssignCodeApiErrorMessage(err, 'Failed to save asset code'), 'danger');
+        this.notification.showMessage(getAssignCodeApiErrorMessage(err, 'Failed to save PO code'), 'danger');
       },
     });
   }
@@ -181,7 +181,6 @@ export class AssignAssetCodeComponent implements OnInit {
     return getApprovalLogSignatureUrl(entry);
   }
 
-  /** Submitted-by: prefer API user object / text fields, then user list lookup (avoids raw numeric id). */
   displaySubmittedBy(): string {
     const app = this.application;
     if (!app) return '-';

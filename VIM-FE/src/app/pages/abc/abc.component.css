@@ -244,8 +244,9 @@
     }
 
     .logo img {
-      max-width: 64px;
-      height: auto;
+      height: 32px;
+      width: auto;
+      max-width: none;
     }
 
     .brand-title {
@@ -861,7 +862,9 @@
     }
 
     :host-context(.pdf-compact) .logo img {
-      max-width: 36px !important;
+      height: 18px !important;
+      width: auto !important;
+      max-width: none !important;
     }
 
     :host-context(.pdf-compact) .checks {

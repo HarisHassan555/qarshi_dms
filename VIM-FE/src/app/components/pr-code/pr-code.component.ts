@@ -17,6 +17,8 @@ import {
   normalizeFormFields,
   parseApplicationFormData,
   parseApprovalHistory,
+  getAssignCodeApiErrorMessage,
+  isAssignCodeApiFailure,
 } from 'src/app/utils/application-email-view.util';
 
 @Component({
@@ -126,15 +128,23 @@ export class PrCodeComponent implements OnInit {
       return;
     }
     this.isSaving = true;
-    this.appService.assignPrCode(this.applicationId!, this.prCode.trim(), this.currentUser?.serUserId).subscribe({
-      next: () => {
+    const userId = this.currentUser?.serUserId ?? this.currentUser?.userId ?? this.currentUser?.id;
+    this.appService.assignPrCode(this.applicationId!, this.prCode.trim(), userId).subscribe({
+      next: (res: any) => {
         this.isSaving = false;
-        this.notification.showMessage('PR code saved successfully', 'success');
+        if (isAssignCodeApiFailure(res)) {
+          this.notification.showMessage(
+            getAssignCodeApiErrorMessage(res, 'Failed to save PR code'),
+            'danger'
+          );
+          return;
+        }
+        this.notification.showMessage(res?.message || 'PR code saved successfully', 'success');
         this.load();
       },
-      error: () => {
+      error: (err) => {
         this.isSaving = false;
-        this.notification.showMessage('Failed to save PR code', 'danger');
+        this.notification.showMessage(getAssignCodeApiErrorMessage(err, 'Failed to save PR code'), 'danger');
       },
     });
   }

@@ -170,9 +170,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         if (approvalHistory == null || approvalHistory.isEmpty())
             return approved;
         long cutoffEpoch = getLatestResetEpochForStage(approvalHistory, level);
-        for (Map<String, Object> entry : approvalHistory) {
-            if (entry == null)
+        for (int i = 0; i < approvalHistory.size(); i++) {
+            Map<String, Object> entry = approvalHistory.get(i);
+            if (entry == null) {
                 continue;
+            }
             String action = entry.get("action") != null ? String.valueOf(entry.get("action")).toUpperCase() : "";
             // Only real approvals should satisfy multi-HOD completion.
             if (!"APPROVED".equals(action)) {
@@ -181,13 +183,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             Integer dept = safeInt(entry.get("departmentId"), null);
             Integer lvl = safeInt(entry.get("level"), null);
             if (dept != null && lvl != null && dept.equals(departmentId) && lvl.equals(level)) {
-                long entryEpoch = getHistoryEntryEpoch(entry);
-                if (entryEpoch <= cutoffEpoch) {
+                if (isHistoryEntryInvalidatedByReset(i, approvalHistory, level, cutoffEpoch)) {
                     continue;
                 }
                 Integer uid = safeInt(entry.get("approvedBy"), null);
-                if (uid != null)
+                if (uid != null) {
                     approved.add(uid);
+                }
             }
         }
         return approved;
@@ -200,6 +202,17 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         if (entry == null) {
             return 0L;
         }
+        Object approvedAt = entry.get("approvedAt");
+        if (approvedAt instanceof Number) {
+            return ((Number) approvedAt).longValue();
+        }
+        if (approvedAt instanceof java.util.Date) {
+            return ((java.util.Date) approvedAt).getTime();
+        }
+        Object epochMs = entry.get("epochMs");
+        if (epochMs instanceof Number) {
+            return ((Number) epochMs).longValue();
+        }
         Object raw = entry.get("approvedDate");
         if (raw == null) {
             raw = entry.get("sentBackDate");
@@ -209,6 +222,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
         if (raw == null) {
             return 0L;
+        }
+        if (raw instanceof java.util.Date) {
+            return ((java.util.Date) raw).getTime();
         }
         String txt = String.valueOf(raw).trim();
         if (txt.isEmpty()) {
@@ -226,6 +242,63 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     }
 
     /**
+     * Index of the latest history entry that resets approvals for {@code stageLevel}
+     * (PO edit re-approval, send-back-to-initiator, etc.). Entries at or before this
+     * index must not satisfy "already approved" checks.
+     */
+    private int getLatestResetHistoryIndexForStage(List<Map<String, Object>> approvalHistory, Integer stageLevel) {
+        if (approvalHistory == null || approvalHistory.isEmpty() || stageLevel == null) {
+            return -1;
+        }
+        int latestIndex = -1;
+        for (int i = 0; i < approvalHistory.size(); i++) {
+            Map<String, Object> entry = approvalHistory.get(i);
+            if (entry == null) {
+                continue;
+            }
+            String action = entry.get("action") != null ? String.valueOf(entry.get("action")).toUpperCase() : "";
+            if (!"SENT_BACK".equals(action) && !"SENT_BACK_TO_INITIATOR".equals(action)
+                    && !"PO_EDIT_REAPPROVAL".equals(action)) {
+                continue;
+            }
+            boolean resetsStage = false;
+            if ("SENT_BACK_TO_INITIATOR".equals(action) || "PO_EDIT_REAPPROVAL".equals(action)) {
+                resetsStage = stageLevel >= 0;
+            } else {
+                Integer toLevel = safeInt(entry.get("toLevel"), null);
+                if (toLevel == null) {
+                    Integer fromLevel = safeInt(entry.get("fromLevel"), null);
+                    if (fromLevel != null && fromLevel > 1) {
+                        toLevel = fromLevel - 1;
+                    }
+                }
+                if (toLevel != null) {
+                    resetsStage = stageLevel >= toLevel;
+                }
+            }
+            if (resetsStage) {
+                latestIndex = i;
+            }
+        }
+        return latestIndex;
+    }
+
+    private boolean isHistoryEntryInvalidatedByReset(int entryIndex, List<Map<String, Object>> approvalHistory,
+            Integer stageLevel, long cutoffEpoch) {
+        int resetThroughIndex = getLatestResetHistoryIndexForStage(approvalHistory, stageLevel);
+        if (resetThroughIndex >= 0 && entryIndex <= resetThroughIndex) {
+            return true;
+        }
+        if (cutoffEpoch > 0L && approvalHistory != null && entryIndex >= 0 && entryIndex < approvalHistory.size()) {
+            Map<String, Object> entry = approvalHistory.get(entryIndex);
+            if (entry != null && getHistoryEntryEpoch(entry) <= cutoffEpoch) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Find latest reset marker that invalidates prior approvals for a stage level.
      * `SENT_BACK_TO_INITIATOR` resets workflow stages from level 0 onward.
      * `SENT_BACK` resets stages at/after its `toLevel`.
@@ -240,13 +313,14 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 continue;
             }
             String action = entry.get("action") != null ? String.valueOf(entry.get("action")).toUpperCase() : "";
-            if (!"SENT_BACK".equals(action) && !"SENT_BACK_TO_INITIATOR".equals(action)) {
+            if (!"SENT_BACK".equals(action) && !"SENT_BACK_TO_INITIATOR".equals(action)
+                    && !"PO_EDIT_REAPPROVAL".equals(action)) {
                 continue;
             }
 
             boolean resetsStage = false;
-            if ("SENT_BACK_TO_INITIATOR".equals(action)) {
-                // After send-back-to-initiator, CAPF stage 0 (Initiator HOD) must be re-approvable.
+            if ("SENT_BACK_TO_INITIATOR".equals(action) || "PO_EDIT_REAPPROVAL".equals(action)) {
+                // After send-back-to-initiator or PO-edit restart, CAPF stage 0 (Initiator HOD) must be re-approvable.
                 // Keep only special pre-workflow levels (e.g., -1 initial signer) outside this reset.
                 resetsStage = stageLevel >= 0;
             } else {
@@ -326,13 +400,12 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     }
 
     /**
-     * Generate next application code based on form's convention prefix
+     * Generate next application code based on form's convention prefix.
      * Format: PREFIX-0001, PREFIX-0002, etc.
-     * Looks at both the form code and existing application codes for the same form
+     * All forms sharing the same convention prefix use one shared sequence.
      */
     private String generateNextApplicationCode(Integer formId, EntityManager entityManager) {
         try {
-            // Get the form to find its convention prefix
             com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form = entityManager
                     .find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class, formId);
 
@@ -341,40 +414,46 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return null;
             }
 
-            String conventionPrefix = form.getTxtConventionPrefix();
-            if (conventionPrefix == null || conventionPrefix.trim().isEmpty()) {
-                // If no convention prefix, try to extract from form code
-                String formCode = form.getTxtFormCode();
-                if (formCode != null && formCode.contains("-")) {
-                    conventionPrefix = formCode.substring(0, formCode.indexOf("-"));
-                } else {
-                    log.warn("Form " + formId
-                            + " has no convention prefix or form code, cannot generate application code");
-                    return null;
-                }
+            String conventionPrefix = resolveConventionPrefix(form);
+            if (conventionPrefix == null) {
+                log.warn("Form " + formId
+                        + " has no convention prefix or form code, cannot generate application code");
+                return null;
             }
 
-            conventionPrefix = conventionPrefix.trim().toUpperCase(Locale.ROOT);
+            String prefixPattern = conventionPrefix + "-%";
 
             String appCodesQuery = "SELECT a.txtFormCode FROM CfgTblCustomFormApplication a " +
-                    "WHERE a.serFormId = :formId " +
-                    "AND a.txtFormCode IS NOT NULL " +
+                    "WHERE a.txtFormCode IS NOT NULL " +
                     "AND UPPER(a.txtFormCode) LIKE :prefixPattern " +
                     "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL)";
 
             @SuppressWarnings("unchecked")
             List<String> appCodes = entityManager.createQuery(appCodesQuery)
-                    .setParameter("formId", formId)
-                    .setParameter("prefixPattern", conventionPrefix + "-%")
+                    .setParameter("prefixPattern", prefixPattern)
+                    .getResultList();
+
+            String formsQuery = "SELECT f.txtFormCode FROM CfgTblCustomForm f " +
+                    "WHERE UPPER(f.txtConventionPrefix) = :prefix " +
+                    "AND f.txtFormCode IS NOT NULL " +
+                    "AND (f.blIsDeleted = false OR f.blIsDeleted IS NULL)";
+
+            @SuppressWarnings("unchecked")
+            List<String> formCodes = entityManager.createQuery(formsQuery)
+                    .setParameter("prefix", conventionPrefix)
                     .getResultList();
 
             int maxNumber = 0;
             int width = 4;
 
-            Integer formCodeNumber = extractNumericSuffix(form.getTxtFormCode(), conventionPrefix);
-            if (formCodeNumber != null) {
-                maxNumber = Math.max(maxNumber, formCodeNumber);
-                width = Math.max(width, getNumericSuffixLength(form.getTxtFormCode(), conventionPrefix));
+            if (formCodes != null) {
+                for (String code : formCodes) {
+                    Integer numeric = extractNumericSuffix(code, conventionPrefix);
+                    if (numeric != null) {
+                        maxNumber = Math.max(maxNumber, numeric);
+                        width = Math.max(width, getNumericSuffixLength(code, conventionPrefix));
+                    }
+                }
             }
 
             if (appCodes != null) {
@@ -393,6 +472,22 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             // Fallback: use timestamp-based code
             return "APP-" + System.currentTimeMillis();
         }
+    }
+
+    private String resolveConventionPrefix(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form) {
+        if (form == null) {
+            return null;
+        }
+        String conventionPrefix = form.getTxtConventionPrefix();
+        if (conventionPrefix == null || conventionPrefix.trim().isEmpty()) {
+            String formCode = form.getTxtFormCode();
+            if (formCode != null && formCode.contains("-")) {
+                conventionPrefix = formCode.substring(0, formCode.indexOf("-"));
+            } else {
+                return null;
+            }
+        }
+        return conventionPrefix.trim().toUpperCase(Locale.ROOT);
     }
 
     private Integer extractNumericSuffix(String code, String prefix) {
@@ -429,15 +524,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     }
 
     private boolean applicationCodeExists(Integer formId, String formCode, EntityManager entityManager) {
-        if (formId == null || formCode == null || formCode.trim().isEmpty()) {
+        if (formCode == null || formCode.trim().isEmpty()) {
             return false;
         }
         Long count = (Long) entityManager.createQuery(
                 "SELECT COUNT(a.serApplicationId) FROM CfgTblCustomFormApplication a " +
-                        "WHERE a.serFormId = :formId " +
-                        "AND UPPER(a.txtFormCode) = :code " +
+                        "WHERE UPPER(a.txtFormCode) = :code " +
                         "AND (a.blIsDeleted = false OR a.blIsDeleted IS NULL)")
-                .setParameter("formId", formId)
                 .setParameter("code", formCode.trim().toUpperCase(Locale.ROOT))
                 .getSingleResult();
         return count != null && count > 0;
@@ -924,7 +1017,37 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             // Merge: incoming keys override existing; preserve existing keys not present in incoming
+            Map<String, Object> vendorDataBeforeMerge = new java.util.HashMap<>(existingData);
             existingData.putAll(incomingData);
+
+            boolean capfPoApproverVendorEditRestart = false;
+            boolean capfPoVendorTeRestart = false;
+            Integer editorUserIdForRestart = null;
+            try {
+                editorUserIdForRestart = commonService.getCurrentLoggedInUser();
+            } catch (Exception ignored) {
+            }
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm formForPoEdit = existingApplication.getCfgTblCustomForm();
+            if (formForPoEdit == null && existingApplication.getSerFormId() != null) {
+                formForPoEdit = entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class,
+                        existingApplication.getSerFormId());
+            }
+            if (isCapfForm(formForPoEdit) && editorUserIdForRestart != null && editorUserIdForRestart > 0) {
+                CfgTblUser editorUser = entityManager.find(CfgTblUser.class, editorUserIdForRestart);
+                if (userHasRole(editorUser, "PO_Approver") && capfVendorDataChanged(vendorDataBeforeMerge, existingData)) {
+                    String editStatus = existingApplication.getTxtStatus() != null
+                            ? existingApplication.getTxtStatus().trim().toUpperCase()
+                            : "";
+                    boolean hasPoAssigned = existingApplication.getTxtPoCode() != null
+                            && !existingApplication.getTxtPoCode().trim().isEmpty();
+                    boolean onPoStage = "PO_PENDING".equals(editStatus)
+                            || ("APPROVED".equals(editStatus) && hasPoAssigned);
+                    if (onPoStage) {
+                        capfPoApproverVendorEditRestart = true;
+                        capfPoVendorTeRestart = "APPROVED".equals(editStatus) && hasPoAssigned;
+                    }
+                }
+            }
 
             // Add signature and timestamp (edit metadata)
             existingData.put("approvedBySignature", commonService.getCurrentUserName());
@@ -955,7 +1078,31 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             entityManager.merge(existingApplication);
+
+            if (capfPoApproverVendorEditRestart) {
+                if (capfPoVendorTeRestart) {
+                    restartCapfAfterPoApproverEditToTechnicalExpert(entityManager, existingApplication,
+                            editorUserIdForRestart, formForPoEdit);
+                } else {
+                    restartCapfAfterPoApproverEdit(entityManager, existingApplication, editorUserIdForRestart,
+                            formForPoEdit);
+                }
+            }
+
             entityManager.getTransaction().commit();
+
+            if (capfPoApproverVendorEditRestart) {
+                try {
+                    if (capfPoVendorTeRestart) {
+                        notifyPoVendorTeApproversOnEdit(existingApplication);
+                    } else {
+                        notifyCurrentLevelApproversOnInitiatorEdit(existingApplication);
+                    }
+                } catch (Exception emailEx) {
+                    log.warn("Failed to notify approvers after PO vendor edit restart for appId={}: {}",
+                            existingApplication.getSerApplicationId(), emailEx.getMessage());
+                }
+            }
 
             // When initiator edits an in-flight application, notify the current approver level.
             // CAPF/general forms refresh the PDF snapshot immediately after this call; defer email
@@ -1033,18 +1180,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return;
             }
 
-            List<java.util.Map<String, Object>> pipelines = new java.util.ArrayList<>();
-            if (form != null && form.getTxtApprovalPipeline() != null && !form.getTxtApprovalPipeline().trim().isEmpty()) {
-                try {
-                    ObjectMapper mapper = new ObjectMapper();
-                    pipelines = mapper.readValue(form.getTxtApprovalPipeline(),
-                            new TypeReference<List<java.util.Map<String, Object>>>() {
-                            });
-                } catch (Exception parseEx) {
-                    log.warn("Error parsing approval pipeline for edit notification appId={}: {}",
-                            dbApp.getSerApplicationId(), parseEx.getMessage());
-                }
-            }
+            List<java.util.Map<String, Object>> pipelines = loadEffectiveApprovalPipeline(dbApp, form,
+                    emailEntityManager);
 
             String baseUrl = getBaseUrl();
             Integer displayLevel = currentLevel;
@@ -1537,7 +1674,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     "IN_PROGRESS",
                     "CEO_PENDING",
                     "ASSET_PENDING",
-                    "PR_PENDING");
+                    "PR_PENDING",
+                    "PO_PENDING",
+                    "PO_VENDOR_TE_PENDING",
+                    "APPROVED");
 
             // Broad candidate set only; precise routing is isPendingForUserAtCurrentStage (do not pre-filter
             // by serCurrentApprover — it can point at another user after level transitions and would hide level-2 work).
@@ -1617,7 +1757,10 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                     "IN_PROGRESS",
                     "CEO_PENDING",
                     "ASSET_PENDING",
-                    "PR_PENDING");
+                    "PR_PENDING",
+                    "PO_PENDING",
+                    "PO_VENDOR_TE_PENDING",
+                    "APPROVED");
 
             List<CfgTblCustomFormApplication> applications = entityManager.createQuery(
                     "SELECT a FROM CfgTblCustomFormApplication a " +
@@ -1698,6 +1841,46 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         if ("PR_PENDING".equals(status)) {
             return application.getSerSubmittedBy() != null && application.getSerSubmittedBy().equals(userId);
         }
+        if ("PO_PENDING".equals(status)) {
+            return userHasRole(user, "PO_Approver");
+        }
+        if ("PO_VENDOR_TE_PENDING".equals(status)) {
+            if (!isCapfPoVendorTeReapproval(application)) {
+                return false;
+            }
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm teForm = application.getCfgTblCustomForm();
+            if (teForm == null && application.getSerFormId() != null) {
+                teForm = entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class,
+                        application.getSerFormId());
+            }
+            if (teForm == null || !isCapfForm(teForm)) {
+                return false;
+            }
+            Integer teDeptId = resolveCapfTechnicalExpertDepartmentId(entityManager, application, teForm);
+            if (teDeptId == null) {
+                return false;
+            }
+            Integer userDeptId = loadUserDepartmentId(entityManager, userId, userDepartmentCache);
+            return userDeptId != null && teDeptId.equals(userDeptId);
+        }
+        if ("APPROVED".equals(status)) {
+            if (userHasRole(user, "PO_Approver")) {
+                com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm approvedForm = application.getCfgTblCustomForm();
+                if (approvedForm == null && application.getSerFormId() != null) {
+                    approvedForm = entityManager.find(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm.class,
+                            application.getSerFormId());
+                }
+                if (approvedForm != null && isCapfForm(approvedForm)) {
+                    boolean hasPoCode = application.getTxtPoCode() != null
+                            && !application.getTxtPoCode().trim().isEmpty();
+                    if (hasPoCode && !isCapfPoVendorTeReapproval(application)
+                            && !isCapfPoEditReapproval(application)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
 
         com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form = application.getCfgTblCustomForm();
         if (form == null && application.getSerFormId() != null) {
@@ -1727,17 +1910,8 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             return false;
         }
 
-        String pipelineJson = form.getTxtApprovalPipeline();
-        if (pipelineJson == null || pipelineJson.trim().isEmpty()) {
-            return false;
-        }
-
         try {
-            ObjectMapper mapper = new ObjectMapper();
-            List<Map<String, Object>> pipelines = mapper.readValue(
-                    pipelineJson,
-                    new TypeReference<List<Map<String, Object>>>() {
-                    });
+            List<Map<String, Object>> pipelines = loadEffectiveApprovalPipeline(application, form, entityManager);
             int currentLevel = currentLevelSafe(application);
             boolean isCapf = isCapfForm(form);
 
@@ -1880,7 +2054,7 @@ if (actorUserId == null || actorUserId <= 0) {
                 context.historyLevel,
                 context.departmentId,
                 context.departmentName)) {
-            return "Failure: User not authenticated";
+            return "Failure: You have already approved at this stage";
         }
 
         return null;
@@ -1930,7 +2104,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             return context;
         }
 
-        List<Map<String, Object>> pipelines = loadApprovalPipeline(form);
+        List<Map<String, Object>> pipelines = loadEffectiveApprovalPipeline(application, form, entityManager);
         int pipelineIndex = currentLevel - 1;
         if (pipelines.isEmpty() || pipelineIndex < 0 || pipelineIndex >= pipelines.size()) {
             return null;
@@ -2077,6 +2251,34 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 return "Failure: Signature not uploaded. Please upload your signature before approving.";
             }
 
+            // Short-circuit post-PO vendor edit: independent Technical Expert review (not pipeline level 1).
+            if ("PO_VENDOR_TE_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
+                CfgTblCustomForm capfFormForPoVendorTe = application.getSerFormId() != null
+                        ? entityManager.find(CfgTblCustomForm.class, application.getSerFormId())
+                        : null;
+                String poVendorTeAuthFailure = validatePoVendorTePendingAuthorization(entityManager, application,
+                        capfFormForPoVendorTe, resolvedApproverId);
+                if (poVendorTeAuthFailure != null) {
+                    entityManager.getTransaction().rollback();
+                    return poVendorTeAuthFailure;
+                }
+                appendHistoryEntry(entityManager, application, resolvedApproverId, "PO_VENDOR_TE_APPROVED",
+                        "Technical Expert", CAPF_PO_VENDOR_TE_HISTORY_LEVEL, approvedVia, approvedIp);
+                completeCapfPoVendorTeReapproval(application, capfFormForPoVendorTe);
+                application.setTxtRemarks(remarks);
+                application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+                application.setSerModifiedUser(resolvedApproverId);
+                entityManager.merge(application);
+                entityManager.getTransaction().commit();
+                try {
+                    sendFinalInitiatorEmail(application);
+                } catch (Exception emailEx) {
+                    log.warn("Failed to send final initiator email after PO vendor TE approval: {}",
+                            emailEx.getMessage());
+                }
+                return "Success";
+            }
+
             // Short-circuit CEO approval stage
             if ("CEO_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
                 if (!userHasRole(approverUser, "CEO")) {
@@ -2092,9 +2294,15 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 boolean ceoStageAlreadyComplete = false;
                 try {
                     List<Map<String, Object>> history = parseApprovalHistory(application.getTxtApprovalHistory());
+                    long poEditReapprovalCutoff = isCapfPoEditReapproval(application)
+                            ? getLatestActionEpoch(history, "PO_EDIT_REAPPROVAL")
+                            : 0L;
                     if (history != null) {
                         for (Map<String, Object> e : history) {
                             if (e == null || !isApprovedEntry(e)) {
+                                continue;
+                            }
+                            if (poEditReapprovalCutoff > 0L && getHistoryEntryEpoch(e) <= poEditReapprovalCutoff) {
                                 continue;
                             }
                             Integer lvl = safeInt(e.get("level"), null);
@@ -2116,16 +2324,29 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     log.warn("CEO idempotency check failed: {}", e.getMessage());
                 }
                 if (ceoStageAlreadyComplete) {
-                    application.setTxtStatus("ASSET_PENDING");
-                    Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
-                    if (financeUserId == null) {
-                        financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
+                    if (capfFormForCeo != null && isCapfForm(capfFormForCeo) && isCapfPoEditReapproval(application)) {
+                        completeCapfPoEditReapproval(application, capfFormForCeo);
+                    } else {
+                        application.setTxtStatus("ASSET_PENDING");
+                        Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
+                        if (financeUserId == null) {
+                            financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
+                        }
+                        application.setSerCurrentApprover(financeUserId);
                     }
-                    application.setSerCurrentApprover(financeUserId);
                     application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
                     if (capfFormForCeo != null && isCapfForm(capfFormForCeo)) {
                         persistCapfSignedPdf(application, capfFormForCeo);
                     }
+                    entityManager.merge(application);
+                    entityManager.getTransaction().commit();
+                    return "Success";
+                }
+                appendHistoryEntry(entityManager, application, resolvedApproverId, "APPROVED", "CEO", -99, approvedVia,
+                        approvedIp);
+                if (capfFormForCeo != null && isCapfForm(capfFormForCeo) && isCapfPoEditReapproval(application)) {
+                    completeCapfPoEditReapproval(application, capfFormForCeo);
+                    application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
                     entityManager.merge(application);
                     entityManager.getTransaction().commit();
                     return "Success";
@@ -2136,9 +2357,6 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
                 }
                 application.setSerCurrentApprover(financeUserId);
-                // Append history entry for CEO approval
-                appendHistoryEntry(entityManager, application, resolvedApproverId, "APPROVED", "CEO", -99, approvedVia,
-                        approvedIp);
                 // Same as departmental CAPF path: bake signatures into stored PDF before finance email.
                 // Otherwise buildCapfPreviewPng uses a stale per-stage snapshot and the CEO line is missing.
                 if (capfFormForCeo != null && isCapfForm(capfFormForCeo)) {
@@ -2387,22 +2605,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 return "Success";
             }
 
-            // Deserialize approval pipeline
-            String pipelineJson = form.getTxtApprovalPipeline();
-            List<java.util.Map<String, Object>> pipelines = new java.util.ArrayList<>();
-            if (pipelineJson != null && !pipelineJson.trim().isEmpty()) {
-                try {
-                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                    pipelines = mapper.readValue(
-                            pipelineJson,
-                            new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
-                            });
-                } catch (Exception e) {
-                    log.error("Error parsing approval pipeline: " + e.getMessage());
-                    entityManager.getTransaction().rollback();
-                    return "Failure: Error parsing approval pipeline";
-                }
-            }
+            List<java.util.Map<String, Object>> pipelines = loadEffectiveApprovalPipeline(application, form,
+                    entityManager);
 
             Integer currentLevel = application.getIntCurrentApprovalLevel();
             if (currentLevel == null) {
@@ -2554,7 +2758,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             if (isCapf && !skipCeoHistory && userAlreadyApprovedStage(approvalHistory, resolvedApproverId,
                     historyLevel, departmentId, departmentName)) {
                 entityManager.getTransaction().rollback();
-                return "Failure: User not authenticated";
+                return "Failure: You have already approved at this stage";
             }
             if (!skipCeoHistory) {
                 // Add current approval to history
@@ -2618,6 +2822,31 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     entityManager.getTransaction().commit();
                     return "Success";
                 }
+            }
+
+            // CAPF PO-edit re-approval: after initiator HOD (level 0), skip pipeline and route to Finance.
+            if (isCapfForm(form) && isCapfPoEditReapproval(application)
+                    && currentLevelBeforeApproval != null && currentLevelBeforeApproval == 0) {
+                application.setIntCurrentApprovalLevel(0);
+                application.setTxtStatus("ASSET_PENDING");
+                Integer financeUserId = findFirstUserIdByRole(entityManager, "FINANCE_HEAD");
+                if (financeUserId == null) {
+                    financeUserId = findFirstUserIdByRole(entityManager, "FINANCE");
+                }
+                application.setSerCurrentApprover(financeUserId);
+                application.setTxtRemarks(remarks);
+                application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+                application.setSerModifiedUser(resolvedApproverId);
+                persistCapfSignedPdf(application, form);
+                entityManager.merge(application);
+                entityManager.getTransaction().commit();
+                try {
+                    sendSubmitterProgressEmailAfterApproval(application, form, 0);
+                    sendFinanceEmails(application, form);
+                } catch (Exception emailEx) {
+                    log.warn("Failed to send emails after PO-edit HOD re-approval: {}", emailEx.getMessage());
+                }
+                return "Success";
             }
 
             // Increment approval level (advance to next department)
@@ -2778,6 +3007,44 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             }
             CfgTblUser approverUser = commonService.getCurrentUser(resolvedApproverId);
 
+            if ("PO_VENDOR_TE_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
+                String poVendorTeAuthFailure = validatePoVendorTePendingAuthorization(entityManager, application, form,
+                        resolvedApproverId);
+                if (poVendorTeAuthFailure != null) {
+                    entityManager.getTransaction().rollback();
+                    return poVendorTeAuthFailure;
+                }
+                application.setTxtStatus("REJECTED");
+                application.setSerCurrentApprover(resolvedApproverId);
+                application.setTxtRemarks(remarks);
+                application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+                application.setSerModifiedUser(resolvedApproverId);
+                clearCapfPoVendorTeReapprovalFlag(application);
+                try {
+                    List<Map<String, Object>> approvalHistory = parseApprovalHistory(
+                            application.getTxtApprovalHistory());
+                    if (approvalHistory == null) {
+                        approvalHistory = new java.util.ArrayList<>();
+                    }
+                    java.util.Map<String, Object> rejectionEntry = new java.util.HashMap<>();
+                    rejectionEntry.put("level", CAPF_PO_VENDOR_TE_HISTORY_LEVEL);
+                    rejectionEntry.put("departmentName", "Technical Expert");
+                    rejectionEntry.put("remarks", remarks != null ? remarks : "");
+                    rejectionEntry.put("approvedBy", resolvedApproverId);
+                    rejectionEntry.put("approverName", approverUser != null ? approverUser.getTxtUserName() : "");
+                    rejectionEntry.put("approvedDate", commonService.getCurrentTimeStamp_new().toString());
+                    rejectionEntry.put("approvedVia", userId != null ? "EMAIL" : "SYSTEM");
+                    rejectionEntry.put("action", "PO_VENDOR_TE_REJECTED");
+                    approvalHistory.add(rejectionEntry);
+                    application.setTxtApprovalHistory(new ObjectMapper().writeValueAsString(approvalHistory));
+                } catch (Exception e) {
+                    log.warn("Error updating approval history for PO vendor TE rejection: {}", e.getMessage());
+                }
+                entityManager.merge(application);
+                entityManager.getTransaction().commit();
+                return "Success";
+            }
+
             String capfAuthorizationFailure = validateCapfCurrentStageActionAuthorization(entityManager, application,
                     form, resolvedApproverId);
             if (capfAuthorizationFailure != null) {
@@ -2815,10 +3082,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 }
             } else if (form != null && form.getTxtApprovalPipeline() != null && !form.getTxtApprovalPipeline().trim().isEmpty()) {
                 try {
-                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                    List<java.util.Map<String, Object>> pipelines = mapper.readValue(
-                            form.getTxtApprovalPipeline(),
-                            new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {});
+                    List<java.util.Map<String, Object>> pipelines = loadEffectiveApprovalPipeline(application, form,
+                            entityManager);
                     int pipelineIndex = isCapf ? currentLevel - 1 : currentLevel;
                     if (!pipelines.isEmpty() && pipelineIndex >= 0 && pipelineIndex < pipelines.size()) {
                         java.util.Map<String, Object> currentPipeline = pipelines.get(pipelineIndex);
@@ -2880,7 +3145,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     resolvedApproverId, capfHistoryLevelForStage(true, currentLevel, actionPipelineOrder),
                     actionDepartmentId, actionDepartmentName)) {
                 entityManager.getTransaction().rollback();
-                return "Failure: User not authenticated";
+                return "Failure: You have already approved at this stage";
             }
 
             application.setTxtStatus("REJECTED");
@@ -2888,6 +3153,9 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             application.setTxtRemarks(remarks);
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
             application.setSerModifiedUser(resolvedApproverId);
+            if (isCapfPoVendorTeReapproval(application)) {
+                clearCapfPoVendorTeReapprovalFlag(application);
+            }
 
             // Append rejection to approval history for performance reporting
             try {
@@ -2901,11 +3169,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
 
                 if (form != null && form.getTxtApprovalPipeline() != null &&
                         !form.getTxtApprovalPipeline().trim().isEmpty()) {
-                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                    List<java.util.Map<String, Object>> pipelines = mapper.readValue(
-                            form.getTxtApprovalPipeline(),
-                            new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
-                            });
+                    List<java.util.Map<String, Object>> pipelines = loadEffectiveApprovalPipeline(application, form,
+                            entityManager);
 
                     int pipelineIndex = isCapf ? currentLevel - 1 : currentLevel;
 
@@ -3021,22 +3286,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 return "Failure: Form not found";
             }
 
-            // Deserialize approval pipeline
-            String pipelineJson = form.getTxtApprovalPipeline();
-            List<java.util.Map<String, Object>> pipelines = new java.util.ArrayList<>();
-            if (pipelineJson != null && !pipelineJson.trim().isEmpty()) {
-                try {
-                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                    pipelines = mapper.readValue(
-                            pipelineJson,
-                            new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
-                            });
-                } catch (Exception e) {
-                    log.error("Error parsing approval pipeline: " + e.getMessage());
-                    entityManager.getTransaction().rollback();
-                    return "Failure: Error parsing approval pipeline";
-                }
-            }
+            List<java.util.Map<String, Object>> pipelines = loadEffectiveApprovalPipeline(application, form,
+                    entityManager);
 
             Integer currentLevel = application.getIntCurrentApprovalLevel();
             if (currentLevel == null) {
@@ -3190,7 +3441,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     capfHistoryLevelForStage(true, originalLevel, currentPipelineOrder),
                     currentDepartmentId, currentDepartmentName)) {
                 entityManager.getTransaction().rollback();
-                return "Failure: User not authenticated";
+                return "Failure: You have already approved at this stage";
             }
 
             // For individual pipeline footer forms, get the role from the sequence
@@ -3502,19 +3753,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             Integer currentRequiredUserId = null;
             String currentDepartmentName = null;
 
-            List<java.util.Map<String, Object>> pipelines = new java.util.ArrayList<>();
-            if (form != null && form.getTxtApprovalPipeline() != null
-                    && !form.getTxtApprovalPipeline().trim().isEmpty()) {
-                try {
-                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                    pipelines = mapper.readValue(
-                            form.getTxtApprovalPipeline(),
-                            new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
-                            });
-                } catch (Exception e) {
-                    log.error("Error parsing approval pipeline for send back to initiator: " + e.getMessage(), e);
-                }
-            }
+            List<java.util.Map<String, Object>> pipelines = loadEffectiveApprovalPipeline(application, form,
+                    entityManager);
 
             if (pipelines != null && !pipelines.isEmpty() && currentLevel != null) {
                 int pipelineIndex = isCapf ? currentLevel - 1 : currentLevel;
@@ -3903,6 +4143,31 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         }
     }
 
+    private boolean hasAssignedCapfCode(String code) {
+        return code != null && !code.trim().isEmpty();
+    }
+
+    private boolean canAssignOrUpdateAssetCode(String status, boolean hasExistingAsset) {
+        if ("ASSET_PENDING".equalsIgnoreCase(status) || "ASSET_CODE_PENDING".equalsIgnoreCase(status)
+                || "PR_PENDING".equalsIgnoreCase(status) || "PO_PENDING".equalsIgnoreCase(status)
+                || "APPROVED".equalsIgnoreCase(status) || "PO_VENDOR_TE_PENDING".equalsIgnoreCase(status)) {
+            return true;
+        }
+        return hasExistingAsset && "CEO_PENDING".equalsIgnoreCase(status);
+    }
+
+    private boolean canAssignOrUpdatePrCode(String status, boolean hasExistingPr) {
+        if ("PR_PENDING".equalsIgnoreCase(status) || "PO_PENDING".equalsIgnoreCase(status)
+                || "APPROVED".equalsIgnoreCase(status) || "PO_VENDOR_TE_PENDING".equalsIgnoreCase(status)) {
+            return true;
+        }
+        return hasExistingPr && "CEO_PENDING".equalsIgnoreCase(status);
+    }
+
+    private boolean canAssignOrUpdatePoCode(String status, boolean hasExistingPo) {
+        return "PO_PENDING".equalsIgnoreCase(status) || "APPROVED".equalsIgnoreCase(status);
+    }
+
     @Override
     public String assignAssetCode(Integer applicationId, String assetCode, Integer userId, String approvedIp) {
         EntityManager entityManager = getEntityManager();
@@ -3915,13 +4180,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 return "Failure: Application not found";
             }
             String status = application.getTxtStatus() != null ? application.getTxtStatus().trim() : "";
-            boolean isFirstAssignment = application.getTxtAssetCode() == null
-                    || application.getTxtAssetCode().trim().isEmpty();
-            boolean allowedStatus = "ASSET_PENDING".equalsIgnoreCase(status)
-                    || "ASSET_CODE_PENDING".equalsIgnoreCase(status)
-                    || "PR_PENDING".equalsIgnoreCase(status)
-                    || "APPROVED".equalsIgnoreCase(status);
-            if (!allowedStatus) {
+            boolean isFirstAssignment = !hasAssignedCapfCode(application.getTxtAssetCode());
+            if (!canAssignOrUpdateAssetCode(status, !isFirstAssignment)) {
                 entityManager.getTransaction().rollback();
                 return "Failure: Application is not pending asset code";
             }
@@ -3930,28 +4190,72 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 return "Failure: Asset code is required";
             }
             String trimmedCode = assetCode.trim();
+            CfgTblCustomForm form = application.getCfgTblCustomForm();
+            if (form == null && application.getSerFormId() != null) {
+                form = entityManager.find(CfgTblCustomForm.class, application.getSerFormId());
+            }
+            boolean capfPoReapproval = isCapfForm(form) && isCapfPoEditReapproval(application);
             if (!isFirstAssignment && trimmedCode.equalsIgnoreCase(application.getTxtAssetCode().trim())) {
-                entityManager.getTransaction().rollback();
-                return "Failure: Asset code is unchanged";
+                if (capfPoReapproval && "ASSET_PENDING".equalsIgnoreCase(status)) {
+                    application.setTxtStatus("CEO_PENDING");
+                    Integer ceoUserId = findFirstUserIdByRole(entityManager, "CEO");
+                    application.setSerCurrentApprover(ceoUserId);
+                    appendHistoryEntry(entityManager, application, userId, "ASSET_CODE_CONFIRMED", "FINANCE", 999,
+                            "SYSTEM", approvedIp);
+                    appendLatestApprovalEntryToPriorApprovals(application);
+                    application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+                    entityManager.merge(application);
+                    entityManager.getTransaction().commit();
+                    try {
+                        sendCeoApprovalEmails(application, form);
+                    } catch (Exception e) {
+                        log.warn("Failed to send CEO email after PO-edit finance confirm: {}", e.getMessage());
+                    }
+                    return "Success";
+                }
+                application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+                entityManager.merge(application);
+                entityManager.getTransaction().commit();
+                return "Success";
             }
             application.setTxtAssetCode(trimmedCode);
-            if (isFirstAssignment) {
-                application.setTxtStatus("PR_PENDING");
-                application.setSerCurrentApprover(application.getSerSubmittedBy());
+            if (isFirstAssignment || capfPoReapproval) {
+                if (capfPoReapproval) {
+                    application.setTxtStatus("CEO_PENDING");
+                    Integer ceoUserId = findFirstUserIdByRole(entityManager, "CEO");
+                    application.setSerCurrentApprover(ceoUserId);
+                } else {
+                    application.setTxtStatus("PR_PENDING");
+                    application.setSerCurrentApprover(application.getSerSubmittedBy());
+                }
             }
             appendHistoryEntry(entityManager, application, userId,
                     isFirstAssignment ? "ASSET_CODE_ASSIGNED" : "ASSET_CODE_UPDATED", "FINANCE", 999, "SYSTEM",
                     approvedIp);
             appendLatestApprovalEntryToPriorApprovals(application);
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+            if (form != null && isCapfForm(form) && !isFirstAssignment) {
+                try {
+                    persistCapfSignedPdf(application, form);
+                } catch (Exception e) {
+                    log.warn("CAPF PDF refresh after asset code update failed for appId={}: {}",
+                            application.getSerApplicationId(), e.getMessage());
+                }
+            }
             entityManager.merge(application);
             entityManager.getTransaction().commit();
 
-            if (isFirstAssignment) {
+            if (isFirstAssignment && !capfPoReapproval) {
                 try {
                     sendPrCodeRequestEmail(application);
                 } catch (Exception e) {
                     log.warn("Failed to send PR code request email after asset code: {}", e.getMessage());
+                }
+            } else if (capfPoReapproval) {
+                try {
+                    sendCeoApprovalEmails(application, form);
+                } catch (Exception e) {
+                    log.warn("Failed to send CEO email after PO-edit asset code: {}", e.getMessage());
                 }
             }
             return "Success";
@@ -3980,9 +4284,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 return "Failure: Application not found";
             }
             String status = application.getTxtStatus() != null ? application.getTxtStatus().trim() : "";
-            boolean isFirstAssignment = application.getTxtPrCode() == null
-                    || application.getTxtPrCode().trim().isEmpty();
-            if (!"PR_PENDING".equalsIgnoreCase(status) && !"APPROVED".equalsIgnoreCase(status)) {
+            boolean isFirstAssignment = !hasAssignedCapfCode(application.getTxtPrCode());
+            if (!canAssignOrUpdatePrCode(status, !isFirstAssignment)) {
                 entityManager.getTransaction().rollback();
                 return "Failure: Application is not pending PR code";
             }
@@ -3995,13 +4298,19 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 return "Failure: Asset code must be assigned first";
             }
             String trimmedCode = prCode.trim();
+            CfgTblCustomForm form = application.getCfgTblCustomForm();
+            if (form == null && application.getSerFormId() != null) {
+                form = entityManager.find(CfgTblCustomForm.class, application.getSerFormId());
+            }
             if (!isFirstAssignment && trimmedCode.equalsIgnoreCase(application.getTxtPrCode().trim())) {
-                entityManager.getTransaction().rollback();
-                return "Failure: PR code is unchanged";
+                application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+                entityManager.merge(application);
+                entityManager.getTransaction().commit();
+                return "Success";
             }
             application.setTxtPrCode(trimmedCode);
             if (isFirstAssignment) {
-                application.setTxtStatus("APPROVED");
+                application.setTxtStatus("PO_PENDING");
                 application.setSerCurrentApprover(null);
             }
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
@@ -4009,13 +4318,21 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     isFirstAssignment ? "PR_CODE_ASSIGNED" : "PR_CODE_UPDATED", "INITIATOR",
                     currentLevelSafe(application), "SYSTEM", approvedIp);
             appendLatestApprovalEntryToPriorApprovals(application);
+            if (form != null && isCapfForm(form) && !isFirstAssignment) {
+                try {
+                    persistCapfSignedPdf(application, form);
+                } catch (Exception e) {
+                    log.warn("CAPF PDF refresh after PR code update failed for appId={}: {}",
+                            application.getSerApplicationId(), e.getMessage());
+                }
+            }
             entityManager.merge(application);
             entityManager.getTransaction().commit();
             if (isFirstAssignment) {
                 try {
-                    sendFinalInitiatorEmail(application);
+                    sendPoCodeRequestEmail(application);
                 } catch (Exception e) {
-                    log.warn("Failed to send final initiator email after PR code: {}", e.getMessage());
+                    log.warn("Failed to send PO code request email after PR code: {}", e.getMessage());
                 }
             }
             return "Success";
@@ -4024,6 +4341,92 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 entityManager.getTransaction().rollback();
             }
             log.error("Error assigning PR code: " + e.getMessage(), e);
+            return "Failure: " + e.getMessage();
+        } finally {
+            if (entityManager.isOpen()) {
+                entityManager.close();
+            }
+        }
+    }
+
+    @Override
+    public String assignPoCode(Integer applicationId, String poCode, Integer userId, String approvedIp) {
+        EntityManager entityManager = getEntityManager();
+        try {
+            entityManager.getTransaction().begin();
+            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class,
+                    applicationId);
+            if (application == null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Application not found";
+            }
+            String status = application.getTxtStatus() != null ? application.getTxtStatus().trim() : "";
+            boolean isFirstAssignment = !hasAssignedCapfCode(application.getTxtPoCode());
+            if (!canAssignOrUpdatePoCode(status, !isFirstAssignment)) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Application is not pending PO code";
+            }
+            CfgTblCustomForm form = application.getCfgTblCustomForm();
+            if (form == null && application.getSerFormId() != null) {
+                form = entityManager.find(CfgTblCustomForm.class, application.getSerFormId());
+            }
+            if (isCapfForm(form) && isCapfPoEditReapproval(application)) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Vendor was edited after PO stage. Complete re-approval (Initiator HOD → Finance → CEO) before assigning PO code";
+            }
+            if (isCapfForm(form) && (isCapfPoVendorTeReapproval(application)
+                    || "PO_VENDOR_TE_PENDING".equalsIgnoreCase(status))) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Vendor was edited after PO assignment. Complete Technical Expert review before assigning PO code";
+            }
+            if (poCode == null || poCode.trim().isEmpty()) {
+                entityManager.getTransaction().rollback();
+                return "Failure: PO code is required";
+            }
+            if (application.getTxtPrCode() == null || application.getTxtPrCode().trim().isEmpty()) {
+                entityManager.getTransaction().rollback();
+                return "Failure: PR code must be assigned first";
+            }
+            String trimmedCode = poCode.trim();
+            if (!isFirstAssignment && trimmedCode.equalsIgnoreCase(application.getTxtPoCode().trim())) {
+                application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+                entityManager.merge(application);
+                entityManager.getTransaction().commit();
+                return "Success";
+            }
+            application.setTxtPoCode(trimmedCode);
+            if (isFirstAssignment) {
+                application.setTxtStatus("APPROVED");
+                application.setSerCurrentApprover(null);
+            }
+            application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
+            appendHistoryEntry(entityManager, application, userId,
+                    isFirstAssignment ? "PO_CODE_ASSIGNED" : "PO_CODE_UPDATED", "PO_Approver", 999, "SYSTEM",
+                    approvedIp);
+            appendLatestApprovalEntryToPriorApprovals(application);
+            if (form != null && isCapfForm(form) && !isFirstAssignment) {
+                try {
+                    persistCapfSignedPdf(application, form);
+                } catch (Exception e) {
+                    log.warn("CAPF PDF refresh after PO code update failed for appId={}: {}",
+                            application.getSerApplicationId(), e.getMessage());
+                }
+            }
+            entityManager.merge(application);
+            entityManager.getTransaction().commit();
+            if (isFirstAssignment) {
+                try {
+                    sendFinalInitiatorEmail(application);
+                } catch (Exception e) {
+                    log.warn("Failed to send final initiator email after PO code: {}", e.getMessage());
+                }
+            }
+            return "Success";
+        } catch (Exception e) {
+            if (entityManager.getTransaction().isActive()) {
+                entityManager.getTransaction().rollback();
+            }
+            log.error("Error assigning PO code: " + e.getMessage(), e);
             return "Failure: " + e.getMessage();
         } finally {
             if (entityManager.isOpen()) {
@@ -4612,6 +5015,52 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         }
     }
 
+    private void sendPoCodeRequestEmail(CfgTblCustomFormApplication application) {
+        EntityManager emailEntityManager = getEntityManager();
+        try {
+            emailEntityManager.getTransaction().begin();
+            java.util.List<String> poEmails = findEmailsByRole(emailEntityManager, "PO_Approver");
+            if (poEmails == null || poEmails.isEmpty()) {
+                log.warn("PO notification skipped (no PO_Approver emails) for appId={}",
+                        application.getSerApplicationId());
+                emailEntityManager.getTransaction().rollback();
+                return;
+            }
+            CfgTblCustomForm form = application.getCfgTblCustomForm();
+            if (form == null && application.getSerFormId() != null) {
+                form = emailEntityManager.find(CfgTblCustomForm.class, application.getSerFormId());
+            }
+            boolean isCapf = isCapfForm(form);
+            String formName = getResolvedFormName(form);
+            String subject = (formName != null && !formName.trim().isEmpty() ? formName : "Application")
+                    + " Awaiting PO Code - "
+                    + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+
+            String assignUrl = getBaseUrl() + "/po-code/" + application.getSerApplicationId();
+            StringBuilder html = new StringBuilder();
+            html.append("<p>Dear PO Approver,</p>");
+            html.append("<p>The application <strong>").append(application.getTxtFormCode())
+                    .append("</strong> is awaiting PO code assignment.</p>");
+            html.append("<p>Please review and assign the PO code:</p>");
+            html.append("<p><a href='").append(assignUrl).append(
+                    "' style='padding:10px 16px;background:#2c7be5;color:#fff;text-decoration:none;border-radius:4px;'>Assign PO Code</a></p>");
+            html.append("<p>Thank you.</p>");
+
+            sendEmailWithInlineFormPreview(poEmails, subject, html.toString(), application, form, isCapf,
+                    isCapf ? "capf-inline" : "form-inline");
+            emailEntityManager.getTransaction().commit();
+            log.info("PO code request emails sent for appId={} to {}", application.getSerApplicationId(), poEmails);
+        } catch (Exception e) {
+            if (emailEntityManager.getTransaction().isActive())
+                emailEntityManager.getTransaction().rollback();
+            log.warn("Failed to send PO code request email: {}", e.getMessage());
+        } finally {
+            if (emailEntityManager.isOpen()) {
+                emailEntityManager.close();
+            }
+        }
+    }
+
     private void sendSubmitterProgressEmailAfterApproval(CfgTblCustomFormApplication application, CfgTblCustomForm form,
             Integer approvedLevel) {
         if (application == null || application.getSerSubmittedBy() == null) {
@@ -4744,20 +5193,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
             boolean useIndividualPipelineFlow = !isCapf && (isBudgetApproval || hasDynamicFooterFlow);
 
-            // Get approval pipeline from form
-            List<java.util.Map<String, Object>> pipelines = new java.util.ArrayList<>();
-            if (form != null && form.getTxtApprovalPipeline() != null &&
-                    !form.getTxtApprovalPipeline().trim().isEmpty()) {
-                try {
-                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                    pipelines = mapper.readValue(
-                            form.getTxtApprovalPipeline(),
-                            new com.fasterxml.jackson.core.type.TypeReference<List<java.util.Map<String, Object>>>() {
-                            });
-                } catch (Exception e) {
-                    log.error("Error parsing approval pipeline for submission emails: " + e.getMessage(), e);
-                }
-            }
+            List<java.util.Map<String, Object>> pipelines = loadEffectiveApprovalPipeline(application, form,
+                    emailEntityManager);
 
             emailEntityManager.getTransaction().commit();
 
@@ -5633,12 +6070,12 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             content.addRect(margin, margin, pageWidth - margin * 2, pageHeight - margin * 2);
             content.stroke();
 
-            // Header row
-            drawLogo(document, content, margin + 6, y - 28, 22);
+            // Header row — fixed logo height (matches original qarshi-logo at 22pt width)
+            float logoWidth = drawCapfHeaderLogo(document, content, margin + 6, y - 28, form);
             content.setFont(PDType1Font.TIMES_BOLD, 12);
             content.beginText();
-            content.newLineAtOffset(margin + 40, y - 16);
-            content.showText("Qarshi Industries (Pvt) Ltd.");
+            content.newLineAtOffset(margin + 6 + logoWidth + 8f, y - 16);
+            content.showText(resolveCapfBrandTitle(form));
             content.endText();
             if (application != null && application.getTxtAssetCode() != null
                     && !application.getTxtAssetCode().trim().isEmpty()) {
@@ -6193,20 +6630,96 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
     }
 
     private void drawLogo(PDDocument document, PDPageContentStream content, float x, float y, float size) {
-        try (InputStream is = getClass().getClassLoader().getResourceAsStream("static/assets/images/qarshi-logo.png")) {
+        drawLogo(document, content, x, y, size, "static/assets/images/qarshi-logo.png");
+    }
+
+    private void drawLogo(PDDocument document, PDPageContentStream content, float x, float y, float size,
+            String resourcePath) {
+        try (InputStream is = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
             if (is == null)
                 return;
             byte[] data = readAllBytes(is);
             if (data == null || data.length == 0)
                 return;
+            String imageName = resourcePath.substring(resourcePath.lastIndexOf('/') + 1);
             org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject image = org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject
-                    .createFromByteArray(document, data, "qarshi-logo");
+                    .createFromByteArray(document, data, imageName);
             float width = size;
             float height = size * (image.getHeight() / (float) image.getWidth());
             content.drawImage(image, x, y, width, height);
         } catch (Exception e) {
             log.warn("Unable to load logo: " + e.getMessage());
         }
+    }
+
+    private String resolveCapfLogoResourcePath(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form) {
+        if (form == null || form.getTxtFormName() == null) {
+            return "static/assets/images/qarshi-logo.png";
+        }
+        String normalized = form.getTxtFormName().trim().toUpperCase(Locale.ROOT);
+        if ("CAPF QU".equals(normalized)) {
+            return "static/assets/images/QU_logo.png";
+        }
+        if ("CAPF QF".equals(normalized)) {
+            return "static/assets/images/QF_logo.png";
+        }
+        return "static/assets/images/qarshi-logo.png";
+    }
+
+    private String resolveCapfLogoFileName(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form) {
+        if (form == null || form.getTxtFormName() == null) {
+            return "qarshi-logo.png";
+        }
+        String normalized = form.getTxtFormName().trim().toUpperCase(Locale.ROOT);
+        if ("CAPF QU".equals(normalized)) {
+            return "QU_logo.png";
+        }
+        if ("CAPF QF".equals(normalized)) {
+            return "QF_logo.png";
+        }
+        return "qarshi-logo.png";
+    }
+
+    private String resolveCapfBrandTitle(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form) {
+        if (form == null || form.getTxtFormName() == null) {
+            return "Qarshi Industries (Pvt) Ltd.";
+        }
+        String normalized = form.getTxtFormName().trim().toUpperCase(Locale.ROOT);
+        if ("CAPF QU".equals(normalized)) {
+            return "Qarshi University (Pvt) Ltd.";
+        }
+        if ("CAPF QF".equals(normalized)) {
+            return "Qarshi Foundation (Pvt) Ltd.";
+        }
+        return "Qarshi Industries (Pvt) Ltd.";
+    }
+
+    private static final float CAPF_HEADER_LOGO_HEIGHT_PT = 11f;
+
+    private float drawCapfHeaderLogo(PDDocument document, PDPageContentStream content, float x, float y,
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form) {
+        String resourcePath = resolveCapfLogoResourcePath(form);
+        try (InputStream is = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
+            if (is == null)
+                return 22f;
+            byte[] data = readAllBytes(is);
+            if (data == null || data.length == 0)
+                return 22f;
+            String imageName = resourcePath.substring(resourcePath.lastIndexOf('/') + 1);
+            org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject image = org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject
+                    .createFromByteArray(document, data, imageName);
+            float height = CAPF_HEADER_LOGO_HEIGHT_PT;
+            float width = height * (image.getWidth() / (float) image.getHeight());
+            content.drawImage(image, x, y, width, height);
+            return width;
+        } catch (Exception e) {
+            log.warn("Unable to load CAPF header logo: " + e.getMessage());
+            return 22f;
+        }
+    }
+
+    private int resolveCapfLogoEmailHeightPx(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form) {
+        return 32;
     }
 
     private byte[] readAllBytes(InputStream is) throws java.io.IOException {
@@ -8109,6 +8622,306 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         return "Application has been updated by initiator. Please review the latest version.";
     }
 
+    private boolean isCapfPoEditReapproval(CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return false;
+        }
+        Map<String, Object> data = parseApplicationData(application);
+        Object flag = data != null ? data.get("capfPoEditReapproval") : null;
+        return Boolean.TRUE.equals(flag) || "true".equalsIgnoreCase(String.valueOf(flag));
+    }
+
+    private boolean isCapfPoVendorTeReapproval(CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return false;
+        }
+        Map<String, Object> data = parseApplicationData(application);
+        Object flag = data != null ? data.get("capfPoVendorTeReapproval") : null;
+        return Boolean.TRUE.equals(flag) || "true".equalsIgnoreCase(String.valueOf(flag));
+    }
+
+    private void clearCapfPoVendorTeReapprovalFlag(CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return;
+        }
+        try {
+            Map<String, Object> data = parseApplicationData(application);
+            if (data != null) {
+                data.remove("capfPoVendorTeReapproval");
+                application.setTxtApplicationData(new ObjectMapper().writeValueAsString(data));
+            }
+        } catch (Exception e) {
+            log.warn("Failed to clear capfPoVendorTeReapproval flag: {}", e.getMessage());
+        }
+    }
+
+    private void clearCapfPoEditReapprovalFlag(CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return;
+        }
+        try {
+            Map<String, Object> data = parseApplicationData(application);
+            if (data != null) {
+                data.remove("capfPoEditReapproval");
+                application.setTxtApplicationData(new ObjectMapper().writeValueAsString(data));
+            }
+        } catch (Exception e) {
+            log.warn("Failed to clear capfPoEditReapproval flag: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * After PO-edit re-approval CEO sign-off: return to PO_PENDING if PO code not yet assigned,
+     * otherwise mark APPROVED (edit on already-completed application).
+     */
+    private void completeCapfPoEditReapproval(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
+        if (application == null) {
+            return;
+        }
+        boolean hasPoCode = application.getTxtPoCode() != null && !application.getTxtPoCode().trim().isEmpty();
+        if (hasPoCode) {
+            application.setTxtStatus("APPROVED");
+            application.setSerCurrentApprover(null);
+            clearCapfPoEditReapprovalFlag(application);
+            try {
+                sendFinalInitiatorEmail(application);
+            } catch (Exception e) {
+                log.warn("Failed to send final initiator email after PO-edit re-approval: {}", e.getMessage());
+            }
+        } else {
+            application.setTxtStatus("PO_PENDING");
+            application.setSerCurrentApprover(null);
+            clearCapfPoEditReapprovalFlag(application);
+            try {
+                sendPoCodeRequestEmail(application);
+            } catch (Exception e) {
+                log.warn("Failed to send PO code request email after PO-edit re-approval: {}", e.getMessage());
+            }
+        }
+        if (form != null && isCapfForm(form)) {
+            try {
+                persistCapfSignedPdf(application, form);
+            } catch (Exception e) {
+                log.warn("CAPF PDF refresh after PO-edit re-approval failed for appId={}: {}",
+                        application.getSerApplicationId(), e.getMessage());
+            }
+        }
+    }
+
+    private boolean capfVendorDataChanged(Map<String, Object> before, Map<String, Object> after) {
+        if (before == null) {
+            before = new java.util.HashMap<>();
+        }
+        if (after == null) {
+            after = new java.util.HashMap<>();
+        }
+        String[] keys = new String[] {
+                "vendor_name", "vendor_address", "approved_price", "delivery_period", "terms_conditions",
+                "NAME", "ADDRESS", "APPROVED PRICE", "DELIVERY PERIOD & DATE", "DELIVERY PERIOD", "TERMS & CONDITIONS",
+                "Vendor Name", "Address", "Approved price", "Terms & Conditions"
+        };
+        for (String key : keys) {
+            String b = normalizeCapfVendorValue(before.get(key));
+            String a = normalizeCapfVendorValue(after.get(key));
+            if (!b.equals(a)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String normalizeCapfVendorValue(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private void restartCapfAfterPoApproverEdit(EntityManager entityManager, CfgTblCustomFormApplication application,
+            Integer editorUserId, CfgTblCustomForm form) {
+        if (application == null || entityManager == null) {
+            return;
+        }
+        try {
+            Map<String, Object> appData = parseApplicationData(application);
+            appData.put("capfPoEditReapproval", true);
+            application.setTxtApplicationData(new ObjectMapper().writeValueAsString(appData));
+        } catch (Exception e) {
+            log.warn("Failed to set capfPoEditReapproval flag for appId={}: {}", application.getSerApplicationId(),
+                    e.getMessage());
+        }
+        application.setIntCurrentApprovalLevel(0);
+        application.setTxtStatus("IN_PROGRESS");
+        application.setSerCurrentApprover(null);
+        appendHistoryEntry(entityManager, application, editorUserId, "PO_EDIT_REAPPROVAL", "PO_Approver", 0, "SYSTEM",
+                null);
+        if (form != null && isCapfForm(form)) {
+            try {
+                persistCapfSignedPdf(application, form);
+            } catch (Exception e) {
+                log.warn("CAPF PDF refresh after PO edit restart failed for appId={}: {}",
+                        application.getSerApplicationId(), e.getMessage());
+            }
+        }
+        entityManager.merge(application);
+        log.info("CAPF restarted for PO-edit re-approval at initiator HOD for appId={}",
+                application.getSerApplicationId());
+    }
+
+    /** History level for post-PO vendor Technical Expert review (outside normal CAPF pipeline). */
+    private static final int CAPF_PO_VENDOR_TE_HISTORY_LEVEL = -98;
+
+    /**
+     * After PO assignment, PO approver vendor edits route to an independent Technical Expert review stage.
+     * Does not change {@code intCurrentApprovalLevel} or invalidate pipeline approvals.
+     */
+    private void restartCapfAfterPoApproverEditToTechnicalExpert(EntityManager entityManager,
+            CfgTblCustomFormApplication application, Integer editorUserId, CfgTblCustomForm form) {
+        if (application == null || entityManager == null) {
+            return;
+        }
+        try {
+            Map<String, Object> appData = parseApplicationData(application);
+            appData.put("capfPoVendorTeReapproval", true);
+            appData.remove("capfPoEditReapproval");
+            application.setTxtApplicationData(new ObjectMapper().writeValueAsString(appData));
+        } catch (Exception e) {
+            log.warn("Failed to set capfPoVendorTeReapproval flag for appId={}: {}", application.getSerApplicationId(),
+                    e.getMessage());
+        }
+        application.setTxtStatus("PO_VENDOR_TE_PENDING");
+        application.setSerCurrentApprover(null);
+        appendHistoryEntry(entityManager, application, editorUserId, "PO_VENDOR_EDIT_TE", "PO_Approver", 0, "SYSTEM",
+                null);
+        if (form != null && isCapfForm(form)) {
+            try {
+                persistCapfSignedPdf(application, form);
+            } catch (Exception e) {
+                log.warn("CAPF PDF refresh after PO vendor TE restart failed for appId={}: {}",
+                        application.getSerApplicationId(), e.getMessage());
+            }
+        }
+        entityManager.merge(application);
+        log.info("CAPF restarted for PO vendor edit at Technical Expert for appId={}",
+                application.getSerApplicationId());
+    }
+
+    private void completeCapfPoVendorTeReapproval(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
+        if (application == null) {
+            return;
+        }
+        application.setTxtStatus("APPROVED");
+        application.setSerCurrentApprover(null);
+        clearCapfPoVendorTeReapprovalFlag(application);
+        if (form != null && isCapfForm(form)) {
+            try {
+                persistCapfSignedPdf(application, form);
+            } catch (Exception e) {
+                log.warn("CAPF PDF refresh after PO vendor TE re-approval failed for appId={}: {}",
+                        application.getSerApplicationId(), e.getMessage());
+            }
+        }
+    }
+
+    private void notifyPoVendorTeApproversOnEdit(CfgTblCustomFormApplication application) {
+        if (application == null || application.getSerApplicationId() == null) {
+            return;
+        }
+        EntityManager emailEntityManager = getEntityManager();
+        try {
+            emailEntityManager.getTransaction().begin();
+            CfgTblCustomFormApplication dbApp = emailEntityManager.find(CfgTblCustomFormApplication.class,
+                    application.getSerApplicationId());
+            if (dbApp == null || !"PO_VENDOR_TE_PENDING".equalsIgnoreCase(dbApp.getTxtStatus())) {
+                emailEntityManager.getTransaction().commit();
+                return;
+            }
+            CfgTblCustomForm form = dbApp.getCfgTblCustomForm();
+            if (form == null && dbApp.getSerFormId() != null) {
+                form = emailEntityManager.find(CfgTblCustomForm.class, dbApp.getSerFormId());
+            }
+            if (form == null || !isCapfForm(form)) {
+                emailEntityManager.getTransaction().commit();
+                return;
+            }
+            Integer teDeptId = resolveCapfTechnicalExpertDepartmentId(emailEntityManager, dbApp, form);
+            if (teDeptId == null) {
+                emailEntityManager.getTransaction().commit();
+                return;
+            }
+            HrTblDepartment targetDept = emailEntityManager.find(HrTblDepartment.class, teDeptId);
+            if (targetDept == null) {
+                emailEntityManager.getTransaction().commit();
+                return;
+            }
+            String formName = form.getTxtFormName() != null ? form.getTxtFormName() : "Application";
+            String baseUrl = getBaseUrl();
+            String targetDeptName = resolveDepartmentName(emailEntityManager, teDeptId, null);
+            java.util.List<Integer> headIds = new java.util.ArrayList<>();
+            String headIdsStr = targetDept.getSerDepartmentHeadId();
+            if (headIdsStr != null && !headIdsStr.trim().isEmpty()) {
+                for (String id : headIdsStr.split(",")) {
+                    try {
+                        headIds.add(Integer.parseInt(id.trim()));
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+            if (headIds.isEmpty()) {
+                Integer fallbackHeadId = findDepartmentHeadUserId(emailEntityManager, teDeptId);
+                if (fallbackHeadId != null) {
+                    headIds.add(fallbackHeadId);
+                }
+            }
+            String remarks = "Vendor details were updated after PO assignment. Technical Expert review is required.";
+            for (Integer headId : headIds) {
+                CfgTblUser approver = headId != null ? emailEntityManager.find(CfgTblUser.class, headId) : null;
+                if (approver == null || approver.getTxtAddress() == null || approver.getTxtAddress().trim().isEmpty()) {
+                    continue;
+                }
+                if (shouldSkipCeoForCapf(form, targetDeptName, approver)) {
+                    continue;
+                }
+                String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                        + dbApp.getSerApplicationId() + "&userId=" + approver.getSerUserId();
+                String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                        + dbApp.getSerApplicationId() + "&userId=" + approver.getSerUserId();
+                String subject = formName + " - PO Vendor Edit Review - "
+                        + (dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A");
+                String html = generateApprovalEmailHtml(
+                        approver.getTxtUserName() != null ? approver.getTxtUserName() : "Approver",
+                        CAPF_PO_VENDOR_TE_HISTORY_LEVEL,
+                        dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A",
+                        formName,
+                        dbApp.getTxtStatus(),
+                        remarks,
+                        true,
+                        approveUrl,
+                        rejectUrl,
+                        null,
+                        null,
+                        dbApp.getTxtApprovalHistory(),
+                        baseUrl);
+                sendEmailWithInlineFormPreview(
+                        java.util.Arrays.asList(approver.getTxtAddress()),
+                        subject,
+                        html,
+                        dbApp,
+                        form,
+                        true,
+                        "capf-inline");
+            }
+            emailEntityManager.getTransaction().commit();
+        } catch (Exception e) {
+            if (emailEntityManager.getTransaction().isActive()) {
+                emailEntityManager.getTransaction().rollback();
+            }
+            log.warn("Failed to notify Technical Expert after PO vendor edit for appId={}: {}",
+                    application.getSerApplicationId(), e.getMessage());
+        } finally {
+            if (emailEntityManager.isOpen()) {
+                emailEntityManager.close();
+            }
+        }
+    }
+
     private boolean isInitiatorEditingApplication(CfgTblCustomFormApplication existingApplication,
             Integer editorUserId) {
         if (existingApplication == null || editorUserId == null || editorUserId <= 0) {
@@ -8447,10 +9260,12 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 getBaseUrl(), hideFromOrder);
 
         String check = "<span>&#10003;</span>";
-        String logoUrl = getBaseUrl() + "/assets/images/qarshi-logo.png";
+        String logoUrl = getBaseUrl() + "/assets/images/" + resolveCapfLogoFileName(form);
 
         String html = template;
         html = html.replace("{{LOGO_URL}}", escapeHtml(logoUrl));
+        html = html.replace("{{LOGO_HEIGHT}}", String.valueOf(resolveCapfLogoEmailHeightPx(form)));
+        html = html.replace("{{BRAND_TITLE}}", escapeHtml(resolveCapfBrandTitle(form)));
         html = html.replace("{{CAPF_NUMBER}}", escapeHtml(capfNumber));
         html = html.replace("{{DIVISION_DEPARTMENT}}",
                 escapeHtml(getFieldValue("DIVISION / DEPARTMENT", appData, formFields)));
@@ -9475,6 +10290,10 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 || "ASSET_CODE_UPDATED".equalsIgnoreCase(action))) {
             return "Asset Code";
         }
+        if (level == 999 && ("PO_CODE_ASSIGNED".equalsIgnoreCase(action)
+                || "PO_CODE_UPDATED".equalsIgnoreCase(action))) {
+            return "PO Code";
+        }
         return String.valueOf(level);
     }
 
@@ -9499,6 +10318,27 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         }
         if ("PR_CODE_UPDATED".equals(normalized)) {
             return "PR Code Updated";
+        }
+        if ("PO_CODE_ASSIGNED".equals(normalized)) {
+            return "PO Code Assigned";
+        }
+        if ("PO_CODE_UPDATED".equals(normalized)) {
+            return "PO Code Updated";
+        }
+        if ("PO_EDIT_REAPPROVAL".equals(normalized)) {
+            return "PO Edit - Re-approval Required";
+        }
+        if ("PO_VENDOR_EDIT_TE".equals(normalized)) {
+            return "PO Vendor Edit - Technical Expert Review";
+        }
+        if ("PO_VENDOR_TE_APPROVED".equals(normalized)) {
+            return "PO Vendor Edit - Technical Expert Approved";
+        }
+        if ("PO_VENDOR_TE_REJECTED".equals(normalized)) {
+            return "PO Vendor Edit - Technical Expert Rejected";
+        }
+        if ("ASSET_CODE_CONFIRMED".equals(normalized)) {
+            return "Asset Code Confirmed";
         }
         if ("SENT_BACK_TO_INITIATOR".equals(normalized)) {
             return "Sent Back To Initiator";
@@ -10934,6 +11774,292 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         }
     }
 
+    /**
+     * CAPF-only: when the form toggle "Technical Expect" (or similar) is Project, route the
+     * Technical Expert pipeline stage to the substitute department selected on the application.
+     * Form-builder pipeline JSON is unchanged; substitution applies only at runtime.
+     */
+    private List<Map<String, Object>> loadEffectiveApprovalPipeline(CfgTblCustomFormApplication application,
+            CfgTblCustomForm form, EntityManager entityManager) {
+        return applyCapfTechnicalExpertRoutingIfNeeded(application, form, entityManager, loadApprovalPipeline(form));
+    }
+
+    private List<Map<String, Object>> applyCapfTechnicalExpertRoutingIfNeeded(
+            CfgTblCustomFormApplication application,
+            CfgTblCustomForm form,
+            EntityManager entityManager,
+            List<Map<String, Object>> pipelines) {
+        if (pipelines == null) {
+            return new java.util.ArrayList<>();
+        }
+        if (application == null || form == null || !isCapfForm(form)
+                || !isCapfProjectTechnicalExpectMode(application, form, entityManager)) {
+            return pipelines;
+        }
+
+        Integer substituteDeptId = resolveCapfSubstituteDepartmentId(application, form, entityManager);
+        if (substituteDeptId == null) {
+            log.warn("CAPF Project routing: substitute department missing for appId={}",
+                    application.getSerApplicationId());
+            return pipelines;
+        }
+
+        List<Map<String, Object>> effective = new java.util.ArrayList<>();
+        for (Map<String, Object> stage : pipelines) {
+            Map<String, Object> copy = new java.util.LinkedHashMap<>(stage);
+            if (isCapfTechnicalExpertPipelineStage(entityManager, stage)) {
+                patchPipelineDepartmentForRouting(copy, entityManager, substituteDeptId);
+                log.info("CAPF Project routing: Technical Expert stage -> departmentId={} for appId={}",
+                        substituteDeptId, application.getSerApplicationId());
+            }
+            effective.add(copy);
+        }
+        return effective;
+    }
+
+    private boolean isCapfProjectTechnicalExpectMode(CfgTblCustomFormApplication application,
+            CfgTblCustomForm form, EntityManager entityManager) {
+        String mode = readCapfFormFieldByKeywords(application, form, entityManager, "technical", "expect");
+        if (mode.isEmpty()) {
+            mode = readCapfFormFieldByKeywords(application, form, entityManager, "technical", "expert");
+        }
+        return "project".equalsIgnoreCase(mode.trim());
+    }
+
+    private Integer resolveCapfSubstituteDepartmentId(CfgTblCustomFormApplication application,
+            CfgTblCustomForm form, EntityManager entityManager) {
+        String raw = readCapfFormFieldByKeywords(application, form, entityManager, "substitut");
+        if (raw.isEmpty()) {
+            raw = readCapfFormFieldByKeywords(application, form, entityManager, "substitute", "department");
+        }
+        if (raw.isEmpty()) {
+            raw = readCapfFormFieldByKeywords(application, form, entityManager, "project", "department");
+        }
+        return resolveDepartmentIdFromFormValue(entityManager, raw);
+    }
+
+    private String readCapfFormFieldByKeywords(CfgTblCustomFormApplication application, CfgTblCustomForm form,
+            EntityManager entityManager, String... keywords) {
+        if (keywords == null || keywords.length == 0) {
+            return "";
+        }
+        Map<String, Object> appData = parseApplicationData(application);
+        List<CfgTblCustomFormField> formFields = resolveFormFields(entityManager, form);
+        if (formFields != null) {
+            for (CfgTblCustomFormField field : formFields) {
+                if (field == null || field.getTxtFieldLabel() == null) {
+                    continue;
+                }
+                if (labelMatchesKeywords(field.getTxtFieldLabel(), keywords)) {
+                    String value = lookupLabel(field.getTxtFieldLabel(), appData, formFields);
+                    if (value != null && !value.trim().isEmpty()) {
+                        return value.trim();
+                    }
+                }
+            }
+        }
+        for (Map.Entry<String, Object> entry : appData.entrySet()) {
+            if (entry.getKey() != null && labelMatchesKeywords(entry.getKey(), keywords)) {
+                String value = safeToString(entry.getValue());
+                if (value != null && !value.trim().isEmpty()) {
+                    return value.trim();
+                }
+            }
+        }
+        return "";
+    }
+
+    private boolean labelMatchesKeywords(String label, String... keywords) {
+        if (label == null || keywords == null || keywords.length == 0) {
+            return false;
+        }
+        String normalized = normalizeDeptText(label);
+        for (String keyword : keywords) {
+            if (keyword == null || keyword.trim().isEmpty()) {
+                return false;
+            }
+            if (!normalized.contains(normalizeDeptText(keyword))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Integer resolveCapfTechnicalExpertDepartmentId(EntityManager entityManager,
+            CfgTblCustomFormApplication application, CfgTblCustomForm form) {
+        if (form == null || !isCapfForm(form) || entityManager == null) {
+            return null;
+        }
+        try {
+            List<Map<String, Object>> pipelines = loadEffectiveApprovalPipeline(application, form, entityManager);
+            for (Map<String, Object> stage : pipelines) {
+                if (isCapfTechnicalExpertPipelineStage(entityManager, stage)) {
+                    return extractPipelineDepartmentId(stage);
+                }
+            }
+            for (Map<String, Object> stage : pipelines) {
+                Integer deptId = extractPipelineDepartmentId(stage);
+                if (deptId != null) {
+                    return deptId;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to resolve Technical Expert department for appId={}: {}",
+                    application != null ? application.getSerApplicationId() : null, e.getMessage());
+        }
+        return null;
+    }
+
+    private String validatePoVendorTePendingAuthorization(EntityManager entityManager,
+            CfgTblCustomFormApplication application, CfgTblCustomForm form, Integer actorUserId) {
+        if (application == null || actorUserId == null || actorUserId <= 0) {
+            return "Failure: User not authenticated";
+        }
+        if (!"PO_VENDOR_TE_PENDING".equalsIgnoreCase(application.getTxtStatus())) {
+            return "Failure: Application is not pending PO vendor Technical Expert review";
+        }
+        if (!isCapfPoVendorTeReapproval(application)) {
+            return "Failure: Application is not pending PO vendor Technical Expert review";
+        }
+        if (form == null || !isCapfForm(form)) {
+            return "Failure: Invalid CAPF application";
+        }
+        Integer teDeptId = resolveCapfTechnicalExpertDepartmentId(entityManager, application, form);
+        if (teDeptId == null) {
+            return "Failure: Technical Expert department is not configured for this form";
+        }
+        Integer actorDeptId = loadUserDepartmentId(entityManager, actorUserId);
+        if (actorDeptId == null || !teDeptId.equals(actorDeptId)) {
+            return "Failure: Only Technical Expert department can perform this action";
+        }
+        List<Map<String, Object>> history = parseApprovalHistory(application.getTxtApprovalHistory());
+        long vendorEditEpoch = getLatestActionEpoch(history, "PO_VENDOR_EDIT_TE");
+        if (vendorEditEpoch > 0L && hasPoVendorTeDecisionAfter(history, vendorEditEpoch)) {
+            return "Failure: Technical Expert review is already complete";
+        }
+        return null;
+    }
+
+    private boolean hasPoVendorTeDecisionAfter(List<Map<String, Object>> approvalHistory, long vendorEditEpoch) {
+        if (approvalHistory == null || approvalHistory.isEmpty() || vendorEditEpoch <= 0L) {
+            return false;
+        }
+        for (Map<String, Object> entry : approvalHistory) {
+            if (entry == null) {
+                continue;
+            }
+            String action = entry.get("action") != null ? String.valueOf(entry.get("action")).toUpperCase() : "";
+            if (!"PO_VENDOR_TE_APPROVED".equals(action) && !"PO_VENDOR_TE_REJECTED".equals(action)) {
+                continue;
+            }
+            if (getHistoryEntryEpoch(entry) > vendorEditEpoch) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isCapfTechnicalExpertPipelineStage(EntityManager entityManager, Map<String, Object> pipeline) {
+        if (pipeline == null) {
+            return false;
+        }
+        String name = normalizeDeptText(extractPipelineDepartmentName(pipeline));
+        if (name.contains("technical") && name.contains("expert")) {
+            return true;
+        }
+        Integer deptId = extractPipelineDepartmentId(pipeline);
+        if (deptId == null || entityManager == null) {
+            return false;
+        }
+        String resolved = normalizeDeptText(resolveDepartmentName(entityManager, deptId, pipeline));
+        return resolved.contains("technical") && resolved.contains("expert");
+    }
+
+    private void patchPipelineDepartmentForRouting(Map<String, Object> pipeline, EntityManager entityManager,
+            Integer departmentId) {
+        if (pipeline == null || departmentId == null) {
+            return;
+        }
+        pipeline.put("serDepartmentId", departmentId);
+        pipeline.put("departmentId", departmentId);
+        String deptName = resolveDepartmentName(entityManager, departmentId, null);
+        if (deptName != null && !deptName.trim().isEmpty()) {
+            pipeline.put("departmentName", deptName);
+            pipeline.put("txtDepartmentName", deptName);
+        }
+        if (entityManager != null) {
+            com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment department = entityManager.find(
+                    com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, departmentId);
+            if (department != null) {
+                Map<String, Object> hrDept = new java.util.LinkedHashMap<>();
+                hrDept.put("serDepartmentId", departmentId);
+                hrDept.put("departmentId", departmentId);
+                if (department.getTxtDepartmentName() != null) {
+                    hrDept.put("txtDepartmentName", department.getTxtDepartmentName());
+                    hrDept.put("departmentName", department.getTxtDepartmentName());
+                }
+                pipeline.put("hrTblDepartment", hrDept);
+            }
+        }
+    }
+
+    private Integer resolveDepartmentIdFromFormValue(EntityManager entityManager, String raw) {
+        if (raw == null || raw.trim().isEmpty() || entityManager == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        try {
+            Integer parsedId = Integer.parseInt(trimmed);
+            com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment byId = entityManager.find(
+                    com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, parsedId);
+            if (byId != null) {
+                return parsedId;
+            }
+        } catch (NumberFormatException ignored) {
+        }
+
+        try {
+            java.util.List<com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment> matches = entityManager
+                    .createQuery(
+                            "SELECT d FROM HrTblDepartment d WHERE UPPER(TRIM(d.txtDepartmentName)) = :name "
+                                    + "AND COALESCE(d.blIsDeleted, false) = false",
+                            com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class)
+                    .setParameter("name", trimmed.toUpperCase(Locale.ROOT))
+                    .setMaxResults(1)
+                    .getResultList();
+            if (!matches.isEmpty() && matches.get(0) != null) {
+                return matches.get(0).getSerDepartmentId();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to resolve department id from form value '{}': {}", trimmed, e.getMessage());
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<CfgTblCustomFormField> resolveFormFields(EntityManager entityManager, CfgTblCustomForm form) {
+        if (form == null) {
+            return new java.util.ArrayList<>();
+        }
+        if (form.getCfgTblCustomFormFields() != null && !form.getCfgTblCustomFormFields().isEmpty()) {
+            return form.getCfgTblCustomFormFields();
+        }
+        if (entityManager == null || form.getSerFormId() == null) {
+            return new java.util.ArrayList<>();
+        }
+        try {
+            return entityManager.createQuery(
+                    "SELECT f FROM CfgTblCustomFormField f WHERE f.cfgTblCustomForm.serFormId = :formId "
+                            + "AND COALESCE(f.blIsDeleted, false) = false ORDER BY f.intFieldOrder",
+                    CfgTblCustomFormField.class)
+                    .setParameter("formId", form.getSerFormId())
+                    .getResultList();
+        } catch (Exception e) {
+            log.warn("Failed to load custom form fields for formId={}: {}", form.getSerFormId(), e.getMessage());
+            return new java.util.ArrayList<>();
+        }
+    }
+
     private String appendCapfInlineImage(String baseHtml, String imageCid) {
         if (baseHtml == null || baseHtml.trim().isEmpty())
             return baseHtml;
@@ -12078,8 +13204,12 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             return false;
         }
         long cutoffEpoch = getLatestResetEpochForStage(approvalHistory, level);
-        for (Map<String, Object> entry : approvalHistory) {
+        for (int i = 0; i < approvalHistory.size(); i++) {
+            Map<String, Object> entry = approvalHistory.get(i);
             if (entry == null || !isApprovedEntry(entry)) {
+                continue;
+            }
+            if (isHistoryEntryInvalidatedByReset(i, approvalHistory, level, cutoffEpoch)) {
                 continue;
             }
             Integer approvedBy = extractApprovalUserId(entry);
@@ -12088,9 +13218,6 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             }
             Integer entryLevel = safeInt(entry.get("level"), safeInt(entry.get("intApprovalOrder"), null));
             if (entryLevel == null || !entryLevel.equals(level)) {
-                continue;
-            }
-            if (cutoffEpoch > 0L && getHistoryEntryEpoch(entry) <= cutoffEpoch) {
                 continue;
             }
             if (!approvalEntryMatchesStage(entry, departmentId, departmentName)) {
@@ -12136,12 +13263,36 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             return false;
         String rn = "";
         try {
-            rn = user.getCfgTblRole() != null && user.getCfgTblRole().getTxtRoleName() != null
-                    ? user.getCfgTblRole().getTxtRoleName()
-                    : "";
+            if (user.getCfgTblRole() != null && user.getCfgTblRole().getTxtRoleName() != null) {
+                rn = user.getCfgTblRole().getTxtRoleName();
+            } else if (user.getTxtrole() != null) {
+                rn = user.getTxtrole();
+            }
         } catch (Exception ignored) {
         }
         return roleName.trim().equalsIgnoreCase(rn.trim());
+    }
+
+    private long getLatestActionEpoch(List<Map<String, Object>> approvalHistory, String actionName) {
+        if (approvalHistory == null || approvalHistory.isEmpty() || actionName == null) {
+            return 0L;
+        }
+        long latest = 0L;
+        String expected = actionName.trim().toUpperCase();
+        for (Map<String, Object> entry : approvalHistory) {
+            if (entry == null) {
+                continue;
+            }
+            String action = entry.get("action") != null ? String.valueOf(entry.get("action")).toUpperCase() : "";
+            if (!expected.equals(action)) {
+                continue;
+            }
+            long epoch = getHistoryEntryEpoch(entry);
+            if (epoch > latest) {
+                latest = epoch;
+            }
+        }
+        return latest;
     }
 
     private void appendHistoryEntry(EntityManager em, CfgTblCustomFormApplication application, Integer userId,

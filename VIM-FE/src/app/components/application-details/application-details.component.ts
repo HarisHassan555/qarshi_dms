@@ -72,6 +72,13 @@ export class ApplicationDetailsComponent implements OnInit {
   prCodeInput: string = '';
   isSavingPrCode: boolean = false;
 
+  poCodeInput: string = '';
+  isSavingPoCode: boolean = false;
+  /** Set from API data in loadApplicationDetails — avoids template method timing issues. */
+  showPoCodeUI = false;
+  showAssetCodeUI = false;
+  showPrCodeUI = false;
+
   /** For budget approval form: HTML content split into pages. */
   budgetPages: SafeHtml[] = [];
 
@@ -91,26 +98,183 @@ export class ApplicationDetailsComponent implements OnInit {
     return false;
   }
 
+  private isFinanceRoleToken(role: string): boolean {
+    if (!role) return false;
+    return role === 'FINANCE' || role === 'FINANCE_HEAD' || role.includes('FINANCE');
+  }
+
   isFinance(): boolean {
-    if (!this.currentUser) return false;
-    const role = (this.currentUser?.cfgTblRole?.txtRoleName || this.currentUser?.txtrole || '').toUpperCase();
-    return role.includes('FINANCE');
+    return this.collectCurrentUserRoleTokens().some((role) => this.isFinanceRoleToken(role));
+  }
+
+  private isApplicationSubmitter(): boolean {
+    const userId = this.getCurrentUserId();
+    if (userId == null || !this.applicationDetails) return false;
+    return Number(this.applicationDetails.serSubmittedBy) === Number(userId);
+  }
+
+  private hasAssignedAssetCode(): boolean {
+    const code = (this.applicationDetails?.txtAssetCode || '').toString().trim();
+    if (code) return true;
+    if (Array.isArray(this.approvalHistory) && this.approvalHistory.length > 0) {
+      return this.approvalHistory.some((e: any) => {
+        const action = (e?.action || e?.status || '').toString().toUpperCase();
+        return action === 'ASSET_CODE_ASSIGNED' || action === 'ASSET_CODE_CONFIRMED';
+      });
+    }
+    return false;
+  }
+
+  private computeShowAssetCodeForm(): boolean {
+    if (!this.applicationDetails) return false;
+    if (!this.isCapfForm()) return false;
+    if (!this.isFinance()) return false;
+    const status = (this.applicationDetails.txtStatus || '').toString().trim().toUpperCase();
+    const hasAsset = this.hasAssignedAssetCode();
+    const allowed = ['ASSET_PENDING', 'PR_PENDING', 'PO_PENDING', 'APPROVED', 'PO_VENDOR_TE_PENDING', 'CEO_PENDING'];
+    if (!allowed.includes(status)) return false;
+    if (!hasAsset && status !== 'ASSET_PENDING') return false;
+    return true;
+  }
+
+  private computeShowPrCodeForm(): boolean {
+    if (!this.applicationDetails) return false;
+    if (!this.isCapfForm()) return false;
+    if (!this.isApplicationSubmitter()) return false;
+    if (!this.hasAssignedAssetCode()) return false;
+    const status = (this.applicationDetails.txtStatus || '').toString().trim().toUpperCase();
+    const hasPr = !!(this.applicationDetails.txtPrCode && String(this.applicationDetails.txtPrCode).trim());
+    const allowed = ['PR_PENDING', 'PO_PENDING', 'APPROVED', 'PO_VENDOR_TE_PENDING', 'CEO_PENDING'];
+    if (!allowed.includes(status)) return false;
+    if (!hasPr && status !== 'PR_PENDING') return false;
+    return true;
   }
 
   showAssetCodeForm(): boolean {
-    return this.applicationDetails?.txtStatus === 'ASSET_PENDING' && this.isFinance();
+    return this.showAssetCodeUI;
   }
 
   showPrCodeForm(): boolean {
+    return this.showPrCodeUI;
+  }
+
+  /** Normalize role tokens so PO_Approver, PO Approver, and PO_APPROVER all match. */
+  private normalizeRoleToken(value: unknown): string {
+    return (value ?? '').toString().trim().toUpperCase().replace(/[\s-]+/g, '_');
+  }
+
+  private collectCurrentUserRoleTokens(): string[] {
+    if (!this.currentUser) return [];
+    const u = this.currentUser;
+    const tokens = new Set<string>();
+    const add = (value: unknown) => {
+      const token = this.normalizeRoleToken(value);
+      if (token) tokens.add(token);
+    };
+
+    if (u.cfgTblRole != null && typeof u.cfgTblRole === 'object') {
+      add(u.cfgTblRole.txtRoleName);
+      add(u.cfgTblRole.txtRoleCode);
+    }
+
+    add(u.txtrole);
+    add(u.txtRole);
+    add(u.roleName);
+    add(u.txt_designation);
+    add(u.txtDesignation);
+
+    if (Array.isArray(u.cfgTblUserRoles)) {
+      for (const userRole of u.cfgTblUserRoles) {
+        add(userRole?.cfgTblRole?.txtRoleName);
+        add(userRole?.cfgTblRole?.txtRoleCode);
+      }
+    }
+
+    return Array.from(tokens);
+  }
+
+  private isPoApproverRoleToken(role: string): boolean {
+    if (!role) return false;
+    return role === 'PO_APPROVER' || (role.includes('PO') && role.includes('APPROVER'));
+  }
+
+  isPoApprover(): boolean {
+    return this.collectCurrentUserRoleTokens().some((role) => this.isPoApproverRoleToken(role));
+  }
+
+  getApplicationPrCode(): string {
+    const d = this.applicationDetails;
+    if (!d) return '';
+    const raw = d.txtPrCode ?? d.txt_pr_code ?? this.prCodeInput ?? '';
+    return String(raw).trim();
+  }
+
+  private hasAssignedPrCode(): boolean {
+    if (this.getApplicationPrCode()) return true;
+    if (Array.isArray(this.approvalHistory) && this.approvalHistory.length > 0) {
+      return this.approvalHistory.some((e: any) => {
+        const action = (e?.action || e?.status || '').toString().toUpperCase();
+        return action === 'PR_CODE_ASSIGNED' || action === 'PR_CODE_UPDATED';
+      });
+    }
+    return false;
+  }
+
+  private isPoPendingStage(): boolean {
+    return (this.applicationDetails?.txtStatus || '').toString().trim().toUpperCase() === 'PO_PENDING';
+  }
+
+  /** Original working rules from Pending Approvals → Application Details flow. */
+  private computeShowPoCodeForm(): boolean {
     if (!this.applicationDetails) return false;
     if (!this.isCapfForm()) return false;
+    if (!this.isPoApprover()) return false;
+    if (this.isCapfPoEditReapprovalActive()) return false;
+    if (this.isCapfPoVendorTeReapprovalActive()) return false;
+    const status = (this.applicationDetails.txtStatus || '').toString().trim().toUpperCase();
+    const hasPo = !!(this.applicationDetails.txtPoCode && String(this.applicationDetails.txtPoCode).trim());
+    const allowed = ['PO_PENDING', 'APPROVED'];
+    if (!allowed.includes(status)) return false;
+    if (!this.hasAssignedPrCode()) return false;
+    if (!hasPo && status !== 'PO_PENDING') return false;
+    return true;
+  }
+
+  private syncFromPendingApprovals(): void {
+    this.fromPendingApprovals = this.route.snapshot.queryParamMap.get('from') === 'pending';
+  }
+
+  private updateCapfCodeFormVisibility(): void {
+    this.showAssetCodeUI = this.computeShowAssetCodeForm();
+    this.showPrCodeUI = this.computeShowPrCodeForm();
+    this.showPoCodeUI = this.computeShowPoCodeForm();
+  }
+
+  /** @deprecated use updateCapfCodeFormVisibility */
+  private updatePoCodeVisibility(): void {
+    this.updateCapfCodeFormVisibility();
+  }
+
+  showPoCodeForm(): boolean {
+    return this.showPoCodeUI;
+  }
+
+  /** PO approver vendor edit triggered shortened re-approval (HOD → Finance → CEO). */
+  private isCapfPoEditReapprovalActive(): boolean {
+    if (!this.isCapfForm()) return false;
+    const flag = this.applicationFormData?.capfPoEditReapproval;
+    const active = flag === true || flag === 'true' || flag === 1 || flag === '1';
+    if (!active) return false;
     const status = (this.applicationDetails?.txtStatus || '').toString().toUpperCase();
-    const hasAsset = !!(this.applicationDetails?.txtAssetCode && String(this.applicationDetails.txtAssetCode).trim());
-    const hasPr = !!(this.applicationDetails?.txtPrCode && String(this.applicationDetails.txtPrCode).trim());
-    if (status !== 'APPROVED') return false;
-    if (!hasAsset || hasPr) return false;
-    // Business: PR code assignment is typically done by Procurement HOD.
-    return this.isProcurementHod();
+    // Only in-flight re-approval (HOD → Finance → CEO). PR/PO_PENDING means re-approval finished or normal flow resumed.
+    if (status === 'PR_PENDING' || status === 'PO_PENDING' || status === 'APPROVED') return false;
+    return status === 'IN_PROGRESS' || status === 'CEO_PENDING' || status === 'ASSET_PENDING';
+  }
+
+  /** Post-PO vendor edit: independent Technical Expert review (outside normal pipeline). */
+  private isCapfPoVendorTeReapprovalActive(): boolean {
+    if (!this.isCapfForm()) return false;
+    return (this.applicationDetails?.txtStatus || '').toString().toUpperCase() === 'PO_VENDOR_TE_PENDING';
   }
 
   saveAssetCode() {
@@ -123,12 +287,21 @@ export class ApplicationDetailsComponent implements OnInit {
       .assignAssetCode(this.applicationId, this.assetCodeInput.trim(), this.currentUser?.serUserId)
       .pipe(finalize(() => (this.isSavingAssetCode = false)))
       .subscribe(
-        () => {
-          this.notificationService.showMessage('Asset code saved; application approved', 'success');
+        (res: any) => {
+          if (res?.status === 'Failure') {
+            this.notificationService.showMessage(
+              String(res?.message || 'Failed to save asset code').replace(/^Failure:\s*/i, ''),
+              'danger'
+            );
+            return;
+          }
+          this.notificationService.showMessage('Asset code saved successfully', 'success');
           this.loadApplicationDetails();
+          this.updateCapfCodeFormVisibility();
         },
-        () => {
-          this.notificationService.showMessage('Failed to save asset code', 'danger');
+        (err) => {
+          const msg = err?.error?.message || err?.error || err?.message || 'Failed to save asset code';
+          this.notificationService.showMessage(String(msg).replace(/^Failure:\s*/i, ''), 'danger');
         }
       );
   }
@@ -143,12 +316,53 @@ export class ApplicationDetailsComponent implements OnInit {
       .assignPrCode(this.applicationId, this.prCodeInput.trim(), this.currentUser?.serUserId)
       .pipe(finalize(() => (this.isSavingPrCode = false)))
       .subscribe(
-        () => {
+        (res: any) => {
+          if (res?.status === 'Failure') {
+            this.notificationService.showMessage(
+              String(res?.message || 'Failed to save PR code').replace(/^Failure:\s*/i, ''),
+              'danger'
+            );
+            return;
+          }
           this.notificationService.showMessage('PR code saved successfully', 'success');
           this.loadApplicationDetails();
+          this.updateCapfCodeFormVisibility();
         },
-        () => {
-          this.notificationService.showMessage('Failed to save PR code', 'danger');
+        (err) => {
+          const msg = err?.error?.message || err?.error || err?.message || 'Failed to save PR code';
+          this.notificationService.showMessage(String(msg).replace(/^Failure:\s*/i, ''), 'danger');
+        }
+      );
+  }
+
+  savePoCode() {
+    if (!this.applicationId || !this.poCodeInput.trim()) {
+      this.notificationService.showMessage('PO code is required', 'danger');
+      return;
+    }
+    this.isSavingPoCode = true;
+    this.customFormApplicationService
+      .assignPoCode(this.applicationId, this.poCodeInput.trim(), this.currentUser?.serUserId)
+      .pipe(finalize(() => (this.isSavingPoCode = false)))
+      .subscribe(
+        (res: any) => {
+          if (res?.status === 'Failure') {
+            this.notificationService.showMessage(
+              String(res?.message || 'Failed to save PO code').replace(/^Failure:\s*/i, ''),
+              'danger'
+            );
+            return;
+          }
+          this.notificationService.showMessage(
+            'PO code saved; application completed. You can still edit vendor details from Pending Approvals.',
+            'success'
+          );
+          this.loadApplicationDetails();
+          this.updatePoCodeVisibility();
+        },
+        (err) => {
+          const msg = err?.error?.message || err?.error || err?.message || 'Failed to save PO code';
+          this.notificationService.showMessage(String(msg).replace(/^Failure:\s*/i, ''), 'danger');
         }
       );
   }
@@ -612,22 +826,27 @@ export class ApplicationDetailsComponent implements OnInit {
 
   canEditVendorDetails(): boolean {
     if (!this.applicationDetails) return false;
-    if (!this.isCapfForm()) return false;
 
-    // The user MUST come from the Pending Approvals page to see this button
-    // AND must be authorized (Procurement HOD or similar authorized role)
+    const rawStatus = (this.applicationDetails?.txtStatus || '').toUpperCase();
+
+    if (rawStatus === 'PO_PENDING') {
+      return this.isPoApprover() || this.fromPendingApprovals;
+    }
+
+    if (this.isPoApprover()) {
+      const hasPo = !!(this.applicationDetails?.txtPoCode && String(this.applicationDetails.txtPoCode).trim());
+      return rawStatus === 'APPROVED' && hasPo;
+    }
+
+    if (!this.isCapfForm()) return false;
     if (!this.fromPendingApprovals) return false;
 
-    const isProcHod = this.isProcurementHod();
+    if (this.isProcurementHod()) {
+      const isPending = rawStatus === 'PENDING' || rawStatus === '' || rawStatus === 'NEW' || rawStatus === 'IN_PROGRESS';
+      return isPending;
+    }
 
-    // Status check: only allow editing on PENDING or IN_PROGRESS applications
-    const rawStatus = (this.applicationDetails?.txtStatus || '').toUpperCase();
-    const isPending = rawStatus === 'PENDING' || rawStatus === '' || rawStatus === 'NEW' || rawStatus === 'IN_PROGRESS';
-
-    // Debug log — visible in browser console
-    console.log('[canEditVendorDetails]', { isProcHod, fromPending: this.fromPendingApprovals, rawStatus, isPending });
-
-    return isProcHod && isPending;
+    return false;
   }
 
   /** Split stored "DELIVERY PERIOD & DATE" into text + ISO date when we previously saved as "text / yyyy-mm-dd". */
@@ -739,7 +958,15 @@ export class ApplicationDetailsComponent implements OnInit {
       }
       const response: any = await this.http.post(`${urls.API_URL}updateApplication`, sanitizedApp).toPromise();
       if (response && response.status === 'Success') {
-        this.notificationService.showMessage('Vendor details updated successfully', 'success');
+        const rawStatus = (this.applicationDetails?.txtStatus || '').toUpperCase();
+        const hasPo = !!(this.applicationDetails?.txtPoCode && String(this.applicationDetails.txtPoCode).trim());
+        let restartMsg = 'Vendor details updated successfully';
+        if (this.isPoApprover()) {
+          restartMsg = rawStatus === 'APPROVED' && hasPo
+            ? 'Vendor details updated. Sent to Technical Expert for approval.'
+            : 'Vendor details updated. Application sent for re-approval (Initiator HOD → Finance → CEO).';
+        }
+        this.notificationService.showMessage(restartMsg, 'success');
         this.applicationDetails.txtApplicationData = updatedApp.txtApplicationData;
         this.applicationFormData = appData;
         this.isEditingVendor = false;
@@ -749,6 +976,17 @@ export class ApplicationDetailsComponent implements OnInit {
 
         if (this.isCapfForm() && this.applicationDetails?.serApplicationId) {
           void this.refreshCapfPdfSnapshotAfterVendorUpdate(this.applicationDetails.serApplicationId);
+        }
+        if (this.isPoApprover()) {
+          if (rawStatus === 'APPROVED' && hasPo) {
+            this.applicationDetails.txtStatus = 'PO_VENDOR_TE_PENDING';
+            this.applicationFormData = { ...appData, capfPoVendorTeReapproval: true };
+          } else {
+            this.applicationDetails.txtStatus = 'IN_PROGRESS';
+            this.applicationDetails.intCurrentApprovalLevel = 0;
+            this.applicationFormData = { ...appData, capfPoEditReapproval: true };
+          }
+          this.router.navigate(['/pending-approvals']);
         }
       } else {
         this.notificationService.showMessage(response?.message || 'Failed to update vendor details', 'danger');
@@ -890,6 +1128,23 @@ export class ApplicationDetailsComponent implements OnInit {
         console.error('Error parsing user data:', e);
       }
     }
+    // Refresh role from server (localStorage can be stale after role changes)
+    this.syncFromPendingApprovals();
+    this.http.get(urls.API_URL + 'getCurrentUser').subscribe({
+      next: (user: any) => {
+        if (user) {
+          this.currentUser = user;
+          try {
+            localStorage.setItem('user', JSON.stringify(user));
+          } catch {
+            /* ignore quota errors */
+          }
+          this.updateCapfCodeFormVisibility();
+          this.cdr.detectChanges();
+        }
+      },
+      error: () => { /* keep localStorage user */ }
+    });
     // Get application ID from route - load forms & departments first so CAPF detection has form data
     this.route.paramMap.subscribe(params => {
       const idParam = params.get('id');
@@ -925,8 +1180,10 @@ export class ApplicationDetailsComponent implements OnInit {
         this.router.navigate(['/applicationsview']);
       }
     });
-    this.route.queryParamMap.subscribe(params => {
-      this.fromPendingApprovals = params.get('from') === 'pending';
+    this.route.queryParamMap.subscribe(() => {
+      this.syncFromPendingApprovals();
+      this.updateCapfCodeFormVisibility();
+      this.cdr.detectChanges();
     });
     this.loadUsers();
   }
@@ -1004,6 +1261,7 @@ export class ApplicationDetailsComponent implements OnInit {
   loadApplicationDetails() {
     if (!this.applicationId) return;
 
+    this.syncFromPendingApprovals();
     this.isLoading = true;
     this.customFormApplicationService.getApplicationById(this.applicationId).subscribe(
       (data: any) => {
@@ -1016,6 +1274,7 @@ export class ApplicationDetailsComponent implements OnInit {
               (formData: any) => {
                 if (formData) {
                   this.applicationDetails = { ...this.applicationDetails, cfgTblCustomForm: formData };
+                  this.updatePoCodeVisibility();
                   this.cdr.detectChanges();
                 }
               }
@@ -1121,7 +1380,12 @@ export class ApplicationDetailsComponent implements OnInit {
           this.enrichPipelineWithDepartmentNames();
           this.applyDepartmentNamesToApprovalHistory();
 
-          // If formFields is empty (e.g. cfgTblCustomFormFields stripped by backend or forms not loaded yet),
+          this.assetCodeInput = (data.txtAssetCode || '').toString().trim();
+          this.prCodeInput = (data.txtPrCode || '').toString().trim();
+          this.poCodeInput = (data.txtPoCode || '').toString().trim();
+          this.updatePoCodeVisibility();
+
+          // If formFields is empty
           // fetch the form by ID to ensure CAPF and other form previews have the field structure
           if (this.formFields.length === 0 && data.serFormId) {
             this.customFormService.getById(data.serFormId).subscribe(
@@ -1145,13 +1409,21 @@ export class ApplicationDetailsComponent implements OnInit {
           }
 
           this.isLoading = false;
+          this.updatePoCodeVisibility();
+          this.cdr.detectChanges();
         } else {
+          this.showAssetCodeUI = false;
+          this.showPrCodeUI = false;
+          this.showPoCodeUI = false;
           this.notificationService.showMessage('Application not found', 'danger');
           this.router.navigate(['/applicationsview']);
         }
       },
       (error) => {
         this.isLoading = false;
+        this.showAssetCodeUI = false;
+        this.showPrCodeUI = false;
+        this.showPoCodeUI = false;
         this.notificationService.showMessage('Error loading application details: ' + (error.error?.message || error.message), 'danger');
         this.router.navigate(['/applicationsview']);
       }
@@ -1364,6 +1636,22 @@ export class ApplicationDetailsComponent implements OnInit {
       this.applicationFormData?.individual_pipeline_footer;
     if (!Array.isArray(footerFields)) return [];
     return [...footerFields].sort((a: any, b: any) => (Number(a?.order) || 0) - (Number(b?.order) || 0));
+  }
+
+  /** Slip footer columns for EXP-* / TAS-* (includes visual-only pipeline from form builder). */
+  getSlipPipelineFooterFields(): any[] {
+    const footerFields =
+      this.applicationFormData?.footerFields ??
+      this.applicationFormData?.individual_pipeline_footer ??
+      ((this.isExpenseClaimForm() || this.isTemporaryAdvanceSlipForm())
+        ? this.applicationFormData?.slipApprovalPipeline
+        : undefined);
+    if (!Array.isArray(footerFields)) return [];
+    return [...footerFields].sort((a: any, b: any) => (Number(a?.order) || 0) - (Number(b?.order) || 0));
+  }
+
+  hasSlipPipelineFooter(): boolean {
+    return this.getSlipPipelineFooterFields().length > 0;
   }
 
   getIndividualFooterColSpan(section: any): number {
@@ -2158,6 +2446,12 @@ export class ApplicationDetailsComponent implements OnInit {
     const normalized = action.toUpperCase();
     if (normalized === 'ASSET_CODE_ASSIGNED') return 'Asset Code Assigned';
     if (normalized === 'PR_CODE_ASSIGNED') return 'PR Code Assigned';
+    if (normalized === 'PO_CODE_ASSIGNED') return 'PO Code Assigned';
+    if (normalized === 'PO_EDIT_REAPPROVAL') return 'PO Edit - Re-approval Required';
+    if (normalized === 'PO_VENDOR_EDIT_TE') return 'PO Vendor Edit - Technical Expert Review';
+    if (normalized === 'PO_VENDOR_TE_APPROVED') return 'PO Vendor Edit - Technical Expert Approved';
+    if (normalized === 'PO_VENDOR_TE_REJECTED') return 'PO Vendor Edit - Technical Expert Rejected';
+    if (normalized === 'ASSET_CODE_CONFIRMED') return 'Asset Code Confirmed';
     if (normalized === 'SENT_BACK_TO_INITIATOR') return 'Sent Back To Initiator';
     if (normalized === 'SENT_BACK') return 'Sent Back';
     return action;
@@ -2424,7 +2718,50 @@ export class ApplicationDetailsComponent implements OnInit {
       }
     }
 
-    return sortedPipelines;
+    return this.applyCapfEffectivePipelineRouting(sortedPipelines);
+  }
+
+  /**
+   * CAPF Project mode: replace Technical Expert pipeline stage with the selected substitute
+   * department for workflow display only (form-builder pipeline JSON stays unchanged).
+   */
+  private applyCapfEffectivePipelineRouting(pipelines: any[]): any[] {
+    if (!pipelines?.length || !this.isCapfForm() || !this.isCapfTechnicalExpertProjectMode()) {
+      return pipelines;
+    }
+
+    const substituteDeptId = this.getCapfSubstituteDepartmentId();
+    if (substituteDeptId == null) {
+      return pipelines;
+    }
+
+    const substituteDeptName =
+      this.departmentNameMap.get(Number(substituteDeptId)) ||
+      `Department ${substituteDeptId}`;
+
+    return pipelines.map((pipeline) => {
+      if (!pipeline || pipeline.isInitiator || this.isCapfExtraPipeline(pipeline)) {
+        return pipeline;
+      }
+      if (!this.isTechnicalExpertPipelineStage(pipeline)) {
+        return pipeline;
+      }
+
+      return {
+        ...pipeline,
+        serDepartmentId: substituteDeptId,
+        departmentId: substituteDeptId,
+        departmentName: substituteDeptName,
+        txtDepartmentName: substituteDeptName,
+        hrTblDepartment: {
+          ...(pipeline.hrTblDepartment || {}),
+          serDepartmentId: substituteDeptId,
+          departmentId: substituteDeptId,
+          departmentName: substituteDeptName,
+          txtDepartmentName: substituteDeptName
+        }
+      };
+    });
   }
 
   getPipelineDepartmentId(pipeline: any): number | undefined {
@@ -2463,6 +2800,10 @@ export class ApplicationDetailsComponent implements OnInit {
       cards.push({ pipeline: { type: 'capf_ceo' }, pipelineIndex: baseIndex, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
       cards.push({ pipeline: { type: 'capf_asset_code' }, pipelineIndex: baseIndex + 1, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
       cards.push({ pipeline: { type: 'capf_pr_code' }, pipelineIndex: baseIndex + 2, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
+      cards.push({ pipeline: { type: 'capf_po_code' }, pipelineIndex: baseIndex + 3, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
+      if (this.shouldShowCapfPoVendorTeStage()) {
+        cards.push({ pipeline: { type: 'capf_po_vendor_te' }, pipelineIndex: baseIndex + 4, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
+      }
     }
 
     return cards;
@@ -2493,7 +2834,17 @@ export class ApplicationDetailsComponent implements OnInit {
 
   isCapfExtraPipeline(pipeline: any): boolean {
     const t = (pipeline?.type || '').toString().toLowerCase();
-    return t === 'capf_ceo' || t === 'capf_asset_code' || t === 'capf_pr_code';
+    return t === 'capf_ceo' || t === 'capf_asset_code' || t === 'capf_pr_code' || t === 'capf_po_code'
+      || t === 'capf_po_vendor_te';
+  }
+
+  private shouldShowCapfPoVendorTeStage(): boolean {
+    const status = (this.applicationDetails?.txtStatus || '').toString().toUpperCase();
+    if (status === 'PO_VENDOR_TE_PENDING') return true;
+    return !!this.findApprovalHistoryEntry((e: any) =>
+      (e?.action || e?.status || '').toString().toUpperCase() === 'PO_VENDOR_TE_APPROVED'
+      || (e?.action || e?.status || '').toString().toUpperCase() === 'PO_VENDOR_TE_REJECTED'
+    );
   }
 
   getCapfExtraStageTitle(type: string | undefined): string {
@@ -2501,6 +2852,8 @@ export class ApplicationDetailsComponent implements OnInit {
     if (t === 'capf_ceo') return 'CEO Approval';
     if (t === 'capf_asset_code') return 'Asset Code Assign';
     if (t === 'capf_pr_code') return 'PR';
+    if (t === 'capf_po_code') return 'PO';
+    if (t === 'capf_po_vendor_te') return 'PO Vendor Review (Technical Expert)';
     return 'CAPF';
   }
 
@@ -2518,6 +2871,28 @@ export class ApplicationDetailsComponent implements OnInit {
     const status = (this.applicationDetails?.txtStatus || '').toString().toUpperCase();
     const hasAsset = !!(this.applicationDetails?.txtAssetCode && String(this.applicationDetails.txtAssetCode).trim());
     const hasPr = !!(this.applicationDetails?.txtPrCode && String(this.applicationDetails.txtPrCode).trim());
+    const hasPo = !!(this.applicationDetails?.txtPoCode && String(this.applicationDetails.txtPoCode).trim());
+
+    if (this.isCapfPoEditReapprovalActive()) {
+      if (t === 'capf_ceo') {
+        if (status === 'CEO_PENDING') return 'CURRENT';
+        return 'PENDING';
+      }
+      if (t === 'capf_asset_code') {
+        if (status === 'ASSET_PENDING') return 'CURRENT';
+        if (status === 'CEO_PENDING') return 'APPROVED';
+        return 'PENDING';
+      }
+      if (t === 'capf_pr_code') {
+        return hasPr ? 'APPROVED' : 'PENDING';
+      }
+      if (t === 'capf_po_code') {
+        if (hasPo) return 'APPROVED';
+        if (hasPr && status === 'PO_PENDING') return 'CURRENT';
+        return 'PENDING';
+      }
+      return 'PENDING';
+    }
 
     if (t === 'capf_ceo') {
       if (status === 'CEO_PENDING') return 'CURRENT';
@@ -2526,21 +2901,39 @@ export class ApplicationDetailsComponent implements OnInit {
         const desig = (e.designation || e.txtDesignation || e.departmentName || '').toString().toUpperCase();
         return action === 'APPROVED' && desig.includes('CEO');
       });
-      if (ceoApproved || status === 'ASSET_PENDING' || status === 'APPROVED') return 'APPROVED';
+      if (ceoApproved || status === 'ASSET_PENDING' || status === 'PR_PENDING' || status === 'PO_PENDING' || status === 'APPROVED') return 'APPROVED';
       return 'PENDING';
     }
 
     if (t === 'capf_asset_code') {
       if (status === 'ASSET_PENDING') return 'CURRENT';
-      if (hasAsset && (status === 'PR_PENDING' || status === 'APPROVED' || hasPr)) return 'APPROVED';
+      if (hasAsset && (status === 'PR_PENDING' || status === 'PO_PENDING' || status === 'APPROVED' || hasPr)) return 'APPROVED';
       // If CEO is not done yet, keep this pending.
       return 'PENDING';
     }
 
     if (t === 'capf_pr_code') {
-      // PR is after asset code and final approval.
       if (hasPr) return 'APPROVED';
-      if (hasAsset && status === 'APPROVED') return 'CURRENT';
+      if (hasAsset && status === 'PR_PENDING') return 'CURRENT';
+      return 'PENDING';
+    }
+
+    if (t === 'capf_po_code') {
+      if (hasPo) return 'APPROVED';
+      if (hasPr && status === 'PO_PENDING') return 'CURRENT';
+      return 'PENDING';
+    }
+
+    if (t === 'capf_po_vendor_te') {
+      if (status === 'PO_VENDOR_TE_PENDING') return 'CURRENT';
+      const teDecision = this.findApprovalHistoryEntry((e: any) => {
+        const action = (e.action || e.status || '').toString().toUpperCase();
+        return action === 'PO_VENDOR_TE_APPROVED' || action === 'PO_VENDOR_TE_REJECTED';
+      });
+      if (teDecision) {
+        const action = (teDecision.action || teDecision.status || '').toString().toUpperCase();
+        return action === 'PO_VENDOR_TE_REJECTED' ? 'REJECTED' : 'APPROVED';
+      }
       return 'PENDING';
     }
 
@@ -2570,6 +2963,16 @@ export class ApplicationDetailsComponent implements OnInit {
       const e = this.findApprovalHistoryEntry((x: any) => (x.action || x.status || '').toString().toUpperCase() === 'PR_CODE_ASSIGNED');
       return e?.approverName || this.getUserNameById(e?.approvedBy) || '--';
     }
+    if (t === 'capf_po_code') {
+      const e = this.findApprovalHistoryEntry((x: any) => (x.action || x.status || '').toString().toUpperCase() === 'PO_CODE_ASSIGNED');
+      return e?.approverName || this.getUserNameById(e?.approvedBy) || '--';
+    }
+    if (t === 'capf_po_vendor_te') {
+      const e = this.findApprovalHistoryEntry((x: any) =>
+        (x.action || x.status || '').toString().toUpperCase() === 'PO_VENDOR_TE_APPROVED'
+      );
+      return e?.approverName || this.getUserNameById(e?.approvedBy) || '--';
+    }
     return '--';
   }
 
@@ -2589,6 +2992,12 @@ export class ApplicationDetailsComponent implements OnInit {
       }
       if (t === 'capf_pr_code') {
         return (x.action || x.status || '').toString().toUpperCase() === 'PR_CODE_ASSIGNED';
+      }
+      if (t === 'capf_po_code') {
+        return (x.action || x.status || '').toString().toUpperCase() === 'PO_CODE_ASSIGNED';
+      }
+      if (t === 'capf_po_vendor_te') {
+        return (x.action || x.status || '').toString().toUpperCase() === 'PO_VENDOR_TE_APPROVED';
       }
       return false;
     };
@@ -2610,6 +3019,7 @@ export class ApplicationDetailsComponent implements OnInit {
       if (t === 'capf_ceo') return action === 'APPROVED' && desig.includes('CEO');
       if (t === 'capf_asset_code') return action === 'ASSET_CODE_ASSIGNED' || (action === 'APPROVED' && desig.includes('FINANCE'));
       if (t === 'capf_pr_code') return action === 'PR_CODE_ASSIGNED';
+      if (t === 'capf_po_code') return action === 'PO_CODE_ASSIGNED';
       return false;
     });
     return e?.remarks ? String(e.remarks) : '';
@@ -2624,6 +3034,7 @@ export class ApplicationDetailsComponent implements OnInit {
       if (t === 'capf_ceo') return action === 'APPROVED' && desig.includes('CEO');
       if (t === 'capf_asset_code') return action === 'ASSET_CODE_ASSIGNED' || (action === 'APPROVED' && desig.includes('FINANCE'));
       if (t === 'capf_pr_code') return action === 'PR_CODE_ASSIGNED';
+      if (t === 'capf_po_code') return action === 'PO_CODE_ASSIGNED';
       return false;
     });
     return (e?.approvedIp ?? e?.approvedVia ?? '') || '';
@@ -2645,34 +3056,104 @@ export class ApplicationDetailsComponent implements OnInit {
   getCardTimeTaken(cardIndex: number, cards: Array<{ pipeline: any; pipelineIndex: number; approverId: number | null }>): string {
     if (this.isSentBackToInitiatorState()) return '';
     if (!cards || cardIndex <= 0 || cardIndex >= cards.length) return '';
-    const prev = cards[cardIndex - 1];
+
     const curr = cards[cardIndex];
-    const orderPrev = prev.pipeline?.intApprovalOrder ?? (prev.pipelineIndex + 1);
-    const orderCurr = curr.pipeline?.intApprovalOrder ?? (curr.pipelineIndex + 1);
-    const deptPrev = this.getPipelineDepartmentId(prev.pipeline);
-    const deptCurr = this.getPipelineDepartmentId(curr.pipeline);
-    if (deptPrev == null || deptCurr == null) return '';
-    const datePrev = prev.approverId != null
-      ? (this.getStageHeadHistoryEntry(orderPrev, deptPrev, prev.approverId)?.approvedDate)
-      : (this.getStageHistoryEntry(orderPrev, deptPrev)?.approvedDate);
-    const dateCurr = curr.approverId != null
-      ? (this.getStageHeadHistoryEntry(orderCurr, deptCurr, curr.approverId)?.approvedDate)
-      : (this.getStageHistoryEntry(orderCurr, deptCurr)?.approvedDate);
-    if (!datePrev || !dateCurr) return '';
-    try {
-      const t1 = new Date(datePrev).getTime();
-      const t2 = new Date(dateCurr).getTime();
-      if (isNaN(t1) || isNaN(t2)) return '';
-      const diffMs = t2 - t1;
-      const mins = Math.floor(diffMs / 60000);
-      const hours = Math.floor(mins / 60);
-      const days = Math.floor(hours / 24);
-      if (days > 0) return `${days}d ${hours % 24}h`;
-      if (hours > 0) return `${hours}h ${mins % 60}m`;
-      return `${mins}m`;
-    } catch {
-      return '';
+    const prev = cards[cardIndex - 1];
+    const currOrder = this.getCardPipelineOrder(curr);
+    const prevOrder = this.getCardPipelineOrder(prev);
+
+    // Multiple HOD cards at the same stage are parallel; no duration between them.
+    if (currOrder === prevOrder) return '';
+
+    let prevEndMs = 0;
+    for (let i = 0; i < cardIndex; i++) {
+      if (this.getCardPipelineOrder(cards[i]) !== prevOrder) continue;
+      const ts = this.getCardApprovalTimestamp(cards[i]);
+      if (ts != null) prevEndMs = Math.max(prevEndMs, ts);
     }
+
+    // First card of a new stage: measure from previous stage completion to this card's approval.
+    const currStartMs = this.getCardApprovalTimestamp(curr);
+    if (!prevEndMs || !currStartMs || currStartMs < prevEndMs) return '';
+
+    return this.formatDuration(currStartMs - prevEndMs);
+  }
+
+  private getCardPipelineOrder(card: { pipeline: any; pipelineIndex: number }): number {
+    return card.pipeline?.intApprovalOrder ?? (card.pipelineIndex + 1);
+  }
+
+  private getCardApprovalTimestamp(card: { pipeline: any; pipelineIndex: number; approverId: number | null }): number | null {
+    if (this.isCapfExtraPipeline(card.pipeline)) {
+      const at = this.getCapfExtraStageApprovedAt(card.pipeline?.type);
+      if (!at) return null;
+      const ts = new Date(at).getTime();
+      return !isNaN(ts) && ts > 0 ? ts : null;
+    }
+
+    const order = this.getCardPipelineOrder(card);
+    const deptId = this.getPipelineDepartmentId(card.pipeline);
+
+    if (card.approverId != null && deptId != null) {
+      const headEntry = this.getStageHeadHistoryEntry(order, deptId, card.approverId);
+      if (headEntry?.approvedDate) {
+        const ts = this.getApprovalEntryTime(headEntry);
+        return ts > 0 ? ts : null;
+      }
+    }
+
+    if (deptId != null) {
+      const stageEntry = this.getStageHistoryEntry(order, deptId);
+      if (stageEntry?.approvedDate) {
+        const ts = this.getApprovalEntryTime(stageEntry);
+        return ts > 0 ? ts : null;
+      }
+    }
+
+    // CAPF Project routing may store a different departmentId in history than the displayed substitute dept.
+    if (this.isCapfForm()) {
+      const byLevel = this.getStageHistoryEntry(order, undefined);
+      if (byLevel?.approvedDate) {
+        const ts = this.getApprovalEntryTime(byLevel);
+        if (ts > 0) return ts;
+      }
+
+      if (card.approverId != null) {
+        const byLevelUser = this.findCapfHistoryEntryByLevelAndApprover(order, card.approverId);
+        if (byLevelUser?.approvedDate) {
+          const ts = this.getApprovalEntryTime(byLevelUser);
+          if (ts > 0) return ts;
+        }
+      }
+    }
+
+    if (order < 0) {
+      const created = this.applicationDetails?.dteCreatedDate || this.applicationDetails?.createdAt;
+      if (created) {
+        const ts = new Date(created).getTime();
+        if (!isNaN(ts) && ts > 0) return ts;
+      }
+    }
+
+    return null;
+  }
+
+  private findCapfHistoryEntryByLevelAndApprover(pipelineOrder: number, approverId: number): any | null {
+    if (!this.approvalHistory?.length) return null;
+    const allowedLevels = this.getAllowedHistoryLevelsForStage(pipelineOrder);
+    const candidates = this.approvalHistory.filter((e: any) => {
+      if (!e) return false;
+      const action = (e.action || e.status || '').toString().toUpperCase();
+      if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') return false;
+      if (action !== 'APPROVED' && action !== 'REJECTED') return false;
+      const entryLevel = e.level ?? e.intApprovalOrder;
+      if (entryLevel == null || !allowedLevels.includes(Number(entryLevel))) return false;
+      const entryApprover = e.approvedBy ?? e.userId ?? e.userApproverId;
+      return entryApprover != null && Number(entryApprover) === Number(approverId);
+    });
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+    return candidates[0];
   }
 
   goBack() {
@@ -2751,6 +3232,75 @@ export class ApplicationDetailsComponent implements OnInit {
       return headId != null && Number(headId) === Number(userId);
     }
     return false;
+  }
+
+  private isCapfTechnicalExpertProjectMode(): boolean {
+    const mode = this.readCapfFieldValueByKeywords(['technical', 'expect'])
+      || this.readCapfFieldValueByKeywords(['technical', 'expert']);
+    return mode.toLowerCase() === 'project';
+  }
+
+  private getCapfSubstituteDepartmentId(): number | null {
+    const virtualSubstitute = this.applicationFormData?.['project_substitute_department'];
+    const raw = (virtualSubstitute != null && String(virtualSubstitute).trim() !== '')
+      ? String(virtualSubstitute).trim()
+      : this.readCapfFieldValueByKeywords(['substitut'])
+      || this.readCapfFieldValueByKeywords(['substitute', 'department'])
+      || this.readCapfFieldValueByKeywords(['project', 'department']);
+    if (!raw) return null;
+    const asNumber = Number(raw);
+    if (Number.isFinite(asNumber) && asNumber > 0) {
+      return asNumber;
+    }
+    const target = this.normalizeLookupText(raw);
+    for (const [deptId, deptName] of this.departmentNameMap.entries()) {
+      if (this.normalizeLookupText(deptName) === target) {
+        return Number(deptId);
+      }
+    }
+    return null;
+  }
+
+  private isTechnicalExpertPipelineStage(pipeline: any): boolean {
+    if (!pipeline) return false;
+    const deptId = pipeline?.hrTblDepartment?.serDepartmentId ?? pipeline?.serDepartmentId ?? pipeline?.departmentId;
+    const deptName = pipeline?.hrTblDepartment?.txtDepartmentName
+      || pipeline?.departmentName
+      || pipeline?.txtDepartmentName
+      || (deptId != null ? this.departmentNameMap.get(Number(deptId)) : '');
+    const normalized = this.normalizeLookupText(String(deptName || ''));
+    return normalized.includes('technical') && normalized.includes('expert');
+  }
+
+  private readCapfFieldValueByKeywords(keywords: string[]): string {
+    if (!this.applicationDetails || !Array.isArray(this.formFields) || !keywords?.length) return '';
+    const lowerKeywords = keywords.map((k) => this.normalizeLookupText(k));
+    for (const field of this.formFields) {
+      const label = String(field?.label || '');
+      const normalizedLabel = this.normalizeLookupText(label);
+      const matches = lowerKeywords.every((k) => normalizedLabel.includes(k));
+      if (!matches) continue;
+      const value = this.getFieldValue(field);
+      if (value == null) continue;
+      const text = String(value).trim();
+      if (text) return text;
+    }
+    const data = this.applicationFormData || {};
+    for (const [key, value] of Object.entries(data)) {
+      const normalizedKey = this.normalizeLookupText(key);
+      const matches = lowerKeywords.every((k) => normalizedKey.includes(k));
+      if (!matches || value == null) continue;
+      const text = String(value).trim();
+      if (text) return text;
+    }
+    return '';
+  }
+
+  private normalizeLookupText(value: string): string {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
   }
 
   /** Show "Send back to initiator" only when level >= 2 (same as in emails). */
@@ -3512,8 +4062,8 @@ export class ApplicationDetailsComponent implements OnInit {
     ).length;
     let totalStages = pipelines.length;
     let approvedStages = approvedPipelineStages;
-    if (this.isCapfForm()) {
-      const capfExtraTypes = ['capf_asset_code', 'capf_pr_code'];
+    if (this.shouldShowCapfExtraStages()) {
+      const capfExtraTypes = ['capf_ceo', 'capf_asset_code', 'capf_pr_code', 'capf_po_code'];
       totalStages += capfExtraTypes.length;
       approvedStages += capfExtraTypes.filter((type) => this.getCapfExtraStageStatus(type) === 'APPROVED').length;
     }
@@ -3588,18 +4138,18 @@ export class ApplicationDetailsComponent implements OnInit {
 
     // Backend CAPF lifecycle markers (useful when naming/code conventions differ)
     const status = (this.applicationDetails?.txtStatus || '').toString().toUpperCase();
-    if (status === 'CEO_PENDING' || status === 'ASSET_PENDING') return true;
+    if (status === 'CEO_PENDING' || status === 'ASSET_PENDING' || status === 'PR_PENDING' || status === 'PO_PENDING' || status === 'PO_VENDOR_TE_PENDING') return true;
 
     const currentLevel = this.applicationDetails?.intCurrentApprovalLevel;
     if (typeof currentLevel === 'number' && currentLevel < 0) return true; // CAPF often starts at -1
 
-    if (this.applicationDetails?.txtAssetCode || this.applicationDetails?.txtPrCode) return true;
+    if (this.applicationDetails?.txtAssetCode || this.applicationDetails?.txtPrCode || this.applicationDetails?.txtPoCode) return true;
 
     if (Array.isArray(this.approvalHistory) && this.approvalHistory.length > 0) {
       const hasCapfStyleEntry = this.approvalHistory.some((e: any) => {
         const action = (e?.action || e?.status || '').toString().toUpperCase();
         const role = (e?.role || e?.designation || e?.txtDesignation || e?.departmentName || '').toString().toUpperCase();
-        return action === 'PR_CODE_ASSIGNED' || role.includes('CEO') || role.includes('FINANCE');
+        return action === 'PR_CODE_ASSIGNED' || action === 'PO_CODE_ASSIGNED' || role.includes('CEO') || role.includes('FINANCE');
       });
       if (hasCapfStyleEntry) return true;
     }
@@ -3869,17 +4419,21 @@ export class ApplicationDetailsComponent implements OnInit {
     if (this.isCapfForm()) return true;
 
     const status = (this.applicationDetails?.txtStatus || '').toString().toUpperCase();
-    if (status === 'CEO_PENDING' || status === 'ASSET_PENDING') return true;
+    if (status === 'CEO_PENDING' || status === 'ASSET_PENDING' || status === 'PO_PENDING' || status === 'PO_VENDOR_TE_PENDING') return true;
 
     const hasAsset = !!(this.applicationDetails?.txtAssetCode && String(this.applicationDetails.txtAssetCode).trim());
     const hasPr = !!(this.applicationDetails?.txtPrCode && String(this.applicationDetails.txtPrCode).trim());
-    if (hasAsset || hasPr) return true;
+    const hasPo = !!(this.applicationDetails?.txtPoCode && String(this.applicationDetails.txtPoCode).trim());
+    if (hasAsset || hasPr || hasPo) return true;
 
     if (Array.isArray(this.approvalHistory) && this.approvalHistory.length > 0) {
       const hasPrAction = this.approvalHistory.some((e: any) =>
         (e?.action || e?.status || '').toString().toUpperCase() === 'PR_CODE_ASSIGNED'
       );
-      if (hasPrAction) return true;
+      const hasPoAction = this.approvalHistory.some((e: any) =>
+        (e?.action || e?.status || '').toString().toUpperCase() === 'PO_CODE_ASSIGNED'
+      );
+      if (hasPrAction || hasPoAction) return true;
     }
 
     return false;

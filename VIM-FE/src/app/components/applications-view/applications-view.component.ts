@@ -8,6 +8,12 @@ import { ApplicationPdfService } from '../../services/application-pdf/applicatio
 import { NotificationService } from 'src/app/NotificationService';
 import { saveAs } from 'file-saver';
 import { urls } from 'src/app/utils/urls';
+import {
+  resolveCapfLogoPath,
+  resolveCapfBrandTitle,
+  resolveCapfLogoCssClass,
+  resolveCapfFormNameFromSources,
+} from 'src/app/utils/capf-logo.util';
 import { firstValueFrom } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 // @ts-ignore
@@ -750,9 +756,9 @@ export class ApplicationsViewComponent implements OnInit {
   }
 
   isCapfForm(application: Application): boolean {
-    // Check if form name is "CAPF Form" or form code starts with "CAPF"
-    const formNameMatch = application.formName &&
-      application.formName.trim().toUpperCase() === 'CAPF FORM';
+    const formName = (application.formName || '').trim().toUpperCase();
+    const formNameMatch = formName.includes('CAPF')
+      || formName.includes('CAPITAL ASSETS PURCHASE');
     const formCodeMatch = application.txtFormCode &&
       application.txtFormCode.trim().toUpperCase().startsWith('CAPF');
     return !!(formNameMatch || formCodeMatch);
@@ -1404,20 +1410,23 @@ export class ApplicationsViewComponent implements OnInit {
 
         // ALWAYS use ABC design for ALL PDF downloads - no exceptions
         // This ensures consistent ABC format for all application types
+        const resolvedFormName = (form?.txtFormName || data.cfgTblCustomForm?.txtFormName || application.formName || '').trim();
+        const resolvedFormCode = (data.txtFormCode || application.txtFormCode || '').trim();
+
         // Check if this is a CAPF form
         let isCapf = false;
         if (data.txtFormCode && data.txtFormCode.trim().toUpperCase().startsWith('CAPF')) {
           isCapf = true;
-        } else if (form && form.txtFormName && form.txtFormName.trim().toUpperCase() === 'CAPF FORM') {
+        } else if (resolvedFormName && resolvedFormName.toUpperCase().includes('CAPF')) {
           isCapf = true;
-        } else if (data.cfgTblCustomForm && data.cfgTblCustomForm.txtFormName && data.cfgTblCustomForm.txtFormName.trim().toUpperCase() === 'CAPF FORM') {
+        } else if (form && form.txtFormName && form.txtFormName.trim().toUpperCase().includes('CAPF')) {
+          isCapf = true;
+        } else if (data.cfgTblCustomForm && data.cfgTblCustomForm.txtFormName && data.cfgTblCustomForm.txtFormName.trim().toUpperCase().includes('CAPF')) {
           isCapf = true;
         }
 
         let htmlContent = '';
         let handledBudgetApproval = false;
-        const resolvedFormName = (form?.txtFormName || data.cfgTblCustomForm?.txtFormName || application.formName || '').trim();
-        const resolvedFormCode = (data.txtFormCode || application.txtFormCode || '').trim();
         const normalizedFormName = resolvedFormName.replace(/\s+/g, ' ').toUpperCase();
         const normalizedFormCode = resolvedFormCode.toUpperCase();
         const isBudgetApproval =
@@ -1460,7 +1469,7 @@ export class ApplicationsViewComponent implements OnInit {
           }
 
           // Use ABC design for CAPF forms
-          htmlContent = this.generateCapfAbcHtml(data, formFields, applicationFormData, pipelines);
+          htmlContent = this.generateCapfAbcHtml(data, formFields, applicationFormData, pipelines, resolvedFormName);
 
           // Verify HTML contains HTML wrapper
           if (!htmlContent || !htmlContent.includes('abc-wrapper')) {
@@ -1770,18 +1779,20 @@ export class ApplicationsViewComponent implements OnInit {
     applicationFormData: any,
     application: Application
   ): string {
+    const resolvedFormName = (form?.txtFormName || data.cfgTblCustomForm?.txtFormName || application.formName || '').trim();
     let isCapf = false;
     if (data.txtFormCode && data.txtFormCode.trim().toUpperCase().startsWith('CAPF')) {
       isCapf = true;
-    } else if (form && form.txtFormName && form.txtFormName.trim().toUpperCase() === 'CAPF FORM') {
+    } else if (resolvedFormName && resolvedFormName.toUpperCase().includes('CAPF')) {
       isCapf = true;
-    } else if (data.cfgTblCustomForm && data.cfgTblCustomForm.txtFormName && data.cfgTblCustomForm.txtFormName.trim().toUpperCase() === 'CAPF FORM') {
+    } else if (form && form.txtFormName && form.txtFormName.trim().toUpperCase().includes('CAPF')) {
+      isCapf = true;
+    } else if (data.cfgTblCustomForm && data.cfgTblCustomForm.txtFormName && data.cfgTblCustomForm.txtFormName.trim().toUpperCase().includes('CAPF')) {
       isCapf = true;
     }
 
     let htmlContent = '';
     let handledBudgetApproval = false;
-    const resolvedFormName = (form?.txtFormName || data.cfgTblCustomForm?.txtFormName || application.formName || '').trim();
     const resolvedFormCode = (data.txtFormCode || application.txtFormCode || '').trim();
     const normalizedFormName = resolvedFormName.replace(/\s+/g, ' ').toUpperCase();
     const normalizedFormCode = resolvedFormCode.toUpperCase();
@@ -1818,7 +1829,7 @@ export class ApplicationsViewComponent implements OnInit {
         pipelines = [];
       }
 
-      htmlContent = this.generateCapfAbcHtml(data, formFields, applicationFormData, pipelines);
+      htmlContent = this.generateCapfAbcHtml(data, formFields, applicationFormData, pipelines, resolvedFormName);
       if (!htmlContent || !htmlContent.includes('abc-wrapper')) {
         throw new Error('ABC HTML generation failed');
       }
@@ -2731,7 +2742,11 @@ export class ApplicationsViewComponent implements OnInit {
     return { heading, contentHtml };
   }
 
-  private generateCapfAbcHtml(application: any, formFields: any[], applicationFormData: any, pipelines: any[] = []): string {
+  private generateCapfAbcHtml(application: any, formFields: any[], applicationFormData: any, pipelines: any[] = [], formName = ''): string {
+    const capfFormName = resolveCapfFormNameFromSources(formName, application);
+    const capfLogoPath = resolveCapfLogoPath(capfFormName);
+    const capfBrandTitle = resolveCapfBrandTitle(capfFormName);
+    const capfLogoClass = resolveCapfLogoCssClass();
     // Helper function to get field value - completely self-contained, no dependency on abc component
     const getFieldValue = (fieldLabel: string): string => {
       // Helper: Slugify label to match backend keys
@@ -3291,8 +3306,9 @@ export class ApplicationsViewComponent implements OnInit {
     }
 
     .logo img {
-      max-width: 64px;
-      height: auto;
+      height: 32px;
+      width: auto;
+      max-width: none;
     }
 
     .brand-title {
@@ -3755,9 +3771,9 @@ export class ApplicationsViewComponent implements OnInit {
       <!-- Header -->
       <div class="brand-row">
         <div class="logo">
-          <img src="assets/images/qarshi-logo.png" alt="" class="ml-[5px] w-16 flex-none" style="max-width: 64px;">
+          <img src="${capfLogoPath}" alt="" class="${capfLogoClass}">
         </div>
-        <div class="brand-title">Qarshi Industries (Pvt) Ltd.</div>
+        <div class="brand-title">${capfBrandTitle}</div>
       </div>
 
       <table class="grid">

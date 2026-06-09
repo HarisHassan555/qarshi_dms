@@ -50,4 +50,6 @@ public interface ICustomFormApplicationService {
     String assignAssetCode(Integer applicationId, String assetCode, Integer userId, String approvedIp);
 
     String assignPrCode(Integer applicationId, String prCode, Integer userId, String approvedIp);
+
+    String assignPoCode(Integer applicationId, String poCode, Integer userId, String approvedIp);
 }

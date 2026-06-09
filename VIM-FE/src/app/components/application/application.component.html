@@ -54,7 +54,7 @@
                         </div>
 
                         <ng-container *ngFor="let field of selectedForm.fields">
-                        <div *ngIf="!isDocumentHeaderType(field.type)" class="mb-4">
+                        <div *ngIf="!isDocumentHeaderType(field.type) && !shouldHideSlipPipelineField(field)" class="mb-4">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <!-- User Select (Searchable) -->
                                 <div *ngIf="field.type === 'user_select'">
@@ -173,15 +173,15 @@
                                         {{ field.label }}
                                         <span *ngIf="field.required" class="text-danger">*</span>
                                     </label>
-                                    <select *ngIf="getFieldOptions(field).length > 0"
+                                    <select *ngIf="hasSelectOptions(field)"
                                         [formControlName]="getFieldName(field.label)" class="form-select"
                                         [class.border-danger]="isFieldInvalid(getFieldName(field.label))">
                                         <option value="">-- Select --</option>
-                                        <option *ngFor="let option of getFieldOptions(field)" [value]="option">
-                                            {{ option }}
+                                        <option *ngFor="let option of getSelectOptions(field)" [value]="option.value">
+                                            {{ option.label }}
                                         </option>
                                     </select>
-                                    <div *ngIf="getFieldOptions(field).length === 0" class="text-sm text-warning">
+                                    <div *ngIf="!hasSelectOptions(field)" class="text-sm text-warning">
                                         No options configured for this field. Please configure options in Form Builder.
                                     </div>
                                     <p *ngIf="isFieldInvalid(getFieldName(field.label))"
@@ -232,6 +232,19 @@
                                         class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                     </p>
+                                </div>
+
+                                <div *ngIf="field.type === 'radio' && isTechnicalExpectField(field) && !hasSubstituteDepartmentField(selectedForm) && shouldShowVirtualSubstituteDepartmentDropdown()">
+                                    <label class="block mb-2 text-sm font-semibold dark:text-white-light">
+                                        Substitute Department
+                                        <span class="text-danger">*</span>
+                                    </label>
+                                    <select [formControlName]="getVirtualSubstituteDepartmentControlName()" class="form-select">
+                                        <option value="">-- Select Department --</option>
+                                        <option *ngFor="let dept of departments" [value]="dept.serDepartmentId">
+                                            {{ dept.txtDepartmentName }}
+                                        </option>
+                                    </select>
                                 </div>
 
                                 <!-- Attachment / File Upload (multi-select, max 5 MB total) -->
@@ -491,8 +504,35 @@
                             </div>
                         </div>
 
+                        <!-- Hardcoded slip pipeline (from form builder approval pipeline) -->
+                        <div *ngIf="shouldUseHardcodedSlipPipeline() && hasSlipPipelineFooter()"
+                            class="mb-6 md:col-span-2 mt-8 pt-6 border-t border-[#e0e6ed] dark:border-[#1b2e4b]">
+                            <div class="xyz-footer">
+                                <table class="xyz-signatures" *ngIf="getSlipPipelineFooterSections() as sections">
+                                    <tr class="xyz-signatures-blank">
+                                        <ng-container *ngFor="let section of sections">
+                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
+                                        </ng-container>
+                                    </tr>
+                                    <tr>
+                                        <th *ngFor="let section of sections"
+                                            [attr.colspan]="getIndividualFooterColSpan(section)">
+                                            {{ section.label || 'New Field' }}:
+                                        </th>
+                                    </tr>
+                                    <tr>
+                                        <ng-container *ngFor="let section of sections">
+                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                                <span [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></span>
+                                            </td>
+                                        </ng-container>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+
                         <!-- Approval Pipeline Section -->
-                        <div *ngIf="selectedForm && selectedForm.approvalPipelines && selectedForm.approvalPipelines.length > 0"
+                        <div *ngIf="selectedForm && selectedForm.approvalPipelines && selectedForm.approvalPipelines.length > 0 && !shouldUseHardcodedSlipPipeline()"
                             class="mt-8 pt-6 border-t border-[#e0e6ed] dark:border-[#1b2e4b]">
                             <h6 class="mb-4 text-base font-semibold dark:text-white-light text-center">
                                 Approval Pipeline
@@ -542,7 +582,9 @@
                             <div class="app-preview-canvas" #previewCanvas>
                                 <div class="app-preview-scale" #previewScale>
                                     <app-abc [formData]="getPreviewFormData()" [formFields]="selectedForm.fields || []"
-                                        [application]="getPreviewApplication()" [isEmbedded]="true"></app-abc>
+                                        [application]="getPreviewApplication()"
+                                        [formName]="selectedForm.txtFormName || selectedForm.name || ''"
+                                        [isEmbedded]="true"></app-abc>
                                 </div>
                             </div>
                         </div>
@@ -618,8 +660,8 @@
                                         </div>
 
                                         <div class="ec-slip-footer-fixed">
-                                            <div class="ec-slip-pipeline-footer" *ngIf="getPreviewIndividualFooterField() as footerField">
-                                                <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields(footerField) as sections">
+                                            <div class="ec-slip-pipeline-footer" *ngIf="hasSlipPipelineFooter()">
+                                                <table class="xyz-signatures" *ngIf="getSlipPipelineFooterSections() as sections">
                                                     <tr class="xyz-signatures-blank">
                                                         <ng-container *ngFor="let section of sections">
                                                             <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
@@ -741,8 +783,8 @@
                                             </div>
                                         </div>
                                         <div class="tas-slip-footer-fixed">
-                                            <div class="ec-slip-pipeline-footer" *ngIf="getPreviewIndividualFooterField() as footerField">
-                                                <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields(footerField) as sections">
+                                            <div class="ec-slip-pipeline-footer" *ngIf="hasSlipPipelineFooter()">
+                                                <table class="xyz-signatures" *ngIf="getSlipPipelineFooterSections() as sections">
                                                     <tr class="xyz-signatures-blank">
                                                         <ng-container *ngFor="let section of sections">
                                                             <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>

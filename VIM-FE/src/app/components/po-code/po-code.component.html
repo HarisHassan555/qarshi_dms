@@ -1,16 +1,22 @@
 <div class="panel border border-gray-200 p-6 bg-white dark:bg-[#1b2e4b]" *ngIf="!isLoading && application">
   <div class="mb-4 flex items-center gap-3 flex-wrap">
-    <button class="btn btn-outline-primary" (click)="router.navigateByUrl('/applicationsview')">
+    <button class="btn btn-outline-primary" (click)="router.navigateByUrl('/pending-approvals')">
       <icon-arrow-left class="w-4 h-4" /> Back
     </button>
-    <h4 class="text-lg font-bold">Assign / Update PR Code</h4>
+    <h4 class="text-lg font-bold">Assign / Update PO Code</h4>
   </div>
 
   <div class="flex items-center gap-3 flex-wrap mb-6 pb-6 border-b border-gray-200 dark:border-gray-700">
-    <input type="text" class="form-input w-64" placeholder="PR Code" [(ngModel)]="prCode" [disabled]="isSaving" />
+    <input type="text" class="form-input w-64" placeholder="PO Code" [(ngModel)]="poCode" [disabled]="isSaving" />
     <button class="btn btn-primary" (click)="save()" [disabled]="isSaving">
       <span *ngIf="isSaving" class="animate-spin border-2 border-white border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
-      <span *ngIf="!isSaving">Save PR Code</span>
+      <span *ngIf="!isSaving">Save PO Code</span>
+    </button>
+    <button
+      *ngIf="application?.serApplicationId"
+      class="btn btn-outline-primary"
+      (click)="router.navigate(['/application-details', application.serApplicationId], { queryParams: { from: 'pending', editVendor: '1' } })">
+      Edit Vendor Details
     </button>
   </div>
 
@@ -21,7 +27,7 @@
     </h6>
     <div class="border border-[#e0e6ed] dark:border-[#1b2e4b] rounded-lg overflow-auto bg-white dark:bg-[#1b2e4b] p-6">
       <app-abc
-        id="capf-email-pr-code"
+        id="capf-email-po-code"
         [formData]="applicationFormData"
         [formFields]="formFields"
         [application]="application"
@@ -92,8 +98,12 @@
       <div class="font-semibold">{{ application?.txtAssetCode || 'Not assigned' }}</div>
     </div>
     <div>
-      <p class="text-xs text-gray-500">Current PR Code</p>
+      <p class="text-xs text-gray-500">PR Code</p>
       <div class="font-semibold">{{ application?.txtPrCode || 'Not assigned' }}</div>
+    </div>
+    <div>
+      <p class="text-xs text-gray-500">Current PO Code</p>
+      <div class="font-semibold">{{ application?.txtPoCode || 'Not assigned' }}</div>
     </div>
   </div>
 </div>

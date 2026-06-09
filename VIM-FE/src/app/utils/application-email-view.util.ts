@@ -64,10 +64,10 @@ export function isCapfLike(app: any, approvalHistory: any[]): boolean {
     return true;
   }
   const status = (app.txtStatus || '').toString().toUpperCase();
-  if (status === 'CEO_PENDING' || status === 'ASSET_PENDING') return true;
+  if (status === 'CEO_PENDING' || status === 'ASSET_PENDING' || status === 'PO_PENDING') return true;
   const currentLevel = app.intCurrentApprovalLevel;
   if (typeof currentLevel === 'number' && currentLevel < 0) return true;
-  if (app.txtAssetCode || app.txtPrCode) return true;
+  if (app.txtAssetCode || app.txtPrCode || app.txtPoCode) return true;
   if (Array.isArray(approvalHistory) && approvalHistory.length > 0) {
     const hasCapfStyleEntry = approvalHistory.some((e: any) => {
       const action = (e?.action || e?.status || '').toString().toUpperCase();
@@ -76,6 +76,7 @@ export function isCapfLike(app: any, approvalHistory: any[]): boolean {
         .toUpperCase();
       return (
         action === 'PR_CODE_ASSIGNED' ||
+        action === 'PO_CODE_ASSIGNED' ||
         role.includes('CEO') ||
         role.includes('FINANCE')
       );
@@ -133,4 +134,13 @@ export function getApprovalLogSignatureUrl(entry: any): string {
   const n = id != null ? Number(id) : NaN;
   if (isNaN(n) || n <= 0) return '';
   return `${urls.API_URL}getSignature?userId=${n}`;
+}
+
+export function isAssignCodeApiFailure(res: any): boolean {
+  return res?.status === 'Failure';
+}
+
+export function getAssignCodeApiErrorMessage(err: any, fallback: string): string {
+  const msg = err?.error?.message || err?.error || err?.message || fallback;
+  return String(msg).replace(/^Failure:\s*/i, '');
 }

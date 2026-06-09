@@ -10,6 +10,7 @@ import { ApplicationPdfService } from 'src/app/services/application-pdf/applicat
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { BudgetApprovalComponent } from '../budget-approval/budget-approval.component';
 import { UserService } from '../../services/user/user.service';
+import { DepartmentService } from '../../services/department/department.service';
 import { Store } from '@ngrx/store';
 import * as QuillNamespace from 'quill';
 
@@ -103,6 +104,8 @@ interface CustomForm {
   cfgTblCustomFormApprovalPipelines?: any[];
 }
 
+const CAPF_SUBSTITUTE_DEPARTMENT_CONTROL = 'project_substitute_department';
+
 /** Hardcoded expense lines for EXP / Expense Claim forms (synced to preview + submission JSON). */
 interface ExpenseClaimLineRow {
   description: string;
@@ -136,6 +139,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   editData: any = null;
   documentHeaderField: FormField | null = null;
   allUsers: any[] = [];
+  departments: any[] = [];
   store: any;
   /** @deprecated attachment type now uses multi-select; kept for any legacy paths */
   attachmentFiles: Record<string, File> = {};
@@ -219,6 +223,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     private router: Router,
     private sanitizer: DomSanitizer,
     private userService: UserService,
+    private departmentService: DepartmentService,
     public storeData: Store<any>
   ) { }
 
@@ -245,6 +250,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     this.loadForms();
     this.initializeForm();
     this.loadUsers();
+    this.loadDepartments();
     this.checkEditMode();
   }
 
@@ -321,6 +327,26 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       },
       (error) => {
         console.error('Error loading users:', error);
+      }
+    );
+  }
+
+  loadDepartments() {
+    this.departmentService.getAll().subscribe(
+      (data: any) => {
+        if (!Array.isArray(data)) {
+          this.departments = [];
+          return;
+        }
+        this.departments = data.filter((dept: any) =>
+          dept && dept.serDepartmentId != null &&
+          dept.txtDepartmentName &&
+          dept.blIsDeleted === false &&
+          dept.blnStatus === true
+        );
+      },
+      () => {
+        this.departments = [];
       }
     );
   }
@@ -612,8 +638,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       }
     });
 
-    const footerField = this.getPreviewIndividualFooterField();
-    const footerSections = footerField ? this.getIndividualPipelineFooterFields(footerField) : [];
+    const footerSections = this.getSlipPipelineFooterSections();
     const footerSignature = JSON.stringify(footerSections || []);
 
     return [
@@ -868,6 +893,41 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         amount: row.amount
       }));
     }
+    this.mergeSlipPipelineFooterPayload(formData);
+  }
+
+  private mergeSlipPipelineFooterPayload(formData: any): void {
+    if (!this.shouldUseHardcodedSlipPipeline()) {
+      return;
+    }
+
+    const sections = this.getSlipPipelineFooterSections();
+    if (sections.length === 0) {
+      return;
+    }
+
+    const footerFields = sections.map((section, idx) => ({
+      key: section.key || `wf_${idx + 1}`,
+      label: section.label || 'New Field',
+      order: idx + 1,
+      users: Array.isArray(section.users) ? section.users.map((u: any) => this.normalizePipelineUser(u)) : []
+    }));
+
+    formData.slipApprovalPipeline = footerFields;
+
+    const hasApproverUsers = footerFields.some(
+      (section) => Array.isArray(section.users) && section.users.some((user) => user != null)
+    );
+    if (!hasApproverUsers) {
+      return;
+    }
+
+    formData.footerFields = footerFields;
+
+    const footerField = this.getPreviewIndividualFooterField();
+    if (footerField) {
+      formData[this.getFieldName(footerField.label)] = footerFields;
+    }
   }
 
   trackByExpenseClaimIndex(index: number, _row: ExpenseClaimLineRow): number {
@@ -1109,7 +1169,108 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       }
     });
 
+    if (this.isCapfSelected() && !this.hasSubstituteDepartmentField(form)) {
+      formControls[CAPF_SUBSTITUTE_DEPARTMENT_CONTROL] = [''];
+    }
+
     this.applicationForm = this.fb.group(formControls);
+
+    if (this.shouldUseHardcodedSlipPipeline()) {
+      this.initializeHardcodedSlipPipelineFooter(form);
+    }
+  }
+
+  /** EXP-* / TAS-* slips: pipeline from form builder is fixed on the slip (not edited per application). */
+  shouldUseHardcodedSlipPipeline(): boolean {
+    return this.isExpenseClaimSelected() || this.isTemporaryAdvanceSlipSelected();
+  }
+
+  shouldHideSlipPipelineField(field: FormField): boolean {
+    if (!this.shouldUseHardcodedSlipPipeline()) {
+      return false;
+    }
+    const type = (field.type || '').toString().trim().toLowerCase();
+    return type === 'footer' || this.isIndividualPipelineFooterType(type);
+  }
+
+  hasSlipPipelineFooter(): boolean {
+    return this.getSlipPipelineFooterSections().length > 0;
+  }
+
+  getSlipPipelineFooterSections(): IndividualPipelineFooterField[] {
+    if (!this.selectedForm) {
+      return [];
+    }
+
+    if (this.shouldUseHardcodedSlipPipeline()) {
+      const footerField = this.getPreviewIndividualFooterField();
+      if (footerField) {
+        const fromControl = this.getIndividualPipelineFooterFields(footerField);
+        if (fromControl.length > 0) {
+          return fromControl;
+        }
+        const fromOptions = this.getInitialIndividualFooterSections(footerField);
+        if (fromOptions.length > 0) {
+          return fromOptions;
+        }
+      }
+      return this.buildPipelineSectionsFromApprovalPipelines(this.selectedForm.approvalPipelines || []);
+    }
+
+    const footerField = this.getPreviewIndividualFooterField();
+    return footerField ? this.getIndividualPipelineFooterFields(footerField) : [];
+  }
+
+  private buildPipelineSectionsFromApprovalPipelines(pipelines: ApprovalPipeline[]): IndividualPipelineFooterField[] {
+    if (!Array.isArray(pipelines) || pipelines.length === 0) {
+      return [];
+    }
+
+    const sorted = [...pipelines].sort(
+      (a, b) => (a.intApprovalOrder ?? 0) - (b.intApprovalOrder ?? 0)
+    );
+
+    return sorted.map((pipeline, index) => {
+      const label = this.getPipelineDisplayName(pipeline);
+      if (pipeline.type === 'individual') {
+        const user =
+          pipeline.hrTblUser ||
+          this.allUsers?.find((u: any) => u.serUserId === pipeline.serUserId);
+        return {
+          key: `pipeline_${index + 1}`,
+          label,
+          order: index + 1,
+          users: user ? [this.normalizePipelineUser(user)] : []
+        };
+      }
+
+      return {
+        key: `pipeline_${index + 1}`,
+        label,
+        order: index + 1,
+        users: []
+      };
+    });
+  }
+
+  private initializeHardcodedSlipPipelineFooter(form: CustomForm): void {
+    const sections = this.buildPipelineSectionsFromApprovalPipelines(form.approvalPipelines || []);
+    if (sections.length === 0) {
+      return;
+    }
+
+    const footerField = form.fields.find((field: FormField) =>
+      this.isIndividualPipelineFooterType(field.type)
+    );
+    if (!footerField) {
+      return;
+    }
+
+    const fieldName = this.getFieldName(footerField.label);
+    const control = this.applicationForm.get(fieldName);
+    if (control) {
+      control.setValue(sections);
+    }
   }
 
   isDocumentHeaderType(fieldType: string | undefined): boolean {
@@ -2019,6 +2180,71 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     return [];
   }
 
+  getSelectOptions(field: FormField): Array<{ value: string; label: string }> {
+    if (this.shouldUseDepartmentOptionsForField(field)) {
+      return this.departments.map((dept: any) => ({
+        value: String(dept.serDepartmentId),
+        label: String(dept.txtDepartmentName || dept.departmentName || dept.serDepartmentId)
+      }));
+    }
+    return this.getFieldOptions(field).map((option) => ({
+      value: option,
+      label: option
+    }));
+  }
+
+  hasSelectOptions(field: FormField): boolean {
+    return this.getSelectOptions(field).length > 0;
+  }
+
+  isTechnicalExpectField(field: FormField): boolean {
+    const label = (field?.label || '').toLowerCase();
+    return label.includes('technical') && (label.includes('expect') || label.includes('expert'));
+  }
+
+  private isProjectSelection(value: any): boolean {
+    return String(value || '').trim().toLowerCase() === 'project';
+  }
+
+  isProjectSelectedForTechnicalExpect(): boolean {
+    if (!this.selectedForm || !this.applicationForm) return false;
+    const technicalField = (this.selectedForm.fields || []).find((field: FormField) =>
+      field.type === 'radio' && this.isTechnicalExpectField(field)
+    );
+    if (!technicalField) return false;
+    const fieldName = this.getFieldName(technicalField.label);
+    const selectedValue = this.applicationForm.get(fieldName)?.value;
+    return this.isProjectSelection(selectedValue);
+  }
+
+  shouldUseDepartmentOptionsForField(field: FormField): boolean {
+    if (!field || !this.isCapfSelected()) return false;
+    const label = (field.label || '').toLowerCase();
+    const isSubstituteField = label.includes('substitut') && label.includes('department');
+    const isProjectDepartmentField = label.includes('project') && label.includes('department');
+    return this.isProjectSelectedForTechnicalExpect() && (isSubstituteField || isProjectDepartmentField);
+  }
+
+  shouldShowVirtualSubstituteDepartmentDropdown(): boolean {
+    if (!this.isCapfSelected() || !this.isProjectSelectedForTechnicalExpect()) return false;
+    return !!this.applicationForm?.get(CAPF_SUBSTITUTE_DEPARTMENT_CONTROL);
+  }
+
+  getVirtualSubstituteDepartmentControlName(): string {
+    return CAPF_SUBSTITUTE_DEPARTMENT_CONTROL;
+  }
+
+  hasSubstituteDepartmentField(form: CustomForm | null | undefined): boolean {
+    if (!form?.fields?.length) return false;
+    return form.fields.some((field: FormField) => {
+      if (field.type !== 'select') return false;
+      const label = (field.label || '').toLowerCase();
+      const isSubstituteField = label.includes('substitut') && label.includes('department');
+      const isProjectDepartmentField = label.includes('project') && label.includes('department');
+      return isSubstituteField || isProjectDepartmentField;
+    });
+  }
+
   hasFieldOptions(field: FormField): boolean {
     return this.getFieldOptions(field).length > 0;
   }
@@ -2086,8 +2312,23 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
       const formData = { ...this.applicationForm.value };
 
+      if (this.shouldShowVirtualSubstituteDepartmentDropdown()) {
+        const substituteDept = this.applicationForm.get(CAPF_SUBSTITUTE_DEPARTMENT_CONTROL)?.value;
+        if (substituteDept === null || substituteDept === undefined || String(substituteDept).trim() === '') {
+          this.notificationService.showMessage('Please select substitute department for Project routing', 'danger');
+          this.applicationForm.get(CAPF_SUBSTITUTE_DEPARTMENT_CONTROL)?.markAsTouched();
+          return;
+        }
+      }
+
+      if (!this.isProjectSelectedForTechnicalExpect()) {
+        delete formData[CAPF_SUBSTITUTE_DEPARTMENT_CONTROL];
+      }
+
       if (this.isExpenseClaimSelected()) {
         this.mergeExpenseClaimPayload(formData);
+      } else if (this.isTemporaryAdvanceSlipSelected()) {
+        this.mergeSlipPipelineFooterPayload(formData);
       }
 
       // Ensure multi-select attachments (attachment/file and multi_attachment) are captured as base64 payloads

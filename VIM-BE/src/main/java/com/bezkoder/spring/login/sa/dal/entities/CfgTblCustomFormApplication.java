@@ -56,6 +56,9 @@ public class CfgTblCustomFormApplication implements Serializable {
     @Column(name = "txt_pr_code")
     private String txtPrCode;
 
+    @Column(name = "txt_po_code")
+    private String txtPoCode;
+
     @Lob
     @JsonIgnore
     @Column(name = "blb_pdf_data")
@@ -261,6 +264,14 @@ public class CfgTblCustomFormApplication implements Serializable {
 
     public void setTxtPrCode(String txtPrCode) {
         this.txtPrCode = txtPrCode;
+    }
+
+    public String getTxtPoCode() {
+        return txtPoCode;
+    }
+
+    public void setTxtPoCode(String txtPoCode) {
+        this.txtPoCode = txtPoCode;
     }
 
     public byte[] getBlbPdfData() {

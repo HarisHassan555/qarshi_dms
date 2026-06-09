@@ -159,4 +159,10 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
         logger.debug("assignPrCode() - applicationId: " + applicationId + ", userId: " + userId);
         return customFormApplicationDAO.assignPrCode(applicationId, prCode, userId, approvedIp);
     }
+
+    @Override
+    public String assignPoCode(Integer applicationId, String poCode, Integer userId, String approvedIp) {
+        logger.debug("assignPoCode() - applicationId: " + applicationId + ", userId: " + userId);
+        return customFormApplicationDAO.assignPoCode(applicationId, poCode, userId, approvedIp);
+    }
 }

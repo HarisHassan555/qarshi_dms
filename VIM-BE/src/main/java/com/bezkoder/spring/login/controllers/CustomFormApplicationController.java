@@ -720,6 +720,35 @@ public class CustomFormApplicationController {
         }
         return result;
     }
+
+    @PostMapping(value = "/assignPoCode", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> assignPoCode(@RequestParam Integer applicationId,
+            @RequestParam String poCode,
+            @RequestParam(required = false) Integer userId,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("assignPoCode() - applicationId: " + applicationId + ", userId: " + userId);
+        Map<String, Object> result = new HashMap<>();
+        try {
+            String ip = resolveClientIp(request);
+            String status = customFormApplicationService.assignPoCode(applicationId, poCode, userId, ip);
+            if ("Success".equalsIgnoreCase(status)) {
+                result.put("status", "Success");
+                result.put("message", "PO code saved successfully");
+            } else {
+                result.put("status", "Failure");
+                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8) : status);
+                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            }
+        } catch (Exception ex) {
+            logger.error("Error assigning PO code: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+        }
+        return result;
+    }
+
     private com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO getCustomFormApplicationDaoImpl() {
         return (com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO) customFormApplicationDAO;
     }

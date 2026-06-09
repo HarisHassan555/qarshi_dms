@@ -27,6 +27,10 @@ public class SignatureController {
 
     private Logger logger = LogManager.getLogger(SignatureController.class);
 
+    /** 1x1 transparent PNG returned when the signature file is missing on disk. */
+    private static final byte[] TRANSPARENT_PNG = Base64.getDecoder().decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
+
     @Autowired
     private IUserService userService;
 
@@ -271,7 +275,9 @@ public class SignatureController {
             // Get user
             CfgTblUser user = userService.getUserById(userId);
             if (user == null || user.getTxtSignaturePath() == null || user.getTxtSignaturePath().isEmpty()) {
-                return ResponseEntity.notFound().build();
+                return ResponseEntity.ok()
+                        .contentType(MediaType.IMAGE_PNG)
+                        .body(TRANSPARENT_PNG);
             }
 
             // Read signature file
@@ -279,7 +285,10 @@ public class SignatureController {
             File signatureFile = new File(rootPath + File.separator + user.getTxtSignaturePath());
 
             if (!signatureFile.exists()) {
-                return ResponseEntity.notFound().build();
+                logger.warn("Signature file missing for userId=" + userId + " path=" + signatureFile.getAbsolutePath());
+                return ResponseEntity.ok()
+                        .contentType(MediaType.IMAGE_PNG)
+                        .body(TRANSPARENT_PNG);
             }
 
             // Read file bytes

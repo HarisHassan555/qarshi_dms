@@ -4,6 +4,7 @@ import { filter } from 'rxjs/operators';
 
 import { CommonModule } from '@angular/common';
 import { urls } from 'src/app/utils/urls';
+import { resolveCapfLogoPath, resolveCapfBrandTitle, resolveCapfLogoCssClass } from 'src/app/utils/capf-logo.util';
 
 @Component({
     selector: 'app-abc',
@@ -17,7 +18,27 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
     @Input() formData: any = {};
     @Input() formFields: any[] = [];
     @Input() application: any = null;
+    @Input() formName: string = '';
     @Input() isEmbedded: boolean = false;
+
+    get capfLogoPath(): string {
+        return resolveCapfLogoPath(this.getCapfFormName());
+    }
+
+    get capfBrandTitle(): string {
+        return resolveCapfBrandTitle(this.getCapfFormName());
+    }
+
+    get capfLogoClass(): string {
+        return resolveCapfLogoCssClass();
+    }
+
+    private getCapfFormName(): string {
+        return this.formName
+            || this.application?.cfgTblCustomForm?.txtFormName
+            || this.application?.formName
+            || '';
+    }
 
     signatureSlots: Array<{
         nameText: string;

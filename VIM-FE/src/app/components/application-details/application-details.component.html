@@ -1,8 +1,5 @@
 <div class="panel border-[#e0e6ed] px-5 py-5 dark:border-[#1b2e4b]">
     <!-- Header with Back Button -->
-    <!-- <div class="mb-6 flex items-center justify-between">
-        
-     </div> -->
     <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div class="flex items-center gap-4">
             <button (click)="goBack()" class="btn btn-outline-primary gap-2">
@@ -35,7 +32,7 @@
                     Send Back to Initiator
                 </button>
             </div>
-            <div *ngIf="showAssetCodeForm()" class="flex flex-wrap items-center gap-2">
+            <div *ngIf="showAssetCodeUI" class="flex flex-wrap items-center gap-2">
                 <input type="text" class="form-input w-52" placeholder="Asset Code" [(ngModel)]="assetCodeInput"
                     [disabled]="isSavingAssetCode">
                 <button class="btn btn-primary gap-2" (click)="saveAssetCode()" [disabled]="isSavingAssetCode">
@@ -45,7 +42,7 @@
                     Assign Asset Code
                 </button>
             </div>
-            <div *ngIf="showPrCodeForm()" class="flex flex-wrap items-center gap-2">
+            <div *ngIf="showPrCodeUI" class="flex flex-wrap items-center gap-2">
                 <input type="text" class="form-input w-52" placeholder="PR Code" [(ngModel)]="prCodeInput"
                     [disabled]="isSavingPrCode">
                 <button class="btn btn-outline-primary gap-2" (click)="savePrCode()" [disabled]="isSavingPrCode">
@@ -53,6 +50,16 @@
                         class="animate-spin border-2 border-primary border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
                     <icon-save class="w-4 h-4" *ngIf="!isSavingPrCode" />
                     Assign PR
+                </button>
+            </div>
+            <div *ngIf="showPoCodeUI" class="flex flex-wrap items-center gap-2">
+                <input type="text" class="form-input w-52" placeholder="PO Code" [(ngModel)]="poCodeInput"
+                    [disabled]="isSavingPoCode">
+                <button class="btn btn-outline-primary gap-2" (click)="savePoCode()" [disabled]="isSavingPoCode">
+                    <span *ngIf="isSavingPoCode"
+                        class="animate-spin border-2 border-primary border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
+                    <icon-save class="w-4 h-4" *ngIf="!isSavingPoCode" />
+                    Assign PO
                 </button>
             </div>
             <div class="flex flex-wrap gap-2 justify-end">
@@ -107,7 +114,9 @@
             </h6>
             <div class="border border-[#e0e6ed] dark:border-[#1b2e4b] rounded-lg overflow-auto bg-white dark:bg-[#1b2e4b] p-6">
                 <app-abc id="capf-pdf-content" [formData]="applicationFormData" [formFields]="formFields"
-                    [application]="applicationDetails" [isEmbedded]="true"></app-abc>
+                    [application]="applicationDetails"
+                    [formName]="applicationDetails?.cfgTblCustomForm?.txtFormName || getHeaderFieldValue() || ''"
+                    [isEmbedded]="true"></app-abc>
             </div>
         </div>
 
@@ -281,10 +290,10 @@
                     </div>
 
                     <div class="ec-slip-footer-fixed">
-                        <div class="ec-slip-pipeline-footer" *ngIf="hasIndividualPipelineFooter()">
-                            <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields().length > 0">
+                        <div class="ec-slip-pipeline-footer" *ngIf="hasSlipPipelineFooter()">
+                            <table class="xyz-signatures" *ngIf="getSlipPipelineFooterFields().length > 0">
                                 <tr class="xyz-signatures-blank">
-                                    <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
+                                    <ng-container *ngFor="let section of getSlipPipelineFooterFields()">
                                         <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
                                             <div *ngIf="slotUser && isUserApproved(slotUser, section.label)">
                                                 <img *ngIf="getUserSignatureUrl(slotUser, section.label)"
@@ -298,13 +307,13 @@
                                     </ng-container>
                                 </tr>
                                 <tr>
-                                    <th *ngFor="let section of getIndividualPipelineFooterFields()"
+                                    <th *ngFor="let section of getSlipPipelineFooterFields()"
                                         [attr.colspan]="getIndividualFooterColSpan(section)">
                                         {{ section.label || 'New Field' }}:
                                     </th>
                                 </tr>
                                 <tr>
-                                    <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
+                                    <ng-container *ngFor="let section of getSlipPipelineFooterFields()">
                                         <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
                                             <div [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></div>
                                         </td>
@@ -408,10 +417,10 @@
                         </div>
                     </div>
                     <div class="tas-slip-footer-fixed">
-                            <div class="ec-slip-pipeline-footer" *ngIf="hasIndividualPipelineFooter()">
-                                <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields().length > 0">
+                            <div class="ec-slip-pipeline-footer" *ngIf="hasSlipPipelineFooter()">
+                                <table class="xyz-signatures" *ngIf="getSlipPipelineFooterFields().length > 0">
                                     <tr class="xyz-signatures-blank">
-                                        <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
+                                        <ng-container *ngFor="let section of getSlipPipelineFooterFields()">
                                             <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
                                                 <div *ngIf="slotUser && isUserApproved(slotUser, section.label)">
                                                     <img *ngIf="getUserSignatureUrl(slotUser, section.label)"
@@ -425,13 +434,13 @@
                                         </ng-container>
                                     </tr>
                                     <tr>
-                                        <th *ngFor="let section of getIndividualPipelineFooterFields()"
+                                        <th *ngFor="let section of getSlipPipelineFooterFields()"
                                             [attr.colspan]="getIndividualFooterColSpan(section)">
                                             {{ section.label || 'New Field' }}:
                                         </th>
                                     </tr>
                                     <tr>
-                                        <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
+                                        <ng-container *ngFor="let section of getSlipPipelineFooterFields()">
                                             <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
                                                 <div [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></div>
                                             </td>
@@ -490,6 +499,10 @@
                                 <div *ngIf="applicationDetails?.txtPrCode"
                                     class="px-3 py-1 border border-blue-600 text-blue-700 rounded-full text-xs font-semibold bg-blue-50">
                                     PR Code: {{ applicationDetails.txtPrCode }}
+                                </div>
+                                <div *ngIf="applicationDetails?.txtPoCode"
+                                    class="px-3 py-1 border border-purple-600 text-purple-700 rounded-full text-xs font-semibold bg-purple-50">
+                                    PO Code: {{ applicationDetails.txtPoCode }}
                                 </div>
                             </div>
                         </div>
@@ -599,6 +612,11 @@
                             <div *ngIf="applicationDetails?.txtPrCode"
                                 class="px-2 py-0.5 border border-blue-600 text-blue-700 rounded-full text-[10px] font-semibold bg-blue-50">
                                 PR Code: {{ applicationDetails.txtPrCode }}
+                            </div>
+
+                            <div *ngIf="applicationDetails?.txtPoCode"
+                                class="px-2 py-0.5 border border-purple-600 text-purple-700 rounded-full text-[10px] font-semibold bg-purple-50">
+                                PO Code: {{ applicationDetails.txtPoCode }}
                             </div>
                         </div>
                     </div>
@@ -1041,7 +1059,7 @@
                     </div>
                     <div *ngIf="cardIndex < cards.length - 1" class="approval-arrow">
                         <div class="approval-arrow-label">
-                            {{ getCardTimeTaken(cardIndex, cards) || '--' }}
+                            {{ getCardTimeTaken(cardIndex + 1, cards) || '--' }}
                         </div>
                         <div class="approval-arrow-track">
                             <div class="approval-arrow-line"></div>
