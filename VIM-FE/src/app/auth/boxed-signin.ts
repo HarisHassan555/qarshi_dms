@@ -94,12 +94,21 @@ export class BoxedSigninComponent {
         this.showPassword = !this.showPassword;
     }
 
+    private resolveReturnUrl(): string | null {
+        const raw = this.route.snapshot.queryParamMap.get('returnUrl');
+        if (!raw) return null;
+        const trimmed = raw.trim();
+        if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return null;
+        return trimmed;
+    }
+
     getUser() {
         // @ts-ignore
         this.userService.me().subscribe((data: CfgTblUser | null) => {
             if (data) {
                 this.sharedDataService.saveUser(data);
-                this.router.navigateByUrl('/Dashboard');
+                const returnUrl = this.resolveReturnUrl();
+                this.router.navigateByUrl(returnUrl || '/Dashboard');
             } else {
                 console.error('User data is null');
             }

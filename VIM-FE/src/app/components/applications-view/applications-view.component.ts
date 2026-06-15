@@ -14,6 +14,7 @@ import {
   resolveCapfLogoCssClass,
   resolveCapfFormNameFromSources,
 } from 'src/app/utils/capf-logo.util';
+import { formatCapfFormNumberDisplay } from 'src/app/utils/capf-form.util';
 import { firstValueFrom } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 // @ts-ignore
@@ -2927,7 +2928,8 @@ export class ApplicationsViewComponent implements OnInit {
     };
 
     const getCapfNumber = (): string => {
-      return getFieldValue('CAPF #') || application.txtFormCode || '';
+      const raw = getFieldValue('CAPF #') || application.txtFormCode || '';
+      return formatCapfFormNumberDisplay(raw);
     };
 
     const getDate = (): string => {

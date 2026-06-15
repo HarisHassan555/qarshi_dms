@@ -53,6 +53,10 @@
     flex: 1 1 auto;
 }
 
+.app-preview-body.app-preview-body--landscape {
+    overflow-x: auto;
+}
+
 .app-preview-empty {
     min-height: 120px;
     display: flex;
@@ -126,16 +130,32 @@
     margin: 0;
 }
 
+/* Preview paper: true mm dimensions; fitPreviewToAvailableSpace() scales uniformly. */
 .app-preview-paper-a4 {
-    width: 210mm !important;
-    max-width: 100%;
+    max-width: none !important;
     min-width: 0;
+    box-sizing: border-box;
+    flex-shrink: 0;
+}
+
+/* Portrait A4: 210mm × 297mm (grows with content). */
+.app-preview-paper-a4.xyz-paper--portrait,
+.app-preview-paper-a4:not(.xyz-paper--landscape) {
+    width: 210mm !important;
     min-height: 297mm !important;
     height: auto !important;
     max-height: none !important;
     overflow: visible !important;
-    box-sizing: border-box;
-    flex-shrink: 0;
+}
+
+/* Landscape A4: 297mm × 210mm — swapped edges, fixed aspect ratio. */
+.app-preview-paper-a4.xyz-paper--landscape {
+    width: 297mm !important;
+    height: 210mm !important;
+    min-height: 210mm !important;
+    max-height: 210mm !important;
+    aspect-ratio: 297 / 210 !important;
+    overflow: hidden !important;
 }
 
 /* Line list must define paper height: do not flex-grow/shrink inside min-height page (avoids text painting outside card). */
@@ -146,6 +166,13 @@
     width: 100%;
     max-width: 100%;
     overflow: visible;
+}
+
+.app-preview-paper-a4.xyz-paper--landscape .xyz-generic-content {
+    flex: 1 1 auto !important;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 /* Keep /application preview typography identical to exported/email snapshots. */
@@ -282,6 +309,19 @@
     display: flex;
     flex-direction: column;
     margin: 0 auto;
+}
+
+.xyz-paper.xyz-paper--landscape {
+    width: 297mm;
+    height: 210mm;
+    min-height: 210mm;
+    max-height: 210mm;
+}
+
+.xyz-paper.xyz-paper--portrait {
+    width: 210mm;
+    min-height: 297mm;
+    height: auto;
 }
 
 .xyz-date-row {
@@ -466,7 +506,7 @@
 }
 
 @media (max-width: 900px) {
-    .xyz-paper {
+    .xyz-paper:not(.app-preview-paper-a4) {
         width: 100%;
         min-height: auto;
         padding: 16px;

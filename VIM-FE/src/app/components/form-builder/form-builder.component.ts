@@ -70,6 +70,7 @@ export class FormBuilderComponent implements OnInit {
     { value: 'checkbox', label: 'Checkbox' },
     { value: 'radio', label: 'Radio' },
     { value: 'table', label: 'Table' },
+    { value: 'orientation', label: 'Orientation' },
     { value: 'footer', label: 'Footer (Approval Pipeline)' },
     { value: 'individual_pipeline_footer', label: 'Individual Pipeline (Footer)' }
   ];
@@ -247,16 +248,22 @@ export class FormBuilderComponent implements OnInit {
   onTypeChange(index: number) {
     const field = this.fields.at(index);
     const type = field.get('type')?.value;
-    if (type === 'word_editor' || type === 'footer' || type === 'individual_pipeline_footer') {
+    if (type === 'word_editor' || type === 'footer' || type === 'individual_pipeline_footer' || type === 'orientation') {
       field.get('label')?.setValue(
         type === 'word_editor'
           ? 'Word Editor'
           : type === 'individual_pipeline_footer'
             ? 'Individual Pipeline Footer'
-            : 'Form Footer'
+            : type === 'orientation'
+              ? 'Orientation'
+              : 'Form Footer'
       );
       field.get('label')?.clearValidators();
       field.get('label')?.updateValueAndValidity();
+      if (type === 'orientation') {
+        field.get('placeholder')?.setValue('');
+        field.get('required')?.setValue(false);
+      }
     } else if (type === 'attachment') {
       field.get('label')?.clearValidators();
       field.get('label')?.updateValueAndValidity();
@@ -272,7 +279,8 @@ export class FormBuilderComponent implements OnInit {
     return normalized !== 'word_editor'
       && normalized !== 'attachment'
       && normalized !== 'footer'
-      && normalized !== 'individual_pipeline_footer';
+      && normalized !== 'individual_pipeline_footer'
+      && normalized !== 'orientation';
   }
 
   add() {
@@ -336,7 +344,7 @@ export class FormBuilderComponent implements OnInit {
           };
           fieldOptions = JSON.stringify(tableConfig);
         }
-        else if (field.type === 'individual_pipeline_footer') {
+        else if (field.type === 'individual_pipeline_footer' || field.type === 'orientation') {
           fieldOptions = null;
         }
         

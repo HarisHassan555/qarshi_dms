@@ -27,6 +27,22 @@
     margin-bottom: 3mm;
 }
 
+/* Non-last preview pages: fixed A4 height (overrides portrait ngStyle height:auto) so pagination matches layout. */
+.xyz-paper.xyz-paper-page.xyz-paper-measured:not(.xyz-last-page):not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
+    height: 297mm !important;
+    max-height: 297mm !important;
+    min-height: 297mm !important;
+    overflow: hidden !important;
+}
+
+.xyz-paper.xyz-paper-page.xyz-paper-measured:not(.xyz-last-page).xyz-paper--landscape,
+.xyz-paper.xyz-paper-page.xyz-paper-measured:not(.xyz-last-page)[data-paper-orientation="landscape"] {
+    height: 210mm !important;
+    max-height: 210mm !important;
+    min-height: 210mm !important;
+    overflow: hidden !important;
+}
+
 /* Hidden DOM to measure block heights — keep out of scroll area; parent #generic-pdf-content is position:relative. */
 #generic-pdf-content {
     position: relative;
@@ -49,22 +65,77 @@
     contain: layout style;
 }
 
-/* Measured pagination: fixed A4 card + clip so body matches chunkFieldsIntoPages capacities. */
+/* In-component measure station: inherits ::ng-deep ql-editor/table rules from this component. */
+.generic-measure-station {
+    position: absolute;
+    left: 0;
+    top: 0;
+    visibility: hidden;
+    pointer-events: none;
+    z-index: -1;
+    transform: translateX(-100vw);
+    contain: layout style;
+}
+
+/* Measured pagination: fixed A4 card + grid rows (header / body / footer) — footer never overlaps body. */
 .xyz-paper.xyz-paper-measured {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.xyz-paper.xyz-paper-measured:not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
     height: 297mm;
     max-height: 297mm;
     min-height: 297mm;
-    overflow: hidden;
-    box-sizing: border-box;
 }
 
 .xyz-paper.xyz-paper-measured > .xyz-content-body.xyz-generic-measured-body {
-    flex: 1 1 0;
     min-height: 0;
     overflow: hidden;
+    box-sizing: border-box;
+    padding-bottom: 2px;
+    width: 100%;
+    min-width: 0;
 }
 
-.xyz-paper.xyz-paper-measured.xyz-last-page {
+.xyz-paper.xyz-paper-measured > .xyz-header-container {
+    grid-row: 1;
+}
+
+.xyz-paper.xyz-paper-measured > .xyz-content-body.xyz-generic-measured-body {
+    grid-row: 2;
+}
+
+.xyz-paper.xyz-paper-measured > .xyz-footer,
+.xyz-paper.xyz-paper-measured > .xyz-footer-spacer {
+    grid-row: 3;
+}
+
+/* Continuation pages have no header — use full paper height for body (row 2 was collapsing). */
+.xyz-paper.xyz-paper-measured.xyz-paper--continuation:not(.xyz-last-page) {
+    grid-template-rows: minmax(0, 1fr);
+}
+
+.xyz-paper.xyz-paper-measured.xyz-paper--continuation:not(.xyz-last-page) > .xyz-content-body.xyz-generic-measured-body {
+    grid-row: 1;
+}
+
+.xyz-paper.xyz-paper-measured.xyz-paper--continuation.xyz-last-page {
+    grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.xyz-paper.xyz-paper-measured.xyz-paper--continuation.xyz-last-page > .xyz-content-body.xyz-generic-measured-body {
+    grid-row: 1;
+}
+
+.xyz-paper.xyz-paper-measured.xyz-paper--continuation.xyz-last-page > .xyz-footer,
+.xyz-paper.xyz-paper-measured.xyz-paper--continuation.xyz-last-page > .xyz-footer-spacer {
+    grid-row: 2;
+}
+
+.xyz-paper.xyz-paper-measured.xyz-last-page:not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
     height: 297mm;
     max-height: 297mm;
     min-height: 297mm;
@@ -72,7 +143,6 @@
 }
 
 .xyz-paper.xyz-paper-measured.xyz-last-page > .xyz-content-body.xyz-generic-measured-body {
-    flex: 1 1 0;
     min-height: 0;
     overflow: hidden;
 }
@@ -108,10 +178,9 @@
    Fixed 297mm + overflow:hidden was cutting off lines when pagination used char heuristics. */
 .xyz-paper {
     width: 210mm;
-    max-width: 100%;
+    max-width: none;
     min-width: 0;
     position: relative;
-    min-height: 297mm;
     height: auto;
     max-height: none;
     background: #ffffff;
@@ -126,6 +195,32 @@
     flex-direction: column;
     box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
     overflow: visible;
+}
+
+.xyz-paper.xyz-paper--portrait,
+.xyz-paper:not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
+    width: 210mm !important;
+    min-height: 297mm !important;
+}
+
+.xyz-paper.xyz-paper--landscape {
+    width: 297mm !important;
+    height: 210mm !important;
+    min-height: 210mm !important;
+    max-height: 210mm !important;
+    aspect-ratio: 297 / 210 !important;
+    overflow: hidden !important;
+}
+
+.xyz-paper.xyz-paper--landscape:not(.xyz-paper-measured) > .xyz-content-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.xyz-pages-scroll--landscape {
+    overflow-x: auto;
 }
 
 /* Ensure paper container uses full height for flex layout */
@@ -143,6 +238,13 @@
     border: 1px solid #222 !important;
     box-shadow: none !important;
     overflow: hidden !important;
+}
+
+.pdf-capture .xyz-paper.xyz-paper--landscape {
+    width: 297mm !important;
+    height: 210mm !important;
+    min-height: 210mm !important;
+    max-height: 210mm !important;
 }
 
 .pdf-capture .xyz-paper > .xyz-content-body {
@@ -167,13 +269,36 @@
 .pdf-capture table {
     width: 100%;
     border-collapse: collapse;
+    border-spacing: 0;
+    border: none !important;
+}
+
+.pdf-capture table tbody tr,
+.pdf-capture table thead tr {
+    border: none !important;
+    background: transparent !important;
 }
 
 .pdf-capture th,
 .pdf-capture td {
-    border: 1px solid #000;
+    border: none !important;
+    border-right: 1px solid #000 !important;
+    border-bottom: 1px solid #000 !important;
     padding: 4px 6px;
     font-size: 12px;
+    box-sizing: border-box !important;
+}
+
+.pdf-capture tr > :first-child {
+    border-left: 1px solid #000 !important;
+}
+
+.pdf-capture table > :first-child > tr:first-child > * {
+    border-top: 1px solid #000 !important;
+}
+
+.pdf-capture .ql-editor table {
+    border: none !important;
 }
 
 .pdf-capture .xyz-company-name {
@@ -346,19 +471,36 @@
     max-width: 100% !important;
     table-layout: fixed !important;
     border-collapse: collapse;
+    border: none;
     margin-top: 6px;
     font-size: 12px;
 }
 
+.xyz-table tbody tr {
+    border: none !important;
+    background: transparent !important;
+}
+
 .xyz-table th,
 .xyz-table td {
-    border: 1px solid #000;
+    border: none;
+    border-right: 1px solid #000;
+    border-bottom: 1px solid #000;
     padding: 2px 4px;
     font-size: 11px;
     line-height: 1.2;
     word-wrap: break-word !important;
     overflow-wrap: break-word !important;
     min-height: 32px;
+    box-sizing: border-box;
+}
+
+.xyz-table tr > :first-child {
+    border-left: 1px solid #000;
+}
+
+.xyz-table > :first-child > tr:first-child > * {
+    border-top: 1px solid #000;
 }
 
 .xyz-table thead th {
@@ -392,6 +534,12 @@
     margin-bottom: 8px;
     min-width: 0;
     max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.xyz-generic-measured-body > .xyz-generic-field:last-child {
+    margin-bottom: 0;
 }
 
 .xyz-generic-label {
@@ -459,24 +607,56 @@
 }
 
 :host ::ng-deep .xyz-generic-word .ql-editor table,
-:host ::ng-deep .xyz-content-body .ql-editor table {
+:host ::ng-deep .xyz-content-body .ql-editor table,
+:host ::ng-deep .q-table-wrapper table {
     width: 100% !important;
     max-width: 100% !important;
     border-collapse: collapse !important;
+    border-spacing: 0 !important;
+    border: none !important;
     table-layout: auto !important;
     margin: 8px 0 !important;
+}
+
+/* Cancel global Tailwind `table tbody tr { border-b }` inside document preview tables. */
+:host ::ng-deep .xyz-generic-word .ql-editor table tbody tr,
+:host ::ng-deep .xyz-content-body .ql-editor table tbody tr,
+:host ::ng-deep .q-table-wrapper table tbody tr,
+:host ::ng-deep .xyz-generic-word .ql-editor table thead tr,
+:host ::ng-deep .xyz-content-body .ql-editor table thead tr,
+:host ::ng-deep .q-table-wrapper table thead tr {
+    border: none !important;
+    background: transparent !important;
 }
 
 :host ::ng-deep .xyz-generic-word .ql-editor th,
 :host ::ng-deep .xyz-generic-word .ql-editor td,
 :host ::ng-deep .xyz-content-body .ql-editor th,
-:host ::ng-deep .xyz-content-body .ql-editor td {
-    border: 1px solid #000 !important;
+:host ::ng-deep .xyz-content-body .ql-editor td,
+:host ::ng-deep .q-table-wrapper th,
+:host ::ng-deep .q-table-wrapper td {
+    border: none !important;
+    border-right: 1px solid #000 !important;
+    border-bottom: 1px solid #000 !important;
     padding: 6px !important;
     vertical-align: top !important;
     word-break: break-word !important;
     overflow-wrap: anywhere !important;
     white-space: normal !important;
+    box-sizing: border-box !important;
+    font-weight: normal !important;
+}
+
+:host ::ng-deep .xyz-generic-word .ql-editor tr > :first-child,
+:host ::ng-deep .xyz-content-body .ql-editor tr > :first-child,
+:host ::ng-deep .q-table-wrapper tr > :first-child {
+    border-left: 1px solid #000 !important;
+}
+
+:host ::ng-deep .xyz-generic-word .ql-editor table > :first-child > tr:first-child > *,
+:host ::ng-deep .xyz-content-body .ql-editor table > :first-child > tr:first-child > *,
+:host ::ng-deep .q-table-wrapper table > :first-child > tr:first-child > * {
+    border-top: 1px solid #000 !important;
 }
 
 :host ::ng-deep .xyz-generic-word .ql-editor img {
@@ -491,23 +671,34 @@
 .xyz-generic-word .ql-editor table {
     width: 100%;
     border-collapse: collapse;
+    border: none;
     table-layout: auto;
     margin: 8px 0;
 }
 
 .xyz-generic-word .ql-editor table tr {
-    min-height: 32px;
+    min-height: 0;
 }
 
 .xyz-generic-word .ql-editor th,
 .xyz-generic-word .ql-editor td {
-    border: 1px solid #000;
+    border: none;
+    border-right: 1px solid #000;
+    border-bottom: 1px solid #000;
     padding: 6px 6px !important;
     line-height: 1.35 !important;
     vertical-align: middle !important;
-    min-height: 32px !important;
+    min-height: 0 !important;
     box-sizing: border-box !important;
     overflow: visible;
+}
+
+.xyz-generic-word .ql-editor tr > :first-child {
+    border-left: 1px solid #000;
+}
+
+.xyz-generic-word .ql-editor table > :first-child > tr:first-child > * {
+    border-top: 1px solid #000;
 }
 
 .xyz-generic-word .ql-editor td>*,
@@ -558,25 +749,45 @@
 }
 
 .xyz-dynamic table,
-.xyz-content-body table {
+.xyz-content-body > table {
     width: 100% !important;
     max-width: 100% !important;
     border-collapse: collapse;
+    border: none;
     margin: 8px 0;
     font-size: 14px;
     table-layout: auto !important;
 }
 
+.xyz-dynamic table tbody tr,
+.xyz-content-body > table tbody tr {
+    border: none !important;
+    background: transparent !important;
+}
+
 .xyz-dynamic th,
 .xyz-dynamic td,
-.xyz-content-body th,
-.xyz-content-body td {
-    border: 1px solid #000;
+.xyz-content-body > table th,
+.xyz-content-body > table td {
+    border: none;
+    border-right: 1px solid #000;
+    border-bottom: 1px solid #000;
     padding: 2px 4px;
     line-height: 1.15;
     word-wrap: break-word !important;
     overflow-wrap: break-word !important;
     min-height: 32px;
+    box-sizing: border-box;
+}
+
+.xyz-dynamic tr > :first-child,
+.xyz-content-body > table tr > :first-child {
+    border-left: 1px solid #000;
+}
+
+.xyz-dynamic table > :first-child > tr:first-child > *,
+.xyz-content-body > table > :first-child > tr:first-child > * {
+    border-top: 1px solid #000;
 }
 
 .xyz-content-body td p,
@@ -629,14 +840,14 @@
 }
 
 /* Last page: at least A4; grow with body + footer so no text is clipped (same idea as /application) */
-.xyz-paper.xyz-last-page {
+.xyz-paper.xyz-last-page:not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
     display: flex;
     flex-direction: column;
     min-height: 297mm;
     height: auto;
     max-height: none;
 }
-.xyz-paper.xyz-last-page > .xyz-content-body {
+.xyz-paper.xyz-last-page:not(.xyz-paper-measured) > .xyz-content-body {
     flex: 0 0 auto;
     min-height: auto;
     overflow-x: hidden;
@@ -670,7 +881,7 @@
     flex-shrink: 0;
 }
 
-.xyz-paper.xyz-paper--footer-pinned {
+.xyz-paper.xyz-paper--footer-pinned:not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
     /* Screen preview: footer-pinned sheet must still grow with long body content. */
     min-height: 297mm;
     height: auto !important;
@@ -686,14 +897,41 @@
     max-height: none !important;
 }
 
-.xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-content-body.xyz-generic-measured-body {
-    flex: 0 0 auto !important;
-    min-height: auto;
-    overflow-x: hidden;
-    overflow-y: visible;
+.xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned {
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
 }
 
-.xyz-paper.xyz-paper--footer-pinned.xyz-last-page:not(.xyz-paper-measured) {
+.xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned:not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
+    height: 297mm !important;
+    min-height: 297mm !important;
+    max-height: 297mm !important;
+}
+
+.xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-header-container {
+    flex: 0 0 auto !important;
+}
+
+.xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-content-body.xyz-generic-measured-body {
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+}
+
+.xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-footer-spacer {
+    display: block !important;
+    flex: 1 1 0 !important;
+    min-height: 0 !important;
+    width: 100%;
+}
+
+.xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-footer {
+    flex: 0 0 auto !important;
+    margin-top: 0 !important;
+}
+
+.xyz-paper.xyz-paper--footer-pinned.xyz-last-page:not(.xyz-paper-measured):not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
     min-height: 297mm;
     height: auto;
     max-height: none;
@@ -709,6 +947,125 @@
 .pdf-capture .xyz-paper.xyz-paper--footer-pinned.xyz-last-page > .xyz-footer-spacer {
     flex: 1 1 0 !important;
     min-height: 0 !important;
+}
+
+/* Landscape A4: 297mm wide × 210mm tall */
+.xyz-paper.xyz-paper--landscape,
+.xyz-paper[data-paper-orientation="landscape"] {
+    width: 297mm !important;
+    height: 210mm !important;
+    min-width: 297mm !important;
+    max-width: 297mm !important;
+    min-height: 210mm !important;
+    max-height: 210mm !important;
+    aspect-ratio: 297 / 210 !important;
+    overflow: hidden !important;
+}
+
+.xyz-paper.xyz-paper--landscape.xyz-paper--footer-pinned,
+.xyz-paper[data-paper-orientation="landscape"].xyz-paper--footer-pinned {
+    height: 210mm !important;
+    min-height: 210mm !important;
+    max-height: 210mm !important;
+}
+
+.xyz-paper.xyz-paper--landscape .xyz-header-container {
+    flex: 0 0 auto;
+}
+
+.xyz-paper.xyz-paper--landscape:not(.xyz-paper-measured) > .xyz-content-body,
+.xyz-paper.xyz-paper--landscape.xyz-paper--footer-pinned:not(.xyz-paper-measured) > .xyz-content-body,
+.xyz-paper.xyz-paper--landscape.xyz-last-page:not(.xyz-paper-measured) > .xyz-content-body {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+}
+
+.xyz-paper.xyz-paper--landscape.xyz-paper--footer-pinned > .xyz-footer-spacer {
+    display: none !important;
+    flex: 0 0 0 !important;
+    min-height: 0 !important;
+    height: 0 !important;
+}
+
+.xyz-paper.xyz-paper--landscape.xyz-paper--footer-pinned:not(.xyz-paper-measured) > .xyz-footer,
+.xyz-paper.xyz-paper--landscape.xyz-last-page:not(.xyz-paper-measured) > .xyz-footer {
+    flex: 0 0 auto !important;
+    margin-top: auto !important;
+}
+
+.xyz-paper.xyz-paper--landscape.xyz-paper-measured:not(.xyz-paper--footer-pinned) {
+    height: 210mm !important;
+    min-height: 210mm !important;
+    max-height: 210mm !important;
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) auto !important;
+}
+
+.xyz-paper.xyz-paper--landscape.xyz-paper-measured.xyz-paper--continuation:not(.xyz-last-page) {
+    grid-template-rows: minmax(0, 1fr) !important;
+}
+
+.xyz-paper.xyz-paper--landscape.xyz-paper-measured:not(.xyz-paper--footer-pinned) > .xyz-content-body.xyz-generic-measured-body {
+    min-height: 0 !important;
+    overflow: hidden !important;
+}
+
+/* Last page: flex + spacer pins pipeline footer to bottom of landscape A4. */
+.xyz-paper.xyz-paper--landscape.xyz-paper-measured.xyz-paper--footer-pinned {
+    height: 210mm !important;
+    min-height: 210mm !important;
+    max-height: 210mm !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+}
+
+.xyz-paper.xyz-paper--landscape.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-header-container {
+    flex: 0 0 auto !important;
+}
+
+.xyz-paper.xyz-paper--landscape.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-content-body.xyz-generic-measured-body {
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    padding-bottom: 4px;
+}
+
+.xyz-paper.xyz-paper--landscape.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-footer-spacer {
+    display: block !important;
+    flex: 1 1 0 !important;
+    min-height: 0 !important;
+    width: 100%;
+}
+
+.xyz-paper.xyz-paper--landscape.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-footer {
+    flex: 0 0 auto !important;
+    margin-top: 0 !important;
+    position: relative;
+    z-index: 1;
+    background: #ffffff;
+}
+
+.pdf-capture .xyz-paper.xyz-paper--landscape.xyz-last-page,
+.pdf-capture .xyz-paper.xyz-paper--landscape.xyz-paper--footer-pinned.xyz-last-page {
+    width: 297mm !important;
+    height: 210mm !important;
+    min-height: 210mm !important;
+    max-height: 210mm !important;
+}
+
+.pdf-capture .xyz-paper.xyz-paper--landscape.xyz-paper--footer-pinned.xyz-last-page > .xyz-content-body,
+.pdf-capture .xyz-paper.xyz-paper--landscape.xyz-paper--footer-pinned.xyz-last-page > .xyz-content-body.xyz-generic-measured-body {
+    flex: 1 1 0 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+}
+
+#generic-pdf-content.generic-pdf-content--landscape {
+    overflow-x: auto;
 }
 
 .xyz-signatures th,
@@ -814,7 +1171,7 @@
         overflow-x: auto;
     }
 
-    .xyz-paper {
+    .xyz-paper:not(.xyz-paper--landscape):not(.xyz-paper--portrait) {
         width: 100%;
         min-width: 280mm;
         min-height: auto;
@@ -837,7 +1194,7 @@
     table-layout: fixed !important;
     border-collapse: collapse;
     margin: 10px 0;
-    border: 1px solid #000;
+    border: none;
 }
 
 .q-tr {
@@ -846,11 +1203,22 @@
 
 .q-td {
     display: table-cell !important;
-    border: 1px solid #000;
+    border: none;
+    border-right: 1px solid #000;
+    border-bottom: 1px solid #000;
     padding: 8px;
     vertical-align: top;
     word-wrap: break-word !important;
     overflow-wrap: break-word !important;
+    box-sizing: border-box;
+}
+
+.q-tr > .q-td:first-child {
+    border-left: 1px solid #000;
+}
+
+.q-table > .q-tr:first-child > .q-td {
+    border-top: 1px solid #000;
 }
 
 .xyz-dynamic pre,

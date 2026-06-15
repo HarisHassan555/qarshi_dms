@@ -219,8 +219,9 @@
         </div>
 
 
-        <!-- Professional paper view: generic forms (single scrollable sheet) -->
-        <div *ngIf="!isBudgetApprovalForm() && !isCapfForm()" id="generic-pdf-content">
+        <!-- Professional paper view: generic forms (multi-page A4) -->
+        <div *ngIf="!isBudgetApprovalForm() && !isCapfForm()" id="generic-pdf-content"
+            [class.generic-pdf-content--landscape]="isLandscapeOrientation()">
             <!-- Expense claim (EXP-*): slip layout aligned with create-flow live preview -->
             <div *ngIf="isExpenseClaimForm()" class="xyz-page-inline xyz-pages-scroll">
                 <div class="expense-claim-preview-root xyz-paper ec-slip">
@@ -474,10 +475,81 @@
                 </div>
             </div>
 
-            <div *ngIf="!isExpenseClaimForm() && !isTemporaryAdvanceSlipForm()" class="xyz-page-inline xyz-pages-scroll">
-                <div class="xyz-paper"
-                    [class.xyz-paper--footer-pinned]="hasIndividualPipelineFooter()">
-                    <div class="xyz-header-container">
+            <!-- Hidden measure station: same component scope as preview so ::ng-deep ql-editor/table styles apply. -->
+            <div *ngIf="!isExpenseClaimForm() && !isTemporaryAdvanceSlipForm()"
+                class="generic-measure-station" aria-hidden="true">
+                <div #genericMeasurePaper
+                    class="xyz-paper xyz-paper-measured"
+                    [class.xyz-paper--has-pipeline-footer]="hasIndividualPipelineFooter()"
+                    [attr.data-paper-orientation]="formOrientation"
+                    [ngClass]="getPreviewPaperOrientationClass()"
+                    [ngStyle]="getPreviewPaperStyle()">
+                    <div #genericMeasureHeader class="xyz-header-container">
+                        <div class="xyz-date-row">
+                            <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd-MMM-yyyy' }}</div>
+                        </div>
+                        <div class="xyz-header">
+                            <div class="xyz-logo">
+                                <img src="assets/images/qarshi-logo.png" alt="">
+                            </div>
+                            <div class="xyz-company">
+                                <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
+                                <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+                            </div>
+                            <div class="xyz-header-spacer"></div>
+                        </div>
+                        <div class="xyz-rule thick"></div>
+                        <div class="xyz-title">{{ getGenericDocumentHeading() }}</div>
+                    </div>
+                    <div #genericMeasureBody
+                        class="xyz-content-body xyz-generic-measured-body"
+                        [class.xyz-content-centered]="useIndividualFooterDocumentLayout()"></div>
+                    <div #genericMeasureFooter class="xyz-footer" *ngIf="hasIndividualPipelineFooter()">
+                        <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields().length > 0">
+                            <tr class="xyz-signatures-blank">
+                                <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
+                                    <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                        <div *ngIf="slotUser && isUserApproved(slotUser, section.label)">
+                                            <img *ngIf="getUserSignatureUrl(slotUser, section.label)"
+                                                [src]="getUserSignatureUrl(slotUser, section.label)" class="xyz-sig-img"
+                                                alt="" crossorigin="anonymous">
+                                            <div class="xyz-sig-time" *ngIf="getUserApprovalDate(slotUser, section.label)">
+                                                {{ getUserApprovalDate(slotUser, section.label) }}
+                                            </div>
+                                        </div>
+                                    </td>
+                                </ng-container>
+                            </tr>
+                            <tr>
+                                <th *ngFor="let section of getIndividualPipelineFooterFields()"
+                                    [attr.colspan]="getIndividualFooterColSpan(section)">
+                                    {{ section.label || 'New Field' }}:
+                                </th>
+                            </tr>
+                            <tr>
+                                <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
+                                    <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                        <div [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></div>
+                                    </td>
+                                </ng-container>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div *ngIf="!isExpenseClaimForm() && !isTemporaryAdvanceSlipForm()" class="xyz-page-inline xyz-pages-scroll"
+                [class.xyz-pages-scroll--landscape]="isLandscapeOrientation()">
+                <div *ngFor="let pageFields of genericPages; let last = last; let first = first"
+                    class="xyz-paper xyz-paper-page xyz-paper-measured"
+                    [class.xyz-paper--continuation]="!first"
+                    [class.xyz-last-page]="last"
+                    [class.xyz-paper--has-pipeline-footer]="hasIndividualPipelineFooter() && last"
+                    [class.xyz-paper--footer-pinned]="hasIndividualPipelineFooter() && last"
+                    [attr.data-paper-orientation]="formOrientation"
+                    [ngClass]="getPreviewPaperOrientationClass()"
+                    [ngStyle]="getPreviewPaperStyle()">
+                    <div class="xyz-header-container" *ngIf="first">
                         <div class="xyz-date-row">
                             <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd-MMM-yyyy' }}</div>
                         </div>
@@ -512,37 +584,42 @@
                         <div class="xyz-title">{{ getGenericDocumentHeading() }}</div>
                     </div>
 
-                    <div class="xyz-content-body" [class.xyz-content-centered]="useIndividualFooterDocumentLayout()">
-                        <div *ngFor="let field of getBodyPreviewFields()" class="xyz-generic-field">
-                            <div *ngIf="!isWordEditorType(field.type)
-                                        && !isHtmlPreviewField(field)
-                                        && !isTableType(field.type)
-                                        && !isIndividualPipelineFooterType(field.type)
-                                        && field.type !== 'footer'
-                                        && !isDocumentHeaderType(field.type)"
-                                class="xyz-generic-value">
-                                {{ formatFieldValue(field, getFieldValue(field)) }}
+                    <div class="xyz-content-body xyz-generic-measured-body"
+                        [class.xyz-content-centered]="useIndividualFooterDocumentLayout()">
+                        <ng-container *ngFor="let segment of getPageRenderSegments(pageFields)">
+                            <div *ngIf="isWordEditorRenderSegment(segment)" class="xyz-generic-field">
+                                <div class="xyz-generic-word">
+                                    <div class="ql-editor" [innerHTML]="segment.html"></div>
+                                </div>
                             </div>
 
-                            <div *ngIf="isWordEditorType(field.type) || isHtmlPreviewField(field)" class="xyz-generic-word">
-                                <div class="ql-editor" [innerHTML]="getWordEditorValue(field)"></div>
-                            </div>
+                            <div *ngIf="isFieldRenderSegment(segment)" class="xyz-generic-field">
+                                <div *ngIf="!isWordEditorType(segment.block!.field.type)
+                                            && !isHtmlPreviewField(segment.block!.field)
+                                            && !isTableType(segment.block!.field.type)
+                                            && !isIndividualPipelineFooterType(segment.block!.field.type)
+                                            && segment.block!.field.type !== 'footer'
+                                            && !isDocumentHeaderType(segment.block!.field.type)"
+                                    class="xyz-generic-value">
+                                    {{ formatFieldValue(segment.block!.field, getFieldValue(segment.block!.field)) }}
+                                </div>
 
-                            <div *ngIf="isTableType(field.type)" class="overflow-x-auto">
-                                <table class="xyz-table">
-                                    <tbody>
-                                        <tr *ngFor="let row of getTableData(field)">
-                                            <td *ngFor="let cell of row">{{ cell || '-' }}</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+                                <div *ngIf="isTableType(segment.block!.field.type)" class="overflow-x-auto">
+                                    <table class="xyz-table">
+                                        <tbody>
+                                            <tr *ngFor="let row of getTableRowsForBlock(segment.block!.field)">
+                                                <td *ngFor="let cell of row">{{ cell || '-' }}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
-                        </div>
+                        </ng-container>
                     </div>
 
-                    <div class="xyz-footer-spacer" *ngIf="hasIndividualPipelineFooter()" aria-hidden="true"></div>
+                    <div class="xyz-footer-spacer" *ngIf="hasIndividualPipelineFooter() && last" aria-hidden="true"></div>
 
-                    <div class="xyz-footer" *ngIf="hasIndividualPipelineFooter()">
+                    <div class="xyz-footer" *ngIf="hasIndividualPipelineFooter() && last">
                         <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields().length > 0">
                             <tr class="xyz-signatures-blank">
                                 <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
@@ -579,10 +656,13 @@
 
         <!-- Professional Paper View for Budget Approval Forms (multi-page) -->
         <div *ngIf="isBudgetApprovalForm()" id="budget-pdf-content">
-            <div class="xyz-page-inline xyz-pages-scroll">
+            <div class="xyz-page-inline xyz-pages-scroll"
+                [class.xyz-pages-scroll--landscape]="isLandscapeOrientation()">
                 <div *ngFor="let page of budgetPages; let last = last"
                     class="xyz-paper xyz-paper-page"
-                    [class.xyz-last-page]="last">
+                    [class.xyz-last-page]="last"
+                    [ngClass]="getPreviewPaperOrientationClass()"
+                    [ngStyle]="getPreviewPaperStyle()">
                 <div class="xyz-header-container">
                     <div class="xyz-date-row">
                         <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd/MM/yyyy' }}</div>
@@ -893,6 +973,48 @@
                 <input type="text" [(ngModel)]="vendorEditForm.termsConditions" class="form-input"
                     placeholder="Enter terms">
             </div>
+
+            <ng-container *ngFor="let field of getVendorEditAttachmentFields()">
+                <div class="md:col-span-2 space-y-2 border-t border-gray-100 dark:border-gray-700 pt-4">
+                    <label class="text-xs font-bold uppercase tracking-wider text-gray-500">{{ field.label }}</label>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                        Add additional files or replace existing ones.
+                    </p>
+                    <div class="flex flex-wrap gap-2">
+                        <label class="btn btn-outline-primary btn-sm cursor-pointer">
+                            Add Attachments
+                            <input type="file" multiple
+                                accept=".pdf,.webp,.png,.jpeg,.jpg,application/pdf,image/webp,image/png,image/jpeg"
+                                class="hidden"
+                                (change)="onVendorAttachmentChange(field, $event, false)" />
+                        </label>
+                        <label class="btn btn-outline-warning btn-sm cursor-pointer">
+                            Replace All
+                            <input type="file" multiple
+                                accept=".pdf,.webp,.png,.jpeg,.jpg,application/pdf,image/webp,image/png,image/jpeg"
+                                class="hidden"
+                                (change)="onVendorAttachmentChange(field, $event, true)" />
+                        </label>
+                    </div>
+                    <div *ngIf="getVendorAttachmentFileNames(field).length > 0" class="mt-2 space-y-1">
+                        <p class="text-xs font-semibold text-gray-700 dark:text-gray-300">Current attachments:</p>
+                        <ul class="text-xs text-gray-500 space-y-1 mt-1">
+                            <li *ngFor="let fileName of getVendorAttachmentFileNames(field); let idx = index"
+                                class="flex items-center justify-between bg-gray-50 dark:bg-[#0e1726] p-1.5 rounded border border-gray-200 dark:border-gray-700">
+                                <span class="truncate pr-2">{{ fileName }}</span>
+                                <button type="button" (click)="removeVendorAttachment(field, idx)"
+                                    class="text-gray-400 hover:text-danger ml-2 flex-shrink-0" title="Remove file">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                    </svg>
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </ng-container>
         </div>
     </ng-template>
     <ng-template #modalFooter>

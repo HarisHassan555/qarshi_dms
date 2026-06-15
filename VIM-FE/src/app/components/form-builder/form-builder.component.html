@@ -144,7 +144,7 @@
                             </div>
                             
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div *ngIf="field.get('type')?.value !== 'word_editor' && field.get('type')?.value !== 'footer' && field.get('type')?.value !== 'individual_pipeline_footer'">
+                                <div *ngIf="field.get('type')?.value !== 'word_editor' && field.get('type')?.value !== 'footer' && field.get('type')?.value !== 'individual_pipeline_footer' && field.get('type')?.value !== 'orientation'">
                                     <label>Field Label <span class="text-danger" *ngIf="isFieldLabelMandatory(field.get('type')?.value)">*</span></label>
                                     <input type="text" placeholder="e.g., First Name" class="form-input" 
                                         formControlName="label" />
@@ -153,7 +153,7 @@
                                     </ng-container>
                                 </div>
                                 
-                                <div [ngClass]="{'md:col-span-2': field.get('type')?.value === 'word_editor' || field.get('type')?.value === 'footer' || field.get('type')?.value === 'individual_pipeline_footer'}">
+                                <div [ngClass]="{'md:col-span-2': field.get('type')?.value === 'word_editor' || field.get('type')?.value === 'footer' || field.get('type')?.value === 'individual_pipeline_footer' || field.get('type')?.value === 'orientation'}">
                                     <label>Field Type <span class="text-danger">*</span></label>
                                     <select class="form-select" formControlName="type" (change)="onTypeChange(i)">
                                         <option *ngFor="let type of fieldTypes" [value]="type.value">
@@ -162,7 +162,7 @@
                                     </select>
                                 </div>
                                 
-                                <div>
+                                <div *ngIf="field.get('type')?.value !== 'orientation'">
                                     <label>Placeholder (Optional)</label>
                                     <input type="text" placeholder="Enter placeholder text" class="form-input" 
                                         formControlName="placeholder" />
@@ -226,8 +226,14 @@
                                         Sections and users for this footer are configured while filling the form in Application.
                                     </p>
                                 </div>
+
+                                <div *ngIf="field.get('type')?.value === 'orientation'" class="md:col-span-2">
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                                        Enables a portrait/landscape toggle when filling this form in Application. No label, placeholder, or required setting is used.
+                                    </p>
+                                </div>
                                 
-                                <div class="flex items-center pt-6" *ngIf="field.get('type')?.value !== 'individual_pipeline_footer'">
+                                <div class="flex items-center pt-6" *ngIf="field.get('type')?.value !== 'individual_pipeline_footer' && field.get('type')?.value !== 'orientation'">
                                     <label class="inline-flex items-center">
                                         <input type="checkbox" class="form-checkbox" formControlName="required" />
                                         <span class="ml-2">Required Field</span>

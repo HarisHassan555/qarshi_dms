@@ -53,9 +53,26 @@
                             </div>
                         </div>
 
+                        <div *ngIf="hasOrientationField()" class="mb-4 rounded-md border border-[#e0e6ed] p-4 dark:border-[#1b2e4b]">
+                            <label class="block mb-2 text-sm font-semibold dark:text-white-light">Page orientation</label>
+                            <div class="inline-flex overflow-hidden rounded-md border border-[#e0e6ed] dark:border-[#1b2e4b]">
+                                <button type="button" class="px-4 py-2 text-sm font-medium transition-colors"
+                                    [class.bg-primary]="formOrientation === 'portrait'"
+                                    [class.text-white]="formOrientation === 'portrait'"
+                                    (click)="setFormOrientation('portrait')">Portrait</button>
+                                <button type="button" class="px-4 py-2 text-sm font-medium transition-colors"
+                                    [class.bg-primary]="formOrientation === 'landscape'"
+                                    [class.text-white]="formOrientation === 'landscape'"
+                                    (click)="setFormOrientation('landscape')">Landscape</button>
+                            </div>
+                            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                                Landscape rotates the A4 preview and allows more fields per row.
+                            </p>
+                        </div>
+
+                        <div class="mb-4 grid gap-4" [ngClass]="getFormFieldsGridClass()">
                         <ng-container *ngFor="let field of selectedForm.fields">
-                        <div *ngIf="!isDocumentHeaderType(field.type) && !shouldHideSlipPipelineField(field)" class="mb-4">
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <ng-container *ngIf="!isDocumentHeaderType(field.type) && !shouldHideSlipPipelineField(field) && !isOrientationType(field.type)">
                                 <!-- User Select (Searchable) -->
                                 <div *ngIf="field.type === 'user_select'">
                                     <label class="block mb-2 text-sm font-semibold dark:text-white-light">
@@ -138,7 +155,7 @@
                                 </div>
 
                                 <!-- Textarea -->
-                                <div *ngIf="field.type === 'textarea'" class="md:col-span-2">
+                                <div *ngIf="field.type === 'textarea'" [ngClass]="getFormFieldFullSpanClass()">
                                     <label class="block mb-2 text-sm font-semibold dark:text-white-light">
                                         {{ field.label }}
                                         <span *ngIf="field.required" class="text-danger">*</span>
@@ -153,7 +170,7 @@
                                 </div>
 
                                 <!-- Word Editor -->
-                                <div *ngIf="isWordEditorType(field.type)" class="md:col-span-2">
+                                <div *ngIf="isWordEditorType(field.type)" [ngClass]="getFormFieldFullSpanClass()">
                                     <quill-editor [formControlName]="getFieldName(field.label)"
                                         (onEditorCreated)="onWordEditorCreated(getFieldName(field.label), $event)"
                                         (onContentChanged)="onWordEditorQuillContentChanged()"
@@ -321,7 +338,7 @@
                                 </div>
 
                                 <!-- Footer (Approval Pipeline) -->
-                                <div *ngIf="field.type === 'footer'" class="md:col-span-2 mt-8">
+                                <div *ngIf="field.type === 'footer'" [ngClass]="getFormFieldFullSpanClass()" class="mt-8">
                                     <div class="flex flex-wrap justify-center gap-8 py-6 border-t border-gray-200 dark:border-gray-700">
                                         <div *ngFor="let pipeline of selectedForm.approvalPipelines; let i = index" 
                                              class="flex flex-col items-center min-w-[150px]">
@@ -337,7 +354,7 @@
                                 </div>
 
                                 <!-- Individual Pipeline Footer -->
-                                <div *ngIf="isIndividualPipelineFooterType(field.type)" class="md:col-span-2 mt-8">
+                                <div *ngIf="isIndividualPipelineFooterType(field.type)" [ngClass]="getFormFieldFullSpanClass()" class="mt-8">
                                     <div class="flex items-center justify-between mb-3">
                                         <label class="block text-sm font-semibold dark:text-white-light">
                                             Individual Footer Sections
@@ -397,10 +414,8 @@
                                         </table>
                                     </div>
                                 </div>
-                            </div>
-
                             <!-- Table Field -->
-                            <div *ngIf="field.type === 'table'" class="md:col-span-2">
+                            <div *ngIf="field.type === 'table'" [ngClass]="getFormFieldFullSpanClass()">
                                 <label class="block mb-2 text-sm font-semibold dark:text-white-light">
                                     {{ field.label }}
                                     <span *ngIf="field.required" class="text-danger">*</span>
@@ -440,8 +455,9 @@
                                     {{ getFieldErrorMessage(getFieldName(field.label)) }}
                                 </p>
                             </div>
-                        </div>
                         </ng-container>
+                        </ng-container>
+                        </div>
 
                         <!-- Expense Claim (EXP-*): slip header + expense lines table (saved in application JSON) -->
                         <div *ngIf="isExpenseClaimSelected()" class="mb-6 rounded-md border border-[#e0e6ed] p-4 dark:border-[#1b2e4b]">
@@ -834,11 +850,13 @@
                         </div>
 
                         <!-- Generic preview: one scrollable A4-width sheet -->
-                        <div *ngIf="!isCapfSelected() && !isExpenseClaimSelected() && !isTemporaryAdvanceSlipSelected() && selectedForm" class="app-preview-body">
+                        <div *ngIf="!isCapfSelected() && !isExpenseClaimSelected() && !isTemporaryAdvanceSlipSelected() && selectedForm"
+                            class="app-preview-body"
+                            [class.app-preview-body--landscape]="isLandscapeOrientation()">
                             <div class="app-preview-canvas" #previewCanvas>
                                 <div class="app-preview-scale" #previewScale>
                                     <div class="app-preview-pages">
-                                        <div class="xyz-paper app-preview-paper-a4" *ngFor="let pageLines of getGenericPreviewLinePages(); let pageIndex = index; let isLast = last">
+                                        <div class="xyz-paper app-preview-paper-a4" [ngClass]="getPreviewPaperOrientationClass()" [ngStyle]="getPreviewPaperStyle()" *ngFor="let pageLines of getGenericPreviewLinePages(); let pageIndex = index; let isLast = last">
                                             <ng-container *ngIf="pageIndex === 0">
                                                 <div class="xyz-date-row">
                                                     <div class="xyz-date">Date: {{ previewDate }}</div>

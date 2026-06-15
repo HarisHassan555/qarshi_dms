@@ -99,7 +99,7 @@ export const canActivate: CanActivateFn = (
 
   if (!localStorage.getItem('token')) {
     if (path !== 'auth') {
-      router.navigateByUrl('auth/signin');
+      router.navigate(['auth/signin'], { queryParams: { returnUrl: state.url } });
     }
     return false;
   }
@@ -120,7 +120,12 @@ export const canActivate: CanActivateFn = (
 
   if (localStorage.getItem('token')) {
     if (path === 'auth') {
-      router.navigateByUrl('Dashboard');
+      const returnUrl = route.queryParamMap.get('returnUrl');
+      if (returnUrl && returnUrl.startsWith('/') && !returnUrl.startsWith('//')) {
+        router.navigateByUrl(returnUrl);
+      } else {
+        router.navigateByUrl('Dashboard');
+      }
     }
 
     // Skip menu check for allowed routes

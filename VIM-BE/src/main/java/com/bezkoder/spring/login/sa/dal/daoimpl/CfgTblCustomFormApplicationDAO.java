@@ -6137,7 +6137,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
 
             y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DIVISION / DEPARTMENT:",
                     nullSafe(division));
-            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "CAPF #:", nullSafe(documentNo), 180);
+            y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "CAPF #:",
+                    nullSafe(formatCapfFormNumberDisplay(documentNo)), 180);
             y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "DATE:", nullSafe(dateStr), 180);
             y -= 4;
             y = drawLabeledLine(content, lineStart, y, labelWidth, lineEnd, "NAME OF ASSET / ITEM:",
@@ -6663,6 +6664,9 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         if ("CAPF QF".equals(normalized)) {
             return "static/assets/images/QF_logo.png";
         }
+        if ("CAPF QRI".equals(normalized)) {
+            return "static/assets/images/QRI Logo.jpg.jpeg";
+        }
         return "static/assets/images/qarshi-logo.png";
     }
 
@@ -6677,6 +6681,9 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         if ("CAPF QF".equals(normalized)) {
             return "QF_logo.png";
         }
+        if ("CAPF QRI".equals(normalized)) {
+            return "QRI Logo.jpg.jpeg";
+        }
         return "qarshi-logo.png";
     }
 
@@ -6690,6 +6697,12 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         }
         if ("CAPF QF".equals(normalized)) {
             return "Qarshi Foundation (Pvt) Ltd.";
+        }
+        if ("CAPF QRI".equals(normalized)) {
+            return "Qarshi Research International (Pvt) Ltd.";
+        }
+        if ("CAPF QB".equals(normalized)) {
+            return "Qarshi Brands (Pvt) Ltd.";
         }
         return "Qarshi Industries (Pvt) Ltd.";
     }
@@ -8820,6 +8833,66 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         }
     }
 
+    private String generatePoVendorTeReviewEmailHtml(String recipientName, String applicationCode, String formName,
+            String status, String remarks, String viewApplicationUrl, String approvalHistoryJson, String baseUrl) {
+        StringBuilder html = new StringBuilder();
+        html.append("<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
+        html.append("<style>");
+        html.append("body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;line-height:1.6;color:#333;margin:0;padding:0;background-color:#f5f5f5}");
+        html.append(".email-container{background-color:#ffffff;border-radius:8px;padding:25px 30px;max-width:700px;width:100%;}");
+        html.append("</style></head><body>");
+        html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='background-color:#f5f5f5;'>");
+        html.append("<tr><td align='center' style='padding:15px 10px;'>");
+        html.append("<table role='presentation' width='700' cellpadding='0' cellspacing='0' border='0' class='email-container'>");
+        html.append("<tr><td style='background-color:#667eea;color:#ffffff;padding:20px 30px;border-radius:8px 8px 0 0;'>");
+        html.append("<h1 style='margin:0;font-size:24px;font-weight:600;color:#ffffff;'>")
+                .append(escapeHtml(formName != null ? formName : "Application")).append("</h1>");
+        html.append("</td></tr>");
+        html.append("<tr><td style='padding:20px 30px;'>");
+        html.append("<p style='font-size:16px;margin-bottom:20px;color:#555;'>Dear ")
+                .append(escapeHtml(recipientName)).append(",</p>");
+        html.append("<p style='margin:0 0 15px 0;'>Vendor details were updated after PO assignment. ")
+                .append("Technical Expert review is required.</p>");
+        html.append("<p style='margin:0 0 15px 0;'>Please open the application in the system to review the updated ")
+                .append("vendor details and approve or reject from the application page.</p>");
+        html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' ")
+                .append("style='background-color:#f8f9fa;border-left:4px solid #667eea;padding:15px 20px;margin:20px 0;border-radius:4px;'>");
+        html.append("<tr><td style='padding:5px 0;'><strong>Application Code:</strong> ")
+                .append(escapeHtml(applicationCode)).append("</td></tr>");
+        html.append("<tr><td style='padding:5px 0;'><strong>Form Name:</strong> ")
+                .append(escapeHtml(formName)).append("</td></tr>");
+        html.append("<tr><td style='padding:5px 0;'><strong>Status:</strong> ")
+                .append(escapeHtml(status != null ? status : "PO_VENDOR_TE_PENDING")).append("</td></tr>");
+        html.append("</table>");
+        if (remarks != null && !remarks.trim().isEmpty()) {
+            html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' ")
+                    .append("style='background-color:#fff3cd;border-left:4px solid #ffc107;padding:15px 20px;margin:20px 0;border-radius:4px;'>");
+            html.append("<tr><td><strong>Remarks:</strong><br>").append(escapeHtml(remarks)).append("</td></tr>");
+            html.append("</table>");
+        }
+        html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:30px 0;'>");
+        html.append("<tr><td align='center' style='padding:10px 20px;'>");
+        html.append("<a href='").append(viewApplicationUrl).append("' ")
+                .append("style='display:inline-block;padding:12px 30px;text-decoration:none;border-radius:6px;")
+                .append("font-weight:600;font-size:16px;background-color:#3498db;color:#ffffff !important;'>")
+                .append("View Application</a>");
+        html.append("</td></tr></table>");
+        html.append("<p style='text-align:center;color:#7f8c8d;font-size:12px;margin-top:10px;'>")
+                .append("If you are not signed in, you will be asked to log in and then returned to this application.</p>");
+        String historyHtml = buildApprovalHistoryHtml(approvalHistoryJson, baseUrl);
+        if (historyHtml != null && !historyHtml.trim().isEmpty()) {
+            html.append(historyHtml);
+        }
+        html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' ")
+                .append("style='margin-top:30px;padding-top:20px;border-top:2px solid #ecf0f1;'>");
+        html.append("<tr><td align='center' style='color:#95a5a6;font-size:12px;padding:10px 0;'>");
+        html.append("<p style='margin:5px 0;'>Best Regards,<br>System Administrator</p>");
+        html.append("<p style='font-size:10px;color:#bdc3c7;margin:5px 0;'>This is an automated email. Please do not reply.</p>");
+        html.append("</td></tr></table>");
+        html.append("</td></tr></table></td></tr></table></body></html>");
+        return html.toString();
+    }
+
     private void notifyPoVendorTeApproversOnEdit(CfgTblCustomFormApplication application) {
         if (application == null || application.getSerApplicationId() == null) {
             return;
@@ -8853,6 +8926,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             }
             String formName = form.getTxtFormName() != null ? form.getTxtFormName() : "Application";
             String baseUrl = getBaseUrl();
+            String viewApplicationUrl = baseUrl + "/application-details/" + dbApp.getSerApplicationId()
+                    + "?from=pending";
             String targetDeptName = resolveDepartmentName(emailEntityManager, teDeptId, null);
             java.util.List<Integer> headIds = new java.util.ArrayList<>();
             String headIdsStr = targetDept.getSerDepartmentHeadId();
@@ -8879,34 +8954,21 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 if (shouldSkipCeoForCapf(form, targetDeptName, approver)) {
                     continue;
                 }
-                String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
-                        + dbApp.getSerApplicationId() + "&userId=" + approver.getSerUserId();
-                String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
-                        + dbApp.getSerApplicationId() + "&userId=" + approver.getSerUserId();
                 String subject = formName + " - PO Vendor Edit Review - "
                         + (dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A");
-                String html = generateApprovalEmailHtml(
+                String html = generatePoVendorTeReviewEmailHtml(
                         approver.getTxtUserName() != null ? approver.getTxtUserName() : "Approver",
-                        CAPF_PO_VENDOR_TE_HISTORY_LEVEL,
                         dbApp.getTxtFormCode() != null ? dbApp.getTxtFormCode() : "N/A",
                         formName,
                         dbApp.getTxtStatus(),
                         remarks,
-                        true,
-                        approveUrl,
-                        rejectUrl,
-                        null,
-                        null,
+                        viewApplicationUrl,
                         dbApp.getTxtApprovalHistory(),
                         baseUrl);
-                sendEmailWithInlineFormPreview(
+                emailService.sendHtmlEmail(
                         java.util.Arrays.asList(approver.getTxtAddress()),
                         subject,
-                        html,
-                        dbApp,
-                        form,
-                        true,
-                        "capf-inline");
+                        html);
             }
             emailEntityManager.getTransaction().commit();
         } catch (Exception e) {
@@ -9211,6 +9273,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         if (capfNumber.isEmpty() && application.getTxtFormCode() != null) {
             capfNumber = application.getTxtFormCode();
         }
+        capfNumber = formatCapfFormNumberDisplay(capfNumber);
 
         String dateValue = getFieldValue("Date", appData, formFields);
         if (dateValue.isEmpty() && application.getDteCreatedDate() != null) {
@@ -13423,6 +13486,18 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         html.append("</div></body></html>");
 
         return html.toString();
+    }
+
+    /** CAPF # label already includes "CAPF"; show numeric suffix only (e.g. 0059 not CAPF-0059). */
+    private String formatCapfFormNumberDisplay(String value) {
+        if (value == null) {
+            return "";
+        }
+        String raw = value.trim();
+        if (raw.isEmpty()) {
+            return "";
+        }
+        return raw.replaceFirst("(?i)^CAPF[-\\s#]*", "");
     }
 
     /**

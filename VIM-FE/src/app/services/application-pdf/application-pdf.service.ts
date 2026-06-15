@@ -6,6 +6,14 @@ import {
   resolveCapfLogoCssClass,
   resolveCapfFormNameFromSources,
 } from 'src/app/utils/capf-logo.util';
+import { formatCapfFormNumberDisplay } from 'src/app/utils/capf-form.util';
+import {
+  A4_LONG_EDGE_MM,
+  A4_SHORT_EDGE_MM,
+  FormOrientation,
+  getA4PaperSizeMm,
+  resolveFormOrientation,
+} from 'src/app/utils/form-orientation.util';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
@@ -231,11 +239,13 @@ export class ApplicationPdfService {
                 this.applyIndividualPipelineFooterPdfCaptureStyles(paperElement, setIframeStyle);
               }
               if (footerPinned) {
+                const paperLandscape = paperElement.classList.contains('xyz-paper--landscape');
+                const pageHeightMm = paperLandscape ? A4_SHORT_EDGE_MM : A4_LONG_EDGE_MM;
                 paperElement.style.setProperty('display', 'flex', 'important');
                 paperElement.style.setProperty('flex-direction', 'column', 'important');
-                paperElement.style.setProperty('min-height', '297mm', 'important');
+                paperElement.style.setProperty('min-height', `${pageHeightMm}mm`, 'important');
                 paperElement.style.setProperty('height', 'auto', 'important');
-                paperElement.style.setProperty('max-height', 'none', 'important');
+                paperElement.style.setProperty('max-height', paperLandscape ? `${pageHeightMm}mm` : 'none', 'important');
                 paperElement.style.setProperty('overflow', 'visible', 'important');
               } else {
                 paperElement.style.height = 'auto';
@@ -490,12 +500,15 @@ export class ApplicationPdfService {
 
     const paper = (captureTarget.querySelector('.xyz-paper') as HTMLElement) || captureTarget;
     const contentArea = captureTarget.querySelector('.xyz-content-area') as HTMLElement;
+    const paperLandscape = paper.classList.contains('xyz-paper--landscape');
+    const PDF_WIDTH = paperLandscape ? A4_LONG_EDGE_MM : A4_SHORT_EDGE_MM;
+    const PDF_HEIGHT = paperLandscape ? A4_SHORT_EDGE_MM : A4_LONG_EDGE_MM;
     const footerPinned = paper.classList.contains('xyz-paper-footer-pinned');
     setStyle(paper, 'overflow', 'visible');
     if (footerPinned) {
       setStyle(paper, 'display', 'flex');
       setStyle(paper, 'flex-direction', 'column');
-      setStyle(paper, 'min-height', '297mm');
+      setStyle(paper, 'min-height', `${PDF_HEIGHT}mm`);
       setStyle(paper, 'height', 'auto');
       setStyle(paper, 'max-height', 'none');
       const footer = paper.querySelector('.xyz-footer') as HTMLElement | null;
@@ -527,7 +540,7 @@ export class ApplicationPdfService {
 
     const paperRect = paper.getBoundingClientRect();
     const paperWidthPx = Math.max(paperRect.width || paper.scrollWidth || 0, 1);
-    const pageHeightPx = Math.max(Math.round((paperWidthPx * 297) / 210), 1);
+    const pageHeightPx = Math.max(Math.round((paperWidthPx * PDF_HEIGHT) / PDF_WIDTH), 1);
 
     // Footer-pinned forms: align total paper height to whole A4 pages so footer lands at bottom of final page.
     if (footerPinned) {
@@ -560,14 +573,14 @@ export class ApplicationPdfService {
     });
 
     const pdf = new jsPDF({
-      orientation: 'portrait',
+      orientation: paperLandscape ? 'landscape' : 'portrait',
       unit: 'mm',
       format: 'a4',
       compress: true
     });
 
-    const pdfWidth = 210;
-    const pdfHeight = 297;
+    const pdfWidth = PDF_WIDTH;
+    const pdfHeight = PDF_HEIGHT;
     const pageSliceHeightPx = Math.max(Math.round((canvas.width * pdfHeight) / pdfWidth), 1);
     const totalPages = Math.max(Math.ceil(canvas.height / pageSliceHeightPx), 1);
 
@@ -591,7 +604,7 @@ export class ApplicationPdfService {
       const renderedHeightMm = (sliceHeightPx * pdfWidth) / canvas.width;
 
       if (pageIndex > 0) {
-        pdf.addPage('a4', 'portrait');
+        pdf.addPage('a4', paperLandscape ? 'landscape' : 'portrait');
       }
       pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, renderedHeightMm);
     }
@@ -850,17 +863,51 @@ export class ApplicationPdfService {
         border: 0 !important;
         box-sizing: border-box !important;
       }
+      [data-pdf-capture-scope="${captureScopeId}"] .ql-editor table,
+      [data-pdf-capture-scope="${captureScopeId}"] .q-table-wrapper table,
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-table {
+        border-collapse: collapse !important;
+        border-spacing: 0 !important;
+        border: none !important;
+      }
+      [data-pdf-capture-scope="${captureScopeId}"] .ql-editor table tbody tr,
+      [data-pdf-capture-scope="${captureScopeId}"] .ql-editor table thead tr,
+      [data-pdf-capture-scope="${captureScopeId}"] .q-table-wrapper table tbody tr,
+      [data-pdf-capture-scope="${captureScopeId}"] .q-table-wrapper table thead tr,
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-table tbody tr {
+        border: none !important;
+        background: transparent !important;
+      }
+      [data-pdf-capture-scope="${captureScopeId}"] .ql-editor th,
+      [data-pdf-capture-scope="${captureScopeId}"] .ql-editor td,
+      [data-pdf-capture-scope="${captureScopeId}"] .q-table-wrapper th,
+      [data-pdf-capture-scope="${captureScopeId}"] .q-table-wrapper td,
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-table th,
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-table td {
+        border: none !important;
+        border-right: 1px solid #000 !important;
+        border-bottom: 1px solid #000 !important;
+        box-sizing: border-box !important;
+        font-weight: normal !important;
+      }
+      [data-pdf-capture-scope="${captureScopeId}"] .ql-editor tr > :first-child,
+      [data-pdf-capture-scope="${captureScopeId}"] .q-table-wrapper tr > :first-child,
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-table tr > :first-child {
+        border-left: 1px solid #000 !important;
+      }
+      [data-pdf-capture-scope="${captureScopeId}"] .ql-editor table > :first-child > tr:first-child > *,
+      [data-pdf-capture-scope="${captureScopeId}"] .q-table-wrapper table > :first-child > tr:first-child > *,
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-table > :first-child > tr:first-child > * {
+        border-top: 1px solid #000 !important;
+      }
     `;
     cloneRoot.prepend(captureStyle);
     captureHost.appendChild(cloneRoot);
     document.body.appendChild(captureHost);
 
     try {
-      const papers = (Array.from(cloneRoot.querySelectorAll('.xyz-paper')) as HTMLElement[])
+      const papers = (Array.from(cloneRoot.querySelectorAll('.xyz-paper-page')) as HTMLElement[])
         .filter((paper: HTMLElement) => {
-          if (paper.classList.contains('xyz-paper-measured')) {
-            return false;
-          }
           const cs = window.getComputedStyle(paper);
           if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') {
             return false;
@@ -881,14 +928,13 @@ export class ApplicationPdfService {
 
       await new Promise(resolve => setTimeout(resolve, 100));
 
+      const defaultLandscape = papers.some((paper) => paper.classList.contains('xyz-paper--landscape'));
       const pdf = new jsPDF({
-        orientation: 'portrait',
+        orientation: defaultLandscape ? 'landscape' : 'portrait',
         unit: 'mm',
         format: 'a4',
         compress: true
       });
-      const PDF_WIDTH = 210;
-      const PDF_HEIGHT = 297;
       let firstPdfPage = true;
       let addedPages = 0;
 
@@ -920,6 +966,9 @@ export class ApplicationPdfService {
 
       for (let i = 0; i < papers.length; i++) {
         const target = papers[i];
+        const paperLandscape = target.classList.contains('xyz-paper--landscape');
+        const PDF_WIDTH = paperLandscape ? 297 : 210;
+        const PDF_HEIGHT = paperLandscape ? 210 : 297;
         const savedStyles: Array<{ el: HTMLElement; prop: string; value: string }> = [];
         const setStyle = (el: HTMLElement | null, prop: string, value: string) => {
           if (!el) return;
@@ -961,11 +1010,15 @@ export class ApplicationPdfService {
       // Ensure export uses real paper metrics, not any preview scaling transform.
       setStyle(target, 'transform', 'none');
       setStyle(target, 'transform-origin', 'top left');
-      setStyle(target, 'width', '210mm');
-      setStyle(target, 'max-width', '210mm');
-      setStyle(target, 'min-width', '210mm');
+      setStyle(target, 'width', `${PDF_WIDTH}mm`);
+      setStyle(target, 'max-width', `${PDF_WIDTH}mm`);
+      setStyle(target, 'min-width', `${PDF_WIDTH}mm`);
       setStyle(target, 'font-size', '13.5px');
       setStyle(target, 'line-height', '1.35');
+      if (paperLandscape) {
+        setStyle(target, 'height', `${PDF_HEIGHT}mm`);
+        setStyle(target, 'max-height', `${PDF_HEIGHT}mm`);
+      }
 
       const individualSignatureSelector =
         '.xyz-footer .xyz-signatures, .ec-slip-pipeline-footer .xyz-signatures';
@@ -985,12 +1038,12 @@ export class ApplicationPdfService {
         setStyle(target, 'display', 'flex');
         setStyle(target, 'flex-direction', 'column');
         setStyle(target, 'overflow', 'visible');
-        setStyle(target, 'min-height', '297mm');
+        setStyle(target, 'min-height', `${PDF_HEIGHT}mm`);
         setStyle(target, 'height', 'auto');
-        setStyle(target, 'max-height', 'none');
+        setStyle(target, 'max-height', paperLandscape ? `${PDF_HEIGHT}mm` : 'none');
         if (contentArea) {
-          setStyle(contentArea, 'flex', '0 1 auto');
-          setStyle(contentArea, 'overflow', 'visible');
+          setStyle(contentArea, 'flex', paperLandscape ? '1 1 auto' : '0 1 auto');
+          setStyle(contentArea, 'overflow', paperLandscape ? 'hidden' : 'visible');
         }
         if (spacer) {
           setStyle(spacer, 'flex', '1 1 auto');
@@ -1084,7 +1137,7 @@ export class ApplicationPdfService {
           continue;
         }
         if (!firstPdfPage) {
-          pdf.addPage('a4', 'portrait');
+          pdf.addPage('a4', paperLandscape ? 'landscape' : 'portrait');
         }
         pdf.addImage(imgData, 'JPEG', 0, 0, PDF_WIDTH, renderedHeightMm);
         firstPdfPage = false;
@@ -2390,6 +2443,7 @@ export class ApplicationPdfService {
     }
     
     const dateStr = application?.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleDateString() : new Date().toLocaleDateString();
+    const formOrientation = resolveFormOrientation(applicationFormData, formFields);
     return this.generateBudgetApprovalXyzHtml(
       headingText,
       dateStr,
@@ -2400,7 +2454,11 @@ export class ApplicationPdfService {
       recommenders,
       approver,
       footerFields || [],
-      applicationMeta
+      {
+        ...applicationMeta,
+        formOrientation,
+        contentBlocks: contentHtml.trim() ? [contentHtml] : [],
+      }
     );
   }
 
@@ -2560,6 +2618,7 @@ export class ApplicationPdfService {
     
     const dateStr = application?.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleDateString() : new Date().toLocaleDateString();
     const individualPipelineFooter = Array.isArray(dynamicFooterFields) && dynamicFooterFields.length > 0;
+    const formOrientation = resolveFormOrientation(applicationFormData, formFields);
     return this.generateBudgetApprovalXyzHtml(
       headingText,
       dateStr,
@@ -2573,8 +2632,139 @@ export class ApplicationPdfService {
       {
         ...applicationMeta,
         individualPipelineFooter,
+        formOrientation,
+        contentBlocks,
       }
     );
+  }
+
+  private estimateHtmlTextLength(html: string): number {
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    return (div.textContent || '').replace(/\s+/g, ' ').trim().length;
+  }
+
+  private splitHtmlBlockForEmailPagination(blockHtml: string, maxChars: number): string[] {
+    const trimmed = String(blockHtml || '').trim();
+    if (!trimmed) {
+      return [];
+    }
+    if (this.estimateHtmlTextLength(trimmed) <= maxChars) {
+      return [trimmed];
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = trimmed;
+    const outerEl = wrapper.firstElementChild as HTMLElement | null;
+    const isGenericWord = !!outerEl?.classList.contains('xyz-generic-word');
+    const innerContainer = isGenericWord && outerEl
+      ? ((outerEl.querySelector('.ql-editor') as HTMLElement) || outerEl)
+      : (outerEl || wrapper);
+
+    const blocks = Array.from(innerContainer.childNodes).filter((node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        return (node.textContent || '').trim().length > 0;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        return false;
+      }
+      const tag = (node as Element).tagName.toLowerCase();
+      return tag === 'p' || tag === 'div' || tag === 'table' || tag === 'ul' || tag === 'ol' || tag.startsWith('h');
+    });
+
+    if (blocks.length <= 1) {
+      return [trimmed];
+    }
+
+    const wrapChunk = (inner: string): string => {
+      if (isGenericWord) {
+        return `<div class="xyz-generic-word"><div class="ql-editor">${inner}</div></div>`;
+      }
+      return inner;
+    };
+
+    const chunks: string[] = [];
+    let currentHtml = '';
+    let currentChars = 0;
+
+    for (const node of blocks) {
+      const nodeHtml =
+        node.nodeType === Node.TEXT_NODE
+          ? `<p>${(node.textContent || '').trim()}</p>`
+          : (node as Element).outerHTML;
+      const nodeLen = this.estimateHtmlTextLength(nodeHtml);
+
+      if (currentChars > 0 && currentChars + nodeLen > maxChars) {
+        chunks.push(wrapChunk(currentHtml));
+        currentHtml = '';
+        currentChars = 0;
+      }
+
+      currentHtml += nodeHtml;
+      currentChars += nodeLen;
+    }
+
+    if (currentHtml) {
+      chunks.push(wrapChunk(currentHtml));
+    }
+
+    return chunks.length ? chunks : [trimmed];
+  }
+
+  private paginateEmailContentBlocks(blocks: string[], orientation: FormOrientation): string[][] {
+    const maxChars = orientation === 'landscape' ? 1500 : 2200;
+    const expanded: string[] = [];
+    for (const block of blocks) {
+      expanded.push(...this.splitHtmlBlockForEmailPagination(block, maxChars));
+    }
+
+    const pages: string[][] = [];
+    let current: string[] = [];
+    let currentChars = 0;
+
+    for (const part of expanded) {
+      const partLen = this.estimateHtmlTextLength(part);
+      if (current.length > 0 && currentChars + partLen > maxChars) {
+        pages.push(current);
+        current = [];
+        currentChars = 0;
+      }
+      current.push(part);
+      currentChars += partLen;
+    }
+
+    if (current.length) {
+      pages.push(current);
+    }
+
+    if (!pages.length) {
+      return [[]];
+    }
+
+    return this.trimLastEmailPageForFooter(pages, orientation);
+  }
+
+  /** Move overflow off the last page so the pipeline footer does not overlap body content. */
+  private trimLastEmailPageForFooter(pages: string[][], orientation: FormOrientation): string[][] {
+    const maxChars = orientation === 'landscape' ? 1500 : 2200;
+    const footerReserve = orientation === 'landscape' ? 500 : 400;
+    const lastPageLimit = Math.max(700, maxChars - footerReserve);
+    const result = pages.map((page) => [...page]);
+    let lastPage = result[result.length - 1];
+    let lastChars = lastPage.reduce((sum, block) => sum + this.estimateHtmlTextLength(block), 0);
+
+    while (lastChars > lastPageLimit && lastPage.length > 1) {
+      const moved = lastPage.pop();
+      if (!moved) {
+        break;
+      }
+      lastChars -= this.estimateHtmlTextLength(moved);
+      result.splice(result.length - 1, 0, [moved]);
+      lastPage = result[result.length - 1];
+      lastChars = lastPage.reduce((sum, block) => sum + this.estimateHtmlTextLength(block), 0);
+    }
+
+    return result;
   }
 
   private generateBudgetApprovalXyzHtml(
@@ -2587,10 +2777,24 @@ export class ApplicationPdfService {
     recommenders: any[] = [],
     approver?: any,
     footerFields: any[] = [],
-    applicationMeta?: { omitApprovalSignaturesInPdf?: boolean; individualPipelineFooter?: boolean }
+    applicationMeta?: {
+      omitApprovalSignaturesInPdf?: boolean;
+      individualPipelineFooter?: boolean;
+      formOrientation?: FormOrientation;
+      contentBlocks?: string[];
+    }
   ): string {
     const omitApprovalSignatures = !!applicationMeta?.omitApprovalSignaturesInPdf;
     const isIndividualPipelineEmail = !!applicationMeta?.individualPipelineFooter;
+    const orientation: FormOrientation = applicationMeta?.formOrientation ?? 'portrait';
+    const isLandscape = orientation === 'landscape';
+    const { widthMm: paperWidthMm, heightMm: paperHeightMm } = getA4PaperSizeMm(orientation);
+    const rawContentBlocks =
+      applicationMeta?.contentBlocks?.length
+        ? applicationMeta.contentBlocks
+        : (contentHtml.trim() ? [contentHtml] : []);
+    const contentPages = this.paginateEmailContentBlocks(rawContentBlocks, orientation);
+    const multiPage = contentPages.length > 1;
     let approvalHistory: any[] = [];
     if (approvalHistoryJson) {
       try {
@@ -2724,11 +2928,54 @@ export class ApplicationPdfService {
       return inner;
     };
     const hasDynamicFooter = Array.isArray(footerFields) && footerFields.length > 0;
+    const useFooterPinned = hasDynamicFooter && !multiPage && !isLandscape;
     const paperExtraClass = isIndividualPipelineEmail ? ' xyz-individual-pipeline-email' : '';
     const css = `
     * { box-sizing: border-box; }
     body { margin: 0; padding: 0; background:#ffffff; color:#000; text-align: center; }
-    .abc-wrapper { width: 210mm; max-width: 100%; margin-left: auto; margin-right: auto; text-align: left; }
+    .abc-wrapper { width: ${paperWidthMm}mm; max-width: 100%; margin-left: auto; margin-right: auto; text-align: left; }
+    .abc-wrapper.xyz-orientation-landscape { width: ${A4_LONG_EDGE_MM}mm; max-width: ${A4_LONG_EDGE_MM}mm; }
+    .xyz-paper.xyz-paper--landscape {
+      width: ${A4_LONG_EDGE_MM}mm;
+      min-width: ${A4_LONG_EDGE_MM}mm;
+      max-width: ${A4_LONG_EDGE_MM}mm;
+      height: ${A4_SHORT_EDGE_MM}mm;
+      min-height: ${A4_SHORT_EDGE_MM}mm;
+      max-height: ${A4_SHORT_EDGE_MM}mm;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .xyz-paper.xyz-paper--landscape .xyz-content-area {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .xyz-paper.xyz-paper--landscape > .xyz-footer {
+      flex-shrink: 0;
+      margin-top: 0;
+    }
+    .xyz-paper.xyz-paper-page {
+      page-break-after: always;
+      break-after: page;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .xyz-paper.xyz-paper-page:not(.xyz-paper--landscape) {
+      height: ${A4_LONG_EDGE_MM}mm;
+      min-height: ${A4_LONG_EDGE_MM}mm;
+      max-height: ${A4_LONG_EDGE_MM}mm;
+    }
+    .xyz-paper.xyz-paper-page .xyz-content-area {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .xyz-paper.xyz-paper-page > .xyz-footer {
+      flex-shrink: 0;
+      margin-top: 0;
+    }
     .xyz-page { background:#ffffff; padding: 0; display:block; }
     .xyz-paper {
       width: 100%;
@@ -2740,7 +2987,7 @@ export class ApplicationPdfService {
       padding: 10mm 10mm 10mm 12mm;
       display:flex;
       flex-direction:column;
-      min-height: 297mm;
+      min-height: ${paperHeightMm}mm;
       overflow: visible;
       position: relative;
     }
@@ -2783,7 +3030,13 @@ export class ApplicationPdfService {
     .pdf-generation-mode .xyz-paper.xyz-paper-footer-pinned {
       display: flex !important;
       flex-direction: column !important;
-      min-height: 297mm !important;
+      min-height: ${paperHeightMm}mm !important;
+    }
+    .pdf-generation-mode .xyz-paper.xyz-paper--landscape {
+      height: ${A4_SHORT_EDGE_MM}mm !important;
+      min-height: ${A4_SHORT_EDGE_MM}mm !important;
+      max-height: ${A4_SHORT_EDGE_MM}mm !important;
+      overflow: hidden !important;
     }
     .pdf-generation-mode .xyz-paper-footer-pinned > .xyz-content-area {
       flex: 0 1 auto !important;
@@ -2926,12 +3179,15 @@ export class ApplicationPdfService {
     .xyz-generic-word { margin:8px 0 12px 0; }
     .xyz-generic-word .ql-editor { padding:0; }
     .xyz-generic-word .ql-editor p { margin:0 0 6px 0; }
-    .xyz-generic-word .ql-editor table { width:100%; border-collapse:collapse; table-layout:fixed; margin:4px 0; }
-    .xyz-generic-word .ql-editor table tr { min-height:32px; }
+    .xyz-generic-word .ql-editor table { width:100%; border-collapse:collapse; border-spacing:0; border:none; table-layout:fixed; margin:4px 0; }
+    .xyz-generic-word .ql-editor table tbody tr, .xyz-generic-word .ql-editor table thead tr { border:none; background:transparent; }
+    .xyz-generic-word .ql-editor table tr { min-height:0; }
     .xyz-generic-word .ql-editor th, .xyz-generic-word .ql-editor td {
-      border:1px solid #111;
+      border:none;
+      border-right:1px solid #000;
+      border-bottom:1px solid #000;
       padding:6px 6px !important;
-      min-height:32px !important;
+      min-height:0 !important;
       line-height:1.35 !important;
       vertical-align:middle;
       box-sizing:border-box !important;
@@ -2940,7 +3196,10 @@ export class ApplicationPdfService {
       word-break:break-word;
       max-width:0;
       white-space:normal !important;
+      font-weight:normal;
     }
+    .xyz-generic-word .ql-editor tr > :first-child { border-left:1px solid #000; }
+    .xyz-generic-word .ql-editor table > :first-child > tr:first-child > * { border-top:1px solid #000; }
     .xyz-generic-word .ql-editor td > *, .xyz-generic-word .ql-editor th > * {
       margin:0 !important;
       padding:0 !important; 
@@ -2970,16 +3229,7 @@ export class ApplicationPdfService {
     }
     `;
 
-    return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-</head>
-<body>
-    <div class="abc-wrapper">
-    <style>${css}</style>
-    <div class="xyz-page">
-      <div class="xyz-paper${hasDynamicFooter ? ' xyz-paper-footer-pinned' : ''}${paperExtraClass}">
+    const headerHtml = `
       <div class="xyz-header-container">
         <div class="xyz-date-row"><div class="xyz-date">Date: ${dateStr}</div></div>
         <div class="xyz-header">
@@ -2992,14 +3242,10 @@ export class ApplicationPdfService {
         </div>
         <div class="xyz-rule thick"></div>
         <div class="xyz-title">${headingText}</div>
-      </div>
-      <div class="xyz-content-area">
-        <div class="xyz-dynamic">${contentHtml}</div>
-      </div>
-      ${hasDynamicFooter ? '<div class="xyz-footer-spacer" aria-hidden="true"></div>' : ''}
-      <div class="xyz-footer">
-      <table class="xyz-signatures">
-        ${hasDynamicFooter ? `
+      </div>`;
+
+    const footerTableBody = hasDynamicFooter
+      ? `
         <tr class="xyz-signatures-blank">
           ${(footerFields || []).map((f: any) =>
             getFooterSlots(f).map((slot: any) => `<td>${renderFooterSignatureSlot(slot, f?.label)}</td>`).join('')
@@ -3012,7 +3258,8 @@ export class ApplicationPdfService {
           ${(footerFields || []).map((f: any) =>
             getFooterSlots(f).map((slot: any) => `<td class="xyz-footer-user">${renderFooterUserSlot(slot)}</td>`).join('')
           ).join('')}
-        </tr>` : `
+        </tr>`
+      : `
         <tr class="xyz-signatures-blank">
           <td>${isUserApproved(preparedBy) ? renderUserCell(preparedBy) : ''}</td>
           <td>${isUserApproved(reviewers?.[0]) ? renderUserCell(reviewers?.[0]) : ''}</td>
@@ -3032,10 +3279,51 @@ export class ApplicationPdfService {
           <td>${renderUserNameCell(reviewers?.[1], reviewers?.[1]?.txtUserName, reviewers?.[1]?.cfgTblRole?.txtRoleName)}</td>
           <td>${renderUserNameCell(recommenders?.[0], recommenders?.[0]?.txtUserName, recommenders?.[0]?.cfgTblRole?.txtRoleName)}</td>
           <td>${renderUserNameCell(approver, approver?.txtUserName, approver?.cfgTblRole?.txtRoleName)}</td>
-        </tr>`}
+        </tr>`;
+
+    const footerHtml = `
+      <div class="xyz-footer">
+      <table class="xyz-signatures">
+        ${footerTableBody}
       </table>
+      </div>`;
+
+    const papersHtml = contentPages
+      .map((pageBlocks, pageIndex) => {
+        const isFirst = pageIndex === 0;
+        const isLast = pageIndex === contentPages.length - 1;
+        const pageClassParts = [
+          'xyz-paper',
+          isLandscape ? 'xyz-paper--landscape' : 'xyz-paper--portrait',
+          multiPage ? 'xyz-paper-page' : '',
+          useFooterPinned ? 'xyz-paper-footer-pinned' : '',
+          paperExtraClass.trim(),
+        ].filter(Boolean);
+
+        return `
+      <div class="${pageClassParts.join(' ')}">
+      ${isFirst ? headerHtml : ''}
+      <div class="xyz-content-area">
+        <div class="xyz-dynamic">${pageBlocks.join('')}</div>
       </div>
-    </div>
+      ${useFooterPinned && isLast ? '<div class="xyz-footer-spacer" aria-hidden="true"></div>' : ''}
+      ${isLast ? footerHtml : ''}
+    </div>`;
+      })
+      .join('\n');
+
+    const wrapperOrientationClass = isLandscape ? ' xyz-orientation-landscape' : '';
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+</head>
+<body>
+    <div class="abc-wrapper${wrapperOrientationClass}">
+    <style>${css}</style>
+    <div class="xyz-page">
+      ${papersHtml}
   </div>
   </div>
 </body>
@@ -3235,7 +3523,8 @@ export class ApplicationPdfService {
     };
 
     const getCapfNumber = (): string => {
-      return getFieldValue('CAPF #') || application.txtFormCode || '';
+      const raw = getFieldValue('CAPF #') || application.txtFormCode || '';
+      return formatCapfFormNumberDisplay(raw);
     };
 
     const getDate = (): string => {

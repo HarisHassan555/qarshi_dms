@@ -5,6 +5,7 @@ import { filter } from 'rxjs/operators';
 import { CommonModule } from '@angular/common';
 import { urls } from 'src/app/utils/urls';
 import { resolveCapfLogoPath, resolveCapfBrandTitle, resolveCapfLogoCssClass } from 'src/app/utils/capf-logo.util';
+import { formatCapfFormNumberDisplay } from 'src/app/utils/capf-form.util';
 
 @Component({
     selector: 'app-abc',
@@ -910,8 +911,9 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
     }
 
     getCapfNumber(): string {
-        return this.getFieldValue('CAPF #') ||
+        const raw = this.getFieldValue('CAPF #') ||
             (this.application?.txtFormCode || '');
+        return formatCapfFormNumberDisplay(raw);
     }
 
     getDate(): string {

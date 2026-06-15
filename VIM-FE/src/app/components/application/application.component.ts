@@ -138,6 +138,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   selectedFormId: string = '';
   editData: any = null;
   documentHeaderField: FormField | null = null;
+  formOrientation: 'portrait' | 'landscape' = 'portrait';
   allUsers: any[] = [];
   departments: any[] = [];
   store: any;
@@ -183,6 +184,8 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   private genericPreviewLayoutSignature = '';
   /** Approximate wrap width for long unbroken lines (~A4 content width). */
   static readonly GENERIC_PREVIEW_MAX_CHARS_PER_LINE = 88;
+  static readonly A4_SHORT_EDGE_MM = 210;
+  static readonly A4_LONG_EDGE_MM = 297;
   private lastFocusedTableCellByEditor = new WeakMap<any, HTMLTableCellElement>();
   private async buildAttachmentPayload(file: File): Promise<{ fileName: string; mimeType: string; dataUrl: string; base64: string }> {
     return new Promise((resolve, reject) => {
@@ -416,6 +419,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       this.ensureSidebarHidden(true);
       if (this.selectedForm) {
         this.showBudgetApproval = false;
+        this.formOrientation = 'portrait';
         this.buildDynamicForm(this.selectedForm);
         this.initExpenseClaimLinesForSelectedForm();
         // Generate next application code
@@ -426,6 +430,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       this.generatedApplicationCode = null;
       this.showBudgetApproval = false;
       this.documentHeaderField = null;
+      this.formOrientation = 'portrait';
       this.ensureSidebarHidden(false);
       this.initializeForm();
     }
@@ -473,25 +478,35 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
     previewContentEl.style.transform = 'none';
     previewContentEl.style.transformOrigin = 'top left';
+    this.applyPreviewPaperDimensions(previewContentEl);
 
     const horizontalSafeInset = 12;
     const horizontalPadding = 12; // 6px left + 6px right on scale host
     const availableWidth = Math.max(canvasEl.clientWidth - horizontalSafeInset, 0);
     const renderableWidth = Math.max(availableWidth - horizontalPadding, 0);
-    const naturalWidth = Math.max(previewContentEl.scrollWidth || previewContentEl.offsetWidth, 0);
-    // scrollHeight can under-report a column of fixed-height .xyz-paper pages after transform/layout,
-    // which clips middle sheets inside .app-preview-canvas (overflow hidden). Prefer last child bottom.
-    const naturalHeight = this.getPreviewContentNaturalHeight(previewContentEl);
+    const paperSize = this.getA4PaperSizeMm();
+    const naturalWidth = this.mmToPx(paperSize.widthMm);
+    const minSheetHeight = this.mmToPx(paperSize.heightMm);
+    let naturalHeight = minSheetHeight;
+    if (!this.isLandscapeOrientation()) {
+      naturalHeight = Math.max(this.getPreviewContentNaturalHeight(previewContentEl), minSheetHeight);
+    }
 
     if (!renderableWidth || !naturalWidth || !naturalHeight) {
       return;
     }
 
-    const scale = renderableWidth / naturalWidth;
+    // Keep the same px/mm scale when toggling orientation — only width/height swap.
+    const portraitWidthPx = this.mmToPx(ApplicationComponent.A4_SHORT_EDGE_MM);
+    const scale = this.hasOrientationField()
+      ? renderableWidth / portraitWidthPx
+      : renderableWidth / naturalWidth;
     const safeScale = Number.isFinite(scale) ? Math.max(scale, 0.1) : 1;
+    const scaledWidth = naturalWidth * safeScale;
+    const scaledHeight = naturalHeight * safeScale;
 
-    scaleHostEl.style.width = `${availableWidth}px`;
-    scaleHostEl.style.height = `${naturalHeight * safeScale}px`;
+    scaleHostEl.style.width = `${Math.ceil(scaledWidth + horizontalPadding)}px`;
+    scaleHostEl.style.height = `${Math.ceil(scaledHeight)}px`;
     scaleHostEl.style.paddingLeft = '6px';
     scaleHostEl.style.paddingRight = '6px';
     scaleHostEl.style.boxSizing = 'border-box';
@@ -544,6 +559,70 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       }
     });
     return Math.ceil(extentBottom - pr.top);
+  }
+
+  /** Inline mm sizes so landscape cannot collapse to a square before scaling. */
+  private applyPreviewPaperDimensions(paper: HTMLElement): void {
+    const { widthMm, heightMm } = this.getA4PaperSizeMm();
+    paper.style.boxSizing = 'border-box';
+    paper.style.width = `${widthMm}mm`;
+    if (this.isLandscapeOrientation()) {
+      paper.style.height = `${heightMm}mm`;
+      paper.style.minHeight = `${heightMm}mm`;
+      paper.style.maxHeight = `${heightMm}mm`;
+      paper.style.aspectRatio = `${widthMm} / ${heightMm}`;
+      paper.style.overflow = 'hidden';
+    } else {
+      paper.style.height = 'auto';
+      paper.style.minHeight = `${heightMm}mm`;
+      paper.style.maxHeight = 'none';
+      paper.style.aspectRatio = '';
+      paper.style.overflow = 'visible';
+    }
+  }
+
+  getPreviewPaperStyle(): Record<string, string> {
+    const { widthMm, heightMm } = this.getA4PaperSizeMm();
+    if (this.isLandscapeOrientation()) {
+      return {
+        width: `${widthMm}mm`,
+        height: `${heightMm}mm`,
+        aspectRatio: `${widthMm} / ${heightMm}`
+      };
+    }
+    return {
+      width: `${widthMm}mm`,
+      minHeight: `${heightMm}mm`
+    };
+  }
+
+  /** A4 sheet size: portrait 210×297mm; landscape swaps to 297×210mm. */
+  private getA4PaperSizeMm(): { widthMm: number; heightMm: number } {
+    if (this.isLandscapeOrientation()) {
+      return {
+        widthMm: ApplicationComponent.A4_LONG_EDGE_MM,
+        heightMm: ApplicationComponent.A4_SHORT_EDGE_MM
+      };
+    }
+    return {
+      widthMm: ApplicationComponent.A4_SHORT_EDGE_MM,
+      heightMm: ApplicationComponent.A4_LONG_EDGE_MM
+    };
+  }
+
+  private static cachedMmToPxFactor: number | null = null;
+
+  private mmToPx(mm: number): number {
+    if (ApplicationComponent.cachedMmToPxFactor === null && typeof document !== 'undefined') {
+      const probe = document.createElement('div');
+      probe.style.width = '1mm';
+      probe.style.position = 'absolute';
+      probe.style.visibility = 'hidden';
+      document.body.appendChild(probe);
+      ApplicationComponent.cachedMmToPxFactor = probe.getBoundingClientRect().width || 3.7795275591;
+      document.body.removeChild(probe);
+    }
+    return mm * (ApplicationComponent.cachedMmToPxFactor ?? 3.7795275591);
   }
 
   /** Total stacked height for multi-page preview; avoids scrollHeight / offsetTop gaps after scale transforms. */
@@ -643,6 +722,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
     return [
       String(this.selectedForm?.serFormId || ''),
+      this.formOrientation,
       this.getDocumentHeaderPreviewValue(),
       fieldValues.join('|'),
       footerSignature
@@ -652,7 +732,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   /** Flatten form body to plain lines in field order (word editor → lines; tables → one line per row). */
   private buildGenericPreviewFlatLines(fields: FormField[]): string[] {
     const lines: string[] = [];
-    const maxChars = ApplicationComponent.GENERIC_PREVIEW_MAX_CHARS_PER_LINE;
+    const maxChars = this.getPreviewMaxCharsPerLine();
 
     for (const field of fields) {
       if (this.isWordEditorType(field.type)) {
@@ -719,7 +799,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
     const rawLines = plain.split('\n').map((l) => l.replace(/\s+$/g, ''));
     const out: string[] = [];
-    const maxChars = ApplicationComponent.GENERIC_PREVIEW_MAX_CHARS_PER_LINE;
+    const maxChars = this.getPreviewMaxCharsPerLine();
 
     for (const raw of rawLines) {
       if (raw === '') {
@@ -759,10 +839,6 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       out.push(slice);
     }
     return out;
-  }
-
-  private mmToPx(mm: number): number {
-    return (mm * 96) / 25.4;
   }
 
   private ensureSidebarHidden(shouldHide: boolean) {
@@ -1124,9 +1200,13 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     this.documentHeaderField = null;
 
     form.fields.forEach((field: FormField) => {
+      const normalizedFieldType = (field.type || '').toString().trim().toLowerCase();
+      if (normalizedFieldType === 'orientation') {
+        return;
+      }
+
       const fieldName = this.getFieldName(field.label);
       const validators: any[] = [];
-      const normalizedFieldType = (field.type || '').toString().trim().toLowerCase();
 
       if (field.required && !this.isIndividualPipelineFooterType(field.type)) {
         if (this.isWordEditorType(field.type)) {
@@ -1854,9 +1934,63 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     }
     return this.selectedForm.fields.filter((field: FormField) =>
       !this.isDocumentHeaderType(field.type) &&
+      !this.isOrientationType(field.type) &&
       field.type !== 'footer' &&
       !this.isIndividualPipelineFooterType(field.type)
     );
+  }
+
+  isOrientationType(fieldType: string | undefined): boolean {
+    return (fieldType || '').toString().trim().toLowerCase() === 'orientation';
+  }
+
+  hasOrientationField(): boolean {
+    return (this.selectedForm?.fields || []).some((field: FormField) => this.isOrientationType(field.type));
+  }
+
+  isLandscapeOrientation(): boolean {
+    return this.hasOrientationField() && this.formOrientation === 'landscape';
+  }
+
+  setFormOrientation(orientation: 'portrait' | 'landscape'): void {
+    if (this.formOrientation === orientation) {
+      return;
+    }
+    this.formOrientation = orientation;
+    this.genericPreviewLayoutSignature = '';
+    // Defer until Angular applies orientation classes and mm dimensions are measured.
+    setTimeout(() => this.requestPreviewFit(), 0);
+  }
+
+  getFormFieldsGridClass(): string {
+    if (this.isLandscapeOrientation()) {
+      return 'grid-cols-1 md:grid-cols-3 lg:grid-cols-4';
+    }
+    return 'grid-cols-1 md:grid-cols-2';
+  }
+
+  getFormFieldFullSpanClass(): string {
+    if (this.isLandscapeOrientation()) {
+      return 'md:col-span-3 lg:col-span-4';
+    }
+    return 'md:col-span-2';
+  }
+
+  getPreviewMaxCharsPerLine(): number {
+    if (this.isLandscapeOrientation()) {
+      return Math.round(
+        ApplicationComponent.GENERIC_PREVIEW_MAX_CHARS_PER_LINE
+          * (ApplicationComponent.A4_LONG_EDGE_MM / ApplicationComponent.A4_SHORT_EDGE_MM)
+      );
+    }
+    return ApplicationComponent.GENERIC_PREVIEW_MAX_CHARS_PER_LINE;
+  }
+
+  getPreviewPaperOrientationClass(): Record<string, boolean> {
+    return {
+      'xyz-paper--landscape': this.isLandscapeOrientation(),
+      'xyz-paper--portrait': !this.isLandscapeOrientation()
+    };
   }
 
   getPreviewDepartmentFooterField(): FormField | null {
@@ -2323,6 +2457,10 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
       if (!this.isProjectSelectedForTechnicalExpect()) {
         delete formData[CAPF_SUBSTITUTE_DEPARTMENT_CONTROL];
+      }
+
+      if (this.hasOrientationField()) {
+        formData._formOrientation = this.formOrientation;
       }
 
       if (this.isExpenseClaimSelected()) {

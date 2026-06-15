@@ -19,6 +19,9 @@ export function resolveCapfLogoPath(formName?: string | null): string {
   if (normalized === 'CAPF QF') {
     return 'assets/images/QF_logo.png';
   }
+  if (normalized === 'CAPF QRI') {
+    return 'assets/images/QRI Logo.jpg.jpeg';
+  }
   return DEFAULT_CAPF_LOGO;
 }
 
@@ -29,6 +32,12 @@ export function resolveCapfBrandTitle(formName?: string | null): string {
   }
   if (normalized === 'CAPF QF') {
     return 'Qarshi Foundation (Pvt) Ltd.';
+  }
+  if (normalized === 'CAPF QRI') {
+    return 'Qarshi Research International (Pvt) Ltd.';
+  }
+  if (normalized === 'CAPF QB') {
+    return 'Qarshi Brands (Pvt) Ltd.';
   }
   return DEFAULT_CAPF_BRAND_TITLE;
 }
