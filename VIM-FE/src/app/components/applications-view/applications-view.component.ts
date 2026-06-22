@@ -20,6 +20,12 @@ import { finalize } from 'rxjs/operators';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 import * as QuillNamespace from 'quill';
+import {
+  attachTableSizeControlsForEditor,
+  buildEditorTableCellHtml,
+  getTableBlotInnerHtml,
+  stripEditorTableChromeFromHtml,
+} from 'src/app/utils/word-editor-table.util';
 
 const Quill: any = QuillNamespace;
 const Q_TABLE_PASTE_GUARD = '__qTablePasteGuard';
@@ -39,7 +45,7 @@ if (!ExistingTableBlot) {
       return node;
     }
     static value(node: HTMLElement) {
-      return node.innerHTML;
+      return getTableBlotInnerHtml(node);
     }
   }
   TableBlot['blotName'] = 'table-blot';
@@ -566,6 +572,7 @@ export class ApplicationsViewComponent implements OnInit {
         el.addEventListener('paste', (e: ClipboardEvent) => e.stopPropagation());
       }
     });
+    attachTableSizeControlsForEditor(editor);
   }
 
   private attachExternalTablePasteHandler(editor: any): void {
@@ -620,18 +627,7 @@ export class ApplicationsViewComponent implements OnInit {
         const safeText = this.escapeHtml(text);
         const colSpan = Number(cell.getAttribute('colspan') || 1);
         const rowSpan = Number(cell.getAttribute('rowspan') || 1);
-        const colSpanAttr = Number.isFinite(colSpan) && colSpan > 1 ? ` colspan="${Math.floor(colSpan)}"` : '';
-        const rowSpanAttr = Number.isFinite(rowSpan) && rowSpan > 1 ? ` rowspan="${Math.floor(rowSpan)}"` : '';
-        const cellHeaderStyle = cellTag === 'th' ? 'background-color:#f1f1f1;' : '';
-        const taWeight = cellTag === 'th' ? 'font-weight:700;' : '';
-        const taAlign = cellTag === 'th' ? 'text-align:center;' : 'text-align:left;';
-
-        tableHtml += `<${cellTag}${rowSpanAttr}${colSpanAttr} style="border:1px solid #000; padding:1px; vertical-align:top; ${cellHeaderStyle}${taAlign}">
-          <textarea
-            rows="1"
-            oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';this.textContent=this.value"
-            style="width:100%; border:none; outline:none; background:transparent; font:inherit; padding:1px; line-height:1.2; resize:none; overflow:hidden; white-space:pre-wrap; word-break:break-word; box-sizing:border-box;${taWeight}${taAlign}">${safeText}</textarea>
-        </${cellTag}>`;
+        tableHtml += buildEditorTableCellHtml(cellTag, safeText, { colSpan, rowSpan });
       });
       tableHtml += '</tr>';
     });
@@ -2027,7 +2023,7 @@ export class ApplicationsViewComponent implements OnInit {
     const getFieldDisplayHtml = (field: any): string => {
       const value = formatFieldValue(field, getFieldValue(field));
       if (isWordEditorType(field.type) && value !== '-') {
-        return `<div class="word-editor-value">${String(value)}</div>`;
+        return `<div class="word-editor-value">${stripEditorTableChromeFromHtml(String(value))}</div>`;
       }
       return escapeHtml(String(value));
     };

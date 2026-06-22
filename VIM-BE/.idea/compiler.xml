@@ -12,6 +12,8 @@
     </annotationProcessing>
     <bytecodeTargetLevel>
       <module name="spring-boot-security-jwt" target="17" />
+      <module name="vendor-invoice-management" target="17" />
+      <module name="vendor-invoice-management (1)" target="17" />
     </bytecodeTargetLevel>
   </component>
   <component name="JavacSettings">

@@ -14,6 +14,7 @@ import {
   getA4PaperSizeMm,
   resolveFormOrientation,
 } from 'src/app/utils/form-orientation.util';
+import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
@@ -895,9 +896,9 @@ export class ApplicationPdfService {
       [data-pdf-capture-scope="${captureScopeId}"] .xyz-table tr > :first-child {
         border-left: 1px solid #000 !important;
       }
-      [data-pdf-capture-scope="${captureScopeId}"] .ql-editor table > :first-child > tr:first-child > *,
-      [data-pdf-capture-scope="${captureScopeId}"] .q-table-wrapper table > :first-child > tr:first-child > *,
-      [data-pdf-capture-scope="${captureScopeId}"] .xyz-table > :first-child > tr:first-child > * {
+      [data-pdf-capture-scope="${captureScopeId}"] .ql-editor table tr:first-child > *,
+      [data-pdf-capture-scope="${captureScopeId}"] .q-table-wrapper table tr:first-child > *,
+      [data-pdf-capture-scope="${captureScopeId}"] .xyz-table tr:first-child > * {
         border-top: 1px solid #000 !important;
       }
     `;
@@ -906,15 +907,30 @@ export class ApplicationPdfService {
     document.body.appendChild(captureHost);
 
     try {
-      const papers = (Array.from(cloneRoot.querySelectorAll('.xyz-paper-page')) as HTMLElement[])
-        .filter((paper: HTMLElement) => {
-          const cs = window.getComputedStyle(paper);
-          if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') {
-            return false;
-          }
-          const rect = paper.getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        });
+      const collectPaperCandidates = (root: HTMLElement): HTMLElement[] => {
+        const fromPageClass = Array.from(root.querySelectorAll('.xyz-paper-page')) as HTMLElement[];
+        if (fromPageClass.length > 0) {
+          return fromPageClass;
+        }
+        const directChildren = Array.from(root.querySelectorAll(':scope > .xyz-paper')) as HTMLElement[];
+        if (directChildren.length > 0) {
+          return directChildren;
+        }
+        return Array.from(root.querySelectorAll('.xyz-paper')) as HTMLElement[];
+      };
+
+      let papers = collectPaperCandidates(cloneRoot).filter((paper: HTMLElement) => {
+        const cs = window.getComputedStyle(paper);
+        if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') {
+          return false;
+        }
+        const rect = paper.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      if (papers.length === 0) {
+        // Offscreen clone can report 0x0 before layout; use unfiltered candidates as fallback.
+        papers = collectPaperCandidates(cloneRoot);
+      }
       if (papers.length === 0) {
         throw new Error('No .xyz-paper pages found for multi-page PDF capture');
       }
@@ -2021,7 +2037,7 @@ export class ApplicationPdfService {
     const getFieldDisplayHtml = (field: any): string => {
       const value = formatFieldValue(field, getFieldValue(field));
       if (isWordEditorType(field.type) && value !== '-') {
-        return `<div class="word-editor-value"><div class="ql-editor">${String(value)}</div></div>`;
+        return `<div class="word-editor-value"><div class="ql-editor">${stripEditorTableChromeFromHtml(String(value))}</div></div>`;
       }
       return escapeHtml(String(value));
     };
@@ -2523,7 +2539,7 @@ export class ApplicationPdfService {
       return null;
     };
     const normalizeWordEditorHtml = (rawHtml: any): string => {
-      const html = String(rawHtml || '').trim();
+      const html = stripEditorTableChromeFromHtml(String(rawHtml || '').trim());
       if (!html) return '';
       const wrapper = document.createElement('div');
       wrapper.innerHTML = html;
@@ -3199,7 +3215,7 @@ export class ApplicationPdfService {
       font-weight:normal;
     }
     .xyz-generic-word .ql-editor tr > :first-child { border-left:1px solid #000; }
-    .xyz-generic-word .ql-editor table > :first-child > tr:first-child > * { border-top:1px solid #000; }
+    .xyz-generic-word .ql-editor table tr:first-child > * { border-top:1px solid #000; }
     .xyz-generic-word .ql-editor td > *, .xyz-generic-word .ql-editor th > * {
       margin:0 !important;
       padding:0 !important; 

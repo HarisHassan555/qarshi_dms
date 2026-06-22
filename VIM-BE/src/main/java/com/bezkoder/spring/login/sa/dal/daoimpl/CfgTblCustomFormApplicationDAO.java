@@ -4779,55 +4779,64 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         EntityManager emailEntityManager = getEntityManager();
         try {
             emailEntityManager.getTransaction().begin();
-            java.util.List<String> ceoEmails = findEmailsByRole(emailEntityManager, "CEO");
-            if (ceoEmails == null || ceoEmails.isEmpty()) {
+            java.util.List<RoleRecipient> ceoRecipients = findRecipientsByRole(emailEntityManager, "CEO");
+            if (ceoRecipients == null || ceoRecipients.isEmpty()) {
                 log.warn("CEO notification skipped (no CEO emails) for appId={}", application.getSerApplicationId());
                 emailEntityManager.getTransaction().rollback();
                 return;
             }
             String formName = form != null ? form.getTxtFormName() : "Application";
             String baseUrl = getBaseUrl();
-            Integer ceoUserId = findFirstUserIdByRole(emailEntityManager, "CEO");
-            String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
-                    + application.getSerApplicationId()
-                    + "&userId=" + (ceoUserId != null ? ceoUserId : "");
-            String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
-                    + application.getSerApplicationId()
-                    + "&userId=" + (ceoUserId != null ? ceoUserId : "");
-            String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
-                    + application.getSerApplicationId()
-                    + "&userId=" + (ceoUserId != null ? ceoUserId : "");
-
             String subject = "CEO Approval Required - " + (application.getTxtFormCode() != null
                     ? application.getTxtFormCode()
                     : formName);
-
-            String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
-                    + application.getSerApplicationId()
-                    + "&userId=" + (ceoUserId != null ? ceoUserId : "");
-
-            String html = generateApprovalEmailHtml(
-                    "CEO",
-                    currentLevelSafe(application),
-                    application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
-                    formName,
-                    "CEO_APPROVAL_REQUIRED",
-                    null,
-                    true,
-                    approveUrl,
-                    rejectUrl,
-                    sendBackUrl,
-                    sendBackToInitiatorUrl,
-                    // Use the fresh history that includes the latest approval action.
-                    application.getTxtApprovalHistory(),
-                    getBaseUrl());
-
-            // Same path as departmental approvers: inline preview + stored PDF + feasibility/quotation files.
             boolean isCapf = isCapfForm(form);
-            sendEmailWithInlineFormPreview(ceoEmails, subject, html, application, form, isCapf,
-                    isCapf ? "capf-inline" : "form-inline");
+            java.util.Set<String> uniqueEmails = new java.util.HashSet<>();
+            for (RoleRecipient recipient : ceoRecipients) {
+                if (recipient == null || recipient.userId == null || recipient.email == null
+                        || recipient.email.trim().isEmpty()) {
+                    continue;
+                }
+                String email = recipient.email.trim();
+                Integer ceoUserId = recipient.userId;
+
+                String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                        + application.getSerApplicationId()
+                        + "&userId=" + ceoUserId;
+                String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                        + application.getSerApplicationId()
+                        + "&userId=" + ceoUserId;
+                String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                        + application.getSerApplicationId()
+                        + "&userId=" + ceoUserId;
+                String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                        + application.getSerApplicationId()
+                        + "&userId=" + ceoUserId;
+
+                String html = generateApprovalEmailHtml(
+                        "CEO",
+                        currentLevelSafe(application),
+                        application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
+                        formName,
+                        "CEO_APPROVAL_REQUIRED",
+                        null,
+                        true,
+                        approveUrl,
+                        rejectUrl,
+                        sendBackUrl,
+                        sendBackToInitiatorUrl,
+                        // Use the fresh history that includes the latest approval action.
+                        application.getTxtApprovalHistory(),
+                        getBaseUrl());
+
+                // Same path as departmental approvers: inline preview + stored PDF + feasibility/quotation files.
+                sendEmailWithInlineFormPreview(java.util.Collections.singletonList(email), subject, html, application,
+                        form, isCapf, isCapf ? "capf-inline" : "form-inline");
+                uniqueEmails.add(email.toLowerCase(java.util.Locale.ROOT));
+            }
             emailEntityManager.getTransaction().commit();
-            log.info("CEO approval emails sent for appId={} to {}", application.getSerApplicationId(), ceoEmails);
+            log.info("CEO approval emails sent for appId={} to {} recipient(s), {} unique email(s)",
+                    application.getSerApplicationId(), ceoRecipients.size(), uniqueEmails.size());
         } catch (Exception e) {
             if (emailEntityManager.getTransaction().isActive())
                 emailEntityManager.getTransaction().rollback();
@@ -13236,6 +13245,49 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             log.warn("findEmailsByRole failed for role {}: {}", roleName, e.getMessage());
         }
         return emails != null ? emails : new java.util.ArrayList<>();
+    }
+
+    private java.util.List<RoleRecipient> findRecipientsByRole(EntityManager entityManager, String roleName) {
+        java.util.List<RoleRecipient> recipients = new java.util.ArrayList<>();
+        if (entityManager == null || roleName == null)
+            return recipients;
+        try {
+            java.util.List<Object[]> rows = entityManager
+                    .createQuery(
+                            "SELECT u.serUserId, u.txtAddress FROM com.bezkoder.spring.login.admin.dal.entities.CfgTblUser u "
+                                    + "WHERE (u.blIsDeleted = false OR u.blIsDeleted IS NULL) "
+                                    + "AND UPPER(u.cfgTblRole.txtRoleName) = :roleName "
+                                    + "AND u.txtAddress IS NOT NULL "
+                                    + "ORDER BY u.serUserId ASC",
+                            Object[].class)
+                    .setParameter("roleName", roleName.trim().toUpperCase())
+                    .getResultList();
+            if (rows != null) {
+                for (Object[] row : rows) {
+                    if (row == null || row.length < 2) {
+                        continue;
+                    }
+                    Integer userId = safeInt(row[0], null);
+                    String email = row[1] != null ? String.valueOf(row[1]).trim() : null;
+                    if (userId != null && email != null && !email.isEmpty()) {
+                        recipients.add(new RoleRecipient(userId, email));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("findRecipientsByRole failed for role {}: {}", roleName, e.getMessage());
+        }
+        return recipients;
+    }
+
+    private static class RoleRecipient {
+        private final Integer userId;
+        private final String email;
+
+        private RoleRecipient(Integer userId, String email) {
+            this.userId = userId;
+            this.email = email;
+        }
     }
 
     private int currentLevelSafe(CfgTblCustomFormApplication application) {

@@ -13,6 +13,12 @@ import { UserService } from '../../services/user/user.service';
 import { DepartmentService } from '../../services/department/department.service';
 import { Store } from '@ngrx/store';
 import * as QuillNamespace from 'quill';
+import {
+  attachTableSizeControlsForEditor,
+  buildEditorTableCellHtml,
+  getTableBlotInnerHtml,
+  stripEditorTableChromeFromHtml,
+} from 'src/app/utils/word-editor-table.util';
 
 const Quill: any = QuillNamespace;
 const Q_TABLE_PASTE_GUARD = '__qTablePasteGuard';
@@ -53,7 +59,7 @@ if (!ExistingTableBlot) {
       return node;
     }
     static value(node: HTMLElement) {
-      return node.innerHTML;
+      return getTableBlotInnerHtml(node);
     }
   }
   TableBlot['blotName'] = 'table-blot';
@@ -1572,6 +1578,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         });
       }
     });
+    attachTableSizeControlsForEditor(editor, () => this.onWordEditorQuillContentChanged());
   }
 
   private attachExternalTablePasteHandler(editor: any): void {
@@ -1626,18 +1633,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         const safeText = this.escapeHtml(text);
         const colSpan = Number(cell.getAttribute('colspan') || 1);
         const rowSpan = Number(cell.getAttribute('rowspan') || 1);
-        const colSpanAttr = Number.isFinite(colSpan) && colSpan > 1 ? ` colspan="${Math.floor(colSpan)}"` : '';
-        const rowSpanAttr = Number.isFinite(rowSpan) && rowSpan > 1 ? ` rowspan="${Math.floor(rowSpan)}"` : '';
-        const cellHeaderStyle = cellTag === 'th' ? 'background-color:#f1f1f1;' : '';
-        const taWeight = cellTag === 'th' ? 'font-weight:700;' : '';
-        const taAlign = cellTag === 'th' ? 'text-align:center;' : 'text-align:left;';
-
-        tableHtml += `<${cellTag}${rowSpanAttr}${colSpanAttr} style="border:1px solid #000; padding:1px; vertical-align:top; ${cellHeaderStyle}${taAlign}">
-          <textarea
-            rows="1"
-            oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';this.textContent=this.value"
-            style="width:100%; border:none; outline:none; background:transparent; font:inherit; padding:1px; line-height:1.2; resize:none; overflow:hidden; white-space:pre-wrap; word-break:break-word; box-sizing:border-box;${taWeight}${taAlign}">${safeText}</textarea>
-        </${cellTag}>`;
+        tableHtml += buildEditorTableCellHtml(cellTag, safeText, { colSpan, rowSpan });
       });
       tableHtml += '</tr>';
     });
@@ -1705,15 +1701,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       for (let c = 0; c < columns; c++) {
         const defaultValue = r === 0 ? `Header ${c + 1}` : '';
         const cellTag = r === 0 ? 'th' : 'td';
-        const cellHeaderStyle = r === 0 ? 'background-color:#f1f1f1;' : '';
-        const taWeight = r === 0 ? 'font-weight:700;' : '';
-        const taAlign = r === 0 ? 'text-align:center;' : 'text-align:left;';
-        tableHtml += `<${cellTag} style="border:1px solid #000; padding:1px; vertical-align:top; ${cellHeaderStyle}${taAlign}">
-          <textarea
-            rows="1"
-            oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';this.textContent=this.value"
-            style="width:100%; border:none; outline:none; background:transparent; font:inherit; padding:1px; line-height:1.2; resize:none; overflow:hidden; white-space:pre-wrap; word-break:break-word; box-sizing:border-box;${taWeight}${taAlign}">${defaultValue}</textarea>
-        </${cellTag}>`;
+        tableHtml += buildEditorTableCellHtml(cellTag, defaultValue);
       }
       tableHtml += '</tr>';
     }
@@ -2056,7 +2044,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   private normalizeWordEditorHtmlForDisplay(html: string): string {
     if (!html) return '';
     const wrapper = document.createElement('div');
-    wrapper.innerHTML = html;
+    wrapper.innerHTML = stripEditorTableChromeFromHtml(html);
 
     // Replace editor textareas with static content so table cells don't keep textarea heights.
     wrapper.querySelectorAll('textarea').forEach((node: HTMLTextAreaElement) => {
@@ -2632,7 +2620,9 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
       const previewPages = (previewScaleEl?.querySelector('.app-preview-pages') as HTMLElement | null)
         || (document.querySelector('.app-preview-pages') as HTMLElement | null);
-      const paperCount = previewPages ? previewPages.querySelectorAll('.xyz-paper').length : 0;
+      const paperCount = previewPages
+        ? previewPages.querySelectorAll('.xyz-paper-page, .xyz-paper').length
+        : 0;
       if (!pdfBlob && previewPages && paperCount > 0) {
         // Keep submission-email snapshot identical to on-screen generic preview pagination.
         pdfBlob = await this.applicationPdfService.renderMultiPageXyzPapersToPdfBlob(previewPages);

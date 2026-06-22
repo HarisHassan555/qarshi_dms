@@ -1,0 +1,12 @@
+.activity-log-modal ::ng-deep .modal-dialog {
+    max-width: 900px;
+}
+
+.activity-log-modal ::ng-deep .modal-body {
+    max-height: 75vh;
+    overflow-y: auto;
+}
+
+.form-textarea {
+    min-height: 180px;
+}

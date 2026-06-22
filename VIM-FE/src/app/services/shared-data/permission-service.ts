@@ -58,7 +58,7 @@ export class PermissionService {
             'Form Builder',
             'Budget Approval'
         ],
-        'User Management': ['User', 'Password Policy', 'Change Password', 'Permission', 'Role Management']
+        'User Management': ['User', 'Password Policy', 'Change Password', 'Permission', 'Role Management', 'Activity Logs']
     };
 
     constructor(private menuService: MenuService) {}
@@ -272,6 +272,37 @@ export class PermissionService {
      */
     canView(subMenuName: string): boolean {
         return this.resolvePermissionFlag(subMenuName, 'blIsNewView', 'blIsview');
+    }
+
+    /**
+     * Check enabled submenu permission row exists and view access is granted.
+     */
+    canAccessSubMenu(subMenuName: string): boolean {
+        if (!this.isSubMenuPermissionEnabled(subMenuName)) {
+            return false;
+        }
+        return this.canView(subMenuName);
+    }
+
+    /**
+     * Check enabled submenu permission row exists and update access is granted.
+     */
+    canEditSubMenu(subMenuName: string): boolean {
+        if (!this.isSubMenuPermissionEnabled(subMenuName)) {
+            return false;
+        }
+        return this.canUpdate(subMenuName) || this.canNewUpdate(subMenuName);
+    }
+
+    private isSubMenuPermissionEnabled(subMenuName: string): boolean {
+        const matching = this.getMatchingPermissions(subMenuName);
+        return matching.some((permission) => {
+            const isDeleted = permission?.blIsDeleted === true;
+            const isEnabled = permission?.blIsEnabled === true;
+            const isActive = permission?.blIsActive === true;
+            const isStatus = permission?.blnStatus === true;
+            return !isDeleted && isEnabled && (isActive || isStatus);
+        });
     }
 
     /**

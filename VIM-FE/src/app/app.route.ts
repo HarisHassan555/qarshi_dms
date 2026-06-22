@@ -82,6 +82,7 @@ import { CustomDocumentBuilderComponent } from './components/custom-document-bui
 import { RolesManagementComponent } from './components/roles-management/roles-management.component';
 import { MenuListComponent } from './components/menu-list/menu-list.component';
 import { SubmenuListComponent } from './components/submenu-list/submenu-list.component';
+import { ActivityLogsComponent } from './components/activity-logs/activity-logs.component';
 
 
 export const routes: Routes = [
@@ -175,6 +176,7 @@ export const routes: Routes = [
             { path: 'budgetapprovalview', component: BudgetApprovalViewComponent, title: 'Budget Approval View' },
             { path: 'xyz', component: XyzComponent, title: 'XYZ' },
             { path: 'custom-document-builder', component: CustomDocumentBuilderComponent, title: 'Custom Document Builder' },
+            { path: 'activitylogs', canActivate: [canActivate], component: ActivityLogsComponent, title: 'Activity Logs' },
 
 
 

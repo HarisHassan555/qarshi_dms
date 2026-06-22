@@ -148,6 +148,7 @@ import { CustomDocumentBuilderComponent } from './components/custom-document-bui
 import { RolesManagementComponent } from './components/roles-management/roles-management.component';
 import { MenuListComponent } from './components/menu-list/menu-list.component';
 import { SubmenuListComponent } from './components/submenu-list/submenu-list.component';
+import { ActivityLogsComponent } from './components/activity-logs/activity-logs.component';
 
 
 @NgModule({
@@ -272,7 +273,8 @@ import { SubmenuListComponent } from './components/submenu-list/submenu-list.com
         RolesManagementComponent
         ,
         MenuListComponent,
-        SubmenuListComponent
+        SubmenuListComponent,
+        ActivityLogsComponent
     ],
 
     providers: [

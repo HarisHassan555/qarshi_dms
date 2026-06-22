@@ -10,6 +10,10 @@ import { NotificationService } from 'src/app/NotificationService';
 import { ApplicationPdfService } from 'src/app/services/application-pdf/application-pdf.service';
 import { QuillEditorComponent } from 'ngx-quill';
 import * as QuillNamespace from 'quill';
+import {
+  attachTableSizeControlsForEditor,
+  getTableBlotInnerHtml,
+} from 'src/app/utils/word-editor-table.util';
 const Quill: any = QuillNamespace;
 
 /** Prevents duplicate paste guards when the same wrapper is patched more than once */
@@ -64,7 +68,7 @@ class TableBlot extends BlockEmbed {
         return node;
     }
     static value(node: HTMLElement) {
-        return node.innerHTML;
+        return getTableBlotInnerHtml(node);
     }
 }
 TableBlot['blotName'] = 'table-blot';
@@ -267,6 +271,7 @@ export class BudgetApprovalComponent implements OnInit {
                 });
             }
         });
+        attachTableSizeControlsForEditor(quill);
     }
 
     onQuillEditorCreated(quillInstance: any): void {

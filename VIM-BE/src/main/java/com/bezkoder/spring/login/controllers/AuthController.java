@@ -16,9 +16,10 @@ import com.bezkoder.spring.login.payload.response.MessageResponse;
 import com.bezkoder.spring.login.repository.RoleRepository;
 import com.bezkoder.spring.login.repository.UserRepository;
 import com.bezkoder.spring.login.sa.bll.dto.LoginResponse;
+import com.bezkoder.spring.login.sa.bll.services.IAppActivityLogService;
 import com.bezkoder.spring.login.security.jwt.JwtUtils;
 import com.bezkoder.spring.login.security.services.UserDetailsImpl;
-
+import com.bezkoder.spring.login.admin.utility.common.RequestMetadataUtil;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -32,8 +33,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.AuthenticationException;
 
+import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
+import java.util.HashMap;
+import java.util.Map;
 
 @CrossOrigin(origins = "*", maxAge = 3600)
 @RestController
@@ -53,6 +58,9 @@ public class AuthController {
 
   @Autowired
   JwtUtils jwtUtils;
+
+  @Autowired
+  private IAppActivityLogService activityLogService;
 
   @PostMapping("/signin")
   public ResponseEntity<?> authenticateUser(@Valid @RequestBody LoginRequest loginRequest) {
@@ -77,20 +85,34 @@ public class AuthController {
 
 
   @PostMapping("/login")
-  public LoginResponse login(@RequestBody com.bezkoder.spring.login.sa.bll.dto.LoginRequest loginRequest) {
-    Authentication authentication = authenticationManager.authenticate(
-            new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword())
-    );
-    SecurityContextHolder.getContext().setAuthentication(authentication);
+  public LoginResponse login(@RequestBody com.bezkoder.spring.login.sa.bll.dto.LoginRequest loginRequest,
+          HttpServletRequest request) {
+    String ip = RequestMetadataUtil.resolveClientIp(request);
+    String device = RequestMetadataUtil.resolveDevice(request);
+    try {
+      Authentication authentication = authenticationManager.authenticate(
+              new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword())
+      );
+      SecurityContextHolder.getContext().setAuthentication(authentication);
 
-    // Generate token
-    String token = jwtUtils.generateJwtToken(authentication);
-            //jwtTokenUtil.generateToken(loginRequest.getUsername());
-    CfgTblUser user = userRepository.findByTxtUserName(loginRequest.getUsername()).get();
-    LoginResponse loginResponse = new LoginResponse();
-    loginResponse.setToken("Bearer " + token);
-    loginResponse.setUser (user);
-    return loginResponse;
+      String token = jwtUtils.generateJwtToken(authentication);
+      CfgTblUser user = userRepository.findByTxtUserName(loginRequest.getUsername()).get();
+      LoginResponse loginResponse = new LoginResponse();
+      loginResponse.setToken("Bearer " + token);
+      loginResponse.setUser(user);
+
+      Map<String, Object> payload = new HashMap<>();
+      payload.put("username", loginRequest.getUsername());
+      activityLogService.logActivity("LOGIN", user.getSerUserId(), user.getTxtUserName(), ip, device,
+              "SUCCESS", "User logged in successfully", "USER", user.getSerUserId(), payload, null);
+      return loginResponse;
+    } catch (AuthenticationException ex) {
+      Map<String, Object> payload = new HashMap<>();
+      payload.put("username", loginRequest.getUsername());
+      activityLogService.logActivity("LOGIN", null, loginRequest.getUsername(), ip, device,
+              "FAILURE", "Login failed", "USER", null, payload, ex.getMessage());
+      throw ex;
+    }
   }
 
   /*@PostMapping("/signup")

@@ -83,6 +83,7 @@ export class RolesManagementComponent implements OnInit {
             .pipe(finalize(() => (this.loading = false)))
             .subscribe(({ roles, users, menuTree }: any) => {
                 this.initializeMenuTree(menuTree || []);
+                this.mergeActivityLogsSubMenu(menuTree || []);
                 this.roles = (roles || []).map((role: any) => {
                     const roleId = Number(role?.serRoleId);
                     const roleUsers = (users || []).filter((u: any) => Number(u?.cfgTblRole) === roleId || Number(u?.cfgTblRole?.serRoleId) === roleId);
@@ -373,14 +374,14 @@ export class RolesManagementComponent implements OnInit {
             blIsDeleted: false,
             blIsEnabled: true,
             blIsview: true,
-            blIsAdd: false,
+            blIsAdd: true,
             blIsDelete: false,
-            blIsUpdate: false,
+            blIsUpdate: true,
             blIsApprove: false,
             blIsAll: false,
-            blIsNewCreate: false,
+            blIsNewCreate: true,
             blIsNewView: true,
-            blIsNewUpdate: false,
+            blIsNewUpdate: true,
             serCreatedUser: userId,
             cfgTblRole: { serRoleId: roleId },
             cfgTblSubMenu: {
@@ -523,6 +524,55 @@ export class RolesManagementComponent implements OnInit {
                     .filter((sm: SubMenuNode) => sm.subMenuId > 0)
             }))
             .filter((menu: MenuNode) => !!menu.menuName && menu.menuId > 0 && menu.subMenus.length > 0);
+    }
+
+    private mergeActivityLogsSubMenu(apiMenus: any[]): void {
+        const userMgmt = this.menus.find(
+            (menu) => (menu.menuName || '').trim().toLowerCase() === 'user management'
+        );
+        if (!userMgmt) {
+            return;
+        }
+
+        const alreadyListed = userMgmt.subMenus.some(
+            (sm) => (sm.subMenuName || '').trim().toLowerCase() === 'activity logs'
+        );
+        if (alreadyListed) {
+            return;
+        }
+
+        let activityLogsRaw: any = null;
+        for (const menu of apiMenus || []) {
+            const subMenus = menu?.cfgTblSubMenus || menu?.subMenus || [];
+            for (const sm of subMenus) {
+                const name = (sm?.txtSubMenuName || sm?.subMenuName || '').toString().trim().toLowerCase();
+                const url = (sm?.txtSubMenuUrl || sm?.subMenuAction || '')
+                    .toString()
+                    .trim()
+                    .replace(/^\/+/, '')
+                    .toLowerCase();
+                if (name === 'activity logs' || url === 'activitylogs') {
+                    activityLogsRaw = sm;
+                    break;
+                }
+            }
+            if (activityLogsRaw) {
+                break;
+            }
+        }
+
+        const subMenuId = Number(activityLogsRaw?.serSubMenuId || activityLogsRaw?.subMenuId || 0);
+        if (subMenuId <= 0) {
+            return;
+        }
+
+        userMgmt.subMenus.push({
+            subMenuId,
+            subMenuName: activityLogsRaw?.txtSubMenuName || activityLogsRaw?.subMenuName || 'Activity Logs',
+            menuId: userMgmt.menuId,
+            selected: false
+        });
+        userMgmt.subMenus.sort((a, b) => a.subMenuName.localeCompare(b.subMenuName));
     }
 
     private resetMenuSelections(): void {

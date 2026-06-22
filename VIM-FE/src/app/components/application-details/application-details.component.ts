@@ -21,6 +21,7 @@ import {
   resolveFormOrientation,
 } from 'src/app/utils/form-orientation.util';
 import { finalize, firstValueFrom, forkJoin } from 'rxjs';
+import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
 
 export interface GenericPreviewBlock {
   field: any;
@@ -4015,7 +4016,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
   private normalizeWordEditorHtmlForDisplay(html: string): string {
     if (!html) return '';
     const wrapper = document.createElement('div');
-    wrapper.innerHTML = html;
+    wrapper.innerHTML = stripEditorTableChromeFromHtml(html);
 
     wrapper.querySelectorAll('textarea').forEach((node: HTMLTextAreaElement) => {
       const replacement = document.createElement('div');

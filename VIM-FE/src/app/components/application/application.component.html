@@ -856,7 +856,7 @@
                             <div class="app-preview-canvas" #previewCanvas>
                                 <div class="app-preview-scale" #previewScale>
                                     <div class="app-preview-pages">
-                                        <div class="xyz-paper app-preview-paper-a4" [ngClass]="getPreviewPaperOrientationClass()" [ngStyle]="getPreviewPaperStyle()" *ngFor="let pageLines of getGenericPreviewLinePages(); let pageIndex = index; let isLast = last">
+                                        <div class="xyz-paper xyz-paper-page app-preview-paper-a4" [ngClass]="getPreviewPaperOrientationClass()" [ngStyle]="getPreviewPaperStyle()" *ngFor="let pageLines of getGenericPreviewLinePages(); let pageIndex = index; let isLast = last">
                                             <ng-container *ngIf="pageIndex === 0">
                                                 <div class="xyz-date-row">
                                                     <div class="xyz-date">Date: {{ previewDate }}</div>

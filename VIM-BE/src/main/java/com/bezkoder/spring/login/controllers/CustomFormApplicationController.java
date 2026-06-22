@@ -1,8 +1,13 @@
 package com.bezkoder.spring.login.controllers;
 
 import com.bezkoder.spring.login.sa.bll.services.ICustomFormApplicationService;
+import com.bezkoder.spring.login.sa.bll.services.IAppActivityLogService;
+import com.bezkoder.spring.login.admin.bll.services.ICommonService;
+import com.bezkoder.spring.login.admin.utility.common.RequestMetadataUtil;
 import com.bezkoder.spring.login.sa.dal.dao.ICfgTblCustomFormApplicationDAO;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApplication;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +31,14 @@ public class CustomFormApplicationController {
     
     @Autowired
     private com.bezkoder.spring.login.sa.dal.dao.ICfgTblCustomFormApplicationDAO customFormApplicationDAO;
+
+    @Autowired
+    private IAppActivityLogService activityLogService;
+
+    @Autowired
+    private ICommonService commonService;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @RequestMapping(value = "/getAllApplications", method = RequestMethod.GET)
     public List<CfgTblCustomFormApplication> getAllApplications(HttpServletRequest request,
@@ -96,6 +109,13 @@ public class CustomFormApplicationController {
         Map<String, Object> result = new HashMap<>();
         try {
             String status = customFormApplicationService.submitApplication(application);
+            String logStatus = status != null && status.startsWith("Success") ? "SUCCESS" : "FAILURE";
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("applicationId", application.getSerApplicationId());
+            payload.put("formId", application.getSerFormId());
+            payload.put("formCode", application.getTxtFormCode());
+            logFormAction("FORM_SUBMIT", request, application.getSerApplicationId(),
+                    logStatus, status, payload, logStatus.equals("FAILURE") ? status : null);
             if (status != null && status.startsWith("Success")) {
                 result.put("status", "Success");
                 result.put("message", "Application submitted successfully");
@@ -123,6 +143,13 @@ public class CustomFormApplicationController {
         Map<String, Object> result = new HashMap<>();
         try {
             String status = customFormApplicationService.updateApplication(application);
+            String logStatus = "Success".equals(status) ? "SUCCESS" : "FAILURE";
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("applicationId", application.getSerApplicationId());
+            payload.put("formId", application.getSerFormId());
+            payload.put("formCode", application.getTxtFormCode());
+            logFormAction("UPDATE", request, application.getSerApplicationId(),
+                    logStatus, status, payload, logStatus.equals("FAILURE") ? status : null);
             if ("Success".equals(status)) {
                 result.put("status", "Success");
                 result.put("message", "Application updated successfully");
@@ -344,6 +371,11 @@ public class CustomFormApplicationController {
             String approvedIp = resolveClientIp(request);
             String status = customFormApplicationService.approveApplication(applicationId, remarks.trim(), approverUserId,
                     approvedVia, approvedIp);
+            String logStatus = "Success".equals(status) ? "SUCCESS" : "FAILURE";
+            Map<String, Object> payload = buildApprovalPayload(applicationId, remarks, approvedVia, approvedIp, "APPROVE");
+            logFormAction("APPROVE", request, applicationId, logStatus,
+                    "Success".equals(status) ? "Application approved" : status, payload,
+                    logStatus.equals("FAILURE") ? status : null);
             if ("Success".equals(status)) {
                 result.put("status", "Success");
                 result.put("message", "Application approved successfully");
@@ -385,6 +417,11 @@ public class CustomFormApplicationController {
             }
 
             String status = customFormApplicationService.rejectApplication(applicationId, remarks.trim());
+            String logStatus = "Success".equals(status) ? "SUCCESS" : "FAILURE";
+            Map<String, Object> payload = buildApprovalPayload(applicationId, remarks, "SYSTEM", resolveClientIp(request), "REJECT");
+            logFormAction("REJECT", request, applicationId, logStatus,
+                    "Success".equals(status) ? "Application rejected" : status, payload,
+                    logStatus.equals("FAILURE") ? status : null);
             if ("Success".equals(status)) {
                 result.put("status", "Success");
                 result.put("message", "Application rejected successfully");
@@ -498,6 +535,11 @@ public class CustomFormApplicationController {
             }
 
             String status = customFormApplicationService.sendBackApplication(applicationId, remarks);
+            String logStatus = "Success".equals(status) ? "SUCCESS" : "FAILURE";
+            Map<String, Object> payload = buildApprovalPayload(applicationId, remarks, "SYSTEM", resolveClientIp(request), "SEND_BACK");
+            logFormAction("SEND_BACK", request, applicationId, logStatus,
+                    "Success".equals(status) ? "Application sent back" : status, payload,
+                    logStatus.equals("FAILURE") ? status : null);
             if ("Success".equals(status)) {
                 result.put("status", "Success");
                 result.put("message", "Application sent back successfully");
@@ -539,6 +581,11 @@ public class CustomFormApplicationController {
             }
 
             String status = customFormApplicationService.sendBackApplicationToInitiator(applicationId, remarks);
+            String logStatus = "Success".equals(status) ? "SUCCESS" : "FAILURE";
+            Map<String, Object> payload = buildApprovalPayload(applicationId, remarks, "SYSTEM", resolveClientIp(request), "SEND_BACK_INITIATOR");
+            logFormAction("SEND_BACK", request, applicationId, logStatus,
+                    "Success".equals(status) ? "Application sent back to initiator" : status, payload,
+                    logStatus.equals("FAILURE") ? status : null);
             if ("Success".equals(status)) {
                 result.put("status", "Success");
                 result.put("message", "Application sent back to initiator successfully");
@@ -806,20 +853,60 @@ public class CustomFormApplicationController {
                 .replace("'", "&#39;");
     }
     private String resolveClientIp(HttpServletRequest request) {
-        if (request == null)
-            return "";
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.trim().isEmpty() && !"unknown".equalsIgnoreCase(forwarded.trim())) {
-            String[] ips = forwarded.split(",");
-            if (ips.length > 0 && ips[0] != null) {
-                return ips[0].trim();
+        return RequestMetadataUtil.resolveClientIp(request);
+    }
+
+    private void logFormAction(String actionType, HttpServletRequest request, Integer applicationId,
+            String status, String message, Map<String, Object> payload, String errorMessage) {
+        try {
+            int userId = commonService.getCurrentLoggedInUser();
+            String username = null;
+            if (userId > 0) {
+                com.bezkoder.spring.login.admin.dal.entities.CfgTblUser user = commonService.getCurrentUser(userId);
+                if (user != null) {
+                    username = user.getTxtUserName();
+                }
             }
+            activityLogService.logActivity(actionType, userId > 0 ? userId : null, username,
+                    RequestMetadataUtil.resolveClientIp(request),
+                    RequestMetadataUtil.resolveDevice(request),
+                    status, message, "APPLICATION", applicationId, payload, errorMessage);
+        } catch (Exception e) {
+            logger.warn("Failed to log form action: " + e.getMessage());
         }
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.trim().isEmpty() && !"unknown".equalsIgnoreCase(realIp.trim())) {
-            return realIp.trim();
+    }
+
+    private Map<String, Object> buildApprovalPayload(Integer applicationId, String remarks, String approvedVia,
+            String approvedIp, String action) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("applicationId", applicationId);
+        payload.put("remarks", remarks != null ? remarks : "");
+        payload.put("approvedVia", approvedVia != null ? approvedVia : "SYSTEM");
+        payload.put("approvedIp", approvedIp != null ? approvedIp : "");
+        payload.put("action", action);
+        payload.put("targetType", "APPROVAL_HISTORY");
+
+        try {
+            CfgTblCustomFormApplication app = customFormApplicationService.getApplicationById(applicationId);
+            if (app != null && app.getTxtApprovalHistory() != null && !app.getTxtApprovalHistory().trim().isEmpty()) {
+                List<Map<String, Object>> history = objectMapper.readValue(app.getTxtApprovalHistory(),
+                        new TypeReference<List<Map<String, Object>>>() {
+                        });
+                if (!history.isEmpty()) {
+                    int lastIndex = history.size() - 1;
+                    Map<String, Object> lastEntry = history.get(lastIndex);
+                    payload.put("historyIndex", lastIndex);
+                    if (lastEntry.get("level") != null) {
+                        payload.put("level", lastEntry.get("level"));
+                    }
+                    if (lastEntry.get("role") != null) {
+                        payload.put("role", lastEntry.get("role"));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Could not enrich approval payload: " + e.getMessage());
         }
-        String remoteAddr = request.getRemoteAddr();
-        return remoteAddr != null ? remoteAddr : "";
+        return payload;
     }
 }
