@@ -50,17 +50,70 @@ public class CustomFormController {
         }
     }
 
-    @RequestMapping(value = "/addNewCustomForm", 
+    @RequestMapping(value = "/addNewCustomForm",
                     method = RequestMethod.POST,
                     headers = "Accept=application/json",
                     consumes = MediaType.APPLICATION_JSON_VALUE,
                     produces = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String, Object> addNewCustomForm(@RequestBody CfgTblCustomForm customForm,
+    public Map<String, Object> addNewCustomForm(@RequestBody Map<String, Object> requestBody,
                                                 HttpServletRequest request,
                                                 HttpServletResponse response) {
         logger.debug("addNewCustomForm()");
         Map<String, Object> result = new HashMap<>();
         try {
+            Object pipelinesObj = requestBody.get("cfgTblCustomFormApprovalPipelines");
+            if (pipelinesObj == null) {
+                pipelinesObj = requestBody.get("approvalPipelines");
+            }
+
+            Object txtPipelineObj = requestBody.get("txtApprovalPipeline");
+            requestBody.remove("txtApprovalPipeline");
+            requestBody.remove("cfgTblCustomFormApprovalPipelines");
+            requestBody.remove("approvalPipelines");
+
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            CfgTblCustomForm customForm = objectMapper.convertValue(requestBody, CfgTblCustomForm.class);
+
+            if (pipelinesObj instanceof java.util.List) {
+                java.util.List<Map<String, Object>> pipelinesList = (java.util.List<Map<String, Object>>) pipelinesObj;
+                java.util.List<com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline> pipelineEntities =
+                    new java.util.ArrayList<>();
+
+                for (Map<String, Object> pipelineMap : pipelinesList) {
+                    com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline pipeline =
+                        new com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline();
+
+                    Object deptIdObj = pipelineMap.get("serDepartmentId");
+                    if (deptIdObj == null && pipelineMap.get("hrTblDepartment") != null) {
+                        Map<String, Object> deptMap = (Map<String, Object>) pipelineMap.get("hrTblDepartment");
+                        deptIdObj = deptMap.get("serDepartmentId");
+                    }
+
+                    if (deptIdObj != null) {
+                        Integer deptId = deptIdObj instanceof Integer ? (Integer) deptIdObj :
+                                Integer.parseInt(deptIdObj.toString());
+                        pipeline.setSerDepartmentId(deptId);
+                    }
+
+                    Object orderObj = pipelineMap.get("intApprovalOrder");
+                    if (orderObj != null) {
+                        Integer order = orderObj instanceof Integer ? (Integer) orderObj :
+                                Integer.parseInt(orderObj.toString());
+                        pipeline.setIntApprovalOrder(order);
+                    }
+
+                    pipelineEntities.add(pipeline);
+                }
+
+                customForm.setCfgTblCustomFormApprovalPipelines(pipelineEntities);
+                logger.debug("Manually extracted " + pipelineEntities.size() + " approval pipelines");
+            }
+
+            if (txtPipelineObj instanceof String && !((String) txtPipelineObj).trim().isEmpty()) {
+                customForm.setTxtApprovalPipeline((String) txtPipelineObj);
+                logger.debug("Using txtApprovalPipeline from request (supports mixed pipeline)");
+            }
+
             String status = customFormService.addNewCustomForm(customForm);
             if (status != null && status.startsWith("Success")) {
                 result.put("status", "Success");

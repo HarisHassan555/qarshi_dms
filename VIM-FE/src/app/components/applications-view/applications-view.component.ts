@@ -14,6 +14,12 @@ import {
   resolveCapfLogoCssClass,
   resolveCapfFormNameFromSources,
 } from 'src/app/utils/capf-logo.util';
+import {
+  DOCUMENT_HEADER_ADDRESS,
+  isDocumentHeaderFieldType as isSharedDocumentHeaderFieldType,
+  resolveDocumentHeaderBrandTitle,
+  resolveDocumentHeaderLogoPath,
+} from 'src/app/utils/document-header.util';
 import { formatCapfFormNumberDisplay } from 'src/app/utils/capf-form.util';
 import { firstValueFrom } from 'rxjs';
 import { finalize } from 'rxjs/operators';
@@ -26,6 +32,11 @@ import {
   getTableBlotInnerHtml,
   stripEditorTableChromeFromHtml,
 } from 'src/app/utils/word-editor-table.util';
+import {
+  WORD_EDITOR_CKEDITOR,
+  WORD_EDITOR_CKEDITOR_CONFIG,
+  normalizeWordEditorValueForCkeditor,
+} from 'src/app/utils/word-editor-ckeditor.util';
 
 const Quill: any = QuillNamespace;
 const Q_TABLE_PASTE_GUARD = '__qTablePasteGuard';
@@ -118,23 +129,8 @@ export class ApplicationsViewComponent implements OnInit {
   isGeneratingPDF: boolean = false; // Flag to prevent multiple simultaneous PDF generations
   isPreparingApprovalPdf: boolean = false;
   private wordEditorTableGuardTimer: ReturnType<typeof setTimeout> | null = null;
-  wordEditorModules = {
-    toolbar: [
-      ['bold', 'italic', 'underline', 'strike'],
-      ['blockquote', 'code-block'],
-      [{ 'header': 1 }, { 'header': 2 }],
-      [{ 'list': 'ordered' }, { 'list': 'bullet' }],
-      [{ 'script': 'sub' }, { 'script': 'super' }],
-      [{ 'indent': '-1' }, { 'indent': '+1' }],
-      [{ 'direction': 'rtl' }],
-      [{ 'size': ['small', false, 'large', 'huge'] }],
-      [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
-      [{ 'color': [] }, { 'background': [] }],
-      [{ 'font': [] }],
-      [{ 'align': [] }],
-      ['clean'],
-    ],
-  };
+  readonly wordEditor = WORD_EDITOR_CKEDITOR;
+  readonly wordEditorConfig = WORD_EDITOR_CKEDITOR_CONFIG;
 
   constructor(
     private permissionService: PermissionService,
@@ -518,8 +514,7 @@ export class ApplicationsViewComponent implements OnInit {
 
   /** Matches application.component / form builder: `document_header` (Document Header field). */
   isDocumentHeaderFieldType(fieldType: string | undefined): boolean {
-    const t = (fieldType || '').toString().trim().toLowerCase().replace(/\s+/g, '_');
-    return t === 'document_header' || t === 'header';
+    return isSharedDocumentHeaderFieldType(fieldType);
   }
 
   getEditDocumentHeaderField(): any | null {
@@ -534,6 +529,18 @@ export class ApplicationsViewComponent implements OnInit {
     const name = this.getFieldName(field.label);
     const ctrl = this.editForm.get(name);
     return ctrl instanceof FormControl ? ctrl : null;
+  }
+
+  getEditDocumentHeaderLogoPath(): string {
+    return resolveDocumentHeaderLogoPath(this.getEditDocumentHeaderField()?.type);
+  }
+
+  getEditDocumentHeaderBrandTitle(): string {
+    return resolveDocumentHeaderBrandTitle(this.getEditDocumentHeaderField()?.type);
+  }
+
+  getEditDocumentHeaderBrandAddress(): string {
+    return DOCUMENT_HEADER_ADDRESS;
   }
 
   /** Shown next to "Date:" in the edit modal document header (submission date). */
@@ -558,101 +565,11 @@ export class ApplicationsViewComponent implements OnInit {
     return normalizedType === 'word_editor' || normalizedType === 'wordeditor' || normalizedType === 'rich_text' || normalizedType === 'richtext';
   }
 
-  /** Quill listens for paste on the editor root and intercepts clipboard; allow paste in nested table embeds. */
-  onWordEditorQuillCreated(editor: any): void {
-    this.attachExternalTablePasteHandler(editor);
-    const root = editor?.root as HTMLElement | undefined;
-    if (!root) return;
-    const guardKey = '__qTablePasteGuard';
-    root.querySelectorAll('.q-table-wrapper').forEach((wrap: Element) => {
-      const el = wrap as HTMLElement;
-      el.setAttribute('contenteditable', 'false');
-      if (!(el as any)[guardKey]) {
-        (el as any)[guardKey] = true;
-        el.addEventListener('paste', (e: ClipboardEvent) => e.stopPropagation());
-      }
-    });
-    attachTableSizeControlsForEditor(editor);
-  }
-
-  private attachExternalTablePasteHandler(editor: any): void {
-    const root = editor?.root as HTMLElement | undefined;
-    if (!root || (root as any)[Q_TABLE_EXTERNAL_PASTE_GUARD]) return;
-    (root as any)[Q_TABLE_EXTERNAL_PASTE_GUARD] = true;
-
-    root.addEventListener('paste', (event: ClipboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('.q-table-wrapper')) {
-        return;
-      }
-      const html = event.clipboardData?.getData('text/html') || '';
-      if (!html || !/<table[\s>]/i.test(html)) {
-        return;
-      }
-      const tableHtml = this.buildEditorTableHtmlFromClipboard(html);
-      if (!tableHtml) {
-        return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      const range = editor.getSelection(true);
-      const index = range ? range.index : editor.getLength();
-      editor.insertEmbed(index, 'table-blot', tableHtml, 'user');
-      editor.setSelection(index + 1, 0, 'api');
-      this.onWordEditorQuillCreated(editor);
-    });
-  }
-
-  private buildEditorTableHtmlFromClipboard(rawHtml: string): string | null {
-    const doc = new DOMParser().parseFromString(rawHtml, 'text/html');
-    doc.querySelectorAll('script, style').forEach((node) => node.remove());
-    const table = doc.querySelector('table') as HTMLTableElement | null;
-    if (!table) return null;
-
-    const rows = Array.from(table.querySelectorAll('tr')).slice(0, 50);
-    if (!rows.length) return null;
-
-    let tableHtml = '<table style="width:100%; border-collapse:collapse; border:1px solid #000; margin:10px 0; table-layout:fixed;">';
-    rows.forEach((row) => {
-      tableHtml += '<tr>';
-      const cells = Array.from(row.children)
-        .filter((node) => ['TD', 'TH'].includes((node as HTMLElement).tagName))
-        .slice(0, 50) as HTMLElement[];
-
-      cells.forEach((cell) => {
-        const rawTag = (cell.tagName || '').toLowerCase();
-        const cellTag = rawTag === 'th' ? 'th' : 'td';
-        const text = (cell.innerText || '').replace(/\r\n/g, '\n').trim();
-        const safeText = this.escapeHtml(text);
-        const colSpan = Number(cell.getAttribute('colspan') || 1);
-        const rowSpan = Number(cell.getAttribute('rowspan') || 1);
-        tableHtml += buildEditorTableCellHtml(cellTag, safeText, { colSpan, rowSpan });
-      });
-      tableHtml += '</tr>';
-    });
-    tableHtml += '</table>';
-    return tableHtml;
-  }
-
-  private escapeHtml(value: string): string {
-    return String(value || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  /** Re-attach after HTML is patched in (e.g. opening edit modal) because tables are not present at onEditorCreated. */
-  onWordEditorQuillContentChanged(ev: any): void {
-    const html = ev?.html;
-    if (typeof html !== 'string' || !html.includes('q-table-wrapper')) return;
-    if (this.wordEditorTableGuardTimer) clearTimeout(this.wordEditorTableGuardTimer);
-    this.wordEditorTableGuardTimer = setTimeout(() => {
+  onWordEditorContentChanged(): void {
+    if (this.wordEditorTableGuardTimer) {
+      clearTimeout(this.wordEditorTableGuardTimer);
       this.wordEditorTableGuardTimer = null;
-      this.onWordEditorQuillCreated(ev.editor);
-    }, 150);
+    }
   }
 
   private richTextRequiredValidator(control: AbstractControl): ValidationErrors | null {
@@ -912,6 +829,10 @@ export class ApplicationsViewComponent implements OnInit {
               } else {
                 // Get existing value
                 let existingValue = applicationData[fieldName] || applicationData[field.label] || null;
+
+                if (this.isWordEditorType(field.type) && typeof existingValue === 'string') {
+                  existingValue = normalizeWordEditorValueForCkeditor(existingValue);
+                }
 
                 if (this.isAttachmentType(field.type)) {
                   const existingPayloads = this.normalizeExistingAttachmentPayloads(existingValue);
@@ -2533,7 +2454,7 @@ export class ApplicationsViewComponent implements OnInit {
         <div class="xyz-logo"><img src="assets/images/qarshi-logo.png" alt="Qarshi" /></div>
         <div class="xyz-company">
           <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
-          <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+          <div class="xyz-company-address">15-G, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
         </div>
         <div class="xyz-meta">Form: ${headingText}</div>
       </div>
@@ -3939,7 +3860,7 @@ export class ApplicationsViewComponent implements OnInit {
               <div class="approved-meta">${ceoNameText ? escapeHtml(ceoNameText) : '&nbsp;'}</div>
               <div class="approved-meta">${ceoDesignationText ? escapeHtml(ceoDesignationText) : '&nbsp;'}</div>
             </div>
-            <div class="who b">Chief Executive</div>
+            <div class="who b">Vice Chancellor</div>
           </div>
         </div>
 

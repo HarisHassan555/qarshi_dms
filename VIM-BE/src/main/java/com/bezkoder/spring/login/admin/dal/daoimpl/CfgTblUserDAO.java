@@ -15,6 +15,7 @@ import com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService;
 import com.bezkoder.spring.login.admin.dal.dao.ICfgTblRoleDAO;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblRole;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomer;
+import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 import org.hibernate.Hibernate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -304,6 +305,43 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			}
 
 			entityManager.merge(CfgTblUser);
+			entityManager.getTransaction().commit();
+			entityManager.close();
+			return "Success";
+		} catch (Exception e) {
+			log.error(e.getMessage(), e);
+			return "Failure";
+		}
+	}
+
+	@Override
+	public String updateUserDepartment(Integer userId, HrTblDepartment department) {
+		EntityManager entityManager = getEntityManager();
+		try {
+			entityManager.getTransaction().begin();
+
+			if (userId == null) {
+				entityManager.getTransaction().rollback();
+				return "Failure";
+			}
+
+			CfgTblUser existingUser = entityManager.find(CfgTblUser.class, userId);
+			if (existingUser == null) {
+				entityManager.getTransaction().rollback();
+				return "Failure";
+			}
+
+			HrTblDepartment managedDepartment = null;
+			if (department != null && department.getSerDepartmentId() != null) {
+				managedDepartment = entityManager.find(HrTblDepartment.class, department.getSerDepartmentId());
+				if (managedDepartment == null) {
+					entityManager.getTransaction().rollback();
+					return "Failure";
+				}
+			}
+
+			existingUser.setHrTblDepartment(managedDepartment);
+			entityManager.merge(existingUser);
 			entityManager.getTransaction().commit();
 			entityManager.close();
 			return "Success";

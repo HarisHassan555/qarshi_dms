@@ -479,22 +479,23 @@
             <div *ngIf="!isExpenseClaimForm() && !isTemporaryAdvanceSlipForm()"
                 class="generic-measure-station" aria-hidden="true">
                 <div #genericMeasurePaper
-                    class="xyz-paper xyz-paper-measured"
+                    class="xyz-paper xyz-paper-measured app-preview-paper-a4"
                     [class.xyz-paper--has-pipeline-footer]="hasIndividualPipelineFooter()"
+                    [class.xyz-paper--footer-pinned]="hasIndividualPipelineFooter()"
                     [attr.data-paper-orientation]="formOrientation"
                     [ngClass]="getPreviewPaperOrientationClass()"
                     [ngStyle]="getPreviewPaperStyle()">
-                    <div #genericMeasureHeader class="xyz-header-container">
+                    <div #genericMeasureHeader class="xyz-header-container" *ngIf="hasDocumentHeaderField()">
                         <div class="xyz-date-row">
                             <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd-MMM-yyyy' }}</div>
                         </div>
                         <div class="xyz-header">
                             <div class="xyz-logo">
-                                <img src="assets/images/qarshi-logo.png" alt="">
+                                <img [src]="getDocumentHeaderLogoPath()" [alt]="getDocumentHeaderBrandTitle()">
                             </div>
                             <div class="xyz-company">
-                                <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
-                                <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+                                <div class="xyz-company-name">{{ getDocumentHeaderBrandTitle() }}</div>
+                                <div class="xyz-company-address">{{ getDocumentHeaderBrandAddress() }}</div>
                             </div>
                             <div class="xyz-header-spacer"></div>
                         </div>
@@ -504,6 +505,7 @@
                     <div #genericMeasureBody
                         class="xyz-content-body xyz-generic-measured-body"
                         [class.xyz-content-centered]="useIndividualFooterDocumentLayout()"></div>
+                    <div #genericMeasureFooterSpacer class="xyz-footer-spacer" *ngIf="hasIndividualPipelineFooter()"></div>
                     <div #genericMeasureFooter class="xyz-footer" *ngIf="hasIndividualPipelineFooter()">
                         <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields().length > 0">
                             <tr class="xyz-signatures-blank">
@@ -540,43 +542,31 @@
 
             <div *ngIf="!isExpenseClaimForm() && !isTemporaryAdvanceSlipForm()" class="xyz-page-inline xyz-pages-scroll"
                 [class.xyz-pages-scroll--landscape]="isLandscapeOrientation()">
-                <div *ngFor="let pageFields of genericPages; let last = last; let first = first"
-                    class="xyz-paper xyz-paper-page xyz-paper-measured"
+                <ng-container *ngIf="useLineBasedGenericPagination()">
+                <div
+                    class="xyz-paper xyz-paper-page xyz-paper-measured app-preview-paper-a4"
                     [class.xyz-paper--continuation]="!first"
-                    [class.xyz-last-page]="last"
+                    [class.xyz-last-page]="hasIndividualPipelineFooter() && last"
                     [class.xyz-paper--has-pipeline-footer]="hasIndividualPipelineFooter() && last"
                     [class.xyz-paper--footer-pinned]="hasIndividualPipelineFooter() && last"
                     [attr.data-paper-orientation]="formOrientation"
                     [ngClass]="getPreviewPaperOrientationClass()"
-                    [ngStyle]="getPreviewPaperStyle()">
-                    <div class="xyz-header-container" *ngIf="first">
+                    [ngStyle]="getPreviewPaperStyle()"
+                    *ngFor="let pageLines of getGenericPreviewPages(); let first = first; let last = last">
+                    <div class="xyz-header-container" *ngIf="first && hasDocumentHeaderField()">
                         <div class="xyz-date-row">
                             <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd-MMM-yyyy' }}</div>
                         </div>
 
                         <div class="xyz-header">
                             <div class="xyz-logo">
-                                <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
+                                <img [src]="getDocumentHeaderLogoPath()" [alt]="getDocumentHeaderBrandTitle()">
                             </div>
                             <div class="xyz-company">
-                                <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
-                                <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+                                <div class="xyz-company-name">{{ getDocumentHeaderBrandTitle() }}</div>
+                                <div class="xyz-company-address">{{ getDocumentHeaderBrandAddress() }}</div>
                             </div>
                             <div class="xyz-header-spacer"></div>
-                            <div class="flex flex-col items-end gap-2">
-                                <div *ngIf="applicationDetails?.txtAssetCode"
-                                    class="px-3 py-1 border border-green-600 text-green-700 rounded-full text-xs font-semibold bg-green-50">
-                                    Asset Code: {{ applicationDetails.txtAssetCode }}
-                                </div>
-                                <div *ngIf="applicationDetails?.txtPrCode"
-                                    class="px-3 py-1 border border-blue-600 text-blue-700 rounded-full text-xs font-semibold bg-blue-50">
-                                    PR Code: {{ applicationDetails.txtPrCode }}
-                                </div>
-                                <div *ngIf="applicationDetails?.txtPoCode"
-                                    class="px-3 py-1 border border-purple-600 text-purple-700 rounded-full text-xs font-semibold bg-purple-50">
-                                    PO Code: {{ applicationDetails.txtPoCode }}
-                                </div>
-                            </div>
                         </div>
 
                         <div class="xyz-rule thick"></div>
@@ -584,41 +574,15 @@
                         <div class="xyz-title">{{ getGenericDocumentHeading() }}</div>
                     </div>
 
-                    <div class="xyz-content-body xyz-generic-measured-body"
-                        [class.xyz-content-centered]="useIndividualFooterDocumentLayout()">
-                        <ng-container *ngFor="let segment of getPageRenderSegments(pageFields)">
-                            <div *ngIf="isWordEditorRenderSegment(segment)" class="xyz-generic-field">
-                                <div class="xyz-generic-word">
-                                    <div class="ql-editor" [innerHTML]="segment.html"></div>
-                                </div>
+                    <div class="xyz-content-body xyz-generic-measured-body">
+                        <div class="xyz-generic-content--line-pages">
+                            <div *ngFor="let line of pageLines" class="xyz-preview-line">
+                                {{ line || '\u00a0' }}
                             </div>
-
-                            <div *ngIf="isFieldRenderSegment(segment)" class="xyz-generic-field">
-                                <div *ngIf="!isWordEditorType(segment.block!.field.type)
-                                            && !isHtmlPreviewField(segment.block!.field)
-                                            && !isTableType(segment.block!.field.type)
-                                            && !isIndividualPipelineFooterType(segment.block!.field.type)
-                                            && segment.block!.field.type !== 'footer'
-                                            && !isDocumentHeaderType(segment.block!.field.type)"
-                                    class="xyz-generic-value">
-                                    {{ formatFieldValue(segment.block!.field, getFieldValue(segment.block!.field)) }}
-                                </div>
-
-                                <div *ngIf="isTableType(segment.block!.field.type)" class="overflow-x-auto">
-                                    <table class="xyz-table">
-                                        <tbody>
-                                            <tr *ngFor="let row of getTableRowsForBlock(segment.block!.field)">
-                                                <td *ngFor="let cell of row">{{ cell || '-' }}</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </ng-container>
+                        </div>
                     </div>
 
-                    <div class="xyz-footer-spacer" *ngIf="hasIndividualPipelineFooter() && last" aria-hidden="true"></div>
-
+                    <div class="xyz-footer-spacer" *ngIf="hasIndividualPipelineFooter() && last"></div>
                     <div class="xyz-footer" *ngIf="hasIndividualPipelineFooter() && last">
                         <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields().length > 0">
                             <tr class="xyz-signatures-blank">
@@ -651,6 +615,107 @@
                         </table>
                     </div>
                 </div>
+                </ng-container>
+
+                <ng-container *ngIf="!useLineBasedGenericPagination()">
+                <div
+                    class="xyz-paper xyz-paper-page xyz-paper-measured app-preview-paper-a4"
+                    [class.xyz-paper--continuation]="!first"
+                    [class.xyz-last-page]="last"
+                    [class.xyz-paper--has-pipeline-footer]="hasIndividualPipelineFooter() && last"
+                    [class.xyz-paper--footer-pinned]="hasIndividualPipelineFooter() && last"
+                    [attr.data-paper-orientation]="formOrientation"
+                    [ngClass]="getPreviewPaperOrientationClass()"
+                    [ngStyle]="getPreviewPaperStyle()"
+                    *ngFor="let pageFields of genericPages; let last = last; let first = first; let pageIndex = index">
+                    <div class="xyz-header-container" *ngIf="first && hasDocumentHeaderField()">
+                        <div class="xyz-date-row">
+                            <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd-MMM-yyyy' }}</div>
+                        </div>
+
+                        <div class="xyz-header">
+                            <div class="xyz-logo">
+                                <img [src]="getDocumentHeaderLogoPath()" [alt]="getDocumentHeaderBrandTitle()">
+                            </div>
+                            <div class="xyz-company">
+                                <div class="xyz-company-name">{{ getDocumentHeaderBrandTitle() }}</div>
+                                <div class="xyz-company-address">{{ getDocumentHeaderBrandAddress() }}</div>
+                            </div>
+                            <div class="xyz-header-spacer"></div>
+                        </div>
+
+                        <div class="xyz-rule thick"></div>
+
+                        <div class="xyz-title">{{ getGenericDocumentHeading() }}</div>
+                    </div>
+
+                    <div class="xyz-content-body xyz-generic-measured-body"
+                        [class.xyz-content-centered]="useIndividualFooterDocumentLayout()">
+                        <ng-container *ngFor="let segment of getPageRenderSegments(pageFields)">
+                            <div *ngIf="isWordEditorRenderSegment(segment)" class="xyz-generic-field">
+                                <div class="xyz-generic-word">
+                                    <div class="ql-editor" [innerHTML]="segment.html"></div>
+                                </div>
+                            </div>
+
+                            <div *ngIf="isFieldRenderSegment(segment)" class="xyz-generic-field">
+                                <div *ngIf="!isWordEditorType(segment.block!.field.type)
+                                            && !isHtmlPreviewField(segment.block!.field)
+                                            && !isTableType(segment.block!.field.type)
+                                            && !isIndividualPipelineFooterType(segment.block!.field.type)
+                                            && segment.block!.field.type !== 'footer'
+                                            && !isDocumentHeaderType(segment.block!.field.type)"
+                                    class="xyz-generic-value">
+                                    {{ formatFieldValue(segment.block!.field, getFieldValue(segment.block!.field)) }}
+                                </div>
+
+                                <div *ngIf="isTableType(segment.block!.field.type)" class="overflow-x-auto">
+                                    <table class="xyz-generic-table">
+                                        <tbody>
+                                            <tr *ngFor="let row of getTableRowsForBlock(segment.block!.field)">
+                                                <td *ngFor="let cell of row">{{ cell || '-' }}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </ng-container>
+                    </div>
+
+                    <div class="xyz-footer-spacer" *ngIf="hasIndividualPipelineFooter() && last"></div>
+                    <div class="xyz-footer" *ngIf="hasIndividualPipelineFooter() && last">
+                        <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields().length > 0">
+                            <tr class="xyz-signatures-blank">
+                                <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
+                                    <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                        <div *ngIf="slotUser && isUserApproved(slotUser, section.label)">
+                                            <img *ngIf="getUserSignatureUrl(slotUser, section.label)"
+                                                [src]="getUserSignatureUrl(slotUser, section.label)" class="xyz-sig-img"
+                                                alt="Signature" crossorigin="anonymous">
+                                            <div class="xyz-sig-time" *ngIf="getUserApprovalDate(slotUser, section.label)">
+                                                {{ getUserApprovalDate(slotUser, section.label) }}
+                                            </div>
+                                        </div>
+                                    </td>
+                                </ng-container>
+                            </tr>
+                            <tr>
+                                <th *ngFor="let section of getIndividualPipelineFooterFields()"
+                                    [attr.colspan]="getIndividualFooterColSpan(section)">
+                                    {{ section.label || 'New Field' }}:
+                                </th>
+                            </tr>
+                            <tr>
+                                <ng-container *ngFor="let section of getIndividualPipelineFooterFields()">
+                                    <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                        <div [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></div>
+                                    </td>
+                                </ng-container>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+                </ng-container>
             </div>
         </div>
 
@@ -663,7 +728,7 @@
                     [class.xyz-last-page]="last"
                     [ngClass]="getPreviewPaperOrientationClass()"
                     [ngStyle]="getPreviewPaperStyle()">
-                <div class="xyz-header-container">
+                <div class="xyz-header-container" *ngIf="hasDocumentHeaderField()">
                     <div class="xyz-date-row">
                         <div class="xyz-date">Date: {{ applicationDetails.dteCreatedDate | date:'dd/MM/yyyy' }}</div>
                     </div>
@@ -671,15 +736,13 @@
                     <div class="xyz-header">
                         <!-- Left (Logo) -->
                         <div class="xyz-logo">
-                            <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
+                            <img [src]="getDocumentHeaderLogoPath()" [alt]="getDocumentHeaderBrandTitle()">
                         </div>
 
                         <!-- Center (Company) -->
                         <div class="xyz-company">
-                            <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
-                            <div class="xyz-company-address">
-                                15-G, Jam-e-Shirin Boulevard, Gulberg-III, Lahore
-                            </div>
+                            <div class="xyz-company-name">{{ getDocumentHeaderBrandTitle() }}</div>
+                            <div class="xyz-company-address">{{ getDocumentHeaderBrandAddress() }}</div>
                         </div>
 
                         <!-- Right (Codes) -->

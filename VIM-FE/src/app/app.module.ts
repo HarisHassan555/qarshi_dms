@@ -47,6 +47,7 @@ import { SortablejsModule } from '@dustfoundation/ngx-sortablejs';
 
 // quill editor
 import { QuillModule } from 'ngx-quill';
+import { CKEditorModule } from '@ckeditor/ckeditor5-angular';
 
 // dashboard
 import { IndexComponent } from './index';
@@ -180,6 +181,7 @@ import { ActivityLogsComponent } from './components/activity-logs/activity-logs.
         SortablejsModule,
         ModalModule,
         QuillModule.forRoot(),
+        CKEditorModule,
         IconModule,
         CommonModule,
         FormsModule,

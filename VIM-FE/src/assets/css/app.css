@@ -4,6 +4,7 @@
 @import 'ngx-lightbox/lightbox.css';
 @import '@ng-select/ng-select/themes/default.theme.css';
 @import 'quill/dist/quill.snow.css';
+@import 'ckeditor5/ckeditor5.css';
 @import 'easymde/dist/easymde.min.css';
 @import 'file-upload-with-preview/dist/style.css';
 @import 'flatpickr/dist/flatpickr.min.css';

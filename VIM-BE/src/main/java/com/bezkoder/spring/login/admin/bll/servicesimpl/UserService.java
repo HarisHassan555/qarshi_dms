@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import com.bezkoder.spring.login.admin.bll.services.IUserService;
 import com.bezkoder.spring.login.admin.dal.dao.ICfgTblUserDAO;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
+import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 
 
 @Service
@@ -65,6 +66,11 @@ public class UserService implements IUserService {
 	public String updateUser(CfgTblUser cfgTblUser) {
 		
 		return citTableUserDAO.updateUser(cfgTblUser);
+	}
+
+	@Override
+	public String updateUserDepartment(Integer userId, HrTblDepartment department) {
+		return citTableUserDAO.updateUserDepartment(userId, department);
 	}
 
 	@Override

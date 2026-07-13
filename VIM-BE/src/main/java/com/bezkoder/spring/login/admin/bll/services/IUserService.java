@@ -3,6 +3,7 @@ package com.bezkoder.spring.login.admin.bll.services;
 import java.util.List;
 
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
+import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 
 
 public interface IUserService {
@@ -18,6 +19,8 @@ public interface IUserService {
 	String deleteUser(List<String> usersId);
 
 	String updateUser(CfgTblUser cfgTblUser);
+
+	String updateUserDepartment(Integer userId, HrTblDepartment department);
 	
 	String generateUserNo(String type);
 

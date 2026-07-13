@@ -4,6 +4,7 @@ import { NotificationService } from 'src/app/NotificationService';
 import { DepartmentService } from 'src/app/services/department/department.service';
 import { UserService } from 'src/app/services/user/user.service';
 import { PermissionService } from '../../services/shared-data/permission-service';
+import Swal from 'sweetalert2';
 
 @Component({
   selector: 'app-department',
@@ -333,6 +334,106 @@ export class DepartmentComponent implements OnInit {
         return;
       }
     }
+
+    const conflictingAssignments = this.getUsersAssignedToOtherDepartments();
+    if (conflictingAssignments.length > 0) {
+      const departmentNames = Array.from(
+        new Set(conflictingAssignments.map(user => user.departmentName).filter(Boolean))
+      );
+      const assignmentList = conflictingAssignments
+        .map(user => `<li><strong>${this.escapeHtml(user?.txtUserName || 'User')}</strong> - ${this.escapeHtml(user.departmentName || 'Unknown Department')}</li>`)
+        .join('');
+
+      Swal.fire({
+        title: 'User already assigned',
+        icon: 'warning',
+        html: `
+          <p style="margin-bottom: 12px;">
+            The selected user${conflictingAssignments.length > 1 ? 's are' : ' is'} assigned to the following department${departmentNames.length > 1 ? 's' : ''}:
+          </p>
+          <ul style="text-align: left; margin: 0 0 12px 18px;">
+            ${assignmentList}
+          </ul>
+          <p>
+            Are you sure you want to add ${conflictingAssignments.length > 1 ? 'these users' : 'this user'} to
+            <strong>${this.escapeHtml(this.selectedDepartment?.txtDepartmentName || 'the selected department')}</strong>?
+            This will remove ${conflictingAssignments.length > 1 ? 'them' : 'the user'} from ${conflictingAssignments.length > 1 ? 'their previous departments' : 'the previous department'}.
+          </p>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Confirm',
+        cancelButtonText: 'Cancel',
+        customClass: 'sweet-alerts'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          this.performAssignUsers();
+        }
+      });
+      return;
+    }
+
+    this.performAssignUsers();
+  }
+
+  private getUsersAssignedToOtherDepartments(): any[] {
+    if (!this.selectedDepartment || !Array.isArray(this.allUsers)) {
+      return [];
+    }
+
+    return this.allUsers
+      .filter((user: any) => this.selectedUserIds.includes(user?.serUserId))
+      .map((user: any) => {
+        const assignment = this.findUserDepartmentAssignment(user);
+        return assignment ? { ...user, ...assignment } : null;
+      })
+      .filter((user: any) => !!user);
+  }
+
+  private findUserDepartmentAssignment(user: any): { departmentId: number; departmentName: string } | null {
+    const currentDepartmentId = Number(user?.hrTblDepartment?.serDepartmentId);
+    const currentDepartmentName = user?.hrTblDepartment?.txtDepartmentName;
+    const selectedDepartmentId = Number(this.selectedDepartment?.serDepartmentId);
+
+    if (currentDepartmentId && currentDepartmentId !== selectedDepartmentId) {
+      return {
+        departmentId: currentDepartmentId,
+        departmentName: currentDepartmentName || 'Unknown Department'
+      };
+    }
+
+    const matchedDepartment = (this.departments || []).find((department: any) => {
+      const departmentId = Number(department?.serDepartmentId);
+      if (!departmentId || departmentId === selectedDepartmentId) {
+        return false;
+      }
+
+      const cfgUsers = Array.isArray(department?.cfgTblUsers) ? department.cfgTblUsers : [];
+      const employees = Array.isArray(department?.hrTblEmployees) ? department.hrTblEmployees : [];
+      const users = [...cfgUsers, ...employees];
+
+      return users.some((departmentUser: any) => Number(departmentUser?.serUserId) === Number(user?.serUserId));
+    });
+
+    if (!matchedDepartment) {
+      return null;
+    }
+
+    return {
+      departmentId: Number(matchedDepartment.serDepartmentId),
+      departmentName: matchedDepartment.txtDepartmentName || 'Unknown Department'
+    };
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private performAssignUsers() {
 
     // Use the backend endpoint for assigning users to department
     const headsString = this.selectedDepartmentHeadIds.length > 0 ? this.selectedDepartmentHeadIds.join(',') : null;

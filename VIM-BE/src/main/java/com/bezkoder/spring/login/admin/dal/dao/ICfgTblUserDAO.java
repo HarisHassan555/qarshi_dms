@@ -3,6 +3,7 @@ package com.bezkoder.spring.login.admin.dal.dao;
 
 import java.util.List;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
+import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 
 public interface ICfgTblUserDAO {
 
@@ -17,6 +18,8 @@ public interface ICfgTblUserDAO {
 	String deleteUser(List<String> userId);
 
 	String updateUser(CfgTblUser CfgTblUser);
+
+	String updateUserDepartment(Integer userId, HrTblDepartment department);
 
 	String generateUserNo(String type);
 

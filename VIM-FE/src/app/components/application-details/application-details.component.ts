@@ -22,6 +22,13 @@ import {
 } from 'src/app/utils/form-orientation.util';
 import { finalize, firstValueFrom, forkJoin } from 'rxjs';
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
+import { capfHasPipelineCeoSignatureSlot } from 'src/app/utils/capf-form.util';
+import {
+  DOCUMENT_HEADER_ADDRESS,
+  isDocumentHeaderFieldType,
+  resolveDocumentHeaderBrandTitle,
+  resolveDocumentHeaderLogoPath,
+} from 'src/app/utils/document-header.util';
 
 export interface GenericPreviewBlock {
   field: any;
@@ -39,7 +46,7 @@ export interface GenericPageRenderSegment {
   styleUrls: ['./application-details.component.css']
 })
 export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
-  private static readonly GENERIC_PREVIEW_MAX_CHARS_PER_LINE = 52;
+  private static readonly GENERIC_PREVIEW_MAX_CHARS_PER_LINE = 88;
   private static readonly A4_SHORT_EDGE_MM = 210;
   private static readonly A4_LONG_EDGE_MM = 297;
   private static readonly MAX_VENDOR_ATTACHMENT_TOTAL_BYTES = 5 * 1024 * 1024;
@@ -51,9 +58,12 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
   ]);
   private static readonly ALLOWED_VENDOR_ATTACHMENT_EXTENSIONS = new Set(['pdf', 'webp', 'png', 'jpeg', 'jpg']);
   /** Extra px reserved so the last line on a page is never clipped by overflow:hidden. */
-  private static readonly PAGE_FIT_SAFETY_PX = 2;
+  private static readonly PAGE_FIT_SAFETY_PX = 4;
   /** Non-last pages: allow ~2 extra text lines before breaking (matches visible slack in preview). */
   private static readonly PAGE_FILL_LINE_SLACK_PX = 56;
+  private static readonly FOOTER_PAGE_FILL_SLACK_PX = 24;
+  /** Tables need extra margin of safety because border-collapse can visually clip the last row. */
+  private static readonly TABLE_SPLIT_SAFETY_PX = 10;
 
   private genericPreviewLayoutSignature = '';
   private genericMeasureRoot: HTMLElement | null = null;
@@ -62,6 +72,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
   @ViewChild('genericMeasurePaper') genericMeasurePaper?: ElementRef<HTMLElement>;
   @ViewChild('genericMeasureHeader') genericMeasureHeader?: ElementRef<HTMLElement>;
   @ViewChild('genericMeasureBody') genericMeasureBody?: ElementRef<HTMLElement>;
+  @ViewChild('genericMeasureFooterSpacer') genericMeasureFooterSpacer?: ElementRef<HTMLElement>;
   @ViewChild('genericMeasureFooter') genericMeasureFooter?: ElementRef<HTMLElement>;
   applicationId: number | null = null;
   applicationDetails: any = null;
@@ -130,6 +141,9 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
   budgetPages: SafeHtml[] = [];
   /** General forms: field blocks split across A4 pages (no in-page scrollbar). */
   genericPages: GenericPreviewBlock[][] = [];
+  /** Plain general forms: line-based pagination to mirror /application preview exactly. */
+  genericPreviewLinePages: string[][] = [];
+  private genericPreviewUsedLiveMeasure = false;
 
   hasFeasibilityReport(): boolean {
     return this.getFeasibilityAttachmentsList().length > 0;
@@ -266,14 +280,15 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     if (!this.applicationDetails) return false;
     if (!this.isCapfForm()) return false;
     if (!this.isPoApprover()) return false;
+    if (!this.fromPendingApprovals) return false;
     if (this.isCapfPoEditReapprovalActive()) return false;
     if (this.isCapfPoVendorTeReapprovalActive()) return false;
     const status = (this.applicationDetails.txtStatus || '').toString().trim().toUpperCase();
     const hasPo = !!(this.applicationDetails.txtPoCode && String(this.applicationDetails.txtPoCode).trim());
-    const allowed = ['PO_PENDING', 'APPROVED'];
+    const allowed = ['PO_PENDING'];
     if (!allowed.includes(status)) return false;
     if (!this.hasAssignedPrCode()) return false;
-    if (!hasPo && status !== 'PO_PENDING') return false;
+    if (hasPo) return false;
     return true;
   }
 
@@ -391,7 +406,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
             return;
           }
           this.notificationService.showMessage(
-            'PO code saved; application completed. You can still edit vendor details from Pending Approvals.',
+            'PO code saved; application completed. You can still edit vendor details from Approved Applications.',
             'success'
           );
           this.loadApplicationDetails();
@@ -1452,7 +1467,8 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
       }
     } catch (error) {
       console.error('Error saving vendor details:', error);
-      this.notificationService.showMessage('An error occurred while saving', 'danger');
+      const msg = (error as any)?.error?.message || (error as any)?.error || (error as any)?.message || 'An error occurred while saving';
+      this.notificationService.showMessage(String(msg).replace(/^Failure:\s*/i, ''), 'danger');
     } finally {
       this.isSavingVendor = false;
     }
@@ -1864,6 +1880,9 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
                     .sort((a: any, b: any) => (a.intFieldOrder || 0) - (b.intFieldOrder || 0));
                   this.syncFormOrientationFromApplication();
                   this.cdr.detectChanges();
+                  requestAnimationFrame(() => {
+                    requestAnimationFrame(() => this.rebuildGenericPreviewPages(true));
+                  });
                 }
               }
             );
@@ -1871,8 +1890,10 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
 
           this.isLoading = false;
           this.updatePoCodeVisibility();
-          this.rebuildGenericPreviewPages(true);
           this.cdr.detectChanges();
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => this.rebuildGenericPreviewPages(true));
+          });
         } else {
           this.showAssetCodeUI = false;
           this.showPrCodeUI = false;
@@ -2250,7 +2271,27 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
   }
 
   isDocumentHeaderType(fieldType: string | undefined): boolean {
-    return (fieldType || '').toLowerCase().replace(/\s+/g, '_') === 'document_header';
+    return isDocumentHeaderFieldType(fieldType);
+  }
+
+  getDocumentHeaderField(): any | null {
+    return (this.formFields || []).find((field: any) => this.isDocumentHeaderType(field?.type)) || null;
+  }
+
+  hasDocumentHeaderField(): boolean {
+    return !!this.getDocumentHeaderField();
+  }
+
+  getDocumentHeaderLogoPath(): string {
+    return resolveDocumentHeaderLogoPath(this.getDocumentHeaderField()?.type);
+  }
+
+  getDocumentHeaderBrandTitle(): string {
+    return resolveDocumentHeaderBrandTitle(this.getDocumentHeaderField()?.type);
+  }
+
+  getDocumentHeaderBrandAddress(): string {
+    return DOCUMENT_HEADER_ADDRESS;
   }
 
   isOrientationType(fieldType: string | undefined): boolean {
@@ -2284,6 +2325,13 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     });
   }
 
+  getGenericPreviewPages(): string[][] {
+    if (!this.useLineBasedGenericPagination()) {
+      return [[]];
+    }
+    return this.genericPreviewLinePages.length ? this.genericPreviewLinePages : [[]];
+  }
+
   private rebuildGenericPreviewPages(force = false): void {
     if (
       this.isBudgetApprovalForm() ||
@@ -2293,33 +2341,70 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     ) {
       return;
     }
-    const signature = this.buildGenericPreviewLayoutSignature();
+    const fields = this.getBodyPreviewFields();
+    const signature = this.buildGenericPreviewLayoutSignature(fields);
+    const hasLiveMeasure = this.canUseLiveGenericMeasure();
+
+    if (this.useLineBasedGenericPagination()) {
+      if (
+        !force &&
+        signature === this.genericPreviewLayoutSignature &&
+        this.genericPreviewLinePages.length > 0 &&
+        (!hasLiveMeasure || this.genericPreviewUsedLiveMeasure)
+      ) {
+        return;
+      }
+
+      if (!hasLiveMeasure && !force) {
+        return;
+      }
+
+      this.buildGenericLinePages(fields);
+      this.genericPreviewLayoutSignature = signature;
+      this.genericPreviewUsedLiveMeasure = hasLiveMeasure;
+      this.cdr.markForCheck();
+      return;
+    }
+
     if (!force && signature === this.genericPreviewLayoutSignature && this.genericPages.length > 0) {
       return;
     }
-    // Measure station ViewChildren are only available after the view renders.
-    if (!this.canUseLiveGenericMeasure() && !force) {
+    if (!hasLiveMeasure && !force) {
       return;
     }
     this.buildGenericPages();
     this.genericPreviewLayoutSignature = signature;
+    this.genericPreviewUsedLiveMeasure = hasLiveMeasure;
     this.cdr.markForCheck();
   }
 
-  private buildGenericPreviewLayoutSignature(): string {
-    const parts: string[] = [this.formOrientation, String(this.formFields.length)];
-    for (const field of this.getBodyPreviewFields()) {
+  private buildGenericPreviewLayoutSignature(fields: any[]): string {
+    const fieldValues = fields.map((field: any) => {
+      const key = String(field?.serFieldId || field?.label || '');
       const value = this.getFieldValue(field);
-      const size =
-        typeof value === 'string'
-          ? value.length
-          : value === null || value === undefined
-            ? 0
-            : JSON.stringify(value).length;
-      parts.push(`${field.serFieldId || field.label}:${size}`);
-    }
-    parts.push(String(this.hasIndividualPipelineFooter()));
-    return parts.join('|');
+      if (value === null || value === undefined) {
+        return `${key}:`;
+      }
+      if (typeof value === 'string') {
+        return `${key}:${value.length}:${value}`;
+      }
+      if (typeof value === 'number' || typeof value === 'boolean') {
+        return `${key}:${String(value)}`;
+      }
+      try {
+        return `${key}:${JSON.stringify(value)}`;
+      } catch {
+        return `${key}:${String(value)}`;
+      }
+    });
+
+    const footerSignature = JSON.stringify(this.getIndividualPipelineFooterFields() || []);
+    return [
+      this.formOrientation,
+      this.getGenericDocumentHeading(),
+      fieldValues.join('|'),
+      footerSignature
+    ].join('::');
   }
 
   isTableType(fieldType: string | undefined): boolean {
@@ -2344,6 +2429,14 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
         // Footer fields are rendered once at the end of the document
         (String(f?.type || '').toLowerCase().replace(/\s+/g, '_') !== 'footer') &&
         !this.isIndividualPipelineFooterType(f?.type)
+    );
+  }
+
+  useLineBasedGenericPagination(): boolean {
+    return this.getBodyPreviewFields().every(
+      (field: any) =>
+        !this.isWordEditorType(field?.type) &&
+        !this.isTableType(field?.type)
     );
   }
 
@@ -2412,14 +2505,21 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
   buildGenericPages(): void {
     if (typeof document === 'undefined') {
       this.genericPages = [[]];
+      this.genericPreviewLinePages = [[]];
       return;
     }
 
     const fields = this.getBodyPreviewFields();
+    if (this.useLineBasedGenericPagination()) {
+      this.buildGenericLinePages(fields);
+      return;
+    }
+
     const landscape = this.isLandscapeOrientation();
     const hasFooter = this.hasIndividualPipelineFooter();
     const blocks = this.collectAtomicGenericBlocks(fields, landscape);
 
+    this.genericPreviewLinePages = [];
     this.genericPages = this.canUseLiveGenericMeasure()
       ? this.packMaxFillGenericBlocks(blocks, hasFooter)
       : this.packMeasuredBlocksIntoPages(blocks, landscape, hasFooter);
@@ -2431,6 +2531,26 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     if (packedCount !== blocks.length && this.canUseLiveGenericMeasure()) {
       this.genericPages = this.packMaxFillGenericBlocks(blocks, hasFooter);
     }
+  }
+
+  private buildGenericLinePages(fields: any[]): void {
+    const lines = this.buildGenericPreviewFlatLines(fields);
+    const hasFooter = this.hasIndividualPipelineFooter();
+    const hasLiveMeasure = this.canUseLiveGenericMeasure();
+
+    if (!hasLiveMeasure) {
+      this.genericPreviewLinePages = [lines.length ? lines : ['-']];
+      this.genericPreviewUsedLiveMeasure = false;
+      this.genericPages = this.genericPreviewLinePages.map(() => []);
+      return;
+    }
+
+    this.genericPreviewLinePages = this.paginateGenericPreviewLines(lines.length ? lines : ['-'], hasFooter);
+    if (!this.genericPreviewLinePages.length) {
+      this.genericPreviewLinePages = [['-']];
+    }
+    this.genericPreviewUsedLiveMeasure = true;
+    this.genericPages = this.genericPreviewLinePages.map(() => []);
   }
 
   /** One block per word-editor fragment / table row-group so packing can place each on a page. */
@@ -2469,14 +2589,14 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
   private canUseLiveGenericMeasure(): boolean {
     return !!(
       this.genericMeasurePaper?.nativeElement &&
-      this.genericMeasureBody?.nativeElement &&
-      this.genericMeasureHeader?.nativeElement
+      this.genericMeasureBody?.nativeElement
     );
   }
 
   private configureLiveMeasurePaper(pageIndex: number, showFooter: boolean): void {
     const paper = this.genericMeasurePaper?.nativeElement;
     const header = this.genericMeasureHeader?.nativeElement;
+    const footerSpacer = this.genericMeasureFooterSpacer?.nativeElement;
     const footer = this.genericMeasureFooter?.nativeElement;
 
     if (paper) {
@@ -2499,6 +2619,9 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     if (footer) {
       footer.style.display = showFooter ? '' : 'none';
     }
+    if (footerSpacer) {
+      footerSpacer.style.display = showFooter ? '' : 'none';
+    }
 
     const body = this.genericMeasureBody?.nativeElement;
     if (body) {
@@ -2506,8 +2629,29 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     }
   }
 
-  private getPageFitAllowancePx(clientHeight: number, showFooter: boolean): number {
-    const slack = showFooter ? 0 : ApplicationDetailsComponent.PAGE_FILL_LINE_SLACK_PX;
+  private hasTableLikePreviewBlock(blocks: GenericPreviewBlock[]): boolean {
+    return (blocks || []).some((block) => {
+      if (Array.isArray(block?.field?._tableRows)) {
+        return true;
+      }
+      const chunkHtml = block?.field?._chunkHtml;
+      return typeof chunkHtml === 'string' && this.isWordEditorTableFragment(chunkHtml);
+    });
+  }
+
+  private getTableFitSafetyPx(blocks: GenericPreviewBlock[]): number {
+    return this.hasTableLikePreviewBlock(blocks)
+      ? ApplicationDetailsComponent.TABLE_SPLIT_SAFETY_PX
+      : 0;
+  }
+
+  private getPageFitAllowancePx(
+    clientHeight: number,
+    showFooter: boolean
+  ): number {
+    const slack = showFooter
+      ? ApplicationDetailsComponent.FOOTER_PAGE_FILL_SLACK_PX
+      : ApplicationDetailsComponent.PAGE_FILL_LINE_SLACK_PX;
     return Math.max(0, clientHeight - ApplicationDetailsComponent.PAGE_FIT_SAFETY_PX + slack);
   }
 
@@ -2516,11 +2660,32 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     if (!body.childElementCount) {
       return 0;
     }
+    const linePageContainer = body.querySelector('.xyz-generic-content--line-pages') as HTMLElement | null;
+    if (linePageContainer) {
+      const bodyTop = body.getBoundingClientRect().top;
+      const paddingBottom = parseFloat(window.getComputedStyle(body).paddingBottom) || 0;
+      const lines = Array.from(linePageContainer.querySelectorAll('.xyz-preview-line')) as HTMLElement[];
+      const lastVisibleLine = [...lines].reverse().find((line) => {
+        const text = (line.textContent || '').replace(/\u00a0/g, '').trim();
+        return text !== '' || line.getBoundingClientRect().height > 0;
+      }) || lines[lines.length - 1];
+
+      if (lastVisibleLine) {
+        const lastLineRect = lastVisibleLine.getBoundingClientRect();
+        return Math.ceil(Math.max(0, lastLineRect.bottom - bodyTop) + paddingBottom);
+      }
+    }
     const bodyTop = body.getBoundingClientRect().top;
     let bottom = bodyTop;
     for (const child of Array.from(body.children) as HTMLElement[]) {
       const rect = child.getBoundingClientRect();
       bottom = Math.max(bottom, rect.bottom);
+      bottom = Math.max(bottom, rect.top + child.scrollHeight);
+      for (const descendant of Array.from(child.querySelectorAll('*')) as HTMLElement[]) {
+        const descendantRect = descendant.getBoundingClientRect();
+        bottom = Math.max(bottom, descendantRect.bottom);
+        bottom = Math.max(bottom, descendantRect.top + descendant.scrollHeight);
+      }
     }
     const paddingBottom = parseFloat(window.getComputedStyle(body).paddingBottom) || 0;
     return Math.ceil(bottom - bodyTop + paddingBottom);
@@ -2572,8 +2737,25 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     }
   }
 
+  private getVisibleElementOuterHeightPx(element?: HTMLElement | null): number {
+    if (!element) {
+      return 0;
+    }
+    const style = window.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden') {
+      return 0;
+    }
+    const rect = element.getBoundingClientRect();
+    const marginTop = parseFloat(style.marginTop) || 0;
+    const marginBottom = parseFloat(style.marginBottom) || 0;
+    return rect.height + marginTop + marginBottom;
+  }
+
   private getLiveBodyBudgetPx(pageIndex: number, showFooter: boolean): number {
+    const paper = this.genericMeasurePaper?.nativeElement;
+    const header = this.genericMeasureHeader?.nativeElement;
     const body = this.genericMeasureBody?.nativeElement;
+    const footer = this.genericMeasureFooter?.nativeElement;
     if (!body) {
       const landscape = this.isLandscapeOrientation();
       return this.getPageContentBudgetPx(landscape, pageIndex === 0, showFooter);
@@ -2581,6 +2763,32 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     this.configureLiveMeasurePaper(pageIndex, showFooter);
     body.innerHTML = '';
     this.forceLiveMeasureLayout();
+
+    const liveBodyHeight = body.clientHeight || body.getBoundingClientRect().height || 0;
+    if (liveBodyHeight > 0) {
+      return Math.max(48, Math.floor(liveBodyHeight));
+    }
+
+    if (paper) {
+      const paperHeight = paper.clientHeight || paper.getBoundingClientRect().height || 0;
+      const paperStyle = window.getComputedStyle(paper);
+      const paperVerticalPadding =
+        (parseFloat(paperStyle.paddingTop) || 0) +
+        (parseFloat(paperStyle.paddingBottom) || 0);
+      const headerHeight = pageIndex === 0 ? this.getVisibleElementOuterHeightPx(header) : 0;
+      const footerHeight = showFooter ? this.getVisibleElementOuterHeightPx(footer) : 0;
+      const bodyStyle = window.getComputedStyle(body);
+      const bodyMargins =
+        (parseFloat(bodyStyle.marginTop) || 0) +
+        (parseFloat(bodyStyle.marginBottom) || 0);
+      const available = Math.floor(
+        paperHeight - paperVerticalPadding - headerHeight - footerHeight - bodyMargins
+      );
+      if (available > 0) {
+        return Math.max(48, available);
+      }
+    }
+
     return Math.max(48, body.clientHeight);
   }
 
@@ -2594,13 +2802,14 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
       return this.blocksFitMeasuredPage(blocks, landscape, pageIndex, showFooter);
     }
 
+    const availableBodyBudget = this.getLiveBodyBudgetPx(pageIndex, showFooter);
     this.configureLiveMeasurePaper(pageIndex, showFooter);
     this.renderBlocksIntoLiveMeasureBody(blocks);
     this.forceLiveMeasureLayout();
     const body = this.genericMeasureBody!.nativeElement;
 
     if (!blocks.length) {
-      const emptyBudget = this.getPageFitAllowancePx(body.clientHeight, showFooter);
+      const emptyBudget = this.getPageFitAllowancePx(availableBodyBudget, showFooter);
       return !showFooter || this.getLiveFooterHeightPx() <= emptyBudget + 2;
     }
 
@@ -2610,9 +2819,168 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
       return total <= this.getPageContentBudgetPx(landscape, pageIndex === 0, showFooter);
     }
 
-    const allowance = this.getPageFitAllowancePx(body.clientHeight, showFooter);
+    const allowance = this.getPageFitAllowancePx(availableBodyBudget, showFooter);
     const usedHeight = Math.max(body.scrollHeight, this.measureRenderedBodyContentPx(body));
     return usedHeight <= allowance;
+  }
+
+  private buildGenericPreviewFlatLines(fields: any[]): string[] {
+    const lines: string[] = [];
+    const maxChars = this.getPreviewMaxCharsPerLine();
+
+    for (const field of fields) {
+      if (this.isWordEditorType(field?.type)) {
+        const raw = String(this.getFieldValue(field) ?? '');
+        lines.push(...this.wordEditorHtmlToPlainLines(raw));
+        lines.push('');
+        continue;
+      }
+
+      if (this.isTableType(field?.type)) {
+        const rows = this.getTableData(field);
+        if (!rows.length) {
+          lines.push('-');
+        } else {
+          rows.forEach((row: any[], rowIndex: number) => {
+            const rowLabel = `${field?.label || 'Row'} ${rowIndex + 1}`;
+            const rowLine = `${rowLabel} | ${row.map((cell) => cell ?? '-').join(' | ')}`;
+            lines.push(...this.wrapPlainLineToSegments(rowLine, maxChars));
+          });
+        }
+        lines.push('');
+        continue;
+      }
+
+      const display = this.formatFieldValue(field, this.getFieldValue(field));
+      const parts = String(display).split(/\r?\n/);
+      parts.forEach((part) => {
+        const trimmed = part.trimEnd();
+        if (trimmed === '') {
+          lines.push('');
+        } else {
+          lines.push(...this.wrapPlainLineToSegments(trimmed, maxChars));
+        }
+      });
+      lines.push('');
+    }
+
+    while (lines.length && lines[lines.length - 1] === '') {
+      lines.pop();
+    }
+    return lines.length ? lines : ['-'];
+  }
+
+  private paginateGenericPreviewLines(lines: string[], hasFooter: boolean): string[][] {
+    if (!lines.length) {
+      return [['-']];
+    }
+
+    const pages: string[][] = [];
+    let currentPage: string[] = [];
+
+    const flush = () => {
+      if (currentPage.length) {
+        pages.push([...currentPage]);
+        currentPage = [];
+      }
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trial = [...currentPage, line];
+      const pageIndex = pages.length;
+      const isLastLine = i === lines.length - 1;
+      const reserveFooter = hasFooter && isLastLine;
+      const fitsWithoutFooter = this.previewLinesFitPage(trial, pageIndex, false);
+      const fitsWithFooter = !reserveFooter || this.previewLinesFitPage(trial, pageIndex, true);
+
+      if (currentPage.length > 0 && (!fitsWithoutFooter || !fitsWithFooter)) {
+        flush();
+        currentPage = [line];
+        continue;
+      }
+
+      currentPage = trial;
+    }
+
+    flush();
+    if (!pages.length) {
+      return [['-']];
+    }
+    return hasFooter ? this.trimPreviewLinePagesForFooter(pages) : pages;
+  }
+
+  private trimPreviewLinePagesForFooter(pages: string[][]): string[][] {
+    const result = pages.map((page) => [...page]);
+    let preserveTrailingEmpty = false;
+    let guard = 0;
+
+    while (guard++ < 300 && result.length) {
+      const lastPageIndex = result.length - 1;
+      const lastPage = result[lastPageIndex];
+      if (this.previewLinesFitPage(lastPage, lastPageIndex, true)) {
+        break;
+      }
+      if (lastPage.length <= 1) {
+        if (!this.previewLinesFitPage(lastPage, lastPageIndex, false)) {
+          break;
+        }
+        result.push([]);
+        preserveTrailingEmpty = true;
+        break;
+      }
+      const moved = lastPage.pop();
+      if (moved === undefined) {
+        break;
+      }
+      if (!result[lastPageIndex + 1]) {
+        result.push([]);
+      }
+      result[lastPageIndex + 1].unshift(moved);
+    }
+
+    if (preserveTrailingEmpty && result.length > 0) {
+      while (result.length > 1 && result[result.length - 2].length === 0) {
+        result.splice(result.length - 2, 1);
+      }
+      return result;
+    }
+    return result.filter((page) => page.length > 0);
+  }
+
+  private previewLinesFitPage(lines: string[], pageIndex: number, showFooter: boolean): boolean {
+    if (!this.canUseLiveGenericMeasure()) {
+      return true;
+    }
+
+    const availableBodyBudget = this.getLiveBodyBudgetPx(pageIndex, showFooter);
+    this.configureLiveMeasurePaper(pageIndex, showFooter);
+    this.renderPreviewLinesIntoLiveMeasureBody(lines);
+    this.forceLiveMeasureLayout();
+
+    const body = this.genericMeasureBody?.nativeElement;
+    if (!body) {
+      return true;
+    }
+
+    const hasLinePageContainer = !!body.querySelector('.xyz-generic-content--line-pages');
+    const usedHeight = hasLinePageContainer
+      ? this.measureRenderedBodyContentPx(body)
+      : Math.max(body.scrollHeight, this.measureRenderedBodyContentPx(body));
+    const allowance = Math.max(0, availableBodyBudget - ApplicationDetailsComponent.PAGE_FIT_SAFETY_PX);
+    return usedHeight <= allowance;
+  }
+
+  private renderPreviewLinesIntoLiveMeasureBody(lines: string[]): void {
+    const body = this.genericMeasureBody?.nativeElement;
+    if (!body) {
+      return;
+    }
+    body.innerHTML = `
+      <div class="xyz-generic-content--line-pages">
+        ${lines.map((line) => `<div class="xyz-preview-line">${line ? this.escapeHtml(line) : '&nbsp;'}</div>`).join('')}
+      </div>
+    `;
   }
 
   /** Merge consecutive word-editor blocks on a page so tables/paragraphs render without gaps or clipping. */
@@ -2676,7 +3044,24 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
         const isLastPage = start + count === blocks.length;
         const showFooter = hasFooter && isLastPage;
 
-        if (!this.blocksFitLiveMeasurePage(trial, pageIndex, showFooter)) {
+      if (!this.blocksFitLiveMeasurePage(trial, pageIndex, showFooter)) {
+          const candidateIndex = start + count - 1;
+          const existingBlocks = blocks.slice(start, candidateIndex);
+          if (existingBlocks.length > 0) {
+            const split = this.trySplitBlockIntoCurrentPage(
+              blocks[candidateIndex],
+              existingBlocks,
+              pageIndex,
+              showFooter
+            );
+            if (split && split.length > 1) {
+              const firstPieceTrial = [...existingBlocks, split[0]];
+              if (this.blocksFitLiveMeasurePage(firstPieceTrial, pageIndex, false)) {
+                blocks.splice(candidateIndex, 1, ...split);
+                best = candidateIndex + 1;
+              }
+            }
+          }
           break;
         }
         best = start + count;
@@ -2708,6 +3093,231 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     return this.postProcessPackedPages(pages, blocks.length, hasFooter);
   }
 
+  private getRemainingLiveMeasureAllowancePx(
+    pageBlocks: GenericPreviewBlock[],
+    pageIndex: number,
+    showFooter: boolean
+  ): number {
+    const landscape = this.isLandscapeOrientation();
+    if (!this.canUseLiveGenericMeasure()) {
+      const budget = this.getPageContentBudgetPx(landscape, pageIndex === 0, showFooter);
+      const used = pageBlocks.reduce((sum, block) => sum + this.measureBlockHeight(block, landscape), 0);
+      return Math.max(0, budget - used);
+    }
+
+    const availableBodyBudget = this.getLiveBodyBudgetPx(pageIndex, showFooter);
+    this.configureLiveMeasurePaper(pageIndex, showFooter);
+    this.renderBlocksIntoLiveMeasureBody(pageBlocks);
+    this.forceLiveMeasureLayout();
+    const body = this.genericMeasureBody?.nativeElement;
+    if (!body) {
+      return 0;
+    }
+    const allowance = this.getPageFitAllowancePx(availableBodyBudget, showFooter);
+    const usedHeight = Math.max(body.scrollHeight, this.measureRenderedBodyContentPx(body));
+    return Math.max(0, allowance - usedHeight);
+  }
+
+  private trySplitBlockIntoCurrentPage(
+    block: GenericPreviewBlock,
+    currentPageBlocks: GenericPreviewBlock[],
+    pageIndex: number,
+    showFooter = false
+  ): GenericPreviewBlock[] | null {
+    const landscape = this.isLandscapeOrientation();
+
+    if (Array.isArray(block?.field?._tableRows)) {
+      const split = this.canUseLiveGenericMeasure()
+        ? this.splitTableRowsBlockForLivePage(block.field, currentPageBlocks, pageIndex, showFooter)
+        : this.splitTableRowsBlockForCurrentPage(
+            block.field,
+            landscape,
+            this.getRemainingLiveMeasureAllowancePx(currentPageBlocks, pageIndex, showFooter)
+          );
+      return split.length > 1 ? split : null;
+    }
+
+    const chunkHtml = block?.field?._chunkHtml;
+    if (typeof chunkHtml !== 'string') {
+      return null;
+    }
+
+    if (this.isWordEditorTableFragment(chunkHtml)) {
+      const split = this.canUseLiveGenericMeasure()
+        ? this.splitHtmlTableFragmentForLivePage(
+            block.field,
+            chunkHtml,
+            currentPageBlocks,
+            pageIndex,
+            showFooter
+          )
+        : this.splitHtmlTableFragmentForCurrentPage(
+            block.field,
+            chunkHtml,
+            landscape,
+            this.getRemainingLiveMeasureAllowancePx(currentPageBlocks, pageIndex, showFooter)
+          );
+      return split.length > 1 ? split : null;
+    }
+
+    const remainingBudget = this.getRemainingLiveMeasureAllowancePx(currentPageBlocks, pageIndex, showFooter);
+    if (remainingBudget < 24) {
+      return null;
+    }
+
+    const split = this.splitWordEditorIntoMeasuredBlocks(
+      block.field,
+      chunkHtml,
+      landscape,
+      showFooter,
+      remainingBudget
+    );
+    return split.length > 1 ? split : null;
+  }
+
+  private splitTableRowsBlockForCurrentPage(
+    field: any,
+    landscape: boolean,
+    budget: number
+  ): GenericPreviewBlock[] {
+    const rows = Array.isArray(field?._tableRows) ? field._tableRows : this.getTableData(field);
+    if (!rows.length) {
+      return [];
+    }
+
+    let keepCount = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const trialRows = rows.slice(0, i + 1);
+      const trialBlock: GenericPreviewBlock = { field: { ...field, _tableRows: trialRows } };
+      const trialHeight = this.measureBlockHeight(trialBlock, landscape);
+      if (trialHeight > budget) {
+        break;
+      }
+      keepCount = i + 1;
+    }
+
+    if (keepCount <= 0 || keepCount >= rows.length) {
+      return [{ field: { ...field, _tableRows: rows } }];
+    }
+
+    return [
+      { field: { ...field, _tableRows: rows.slice(0, keepCount) } },
+      { field: { ...field, _tableRows: rows.slice(keepCount) } },
+    ];
+  }
+
+  private splitTableRowsBlockForLivePage(
+    field: any,
+    pageBlocks: GenericPreviewBlock[],
+    pageIndex: number,
+    showFooter: boolean
+  ): GenericPreviewBlock[] {
+    const rows = Array.isArray(field?._tableRows) ? field._tableRows : this.getTableData(field);
+    if (rows.length <= 1) {
+      return rows.length ? [{ field: { ...field, _tableRows: rows } }] : [];
+    }
+
+    let keepCount = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const trialBlock: GenericPreviewBlock = { field: { ...field, _tableRows: rows.slice(0, i + 1) } };
+      if (!this.blocksFitLiveMeasurePage([...pageBlocks, trialBlock], pageIndex, showFooter)) {
+        break;
+      }
+      keepCount = i + 1;
+    }
+
+    if (keepCount <= 0 || keepCount >= rows.length) {
+      return [{ field: { ...field, _tableRows: rows } }];
+    }
+
+    return [
+      { field: { ...field, _tableRows: rows.slice(0, keepCount) } },
+      { field: { ...field, _tableRows: rows.slice(keepCount) } },
+    ];
+  }
+
+  private splitHtmlTableFragmentForCurrentPage(
+    field: any,
+    tableHtml: string,
+    landscape: boolean,
+    budget: number
+  ): GenericPreviewBlock[] {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = tableHtml;
+    const table = wrapper.querySelector('table');
+    if (!table) {
+      return [{ field: { ...field, _chunkHtml: tableHtml } }];
+    }
+
+    const bodyRows = Array.from(table.querySelectorAll('tbody tr'));
+    const rows = bodyRows.length ? bodyRows : Array.from(table.querySelectorAll('tr'));
+    if (rows.length <= 1) {
+      return [{ field: { ...field, _chunkHtml: tableHtml } }];
+    }
+
+    const hasThead = !!table.querySelector('thead');
+    let keepCount = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const trialHtml = this.buildWordEditorTableFromRows(table, rows.slice(0, i + 1), hasThead);
+      const trialBlock: GenericPreviewBlock = { field: { ...field, _chunkHtml: trialHtml } };
+      const trialHeight = this.measureBlockHeight(trialBlock, landscape);
+      if (trialHeight > budget) {
+        break;
+      }
+      keepCount = i + 1;
+    }
+
+    if (keepCount <= 0 || keepCount >= rows.length) {
+      return [{ field: { ...field, _chunkHtml: tableHtml } }];
+    }
+
+    return [
+      { field: { ...field, _chunkHtml: this.buildWordEditorTableFromRows(table, rows.slice(0, keepCount), hasThead) } },
+      { field: { ...field, _chunkHtml: this.buildWordEditorTableFromRows(table, rows.slice(keepCount), hasThead) } },
+    ];
+  }
+
+  private splitHtmlTableFragmentForLivePage(
+    field: any,
+    tableHtml: string,
+    pageBlocks: GenericPreviewBlock[],
+    pageIndex: number,
+    showFooter: boolean
+  ): GenericPreviewBlock[] {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = tableHtml;
+    const table = wrapper.querySelector('table');
+    if (!table) {
+      return [{ field: { ...field, _chunkHtml: tableHtml } }];
+    }
+
+    const bodyRows = Array.from(table.querySelectorAll('tbody tr'));
+    const rows = bodyRows.length ? bodyRows : Array.from(table.querySelectorAll('tr'));
+    if (rows.length <= 1) {
+      return [{ field: { ...field, _chunkHtml: tableHtml } }];
+    }
+
+    const hasThead = !!table.querySelector('thead');
+    let keepCount = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const trialHtml = this.buildWordEditorTableFromRows(table, rows.slice(0, i + 1), hasThead);
+      const trialBlock: GenericPreviewBlock = { field: { ...field, _chunkHtml: trialHtml } };
+      if (!this.blocksFitLiveMeasurePage([...pageBlocks, trialBlock], pageIndex, showFooter)) {
+        break;
+      }
+      keepCount = i + 1;
+    }
+
+    if (keepCount <= 0 || keepCount >= rows.length) {
+      return [{ field: { ...field, _chunkHtml: tableHtml } }];
+    }
+
+    return [
+      { field: { ...field, _chunkHtml: this.buildWordEditorTableFromRows(table, rows.slice(0, keepCount), hasThead) } },
+      { field: { ...field, _chunkHtml: this.buildWordEditorTableFromRows(table, rows.slice(keepCount), hasThead) } },
+    ];
+  }
+
   private postProcessPackedPages(
     pages: GenericPreviewBlock[][],
     expectedBlockCount: number,
@@ -2732,11 +3342,124 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
       result = filled;
     }
 
+    const groupedLeadIn = this.keepLeadInTextWithFollowingTable(result, hasFooter);
+    if (this.countGenericBlocks(groupedLeadIn) === expectedBlockCount) {
+      result = groupedLeadIn;
+    }
+
     if (this.countGenericBlocks(result) !== expectedBlockCount) {
       return pages.map((page) => page.map((block) => ({ field: { ...block.field } })));
     }
 
-    return this.compactTrailingEmptyPages(result);
+    return hasFooter
+      ? this.compactTrailingEmptyPagesPreserveFooterSlot(result, true)
+      : this.compactTrailingEmptyPages(result);
+  }
+
+  private keepLeadInTextWithFollowingTable(
+    pages: GenericPreviewBlock[][],
+    hasFooter: boolean
+  ): GenericPreviewBlock[][] {
+    if (pages.length < 2) {
+      return pages.map((page) => [...page]);
+    }
+
+    const result = pages.map((page) => [...page]);
+    const useLiveMeasure = this.canUseLiveGenericMeasure();
+    const landscape = this.isLandscapeOrientation();
+
+    for (let i = 0; i < result.length - 1; i++) {
+      const currentPage = result[i];
+      const nextPage = result[i + 1];
+      if (currentPage.length <= 1 || !nextPage.length) {
+        continue;
+      }
+
+      const leadingTableBlock = nextPage[0];
+      if (!this.isWordEditorTableBlock(leadingTableBlock)) {
+        continue;
+      }
+
+      const leadInStart = this.findTrailingWordEditorLeadInStart(currentPage, leadingTableBlock);
+      if (leadInStart < 0) {
+        continue;
+      }
+
+      const trailingTextBlocks = currentPage.slice(leadInStart);
+      if (!trailingTextBlocks.length) {
+        continue;
+      }
+
+      const nextPageIndex = i + 1;
+      const showFooter = hasFooter && nextPageIndex === result.length - 1;
+      const groupedNextPage = [...trailingTextBlocks, ...nextPage];
+      const fitsGrouped = useLiveMeasure
+        ? this.blocksFitLiveMeasurePage(groupedNextPage, nextPageIndex, showFooter)
+        : this.blocksFitMeasuredPage(groupedNextPage, landscape, nextPageIndex, showFooter);
+
+      if (!fitsGrouped) {
+        continue;
+      }
+
+      currentPage.splice(leadInStart, trailingTextBlocks.length);
+      nextPage.unshift(...trailingTextBlocks);
+    }
+
+    return hasFooter
+      ? this.compactTrailingEmptyPagesPreserveFooterSlot(result, true)
+      : this.compactTrailingEmptyPages(result);
+  }
+
+  private isWordEditorTextBlock(block: GenericPreviewBlock | null | undefined): boolean {
+    const chunkHtml = block?.field?._chunkHtml;
+    return typeof chunkHtml === 'string'
+      && (this.isWordEditorType(block?.field?.type) || this.isHtmlPreviewField(block?.field))
+      && !this.isWordEditorTableFragment(chunkHtml);
+  }
+
+  private isWordEditorTableBlock(block: GenericPreviewBlock | null | undefined): boolean {
+    const chunkHtml = block?.field?._chunkHtml;
+    return typeof chunkHtml === 'string'
+      && (this.isWordEditorType(block?.field?.type) || this.isHtmlPreviewField(block?.field))
+      && this.isWordEditorTableFragment(chunkHtml);
+  }
+
+  private areBlocksFromSameWordEditorField(
+    first: GenericPreviewBlock | null | undefined,
+    second: GenericPreviewBlock | null | undefined
+  ): boolean {
+    const firstField = first?.field;
+    const secondField = second?.field;
+    if (!firstField || !secondField) {
+      return false;
+    }
+
+    if (firstField.serFieldId && secondField.serFieldId) {
+      return firstField.serFieldId === secondField.serFieldId;
+    }
+
+    return this.getFieldName(String(firstField.label || '')) === this.getFieldName(String(secondField.label || ''))
+      && String(firstField.type || '').toLowerCase() === String(secondField.type || '').toLowerCase();
+  }
+
+  private findTrailingWordEditorLeadInStart(
+    pageBlocks: GenericPreviewBlock[],
+    tableBlock: GenericPreviewBlock | null | undefined
+  ): number {
+    if (!pageBlocks.length || !tableBlock) {
+      return -1;
+    }
+
+    let start = -1;
+    for (let i = pageBlocks.length - 1; i >= 0; i--) {
+      const candidate = pageBlocks[i];
+      if (!this.isWordEditorTextBlock(candidate) || !this.areBlocksFromSameWordEditorField(candidate, tableBlock)) {
+        break;
+      }
+      start = i;
+    }
+
+    return start;
   }
 
   /**
@@ -2874,6 +3597,20 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     return result;
   }
 
+  private compactTrailingEmptyPagesPreserveFooterSlot(
+    pages: GenericPreviewBlock[][],
+    hasFooter: boolean
+  ): GenericPreviewBlock[][] {
+    const result = pages.map((page) => [...page]);
+    while (result.length && !result[result.length - 1].length) {
+      result.pop();
+    }
+    if (hasFooter && pages.length > 0 && pages[pages.length - 1].length === 0) {
+      result.push([]);
+    }
+    return result;
+  }
+
   /** Repack from a flat block list — guarantees every block appears on exactly one page. */
   private repackGenericBlocksFromFlat(
     blocks: GenericPreviewBlock[],
@@ -2929,7 +3666,9 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     if (this.countGenericBlocks(result) !== blocks.length) {
       return pages;
     }
-    return this.compactTrailingEmptyPages(result);
+    return hasFooter
+      ? this.compactTrailingEmptyPagesPreserveFooterSlot(result, true)
+      : this.compactTrailingEmptyPages(result);
   }
 
   /** Trim for footer, then pull blocks forward so pages fill before breaking early. */
@@ -3012,7 +3751,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     let guard = 0;
 
     while (guard++ < 120) {
-      result = this.compactTrailingEmptyPages(result);
+      result = this.compactTrailingEmptyPagesPreserveFooterSlot(result, true);
       if (!result.length) {
         return [[]];
       }
@@ -3032,22 +3771,44 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
       if (lastPage.length === 1) {
         const split = this.trySplitOverflowBlock(lastPage[0], lastIdx, true);
         if (split && split.length > 1) {
+          const repacked = this.packMaxFillGenericBlocks(split, true);
           result.pop();
-          result.push(...split.map((piece) => [piece]));
+          result.push(...repacked);
           if (this.countGenericBlocks(result) !== expected) {
             return pages.map((page) => [...page]);
           }
           continue;
         }
+        if (this.blocksFitLiveMeasurePage(lastPage, lastIdx, false)) {
+          result.push([]);
+          break;
+        }
         break;
+      }
+
+      const priorBlocks = lastPage.slice(0, -1);
+      const trailingBlock = lastPage[lastPage.length - 1];
+      const splitIntoFooterPage = this.trySplitBlockIntoCurrentPage(trailingBlock, priorBlocks, lastIdx, true);
+      if (splitIntoFooterPage && splitIntoFooterPage.length > 1) {
+        const trailingPages = this.packMaxFillGenericBlocks(splitIntoFooterPage.slice(1), true);
+        result.splice(
+          lastIdx,
+          1,
+          [...priorBlocks, splitIntoFooterPage[0]],
+          ...trailingPages
+        );
+        if (this.countGenericBlocks(result) !== expected) {
+          return pages.map((page) => [...page]);
+        }
+        continue;
       }
 
       const moved = lastPage[lastPage.length - 1];
       result[lastIdx] = lastPage.slice(0, -1);
-      result.splice(lastIdx, 0, [moved]);
+      result.splice(lastIdx + 1, 0, [moved]);
     }
 
-    result = this.compactTrailingEmptyPages(result);
+    result = this.compactTrailingEmptyPagesPreserveFooterSlot(result, true);
     if (this.countGenericBlocks(result) !== expected) {
       return pages.map((page) => [...page]);
     }
@@ -3059,6 +3820,17 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     pageIndex: number,
     reserveFooter: boolean
   ): GenericPreviewBlock[] | null {
+    if (Array.isArray(block?.field?._tableRows)) {
+      const split = this.canUseLiveGenericMeasure()
+        ? this.splitTableRowsBlockForLivePage(block.field, [], pageIndex, reserveFooter)
+        : this.splitTableRowsBlockByBudget(
+            block.field,
+            this.isLandscapeOrientation(),
+            this.getPageContentBudgetPx(this.isLandscapeOrientation(), pageIndex === 0, reserveFooter)
+          );
+      return split.length > 1 ? split : null;
+    }
+
     const chunkHtml = block?.field?._chunkHtml;
     if (typeof chunkHtml !== 'string') {
       return null;
@@ -3066,13 +3838,14 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     const landscape = this.isLandscapeOrientation();
 
     if (this.isWordEditorTableFragment(chunkHtml)) {
-      const budget = this.getLiveBodyBudgetPx(pageIndex, reserveFooter);
-      const tableSplit = this.splitHtmlTableByMeasuredRows(
-        block.field,
-        chunkHtml,
-        landscape,
-        budget
-      );
+      const tableSplit = this.canUseLiveGenericMeasure()
+        ? this.splitHtmlTableFragmentForLivePage(block.field, chunkHtml, [], pageIndex, reserveFooter)
+        : this.splitHtmlTableByMeasuredRows(
+            block.field,
+            chunkHtml,
+            landscape,
+            this.getPageContentBudgetPx(landscape, pageIndex === 0, reserveFooter)
+          );
       return tableSplit.length > 1 ? tableSplit : null;
     }
 
@@ -3148,7 +3921,8 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     if (this.canUseLiveGenericMeasure() && liveBody) {
       this.configureLiveMeasurePaper(0, false);
       this.renderBlocksIntoLiveMeasureBody([block]);
-      return Math.max(liveBody.scrollHeight, 1);
+      this.forceLiveMeasureLayout();
+      return Math.max(liveBody.scrollHeight, this.measureRenderedBodyContentPx(liveBody), 1);
     }
 
     const root = this.ensureMeasureRoot(landscape);
@@ -3177,7 +3951,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
             `<tr>${row.map((cell) => `<td>${this.escapeHtml(String(cell ?? '-'))}</td>`).join('')}</tr>`
         )
         .join('');
-      return `<div class="xyz-generic-field"><div class="overflow-x-auto"><table class="xyz-table"><tbody>${rows}</tbody></table></div></div>`;
+      return `<div class="xyz-generic-field"><div class="overflow-x-auto"><table class="xyz-generic-table"><tbody>${rows}</tbody></table></div></div>`;
     }
     const display = this.formatFieldValue(field, this.getFieldValue(field));
     return `<div class="xyz-generic-field"><div class="xyz-generic-value">${this.escapeHtml(String(display ?? ''))}</div></div>`;
@@ -3209,7 +3983,8 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     field: any,
     html: string,
     landscape: boolean,
-    reserveFooter = false
+    reserveFooter = false,
+    budgetOverridePx?: number
   ): GenericPreviewBlock[] {
     const fragments = this.extractWordEditorHtmlFragments(html);
     const blocks: GenericPreviewBlock[] = [];
@@ -3226,6 +4001,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     };
 
     const chunkBudget = () =>
+      budgetOverridePx ??
       this.getPageContentBudgetPx(
         landscape,
         blocks.length === 0 && batch.length === 0,
@@ -3237,9 +4013,13 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
       const singleHeight = this.measureBlockHeight(singleBlock, landscape);
       const budget = chunkBudget();
 
-      if (this.isWordEditorTableFragment(fragment) && singleHeight > budget) {
+      if (singleHeight > budget) {
         flush();
-        blocks.push(...this.splitHtmlTableByMeasuredRows(field, fragment, landscape, budget));
+        if (this.isWordEditorTableFragment(fragment)) {
+          blocks.push(...this.splitHtmlTableByMeasuredRows(field, fragment, landscape, budget));
+        } else {
+          blocks.push(...this.splitPlainTextWordEditorFragment(field, fragment, landscape, budget));
+        }
         continue;
       }
 
@@ -3293,17 +4073,16 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     };
 
     const blockTags = new Set(['p', 'div', 'table', 'ul', 'ol', 'blockquote', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
-
-    for (const node of Array.from(container.childNodes)) {
+    const visitNode = (node: ChildNode) => {
       if (node.nodeType === Node.TEXT_NODE) {
         const text = (node.textContent || '').trim();
         if (text) {
           pushFragment(`<p>${this.escapeHtml(text)}</p>`);
         }
-        continue;
+        return;
       }
       if (node.nodeType !== Node.ELEMENT_NODE) {
-        continue;
+        return;
       }
 
       const el = node as HTMLElement;
@@ -3311,12 +4090,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
 
       if (tag === 'table') {
         pushFragment(el.outerHTML);
-        continue;
-      }
-
-      if (tag === 'div' && el.querySelector('table')) {
-        pushFragment(el.outerHTML);
-        continue;
+        return;
       }
 
       if (tag === 'p' && /<br\s*\/?>/i.test(el.innerHTML)) {
@@ -3325,15 +4099,45 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
           .map((part) => part.trim())
           .filter(Boolean)
           .forEach((part) => pushFragment(`<p>${part}</p>`));
-        continue;
+        return;
+      }
+
+      if (tag === 'br') {
+        return;
+      }
+
+      if (tag === 'div') {
+        const childElements = Array.from(el.children) as HTMLElement[];
+        const hasStructuredChildren = childElements.some((child) => {
+          const childTag = child.tagName.toLowerCase();
+          return childTag === 'table' || blockTags.has(childTag) || childTag.startsWith('h');
+        });
+        const hasMultipleNodes = el.childNodes.length > 1;
+        const hasInlineMarkup = childElements.some((child) => {
+          const childTag = child.tagName.toLowerCase();
+          return childTag === 'span' || childTag === 'strong' || childTag === 'em' || childTag === 'b' || childTag === 'i' || childTag === 'u';
+        });
+        if (hasStructuredChildren || hasMultipleNodes || hasInlineMarkup || /<br\s*\/?>/i.test(el.innerHTML)) {
+          Array.from(el.childNodes).forEach((child) => visitNode(child));
+          return;
+        }
+        const divText = (el.textContent || '').trim();
+        if (divText) {
+          pushFragment(`<p>${this.escapeHtml(divText)}</p>`);
+          return;
+        }
       }
 
       if (blockTags.has(tag) || tag.startsWith('h')) {
         pushFragment(el.outerHTML);
-        continue;
+        return;
       }
 
       pushFragment(el.outerHTML);
+    };
+
+    for (const node of Array.from(container.childNodes)) {
+      visitNode(node);
     }
 
     if (!fragments.length && container.innerHTML.trim()) {
@@ -3349,6 +4153,12 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     includeHeader: boolean
   ): string {
     const table = sourceTable.cloneNode(false) as HTMLTableElement;
+    Array.from(sourceTable.children).forEach((child) => {
+      const tag = child.tagName.toLowerCase();
+      if (tag === 'colgroup') {
+        table.appendChild(child.cloneNode(true));
+      }
+    });
     if (includeHeader) {
       const thead = sourceTable.querySelector('thead');
       if (thead) {
@@ -3407,6 +4217,8 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
 
       if (batch.length > 0 && trialHeight > budget) {
         flushRows();
+        batch = [row];
+        continue;
       }
       batch.push(row);
     }
@@ -3462,6 +4274,16 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
       return [];
     }
 
+    const firstPageBudget = this.getPageContentBudgetPx(landscape, true, false);
+    const rowsPerChunk = this.getEstimatedTableRowsPerChunk(field, rows, landscape, firstPageBudget);
+    if (rowsPerChunk > 1) {
+      const chunks: GenericPreviewBlock[] = [];
+      for (let i = 0; i < rows.length; i += rowsPerChunk) {
+        chunks.push({ field: { ...field, _tableRows: rows.slice(i, i + rowsPerChunk) } });
+      }
+      return chunks;
+    }
+
     const blocks: GenericPreviewBlock[] = [];
     let batch: any[][] = [];
 
@@ -3488,6 +4310,64 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
 
     flush();
     return blocks;
+  }
+
+  private splitTableRowsBlockByBudget(field: any, landscape: boolean, budget: number): GenericPreviewBlock[] {
+    const rows = Array.isArray(field?._tableRows) ? field._tableRows : this.getTableData(field);
+    if (!rows.length) {
+      return [];
+    }
+
+    const rowsPerChunk = this.getEstimatedTableRowsPerChunk(field, rows, landscape, budget);
+    if (rowsPerChunk > 1) {
+      const chunks: GenericPreviewBlock[] = [];
+      for (let i = 0; i < rows.length; i += rowsPerChunk) {
+        chunks.push({ field: { ...field, _tableRows: rows.slice(i, i + rowsPerChunk) } });
+      }
+      return chunks;
+    }
+
+    const blocks: GenericPreviewBlock[] = [];
+    let batch: any[][] = [];
+
+    const flush = () => {
+      if (!batch.length) {
+        return;
+      }
+      blocks.push({ field: { ...field, _tableRows: [...batch] } });
+      batch = [];
+    };
+
+    for (const row of rows) {
+      const trial = [...batch, row];
+      const trialBlock: GenericPreviewBlock = { field: { ...field, _tableRows: trial } };
+      const trialHeight = this.measureBlockHeight(trialBlock, landscape);
+      if (batch.length > 0 && trialHeight > budget) {
+        flush();
+      }
+      batch.push(row);
+    }
+
+    flush();
+    return blocks.length ? blocks : [{ field: { ...field, _tableRows: rows } }];
+  }
+
+  private getEstimatedTableRowsPerChunk(
+    field: any,
+    rows: any[][],
+    landscape: boolean,
+    budget: number
+  ): number {
+    if (!rows.length || budget <= 0) {
+      return 1;
+    }
+
+    const singleRowBlock: GenericPreviewBlock = { field: { ...field, _tableRows: [rows[0]] } };
+    const singleRowHeight = Math.max(1, this.measureBlockHeight(singleRowBlock, landscape));
+    const tableChromePx = 12;
+    const available = Math.max(0, budget - tableChromePx);
+    const estimatedRows = Math.floor(available / singleRowHeight);
+    return Math.max(1, estimatedRows);
   }
 
   private packMeasuredBlocksIntoPages(
@@ -3585,7 +4465,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     const expected = this.countGenericBlocks(result);
     let guard = 0;
     while (guard++ < 120) {
-      result = this.compactTrailingEmptyPages(result);
+      result = this.compactTrailingEmptyPagesPreserveFooterSlot(result, true);
       if (!result.length) {
         break;
       }
@@ -3603,12 +4483,43 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
       }
 
       if (lastPage.length === 1) {
+        const split = this.trySplitOverflowBlock(lastPage[0], lastIdx, true);
+        if (split && split.length > 1) {
+          const repacked = this.packMeasuredBlocksIntoPages(split, landscape, true);
+          result.pop();
+          result.push(...repacked);
+          if (this.countGenericBlocks(result) !== expected) {
+            return pages.map((page) => [...page]);
+          }
+          continue;
+        }
+        if (this.blocksFitMeasuredPage(lastPage, landscape, lastIdx, false)) {
+          result.push([]);
+          break;
+        }
         break;
+      }
+
+      const priorBlocks = lastPage.slice(0, -1);
+      const trailingBlock = lastPage[lastPage.length - 1];
+      const splitIntoFooterPage = this.trySplitBlockIntoCurrentPage(trailingBlock, priorBlocks, lastIdx, true);
+      if (splitIntoFooterPage && splitIntoFooterPage.length > 1) {
+        const trailingPages = this.packMeasuredBlocksIntoPages(splitIntoFooterPage.slice(1), landscape, true);
+        result.splice(
+          lastIdx,
+          1,
+          [...priorBlocks, splitIntoFooterPage[0]],
+          ...trailingPages
+        );
+        if (this.countGenericBlocks(result) !== expected) {
+          return pages.map((page) => [...page]);
+        }
+        continue;
       }
 
       const moved = lastPage[lastPage.length - 1];
       result[lastIdx] = lastPage.slice(0, -1);
-      result.splice(lastIdx, 0, [moved]);
+      result.splice(lastIdx + 1, 0, [moved]);
     }
 
     if (this.countGenericBlocks(result) !== expected) {
@@ -4018,6 +4929,33 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     const wrapper = document.createElement('div');
     wrapper.innerHTML = stripEditorTableChromeFromHtml(html);
 
+    wrapper.querySelectorAll('div,p,ul,ol,li,h1,h2,h3,h4,h5,h6,section,article,aside,header,footer').forEach((node: Element) => {
+      const el = node as HTMLElement;
+      el.style.removeProperty('width');
+      el.style.removeProperty('min-width');
+      el.style.removeProperty('max-width');
+      el.style.removeProperty('margin-left');
+      el.style.removeProperty('margin-right');
+      el.style.removeProperty('left');
+      el.style.removeProperty('right');
+      el.style.removeProperty('position');
+      el.style.removeProperty('float');
+      el.style.maxWidth = '100%';
+      if (el.tagName.toLowerCase() !== 'li') {
+        el.style.width = 'auto';
+      }
+      if (!el.style.boxSizing) {
+        el.style.boxSizing = 'border-box';
+      }
+      if (el.querySelector('table')) {
+        el.style.display = 'block';
+        el.style.width = '100%';
+        el.style.minWidth = '100%';
+        el.style.maxWidth = '100%';
+        el.style.textAlign = 'left';
+      }
+    });
+
     wrapper.querySelectorAll('textarea').forEach((node: HTMLTextAreaElement) => {
       const replacement = document.createElement('div');
       const raw = node.value || node.textContent || '';
@@ -4029,14 +4967,39 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
       node.replaceWith(replacement);
     });
 
+    wrapper.querySelectorAll('.q-table-wrapper').forEach((node: Element) => {
+      const el = node as HTMLElement;
+      el.style.width = '100%';
+      el.style.minWidth = '100%';
+      el.style.maxWidth = '100%';
+      el.style.marginLeft = '0';
+      el.style.marginRight = '0';
+      el.style.boxSizing = 'border-box';
+    });
+
     wrapper.querySelectorAll('table').forEach((table: Element) => {
       const tableEl = table as HTMLElement;
       tableEl.removeAttribute('border');
+      tableEl.removeAttribute('width');
       tableEl.removeAttribute('cellpadding');
       tableEl.removeAttribute('cellspacing');
       tableEl.style.border = 'none';
       tableEl.style.borderCollapse = 'collapse';
       tableEl.style.borderSpacing = '0';
+      tableEl.style.width = '100%';
+      tableEl.style.minWidth = '100%';
+      tableEl.style.maxWidth = '100%';
+      tableEl.style.tableLayout = 'fixed';
+      tableEl.style.marginLeft = '0';
+      tableEl.style.marginRight = '0';
+    });
+
+    wrapper.querySelectorAll('colgroup, col').forEach((node: Element) => {
+      const el = node as HTMLElement;
+      el.removeAttribute('width');
+      el.style.removeProperty('width');
+      el.style.removeProperty('min-width');
+      el.style.removeProperty('max-width');
     });
 
     wrapper.querySelectorAll('tr').forEach((row: Element) => {
@@ -4050,11 +5013,15 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     wrapper.querySelectorAll('td,th').forEach((cell: Element) => {
       const el = cell as HTMLElement;
       el.removeAttribute('border');
+      el.removeAttribute('width');
       el.style.removeProperty('border');
       el.style.removeProperty('border-top');
       el.style.removeProperty('border-right');
       el.style.removeProperty('border-bottom');
       el.style.removeProperty('border-left');
+      el.style.removeProperty('width');
+      el.style.removeProperty('min-width');
+      el.style.removeProperty('max-width');
       el.style.removeProperty('min-height');
       el.style.padding = '6px 6px';
       el.style.lineHeight = '1.35';
@@ -4475,7 +5442,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     if (candidates.length === 0) return null;
     candidates.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
 
-    if (this.isCapfForm() && pipelineOrder >= 0) {
+    if (this.isCapfForm()) {
       const resetToInitiatorT = this.getSendBackToInitiatorResetTime();
       if (resetToInitiatorT > 0) {
         const afterReset = candidates.filter((c) => this.getApprovalEntryTime(c) > resetToInitiatorT);
@@ -4768,12 +5735,14 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
     // CAPF: append final "extra" stages after departmental pipeline.
     if (this.shouldShowCapfExtraStages()) {
       const baseIndex = pipelines.length;
-      cards.push({ pipeline: { type: 'capf_ceo' }, pipelineIndex: baseIndex, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
-      cards.push({ pipeline: { type: 'capf_asset_code' }, pipelineIndex: baseIndex + 1, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
-      cards.push({ pipeline: { type: 'capf_pr_code' }, pipelineIndex: baseIndex + 2, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
-      cards.push({ pipeline: { type: 'capf_po_code' }, pipelineIndex: baseIndex + 3, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
+      if (!this.capfUsesPipelineCeoApproval()) {
+        cards.push({ pipeline: { type: 'capf_ceo' }, pipelineIndex: baseIndex, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
+      }
+      cards.push({ pipeline: { type: 'capf_asset_code' }, pipelineIndex: baseIndex + (this.capfUsesPipelineCeoApproval() ? 0 : 1), approverId: null, approverIndex: 0, totalApproversInStage: 1 });
+      cards.push({ pipeline: { type: 'capf_pr_code' }, pipelineIndex: baseIndex + (this.capfUsesPipelineCeoApproval() ? 1 : 2), approverId: null, approverIndex: 0, totalApproversInStage: 1 });
+      cards.push({ pipeline: { type: 'capf_po_code' }, pipelineIndex: baseIndex + (this.capfUsesPipelineCeoApproval() ? 2 : 3), approverId: null, approverIndex: 0, totalApproversInStage: 1 });
       if (this.shouldShowCapfPoVendorTeStage()) {
-        cards.push({ pipeline: { type: 'capf_po_vendor_te' }, pipelineIndex: baseIndex + 4, approverId: null, approverIndex: 0, totalApproversInStage: 1 });
+        cards.push({ pipeline: { type: 'capf_po_vendor_te' }, pipelineIndex: baseIndex + (this.capfUsesPipelineCeoApproval() ? 3 : 4), approverId: null, approverIndex: 0, totalApproversInStage: 1 });
       }
     }
 
@@ -4801,6 +5770,13 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit {
       return this.getStageStatus(order, deptId ?? undefined);
     }
     return this.getDepartmentHeadStatus(order, deptId ?? undefined, card.approverId);
+  }
+
+  capfUsesPipelineCeoApproval(): boolean {
+    if (!this.isCapfForm()) {
+      return false;
+    }
+    return capfHasPipelineCeoSignatureSlot(this.getPipelineData());
   }
 
   isCapfExtraPipeline(pipeline: any): boolean {

@@ -19,6 +19,16 @@ import {
   getTableBlotInnerHtml,
   stripEditorTableChromeFromHtml,
 } from 'src/app/utils/word-editor-table.util';
+import {
+  WORD_EDITOR_CKEDITOR,
+  WORD_EDITOR_CKEDITOR_CONFIG,
+} from 'src/app/utils/word-editor-ckeditor.util';
+import {
+  DOCUMENT_HEADER_ADDRESS,
+  isDocumentHeaderFieldType,
+  resolveDocumentHeaderBrandTitle,
+  resolveDocumentHeaderLogoPath,
+} from 'src/app/utils/document-header.util';
 
 const Quill: any = QuillNamespace;
 const Q_TABLE_PASTE_GUARD = '__qTablePasteGuard';
@@ -111,6 +121,7 @@ interface CustomForm {
 }
 
 const CAPF_SUBSTITUTE_DEPARTMENT_CONTROL = 'project_substitute_department';
+const APPLICATION_HIDE_CKEDITOR_BADGE_CLASS = 'application-hide-ckeditor-badge';
 
 /** Hardcoded expense lines for EXP / Expense Claim forms (synced to preview + submission JSON). */
 interface ExpenseClaimLineRow {
@@ -118,6 +129,16 @@ interface ExpenseClaimLineRow {
   deptName: string;
   sign: string;
   amount: string;
+}
+
+interface GenericPreviewBlock {
+  field: any;
+}
+
+interface GenericPageRenderSegment {
+  type: 'word' | 'field';
+  html?: SafeHtml;
+  block?: GenericPreviewBlock;
 }
 
 @Component({
@@ -129,6 +150,11 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   @ViewChild(BudgetApprovalComponent) budgetApprovalCmp?: BudgetApprovalComponent;
   @ViewChild('previewCanvas') previewCanvas?: ElementRef<HTMLElement>;
   @ViewChild('previewScale') previewScale?: ElementRef<HTMLElement>;
+  @ViewChild('genericMeasurePaper') genericMeasurePaper?: ElementRef<HTMLElement>;
+  @ViewChild('genericMeasureHeader') genericMeasureHeader?: ElementRef<HTMLElement>;
+  @ViewChild('genericMeasureBody') genericMeasureBody?: ElementRef<HTMLElement>;
+  @ViewChild('genericMeasureFooterSpacer') genericMeasureFooterSpacer?: ElementRef<HTMLElement>;
+  @ViewChild('genericMeasureFooter') genericMeasureFooter?: ElementRef<HTMLElement>;
   search = '';
 
   /** Default number of expense line rows when opening the expense claim form. */
@@ -166,32 +192,25 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     month: 'short',
     year: 'numeric'
   }).replace(/ /g, '-');
-  wordEditorModules = {
-    toolbar: [
-      ['bold', 'italic', 'underline', 'strike'],
-      ['blockquote', 'code-block'],
-      [{ 'header': 1 }, { 'header': 2 }],
-      [{ 'list': 'ordered' }, { 'list': 'bullet' }],
-      [{ 'script': 'sub' }, { 'script': 'super' }],
-      [{ 'indent': '-1' }, { 'indent': '+1' }],
-      [{ 'direction': 'rtl' }],
-      [{ 'size': ['small', false, 'large', 'huge'] }],
-      [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
-      [{ 'color': [] }, { 'background': [] }],
-      [{ 'font': [] }],
-      [{ 'align': [] }],
-      ['clean'],
-    ],
-  };
+  readonly wordEditor = WORD_EDITOR_CKEDITOR;
+  readonly wordEditorConfig = WORD_EDITOR_CKEDITOR_CONFIG;
   private previewFitPending = false;
   private previewFitFrame: number | null = null;
-  /** Generic preview: one continuous list of plain-text lines (body). */
   private genericPreviewLinePages: string[][] = [];
+  genericPages: GenericPreviewBlock[][] = [];
   private genericPreviewLayoutSignature = '';
+  private genericPreviewUsedLiveMeasure = false;
+  private genericMeasureRoot: HTMLElement | null = null;
   /** Approximate wrap width for long unbroken lines (~A4 content width). */
   static readonly GENERIC_PREVIEW_MAX_CHARS_PER_LINE = 88;
   static readonly A4_SHORT_EDGE_MM = 210;
   static readonly A4_LONG_EDGE_MM = 297;
+  private static readonly PAGE_FIT_SAFETY_PX = 6;
+  private static readonly PAGE_FILL_LINE_SLACK_PX = 56;
+  private static readonly FOOTER_PAGE_FILL_SLACK_PX = 24;
+  private static readonly TABLE_SPLIT_SAFETY_PX = 10;
+  /** Matches `.abc-wrapper.embedded .page` width in abc.component.css */
+  static readonly CAPF_PAGE_WIDTH_MM = 280;
   private lastFocusedTableCellByEditor = new WeakMap<any, HTMLTableCellElement>();
   private async buildAttachmentPayload(file: File): Promise<{ fileName: string; mimeType: string; dataUrl: string; base64: string }> {
     return new Promise((resolve, reject) => {
@@ -237,6 +256,8 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   ) { }
 
   ngOnInit() {
+    document.body.classList.add(APPLICATION_HIDE_CKEDITOR_BADGE_CLASS);
+
     const userJson = localStorage.getItem('user');
     let user: {
       cfgTblRole: number | undefined;
@@ -268,10 +289,16 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   ngOnDestroy(): void {
+    document.body.classList.remove(APPLICATION_HIDE_CKEDITOR_BADGE_CLASS);
+
     if (this.previewFitFrame !== null && typeof window !== 'undefined') {
       window.cancelAnimationFrame(this.previewFitFrame);
       this.previewFitFrame = null;
     }
+    if (this.genericMeasureRoot?.parentNode) {
+      this.genericMeasureRoot.parentNode.removeChild(this.genericMeasureRoot);
+    }
+    this.genericMeasureRoot = null;
   }
 
   @HostListener('window:resize')
@@ -484,14 +511,23 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
     previewContentEl.style.transform = 'none';
     previewContentEl.style.transformOrigin = 'top left';
-    this.applyPreviewPaperDimensions(previewContentEl);
+    const isCapfPreview = this.isCapfSelected();
+    if (!isCapfPreview) {
+      this.applyPreviewPaperDimensions(previewContentEl);
+    }
 
     const horizontalSafeInset = 12;
     const horizontalPadding = 12; // 6px left + 6px right on scale host
     const availableWidth = Math.max(canvasEl.clientWidth - horizontalSafeInset, 0);
     const renderableWidth = Math.max(availableWidth - horizontalPadding, 0);
     const paperSize = this.getA4PaperSizeMm();
-    const naturalWidth = this.mmToPx(paperSize.widthMm);
+    const naturalWidth = isCapfPreview
+      ? Math.max(
+        previewContentEl.offsetWidth || 0,
+        previewContentEl.scrollWidth || 0,
+        this.mmToPx(ApplicationComponent.CAPF_PAGE_WIDTH_MM)
+      )
+      : this.mmToPx(paperSize.widthMm);
     const minSheetHeight = this.mmToPx(paperSize.heightMm);
     let naturalHeight = minSheetHeight;
     if (!this.isLandscapeOrientation()) {
@@ -667,40 +703,45 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     return (
       !this.isCapfSelected() &&
       !this.isExpenseClaimSelected() &&
-      !this.isTemporaryAdvanceSlipSelected() &&
       !!this.selectedForm
     );
   }
 
-  /** One A4 sheet = up to N plain-text lines; next line starts the next page immediately. */
-  getGenericPreviewLinePages(): string[][] {
+  getGenericPreviewPages(): GenericPreviewBlock[][] {
     if (!this.shouldUsePaginatedGenericPreview()) {
-      return [['']];
+      return [[]];
     }
-    if (this.genericPreviewLinePages.length > 0) {
-      return this.genericPreviewLinePages;
-    }
-    const lines = this.buildGenericPreviewFlatLines(this.getGenericPreviewFields());
-    return [lines.length > 0 ? lines : ['-']];
+    return this.genericPages.length ? this.genericPages : [[]];
   }
 
-  private rebuildGenericPreviewPagesIfNeeded(): void {
+  private rebuildGenericPreviewPagesIfNeeded(force = false): void {
     if (!this.shouldUsePaginatedGenericPreview()) {
       this.genericPreviewLayoutSignature = '';
       this.genericPreviewLinePages = [];
+      this.genericPreviewUsedLiveMeasure = false;
       return;
     }
 
-    const fields = this.getGenericPreviewFields();
+    const fields = this.getBodyPreviewFields();
     const signature = this.buildGenericPreviewLayoutSignature(fields);
+    const hasLiveMeasure = this.canUseLiveGenericMeasure();
 
-    if (signature === this.genericPreviewLayoutSignature && this.genericPreviewLinePages.length > 0) {
+    if (
+      !force &&
+      signature === this.genericPreviewLayoutSignature &&
+      this.genericPages.length > 0 &&
+      (!hasLiveMeasure || this.genericPreviewUsedLiveMeasure)
+    ) {
       return;
     }
 
-    const lines = this.buildGenericPreviewFlatLines(fields);
-    this.genericPreviewLinePages = [lines.length > 0 ? lines : ['-']];
+    if (!hasLiveMeasure && !force) {
+      return;
+    }
+
+    this.buildGenericPages();
     this.genericPreviewLayoutSignature = signature;
+    this.genericPreviewUsedLiveMeasure = hasLiveMeasure;
   }
 
   private buildGenericPreviewLayoutSignature(fields: FormField[]): string {
@@ -733,6 +774,176 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       fieldValues.join('|'),
       footerSignature
     ].join('::');
+  }
+
+  private buildGenericPreviewLinePages(): void {
+    const lines = this.buildGenericPreviewFlatLines(this.getBodyPreviewFields());
+    const hasFooter = this.hasGenericPreviewFooter();
+    const hasLiveMeasure = this.canUseLiveGenericMeasure();
+
+    if (!hasLiveMeasure) {
+      this.genericPreviewLinePages = [lines.length ? lines : ['-']];
+      this.genericPreviewUsedLiveMeasure = false;
+      return;
+    }
+
+    this.genericPreviewLinePages = this.paginateGenericPreviewLines(lines.length ? lines : ['-'], hasFooter);
+    if (!this.genericPreviewLinePages.length) {
+      this.genericPreviewLinePages = [['-']];
+    }
+    this.genericPreviewUsedLiveMeasure = true;
+  }
+
+  private paginateGenericPreviewLines(lines: string[], hasFooter: boolean): string[][] {
+    if (!lines.length) {
+      return hasFooter ? [['-']] : [['-']];
+    }
+
+    const pages: string[][] = [];
+    let currentPage: string[] = [];
+
+    const flush = () => {
+      if (currentPage.length) {
+        pages.push([...currentPage]);
+        currentPage = [];
+      }
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trial = [...currentPage, line];
+      const pageIndex = pages.length;
+      const isLastLine = i === lines.length - 1;
+      const reserveFooter = hasFooter && isLastLine;
+      const fitsWithoutFooter = this.previewLinesFitPage(trial, pageIndex, false);
+      const fitsWithFooter = !reserveFooter || this.previewLinesFitPage(trial, pageIndex, true);
+
+      if (currentPage.length > 0 && (!fitsWithoutFooter || !fitsWithFooter)) {
+        flush();
+        currentPage = [line];
+        continue;
+      }
+
+      currentPage = trial;
+    }
+
+    flush();
+
+    if (!pages.length) {
+      return [['-']];
+    }
+
+    return hasFooter ? this.trimPreviewLinePagesForFooter(pages) : pages;
+  }
+
+  private trimPreviewLinePagesForFooter(pages: string[][]): string[][] {
+    const result = pages.map((page) => [...page]);
+    let preserveTrailingEmpty = false;
+    let guard = 0;
+
+    while (guard++ < 300 && result.length) {
+      const lastPageIndex = result.length - 1;
+      const lastPage = result[lastPageIndex];
+      if (this.previewLinesFitPage(lastPage, lastPageIndex, true)) {
+        break;
+      }
+      if (lastPage.length <= 1) {
+        if (!this.previewLinesFitPage(lastPage, lastPageIndex, false)) {
+          break;
+        }
+        result.push([]);
+        preserveTrailingEmpty = true;
+        break;
+      }
+      const moved = lastPage.pop();
+      if (moved === undefined) {
+        break;
+      }
+      if (!result[lastPageIndex + 1]) {
+        result.push([]);
+      }
+      result[lastPageIndex + 1].unshift(moved);
+    }
+
+    if (preserveTrailingEmpty && result.length > 0) {
+      while (result.length > 1 && result[result.length - 2].length === 0) {
+        result.splice(result.length - 2, 1);
+      }
+      return result;
+    }
+    return result.filter((page) => page.length > 0);
+  }
+
+  private previewLinesFitPage(lines: string[], pageIndex: number, showFooter: boolean): boolean {
+    if (!this.canUseLiveGenericMeasure()) {
+      return true;
+    }
+
+    const availableBodyBudget = this.getLiveBodyBudgetPx(pageIndex, showFooter);
+    this.configureLiveMeasurePaper(pageIndex, showFooter);
+    this.renderPreviewLinesIntoLiveMeasureBody(lines);
+    this.forceLiveMeasureLayout();
+
+    const body = this.genericMeasureBody?.nativeElement;
+    if (!body) {
+      return true;
+    }
+
+    const hasLinePageContainer = !!body.querySelector('.xyz-generic-content--line-pages');
+    const usedHeight = hasLinePageContainer
+      ? this.measureRenderedBodyContentPx(body)
+      : Math.max(body.scrollHeight, this.measureRenderedBodyContentPx(body));
+    const allowance = Math.max(0, availableBodyBudget - ApplicationComponent.PAGE_FIT_SAFETY_PX);
+    return usedHeight <= allowance;
+  }
+
+  private renderPreviewLinesIntoLiveMeasureBody(lines: string[]): void {
+    const body = this.genericMeasureBody?.nativeElement;
+    if (!body) {
+      return;
+    }
+    body.innerHTML = `
+      <div class="xyz-generic-content--line-pages">
+        ${lines
+          .map((line) => `<div class="xyz-preview-line">${line ? this.escapeHtml(line) : '&nbsp;'}</div>`)
+          .join('')}
+      </div>
+    `;
+  }
+
+  getPageRenderSegments(pageFields: GenericPreviewBlock[]): GenericPageRenderSegment[] {
+    const segments: GenericPageRenderSegment[] = [];
+    let wordHtmlParts: string[] = [];
+
+    const flushWord = () => {
+      if (!wordHtmlParts.length) {
+        return;
+      }
+      segments.push({
+        type: 'word',
+        html: this.sanitizer.bypassSecurityTrustHtml(wordHtmlParts.join('')),
+      });
+      wordHtmlParts = [];
+    };
+
+    for (const block of pageFields || []) {
+      if (this.isWordEditorType(block.field?.type)) {
+        wordHtmlParts.push(this.getWordEditorHtml(block.field));
+      } else {
+        flushWord();
+        segments.push({ type: 'field', block });
+      }
+    }
+    flushWord();
+    return segments;
+  }
+
+  isWordEditorRenderSegment(segment: GenericPageRenderSegment): boolean {
+    return segment.type === 'word';
+  }
+
+  isFieldRenderSegment(segment: GenericPageRenderSegment): boolean {
+    return segment.type === 'field' && !!segment.block;
   }
 
   /** Flatten form body to plain lines in field order (word editor → lines; tables → one line per row). */
@@ -1250,7 +1461,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         formControls[fieldName] = [normalizedFieldType === 'checkbox' ? false : '', validators];
       }
 
-      if (normalizedFieldType === 'document_header' && !this.documentHeaderField) {
+      if (isDocumentHeaderFieldType(normalizedFieldType) && !this.documentHeaderField) {
         this.documentHeaderField = field;
       }
     });
@@ -1281,6 +1492,10 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
   hasSlipPipelineFooter(): boolean {
     return this.getSlipPipelineFooterSections().length > 0;
+  }
+
+  hasGenericPreviewFooter(): boolean {
+    return !!this.getPreviewDepartmentFooterField() || this.hasSlipPipelineFooter();
   }
 
   getSlipPipelineFooterSections(): IndividualPipelineFooterField[] {
@@ -1360,7 +1575,19 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   isDocumentHeaderType(fieldType: string | undefined): boolean {
-    return (fieldType || '').toString().trim().toLowerCase() === 'document_header';
+    return isDocumentHeaderFieldType(fieldType);
+  }
+
+  getDocumentHeaderLogoPath(): string {
+    return resolveDocumentHeaderLogoPath(this.documentHeaderField?.type);
+  }
+
+  getDocumentHeaderBrandTitle(): string {
+    return resolveDocumentHeaderBrandTitle(this.documentHeaderField?.type);
+  }
+
+  getDocumentHeaderBrandAddress(): string {
+    return DOCUMENT_HEADER_ADDRESS;
   }
 
   getDocumentHeaderControl(): FormControl | null {
@@ -1518,32 +1745,10 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     return normalizedType === 'word_editor' || normalizedType === 'wordeditor' || normalizedType === 'rich_text' || normalizedType === 'richtext';
   }
 
-  /** Defer preview pagination so the form control and measure DOM match Quill's latest HTML. */
-  onWordEditorQuillContentChanged(): void {
+  /** Defer preview pagination so the form control and measure DOM match the latest editor HTML. */
+  onWordEditorContentChanged(): void {
     if (typeof window === 'undefined') return;
     setTimeout(() => this.requestPreviewFit(), 0);
-  }
-
-  onWordEditorCreated(fieldName: string, editor: any): void {
-    this.attachExternalTablePasteHandler(editor);
-    this.attachTablePasteGuardsForEditor(editor);
-    editor?.root?.addEventListener('focusin', (event: FocusEvent) => {
-      const target = event.target as HTMLElement | null;
-      const cell = target?.closest('th, td') as HTMLTableCellElement | null;
-      if (cell && editor?.root?.contains(cell)) {
-        this.lastFocusedTableCellByEditor.set(editor, cell);
-      }
-    });
-
-    const toolbarModule = editor?.getModule?.('toolbar');
-    if (toolbarModule) {
-      const toolbarEl = toolbarModule.container as HTMLElement | undefined;
-      if (toolbarEl) {
-        this.ensureToolbarActionButton(toolbarEl, 'tableInsert', () => this.promptAndInsertTable(editor));
-        this.ensureToolbarActionButton(toolbarEl, 'mergeRight', () => this.mergeTableCellRight(editor));
-        this.ensureToolbarActionButton(toolbarEl, 'mergeDown', () => this.mergeTableCellDown(editor));
-      }
-    }
   }
 
   /** See budget-approval TableBlot: Quill paste on quill.root steals clipboard; stop bubble inside table embeds. */
@@ -1578,7 +1783,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         });
       }
     });
-    attachTableSizeControlsForEditor(editor, () => this.onWordEditorQuillContentChanged());
+    attachTableSizeControlsForEditor(editor, () => this.onWordEditorContentChanged());
   }
 
   private attachExternalTablePasteHandler(editor: any): void {
@@ -1928,8 +2133,18 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     );
   }
 
+  private getBodyPreviewFields(): FormField[] {
+    return this.getGenericPreviewFields().filter((field: FormField) =>
+      !this.isAttachmentType(field.type) && !this.isMultiAttachmentType(field.type)
+    );
+  }
+
   isOrientationType(fieldType: string | undefined): boolean {
     return (fieldType || '').toString().trim().toLowerCase() === 'orientation';
+  }
+
+  isMultiAttachmentType(fieldType: string | undefined): boolean {
+    return (fieldType || '').toLowerCase().replace(/\s+/g, '_') === 'multi_attachment';
   }
 
   hasOrientationField(): boolean {
@@ -2007,6 +2222,14 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   getPreviewFieldValue(field: FormField): any {
     const key = this.getFieldName(field.label);
     return this.applicationForm?.get(key)?.value;
+  }
+
+  private getWordEditorHtml(field: FormField | any): string {
+    const raw =
+      field && typeof field === 'object' && typeof field._chunkHtml === 'string'
+        ? field._chunkHtml
+        : String(this.getPreviewFieldValue(field) ?? '');
+    return this.normalizeWordEditorHtmlForDisplay(raw);
   }
 
   getPreviewFieldDisplayValue(field: FormField): string {
@@ -2091,6 +2314,1630 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     });
 
     return wrapper.innerHTML;
+  }
+
+  private canUseLiveGenericMeasure(): boolean {
+    return !!(this.genericMeasurePaper?.nativeElement && this.genericMeasureBody?.nativeElement);
+  }
+
+  private buildGenericPages(): void {
+    if (typeof document === 'undefined') {
+      this.genericPages = [[]];
+      return;
+    }
+
+    const fields = this.getBodyPreviewFields();
+    const landscape = this.isLandscapeOrientation();
+    const hasFooter = this.hasGenericPreviewFooter();
+    const blocks = this.collectAtomicGenericBlocks(fields, landscape);
+
+    this.genericPages = this.canUseLiveGenericMeasure()
+      ? this.paginateGenericBlocksSequentially(blocks, hasFooter)
+      : this.packMeasuredBlocksIntoPages(blocks, landscape, hasFooter);
+    this.genericPreviewUsedLiveMeasure = this.canUseLiveGenericMeasure();
+
+    if (!this.genericPages.length) {
+      this.genericPages = [[]];
+    }
+  }
+
+  private collectAtomicGenericBlocks(fields: FormField[], landscape: boolean): GenericPreviewBlock[] {
+    const blocks: GenericPreviewBlock[] = [];
+    for (const field of fields) {
+      blocks.push(...this.expandFieldToAtomicBlocks(field, landscape));
+    }
+    return blocks;
+  }
+
+  private expandFieldToAtomicBlocks(field: FormField, landscape: boolean): GenericPreviewBlock[] {
+    if (this.isWordEditorType(field?.type)) {
+      const html = this.getWordEditorHtml(field);
+      if (!html.trim()) {
+        return [];
+      }
+      return this.extractWordEditorHtmlFragments(html).map((fragment) => ({
+        field: { ...field, _chunkHtml: fragment },
+      }));
+    }
+
+    if (this.isTableType(field?.type)) {
+      return this.splitTableIntoMeasuredBlocks(field, landscape);
+    }
+
+    const value = this.getPreviewFieldValue(field);
+    if (value === null || value === undefined || value === '') {
+      return [];
+    }
+    return [{ field }];
+  }
+
+  private configureLiveMeasurePaper(pageIndex: number, showFooter: boolean): void {
+    const paper = this.genericMeasurePaper?.nativeElement;
+    const header = this.genericMeasureHeader?.nativeElement;
+    const footerSpacer = this.genericMeasureFooterSpacer?.nativeElement;
+    const footer = this.genericMeasureFooter?.nativeElement;
+
+    if (paper) {
+      const { widthMm, heightMm } = this.getA4PaperSizeMm();
+      paper.style.setProperty('width', `${widthMm}mm`, 'important');
+      paper.style.setProperty('min-width', `${widthMm}mm`, 'important');
+      paper.style.setProperty('max-width', `${widthMm}mm`, 'important');
+      paper.style.setProperty('height', `${heightMm}mm`, 'important');
+      paper.style.setProperty('min-height', `${heightMm}mm`, 'important');
+      paper.style.setProperty('max-height', `${heightMm}mm`, 'important');
+      paper.style.setProperty('overflow', 'hidden', 'important');
+      paper.classList.toggle('xyz-paper--continuation', pageIndex > 0);
+      paper.classList.toggle('xyz-last-page', showFooter);
+      paper.classList.toggle('xyz-paper--footer-pinned', showFooter);
+    }
+
+    if (header) {
+      header.style.display = pageIndex === 0 ? '' : 'none';
+    }
+    if (footer) {
+      footer.style.display = showFooter ? '' : 'none';
+    }
+    if (footerSpacer) {
+      footerSpacer.style.display = showFooter ? '' : 'none';
+    }
+  }
+
+  private hasTableLikePreviewBlock(blocks: GenericPreviewBlock[]): boolean {
+    return (blocks || []).some((block) => {
+      if (Array.isArray(block?.field?._tableRows)) {
+        return true;
+      }
+      const chunkHtml = block?.field?._chunkHtml;
+      return typeof chunkHtml === 'string' && this.isWordEditorTableFragment(chunkHtml);
+    });
+  }
+
+  private getTableFitSafetyPx(blocks: GenericPreviewBlock[]): number {
+    return this.hasTableLikePreviewBlock(blocks)
+      ? ApplicationComponent.TABLE_SPLIT_SAFETY_PX
+      : 0;
+  }
+
+  private getPageFitAllowancePx(clientHeight: number, showFooter: boolean): number {
+    const slack = showFooter
+      ? ApplicationComponent.FOOTER_PAGE_FILL_SLACK_PX
+      : ApplicationComponent.PAGE_FILL_LINE_SLACK_PX;
+    return Math.max(0, clientHeight - ApplicationComponent.PAGE_FIT_SAFETY_PX + slack);
+  }
+
+  private measureRenderedBodyContentPx(body: HTMLElement): number {
+    if (!body.childElementCount) {
+      return 0;
+    }
+    const linePageContainer = body.querySelector('.xyz-generic-content--line-pages') as HTMLElement | null;
+    if (linePageContainer) {
+      const bodyTop = body.getBoundingClientRect().top;
+      const paddingBottom = parseFloat(window.getComputedStyle(body).paddingBottom) || 0;
+      const lines = Array.from(linePageContainer.querySelectorAll('.xyz-preview-line')) as HTMLElement[];
+      const lastVisibleLine = [...lines].reverse().find((line) => {
+        const text = (line.textContent || '').replace(/\u00a0/g, '').trim();
+        return text !== '' || line.getBoundingClientRect().height > 0;
+      }) || lines[lines.length - 1];
+
+      if (lastVisibleLine) {
+        const lastLineRect = lastVisibleLine.getBoundingClientRect();
+        return Math.ceil(Math.max(0, lastLineRect.bottom - bodyTop) + paddingBottom);
+      }
+    }
+
+    const bodyTop = body.getBoundingClientRect().top;
+    let bottom = bodyTop;
+    for (const child of Array.from(body.children) as HTMLElement[]) {
+      const rect = child.getBoundingClientRect();
+      bottom = Math.max(bottom, rect.bottom);
+      bottom = Math.max(bottom, rect.top + child.scrollHeight);
+      for (const descendant of Array.from(child.querySelectorAll('*')) as HTMLElement[]) {
+        const descendantRect = descendant.getBoundingClientRect();
+        bottom = Math.max(bottom, descendantRect.bottom);
+        bottom = Math.max(bottom, descendantRect.top + descendant.scrollHeight);
+      }
+    }
+    const paddingBottom = parseFloat(window.getComputedStyle(body).paddingBottom) || 0;
+    return Math.ceil(bottom - bodyTop + paddingBottom);
+  }
+
+  private renderBlocksIntoLiveMeasureBody(blocks: GenericPreviewBlock[]): void {
+    const body = this.genericMeasureBody?.nativeElement;
+    if (!body) {
+      return;
+    }
+    body.innerHTML = this.renderPageBlocksMeasureHtml(blocks);
+  }
+
+  private renderPageBlocksMeasureHtml(blocks: GenericPreviewBlock[]): string {
+    const parts: string[] = [];
+    let wordHtmlParts: string[] = [];
+
+    const flushWord = () => {
+      if (!wordHtmlParts.length) {
+        return;
+      }
+      parts.push(
+        `<div class="xyz-generic-field"><div class="xyz-generic-word"><div class="ql-editor">${wordHtmlParts.join('')}</div></div></div>`
+      );
+      wordHtmlParts = [];
+    };
+
+    for (const block of blocks) {
+      if (this.isWordEditorType(block.field?.type)) {
+        wordHtmlParts.push(this.getWordEditorHtml(block.field));
+      } else {
+        flushWord();
+        parts.push(this.renderBlockMeasureHtml(block));
+      }
+    }
+    flushWord();
+    return parts.join('');
+  }
+
+  private forceLiveMeasureLayout(): void {
+    const paper = this.genericMeasurePaper?.nativeElement;
+    const body = this.genericMeasureBody?.nativeElement;
+    if (paper) {
+      void paper.offsetHeight;
+    }
+    if (body) {
+      void body.offsetHeight;
+    }
+  }
+
+  private getVisibleElementOuterHeightPx(element?: HTMLElement | null): number {
+    if (!element) {
+      return 0;
+    }
+    const style = window.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden') {
+      return 0;
+    }
+    const rect = element.getBoundingClientRect();
+    const marginTop = parseFloat(style.marginTop) || 0;
+    const marginBottom = parseFloat(style.marginBottom) || 0;
+    return rect.height + marginTop + marginBottom;
+  }
+
+  private getLiveBodyBudgetPx(pageIndex: number, showFooter: boolean): number {
+    const paper = this.genericMeasurePaper?.nativeElement;
+    const header = this.genericMeasureHeader?.nativeElement;
+    const body = this.genericMeasureBody?.nativeElement;
+    const footer = this.genericMeasureFooter?.nativeElement;
+    if (!body) {
+      return this.getPageContentBudgetPx(this.isLandscapeOrientation(), pageIndex === 0, showFooter);
+    }
+
+    this.configureLiveMeasurePaper(pageIndex, showFooter);
+    body.innerHTML = '';
+    this.forceLiveMeasureLayout();
+
+    const liveBodyHeight = body.clientHeight || body.getBoundingClientRect().height || 0;
+    if (liveBodyHeight > 0) {
+      return Math.max(48, Math.floor(liveBodyHeight));
+    }
+
+    if (paper) {
+      const paperHeight = paper.clientHeight || paper.getBoundingClientRect().height || 0;
+      const paperStyle = window.getComputedStyle(paper);
+      const paperVerticalPadding =
+        (parseFloat(paperStyle.paddingTop) || 0) +
+        (parseFloat(paperStyle.paddingBottom) || 0);
+      const headerHeight = pageIndex === 0 ? this.getVisibleElementOuterHeightPx(header) : 0;
+      const footerHeight = showFooter ? this.getVisibleElementOuterHeightPx(footer) : 0;
+      const bodyStyle = window.getComputedStyle(body);
+      const bodyMargins =
+        (parseFloat(bodyStyle.marginTop) || 0) +
+        (parseFloat(bodyStyle.marginBottom) || 0);
+      const available = Math.floor(
+        paperHeight - paperVerticalPadding - headerHeight - footerHeight - bodyMargins
+      );
+      if (available > 0) {
+        return Math.max(48, available);
+      }
+    }
+
+    return Math.max(48, body.clientHeight);
+  }
+
+  private blocksFitLiveMeasurePage(blocks: GenericPreviewBlock[], pageIndex: number, showFooter: boolean): boolean {
+    if (!this.canUseLiveGenericMeasure()) {
+      return this.blocksFitMeasuredPage(blocks, this.isLandscapeOrientation(), pageIndex, showFooter);
+    }
+
+    const availableBodyBudget = this.getLiveBodyBudgetPx(pageIndex, showFooter);
+    this.configureLiveMeasurePaper(pageIndex, showFooter);
+    this.renderBlocksIntoLiveMeasureBody(blocks);
+    this.forceLiveMeasureLayout();
+    const body = this.genericMeasureBody!.nativeElement;
+
+    if (!blocks.length) {
+      const emptyBudget = this.getPageFitAllowancePx(availableBodyBudget, showFooter);
+      return !showFooter || this.getLiveFooterHeightPx() <= emptyBudget + 2;
+    }
+
+    if (body.clientHeight <= 0) {
+      const total = blocks.reduce((sum, block) => sum + this.measureBlockHeight(block, this.isLandscapeOrientation()), 0);
+      return total <= this.getPageContentBudgetPx(this.isLandscapeOrientation(), pageIndex === 0, showFooter);
+    }
+
+    const allowance = this.getPageFitAllowancePx(availableBodyBudget, showFooter);
+    const usedHeight = Math.max(body.scrollHeight, this.measureRenderedBodyContentPx(body));
+    return usedHeight <= allowance;
+  }
+
+  private packMaxFillGenericBlocks(blocks: GenericPreviewBlock[], hasFooter: boolean): GenericPreviewBlock[][] {
+    if (!blocks.length) {
+      return [[]];
+    }
+
+    const pages: GenericPreviewBlock[][] = [];
+    let start = 0;
+
+    while (start < blocks.length) {
+      const pageIndex = pages.length;
+      const remaining = blocks.length - start;
+      let best = start;
+
+      for (let count = 1; count <= remaining; count++) {
+        const trial = blocks.slice(start, start + count);
+        const isLastPage = start + count === blocks.length;
+        const showFooter = hasFooter && isLastPage;
+
+        if (!this.blocksFitLiveMeasurePage(trial, pageIndex, showFooter)) {
+          const candidateIndex = start + count - 1;
+          const existingBlocks = blocks.slice(start, candidateIndex);
+          if (existingBlocks.length > 0) {
+            const split = this.trySplitBlockIntoCurrentPage(
+              blocks[candidateIndex],
+              existingBlocks,
+              pageIndex,
+              showFooter
+            );
+            if (split && split.length > 1) {
+              const firstPieceTrial = [...existingBlocks, split[0]];
+              if (this.blocksFitLiveMeasurePage(firstPieceTrial, pageIndex, false)) {
+                blocks.splice(candidateIndex, 1, ...split);
+                best = candidateIndex + 1;
+              }
+            }
+          }
+          break;
+        }
+        best = start + count;
+      }
+
+      if (best === start) {
+        const showFooter = hasFooter && blocks.length === start + 1;
+        const split = this.trySplitOverflowBlock(blocks[start], pageIndex, showFooter);
+        if (split && split.length > 1) {
+          blocks.splice(start, 1, ...split);
+          continue;
+        }
+        best = start + 1;
+      }
+
+      pages.push(blocks.slice(start, best).map((block) => ({ field: { ...block.field } })));
+      start = best;
+    }
+
+    return this.postProcessPackedPages(pages, blocks.length, hasFooter);
+  }
+
+  /**
+   * Strict in-order pagination for live preview.
+   * Every block is placed exactly once, and overflow blocks are split before retrying.
+   * This is intentionally conservative so page-breaks never drop content.
+   */
+  private paginateGenericBlocksSequentially(
+    sourceBlocks: GenericPreviewBlock[],
+    hasFooter: boolean
+  ): GenericPreviewBlock[][] {
+    if (!sourceBlocks.length) {
+      return hasFooter ? [[]] : [[]];
+    }
+
+    const blocks = sourceBlocks.map((block) => ({ field: { ...block.field } }));
+    const pages: GenericPreviewBlock[][] = [];
+    let currentPage: GenericPreviewBlock[] = [];
+    let index = 0;
+    let guard = 0;
+
+    const flushPage = () => {
+      pages.push(currentPage.map((block) => ({ field: { ...block.field } })));
+      currentPage = [];
+    };
+
+    while (index < blocks.length && guard++ < 4000) {
+      const pageIndex = pages.length;
+      let block = blocks[index];
+      const isLastBlock = index === blocks.length - 1;
+      const showFooterIfPlacedHere = hasFooter && isLastBlock;
+
+      if (!currentPage.length && !this.blocksFitLiveMeasurePage([block], pageIndex, showFooterIfPlacedHere)) {
+        const split = this.trySplitOverflowBlock(block, pageIndex, showFooterIfPlacedHere);
+        if (split && split.length > 1) {
+          blocks.splice(index, 1, ...split);
+          continue;
+        }
+      }
+
+      const trial = [...currentPage, block];
+      const fitsWithoutFooter = this.blocksFitLiveMeasurePage(trial, pageIndex, false);
+      const fitsWithFooter =
+        !showFooterIfPlacedHere || this.blocksFitLiveMeasurePage(trial, pageIndex, true);
+
+      if (fitsWithoutFooter && fitsWithFooter) {
+        currentPage = trial;
+        index += 1;
+        continue;
+      }
+
+      if (currentPage.length > 0) {
+        const split = this.trySplitBlockIntoCurrentPage(block, currentPage, pageIndex, showFooterIfPlacedHere);
+        if (split && split.length > 1) {
+          blocks.splice(index, 1, ...split);
+          continue;
+        }
+        flushPage();
+        continue;
+      }
+
+      const split = this.trySplitOverflowBlock(block, pageIndex, showFooterIfPlacedHere);
+      if (split && split.length > 1) {
+        blocks.splice(index, 1, ...split);
+        continue;
+      }
+
+      currentPage = [block];
+      index += 1;
+      flushPage();
+    }
+
+    if (currentPage.length) {
+      flushPage();
+    }
+
+    if (!pages.length) {
+      return hasFooter ? [[]] : [[]];
+    }
+
+    return hasFooter
+      ? this.compactTrailingEmptyPagesPreserveFooterSlot(this.trimLastPageForFooter(pages), true)
+      : this.compactTrailingEmptyPages(pages);
+  }
+
+  private getRemainingLiveMeasureAllowancePx(pageBlocks: GenericPreviewBlock[], pageIndex: number, showFooter: boolean): number {
+    if (!this.canUseLiveGenericMeasure()) {
+      const budget = this.getPageContentBudgetPx(this.isLandscapeOrientation(), pageIndex === 0, showFooter);
+      const used = pageBlocks.reduce((sum, block) => sum + this.measureBlockHeight(block, this.isLandscapeOrientation()), 0);
+      return Math.max(0, budget - used);
+    }
+
+    const availableBodyBudget = this.getLiveBodyBudgetPx(pageIndex, showFooter);
+    this.configureLiveMeasurePaper(pageIndex, showFooter);
+    this.renderBlocksIntoLiveMeasureBody(pageBlocks);
+    this.forceLiveMeasureLayout();
+    const body = this.genericMeasureBody?.nativeElement;
+    if (!body) {
+      return 0;
+    }
+    const allowance = this.getPageFitAllowancePx(availableBodyBudget, showFooter);
+    const usedHeight = Math.max(body.scrollHeight, this.measureRenderedBodyContentPx(body));
+    return Math.max(0, allowance - usedHeight);
+  }
+
+  private trySplitBlockIntoCurrentPage(
+    block: GenericPreviewBlock,
+    currentPageBlocks: GenericPreviewBlock[],
+    pageIndex: number,
+    showFooter: boolean
+  ): GenericPreviewBlock[] | null {
+    if (Array.isArray(block?.field?._tableRows)) {
+      const split = this.canUseLiveGenericMeasure()
+        ? this.splitTableRowsBlockForLivePage(block.field, currentPageBlocks, pageIndex, showFooter)
+        : this.splitTableRowsBlockForCurrentPage(
+            block.field,
+            this.isLandscapeOrientation(),
+            this.getRemainingLiveMeasureAllowancePx(currentPageBlocks, pageIndex, showFooter)
+          );
+      return split.length > 1 ? split : null;
+    }
+
+    const chunkHtml = block?.field?._chunkHtml;
+    if (typeof chunkHtml !== 'string') {
+      return null;
+    }
+
+    if (this.isWordEditorTableFragment(chunkHtml)) {
+      const split = this.canUseLiveGenericMeasure()
+        ? this.splitHtmlTableFragmentForLivePage(
+            block.field,
+            chunkHtml,
+            currentPageBlocks,
+            pageIndex,
+            showFooter
+          )
+        : this.splitHtmlTableFragmentForCurrentPage(
+            block.field,
+            chunkHtml,
+            this.isLandscapeOrientation(),
+            this.getRemainingLiveMeasureAllowancePx(currentPageBlocks, pageIndex, showFooter)
+          );
+      return split.length > 1 ? split : null;
+    }
+
+    const remainingBudget = this.getRemainingLiveMeasureAllowancePx(currentPageBlocks, pageIndex, showFooter);
+    if (remainingBudget < 24) {
+      return null;
+    }
+
+    const split = this.splitWordEditorIntoMeasuredBlocks(
+      block.field,
+      chunkHtml,
+      this.isLandscapeOrientation(),
+      showFooter,
+      remainingBudget
+    );
+    return split.length > 1 ? split : null;
+  }
+
+  private splitTableRowsBlockForCurrentPage(
+    field: FormField | any,
+    landscape: boolean,
+    budget: number
+  ): GenericPreviewBlock[] {
+    const rows = Array.isArray(field?._tableRows) ? field._tableRows : this.getPreviewTableValue(field);
+    if (!rows.length) {
+      return [];
+    }
+
+    let keepCount = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const trialRows = rows.slice(0, i + 1);
+      const trialBlock: GenericPreviewBlock = { field: { ...field, _tableRows: trialRows } };
+      const trialHeight = this.measureBlockHeight(trialBlock, landscape);
+      if (trialHeight > budget) {
+        break;
+      }
+      keepCount = i + 1;
+    }
+
+    if (keepCount <= 0 || keepCount >= rows.length) {
+      return [{ field: { ...field, _tableRows: rows } }];
+    }
+
+    return [
+      { field: { ...field, _tableRows: rows.slice(0, keepCount) } },
+      { field: { ...field, _tableRows: rows.slice(keepCount) } },
+    ];
+  }
+
+  private splitTableRowsBlockForLivePage(
+    field: FormField | any,
+    pageBlocks: GenericPreviewBlock[],
+    pageIndex: number,
+    showFooter: boolean
+  ): GenericPreviewBlock[] {
+    const rows = Array.isArray(field?._tableRows) ? field._tableRows : this.getPreviewTableValue(field);
+    if (rows.length <= 1) {
+      return rows.length ? [{ field: { ...field, _tableRows: rows } }] : [];
+    }
+
+    let keepCount = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const trialBlock: GenericPreviewBlock = { field: { ...field, _tableRows: rows.slice(0, i + 1) } };
+      if (!this.blocksFitLiveMeasurePage([...pageBlocks, trialBlock], pageIndex, showFooter)) {
+        break;
+      }
+      keepCount = i + 1;
+    }
+
+    if (keepCount <= 0 || keepCount >= rows.length) {
+      return [{ field: { ...field, _tableRows: rows } }];
+    }
+
+    return [
+      { field: { ...field, _tableRows: rows.slice(0, keepCount) } },
+      { field: { ...field, _tableRows: rows.slice(keepCount) } },
+    ];
+  }
+
+  private splitHtmlTableFragmentForCurrentPage(
+    field: FormField | any,
+    tableHtml: string,
+    landscape: boolean,
+    budget: number
+  ): GenericPreviewBlock[] {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = tableHtml;
+    const table = wrapper.querySelector('table');
+    if (!table) {
+      return [{ field: { ...field, _chunkHtml: tableHtml } }];
+    }
+
+    const bodyRows = Array.from(table.querySelectorAll('tbody tr'));
+    const rows = bodyRows.length ? bodyRows : Array.from(table.querySelectorAll('tr'));
+    if (rows.length <= 1) {
+      return [{ field: { ...field, _chunkHtml: tableHtml } }];
+    }
+
+    const hasThead = !!table.querySelector('thead');
+    let keepCount = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const trialHtml = this.buildWordEditorTableFromRows(table, rows.slice(0, i + 1), hasThead);
+      const trialBlock: GenericPreviewBlock = { field: { ...field, _chunkHtml: trialHtml } };
+      const trialHeight = this.measureBlockHeight(trialBlock, landscape);
+      if (trialHeight > budget) {
+        break;
+      }
+      keepCount = i + 1;
+    }
+
+    if (keepCount <= 0 || keepCount >= rows.length) {
+      return [{ field: { ...field, _chunkHtml: tableHtml } }];
+    }
+
+    return [
+      { field: { ...field, _chunkHtml: this.buildWordEditorTableFromRows(table, rows.slice(0, keepCount), hasThead) } },
+      { field: { ...field, _chunkHtml: this.buildWordEditorTableFromRows(table, rows.slice(keepCount), hasThead) } },
+    ];
+  }
+
+  private splitHtmlTableFragmentForLivePage(
+    field: FormField | any,
+    tableHtml: string,
+    pageBlocks: GenericPreviewBlock[],
+    pageIndex: number,
+    showFooter: boolean
+  ): GenericPreviewBlock[] {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = tableHtml;
+    const table = wrapper.querySelector('table');
+    if (!table) {
+      return [{ field: { ...field, _chunkHtml: tableHtml } }];
+    }
+
+    const bodyRows = Array.from(table.querySelectorAll('tbody tr'));
+    const rows = bodyRows.length ? bodyRows : Array.from(table.querySelectorAll('tr'));
+    if (rows.length <= 1) {
+      return [{ field: { ...field, _chunkHtml: tableHtml } }];
+    }
+
+    const hasThead = !!table.querySelector('thead');
+    let keepCount = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const trialHtml = this.buildWordEditorTableFromRows(table, rows.slice(0, i + 1), hasThead);
+      const trialBlock: GenericPreviewBlock = { field: { ...field, _chunkHtml: trialHtml } };
+      if (!this.blocksFitLiveMeasurePage([...pageBlocks, trialBlock], pageIndex, showFooter)) {
+        break;
+      }
+      keepCount = i + 1;
+    }
+
+    if (keepCount <= 0 || keepCount >= rows.length) {
+      return [{ field: { ...field, _chunkHtml: tableHtml } }];
+    }
+
+    return [
+      { field: { ...field, _chunkHtml: this.buildWordEditorTableFromRows(table, rows.slice(0, keepCount), hasThead) } },
+      { field: { ...field, _chunkHtml: this.buildWordEditorTableFromRows(table, rows.slice(keepCount), hasThead) } },
+    ];
+  }
+
+  private postProcessPackedPages(
+    pages: GenericPreviewBlock[][],
+    expectedBlockCount: number,
+    hasFooter: boolean
+  ): GenericPreviewBlock[][] {
+    let result = pages.map((page) => page.map((block) => ({ field: { ...block.field } })));
+
+    if (hasFooter) {
+      const trimmed = this.trimLastPageForFooter(result);
+      if (this.countGenericBlocks(trimmed) === expectedBlockCount) {
+        result = trimmed;
+      }
+    }
+
+    const densified = this.densifyGenericPages(result);
+    if (this.countGenericBlocks(densified) === expectedBlockCount) {
+      result = densified;
+    }
+
+    const filled = this.fillNonLastPagesGreedy(result);
+    if (this.countGenericBlocks(filled) === expectedBlockCount) {
+      result = filled;
+    }
+
+    const groupedLeadIn = this.keepLeadInTextWithFollowingTable(result, hasFooter);
+    if (this.countGenericBlocks(groupedLeadIn) === expectedBlockCount) {
+      result = groupedLeadIn;
+    }
+
+    if (this.countGenericBlocks(result) !== expectedBlockCount) {
+      return pages.map((page) => page.map((block) => ({ field: { ...block.field } })));
+    }
+
+    return hasFooter
+      ? this.compactTrailingEmptyPagesPreserveFooterSlot(result, true)
+      : this.compactTrailingEmptyPages(result);
+  }
+
+  private keepLeadInTextWithFollowingTable(
+    pages: GenericPreviewBlock[][],
+    hasFooter: boolean
+  ): GenericPreviewBlock[][] {
+    if (pages.length < 2) {
+      return pages.map((page) => [...page]);
+    }
+
+    const result = pages.map((page) => [...page]);
+    const useLiveMeasure = this.canUseLiveGenericMeasure();
+    const landscape = this.isLandscapeOrientation();
+
+    for (let i = 0; i < result.length - 1; i++) {
+      const currentPage = result[i];
+      const nextPage = result[i + 1];
+      if (currentPage.length <= 1 || !nextPage.length) {
+        continue;
+      }
+
+      const leadingTableBlock = nextPage[0];
+      if (!this.isWordEditorTableBlock(leadingTableBlock)) {
+        continue;
+      }
+
+      const leadInStart = this.findTrailingWordEditorLeadInStart(currentPage, leadingTableBlock);
+      if (leadInStart < 0) {
+        continue;
+      }
+
+      const trailingTextBlocks = currentPage.slice(leadInStart);
+      if (!trailingTextBlocks.length) {
+        continue;
+      }
+
+      const nextPageIndex = i + 1;
+      const showFooter = hasFooter && nextPageIndex === result.length - 1;
+      const groupedNextPage = [...trailingTextBlocks, ...nextPage];
+      const fitsGrouped = useLiveMeasure
+        ? this.blocksFitLiveMeasurePage(groupedNextPage, nextPageIndex, showFooter)
+        : this.blocksFitMeasuredPage(groupedNextPage, landscape, nextPageIndex, showFooter);
+
+      if (!fitsGrouped) {
+        continue;
+      }
+
+      currentPage.splice(leadInStart, trailingTextBlocks.length);
+      nextPage.unshift(...trailingTextBlocks);
+    }
+
+    return hasFooter
+      ? this.compactTrailingEmptyPagesPreserveFooterSlot(result, true)
+      : this.compactTrailingEmptyPages(result);
+  }
+
+  private isWordEditorTextBlock(block: GenericPreviewBlock | null | undefined): boolean {
+    const chunkHtml = block?.field?._chunkHtml;
+    return typeof chunkHtml === 'string'
+      && this.isWordEditorType(block?.field?.type)
+      && !this.isWordEditorTableFragment(chunkHtml);
+  }
+
+  private isWordEditorTableBlock(block: GenericPreviewBlock | null | undefined): boolean {
+    const chunkHtml = block?.field?._chunkHtml;
+    return typeof chunkHtml === 'string'
+      && this.isWordEditorType(block?.field?.type)
+      && this.isWordEditorTableFragment(chunkHtml);
+  }
+
+  private areBlocksFromSameWordEditorField(
+    first: GenericPreviewBlock | null | undefined,
+    second: GenericPreviewBlock | null | undefined
+  ): boolean {
+    const firstField = first?.field;
+    const secondField = second?.field;
+    if (!firstField || !secondField) {
+      return false;
+    }
+
+    if (firstField.serFieldId && secondField.serFieldId) {
+      return firstField.serFieldId === secondField.serFieldId;
+    }
+
+    return this.getFieldName(String(firstField.label || '')) === this.getFieldName(String(secondField.label || ''))
+      && String(firstField.type || '').toLowerCase() === String(secondField.type || '').toLowerCase();
+  }
+
+  private findTrailingWordEditorLeadInStart(
+    pageBlocks: GenericPreviewBlock[],
+    tableBlock: GenericPreviewBlock | null | undefined
+  ): number {
+    if (!pageBlocks.length || !tableBlock) {
+      return -1;
+    }
+
+    let start = -1;
+    for (let i = pageBlocks.length - 1; i >= 0; i--) {
+      const candidate = pageBlocks[i];
+      if (!this.isWordEditorTextBlock(candidate) || !this.areBlocksFromSameWordEditorField(candidate, tableBlock)) {
+        break;
+      }
+      start = i;
+    }
+
+    return start;
+  }
+
+  private fillNonLastPagesGreedy(pages: GenericPreviewBlock[][]): GenericPreviewBlock[][] {
+    if (!this.canUseLiveGenericMeasure()) {
+      return pages.map((page) => [...page]);
+    }
+
+    const expected = this.countGenericBlocks(pages);
+    let result = pages.map((page) => [...page]);
+    let changed = true;
+    let guard = 0;
+
+    while (changed && guard++ < 40) {
+      changed = false;
+
+      for (let i = 0; i < result.length - 1; i++) {
+        const nextPage = result[i + 1];
+        if (!nextPage?.length) {
+          continue;
+        }
+
+        let lo = 0;
+        let hi = nextPage.length;
+        while (lo < hi) {
+          const mid = Math.ceil((lo + hi) / 2);
+          const trial = [...result[i], ...nextPage.slice(0, mid)];
+          if (this.blocksFitLiveMeasurePage(trial, i, false)) {
+            lo = mid;
+          } else {
+            hi = mid - 1;
+          }
+        }
+
+        if (lo > 0) {
+          result[i] = [...result[i], ...nextPage.slice(0, lo)];
+          result[i + 1] = nextPage.slice(lo);
+          if (!result[i + 1].length) {
+            result.splice(i + 1, 1);
+          }
+          changed = true;
+        }
+      }
+    }
+
+    result = this.compactTrailingEmptyPages(result);
+    return this.countGenericBlocks(result) === expected ? result : pages.map((page) => [...page]);
+  }
+
+  private getLiveFooterHeightPx(): number {
+    const footer = this.genericMeasureFooter?.nativeElement;
+    if (!footer) {
+      return 0;
+    }
+    const prevDisplay = footer.style.display;
+    footer.style.display = '';
+    const height = footer.offsetHeight;
+    footer.style.display = prevDisplay;
+    return height;
+  }
+
+  private countGenericBlocks(pages: GenericPreviewBlock[][]): number {
+    return pages.reduce((sum, page) => sum + page.length, 0);
+  }
+
+  private compactTrailingEmptyPages(pages: GenericPreviewBlock[][]): GenericPreviewBlock[][] {
+    const result = pages.map((page) => [...page]);
+    while (result.length && !result[result.length - 1].length) {
+      result.pop();
+    }
+    return result;
+  }
+
+  private compactTrailingEmptyPagesPreserveFooterSlot(
+    pages: GenericPreviewBlock[][],
+    hasFooter: boolean
+  ): GenericPreviewBlock[][] {
+    const result = pages.map((page) => [...page]);
+    while (result.length && !result[result.length - 1].length) {
+      result.pop();
+    }
+    if (hasFooter && pages.length > 0 && pages[pages.length - 1].length === 0) {
+      result.push([]);
+    }
+    return result;
+  }
+
+  private densifyGenericPages(pages: GenericPreviewBlock[][]): GenericPreviewBlock[][] {
+    if (!this.canUseLiveGenericMeasure()) {
+      return pages.map((page) => [...page]);
+    }
+
+    const expected = this.countGenericBlocks(pages);
+    let result = pages.map((page) => [...page]);
+    let changed = true;
+    let guard = 0;
+
+    while (changed && guard++ < 120) {
+      changed = false;
+
+      for (let i = 0; i < result.length - 1; i++) {
+        const nextPage = result[i + 1];
+        if (!nextPage?.length) {
+          continue;
+        }
+
+        let lo = 0;
+        let hi = nextPage.length;
+        while (lo < hi) {
+          const mid = Math.ceil((lo + hi) / 2);
+          const trial = [...result[i], ...nextPage.slice(0, mid)];
+          if (this.blocksFitLiveMeasurePage(trial, i, false)) {
+            lo = mid;
+          } else {
+            hi = mid - 1;
+          }
+        }
+
+        if (lo > 0) {
+          result[i] = [...result[i], ...nextPage.slice(0, lo)];
+          result[i + 1] = nextPage.slice(lo);
+          if (!result[i + 1].length) {
+            result.splice(i + 1, 1);
+          }
+          changed = true;
+          break;
+        }
+      }
+    }
+
+    return this.countGenericBlocks(result) === expected ? result : pages.map((page) => [...page]);
+  }
+
+  private trimLastPageForFooter(pages: GenericPreviewBlock[][]): GenericPreviewBlock[][] {
+    const expected = this.countGenericBlocks(pages);
+    let result = pages.map((page) => [...page]);
+    let guard = 0;
+
+    while (guard++ < 120) {
+      result = this.compactTrailingEmptyPagesPreserveFooterSlot(result, true);
+      if (!result.length) {
+        return [[]];
+      }
+
+      const lastIdx = result.length - 1;
+      const lastPage = result[lastIdx];
+
+      if (!lastPage.length) {
+        result.pop();
+        continue;
+      }
+
+      if (this.blocksFitLiveMeasurePage(lastPage, lastIdx, true)) {
+        break;
+      }
+
+      if (lastPage.length === 1) {
+        const split = this.trySplitOverflowBlock(lastPage[0], lastIdx, true);
+        if (split && split.length > 1) {
+          const repacked = this.packMaxFillGenericBlocks(split, true);
+          result.pop();
+          result.push(...repacked);
+          if (this.countGenericBlocks(result) !== expected) {
+            return pages.map((page) => [...page]);
+          }
+          continue;
+        }
+        if (this.blocksFitLiveMeasurePage(lastPage, lastIdx, false)) {
+          result.push([]);
+          break;
+        }
+        break;
+      }
+
+      const priorBlocks = lastPage.slice(0, -1);
+      const trailingBlock = lastPage[lastPage.length - 1];
+      const splitIntoFooterPage = this.trySplitBlockIntoCurrentPage(trailingBlock, priorBlocks, lastIdx, true);
+      if (splitIntoFooterPage && splitIntoFooterPage.length > 1) {
+        const trailingPages = this.packMaxFillGenericBlocks(splitIntoFooterPage.slice(1), true);
+        result.splice(
+          lastIdx,
+          1,
+          [...priorBlocks, splitIntoFooterPage[0]],
+          ...trailingPages
+        );
+        if (this.countGenericBlocks(result) !== expected) {
+          return pages.map((page) => [...page]);
+        }
+        continue;
+      }
+
+      const moved = lastPage[lastPage.length - 1];
+      result[lastIdx] = lastPage.slice(0, -1);
+      result.splice(lastIdx + 1, 0, [moved]);
+    }
+
+    result = this.compactTrailingEmptyPagesPreserveFooterSlot(result, true);
+    return this.countGenericBlocks(result) === expected ? (result.length ? result : [[]]) : pages.map((page) => [...page]);
+  }
+
+  private trySplitOverflowBlock(
+    block: GenericPreviewBlock,
+    pageIndex: number,
+    reserveFooter: boolean
+  ): GenericPreviewBlock[] | null {
+    if (Array.isArray(block?.field?._tableRows)) {
+      const split = this.canUseLiveGenericMeasure()
+        ? this.splitTableRowsBlockForLivePage(block.field, [], pageIndex, reserveFooter)
+        : this.splitTableRowsBlockByBudget(
+            block.field,
+            this.isLandscapeOrientation(),
+            this.getPageContentBudgetPx(this.isLandscapeOrientation(), pageIndex === 0, reserveFooter)
+          );
+      return split.length > 1 ? split : null;
+    }
+
+    const chunkHtml = block?.field?._chunkHtml;
+    if (typeof chunkHtml !== 'string') {
+      return null;
+    }
+
+    if (this.isWordEditorTableFragment(chunkHtml)) {
+      const tableSplit = this.canUseLiveGenericMeasure()
+        ? this.splitHtmlTableFragmentForLivePage(block.field, chunkHtml, [], pageIndex, reserveFooter)
+        : this.splitHtmlTableByMeasuredRows(
+            block.field,
+            chunkHtml,
+            this.isLandscapeOrientation(),
+            this.getPageContentBudgetPx(this.isLandscapeOrientation(), pageIndex === 0, reserveFooter)
+          );
+      return tableSplit.length > 1 ? tableSplit : null;
+    }
+
+    const split = this.splitWordEditorIntoMeasuredBlocks(block.field, chunkHtml, this.isLandscapeOrientation(), reserveFooter);
+    return split.length > 1 ? split : null;
+  }
+
+  private ensureMeasureRoot(landscape: boolean): HTMLElement {
+    if (!this.genericMeasureRoot) {
+      const root = document.createElement('div');
+      root.className = 'app-preview-measure';
+      root.setAttribute('aria-hidden', 'true');
+      Object.assign(root.style, {
+        position: 'fixed',
+        left: '-10000px',
+        top: '0',
+        visibility: 'hidden',
+        pointerEvents: 'none',
+        zIndex: '-1',
+        boxSizing: 'border-box',
+      });
+      document.body.appendChild(root);
+      this.genericMeasureRoot = root;
+    }
+
+    const widthMm = landscape ? ApplicationComponent.A4_LONG_EDGE_MM : ApplicationComponent.A4_SHORT_EDGE_MM;
+    this.genericMeasureRoot.style.width = `${widthMm}mm`;
+    this.genericMeasureRoot.style.padding = landscape ? '10mm 10mm 10mm 12mm' : '18mm 16mm 16mm 16mm';
+    this.genericMeasureRoot.innerHTML = '';
+    return this.genericMeasureRoot;
+  }
+
+  private getPageContentBudgetPx(landscape: boolean, isFirstPage: boolean, reserveFooter: boolean): number {
+    const liveBody = this.genericMeasureBody?.nativeElement;
+    if (this.canUseLiveGenericMeasure() && liveBody) {
+      this.configureLiveMeasurePaper(isFirstPage ? 0 : 1, reserveFooter);
+      liveBody.innerHTML = '';
+      this.forceLiveMeasureLayout();
+      return Math.max(48, liveBody.clientHeight);
+    }
+
+    const paperHeightMm = landscape ? ApplicationComponent.A4_SHORT_EDGE_MM : ApplicationComponent.A4_LONG_EDGE_MM;
+    const paperPx = this.mmToPx(paperHeightMm);
+    const verticalPaddingPx = this.mmToPx(landscape ? 20 : 34);
+    const headerPx = isFirstPage ? this.mmToPx(landscape ? 54 : 58) : 0;
+    const footerPx = reserveFooter ? this.mmToPx(landscape ? 54 : 50) : 0;
+    return Math.max(48, paperPx - verticalPaddingPx - headerPx - footerPx);
+  }
+
+  private measureBlockHeight(block: GenericPreviewBlock, landscape: boolean): number {
+    const liveBody = this.genericMeasureBody?.nativeElement;
+    if (this.canUseLiveGenericMeasure() && liveBody) {
+      this.configureLiveMeasurePaper(0, false);
+      this.renderBlocksIntoLiveMeasureBody([block]);
+      this.forceLiveMeasureLayout();
+      return Math.max(liveBody.scrollHeight, this.measureRenderedBodyContentPx(liveBody), 1);
+    }
+
+    const root = this.ensureMeasureRoot(landscape);
+    const slot = document.createElement('div');
+    slot.className = 'xyz-generic-measured-body';
+    slot.style.width = '100%';
+    slot.style.fontFamily = '"Times New Roman", Times, serif';
+    slot.style.fontSize = '13.5px';
+    slot.style.lineHeight = '1.35';
+    slot.innerHTML = this.renderBlockMeasureHtml(block);
+    root.appendChild(slot);
+    const height = Math.ceil(slot.getBoundingClientRect().height);
+    root.removeChild(slot);
+    return Math.max(height, 1);
+  }
+
+  private renderBlockMeasureHtml(block: GenericPreviewBlock): string {
+    const field = block.field;
+    if (typeof field?._chunkHtml === 'string') {
+      return `<div class="xyz-generic-field"><div class="xyz-generic-word"><div class="ql-editor">${field._chunkHtml}</div></div></div>`;
+    }
+    if (Array.isArray(field?._tableRows)) {
+      const rows = field._tableRows
+        .map((row: any[]) => `<tr>${row.map((cell) => `<td>${this.escapeHtml(String(cell ?? '-'))}</td>`).join('')}</tr>`)
+        .join('');
+      return `<div class="xyz-generic-field"><div class="overflow-x-auto"><table class="xyz-generic-table"><tbody>${rows}</tbody></table></div></div>`;
+    }
+    const display = this.getPreviewFieldDisplayValue(field);
+    return `<div class="xyz-generic-field"><div class="xyz-generic-value">${this.escapeHtml(String(display ?? ''))}</div></div>`;
+  }
+
+  private splitWordEditorIntoMeasuredBlocks(
+    field: FormField | any,
+    html: string,
+    landscape: boolean,
+    reserveFooter = false,
+    budgetOverridePx?: number
+  ): GenericPreviewBlock[] {
+    const fragments = this.extractWordEditorHtmlFragments(html);
+    const blocks: GenericPreviewBlock[] = [];
+    let batch: string[] = [];
+
+    const flush = () => {
+      if (!batch.length) {
+        return;
+      }
+      blocks.push({ field: { ...field, _chunkHtml: batch.join('') } });
+      batch = [];
+    };
+
+    const chunkBudget = () =>
+      budgetOverridePx ?? this.getPageContentBudgetPx(landscape, blocks.length === 0 && batch.length === 0, reserveFooter);
+
+    for (const fragment of fragments) {
+      const singleBlock: GenericPreviewBlock = { field: { ...field, _chunkHtml: fragment } };
+      const singleHeight = this.measureBlockHeight(singleBlock, landscape);
+      const budget = chunkBudget();
+
+      if (singleHeight > budget) {
+        flush();
+        if (this.isWordEditorTableFragment(fragment)) {
+          blocks.push(...this.splitHtmlTableByMeasuredRows(field, fragment, landscape, budget));
+        } else {
+          blocks.push(...this.splitPlainTextWordEditorFragment(field, fragment, landscape, budget));
+        }
+        continue;
+      }
+
+      const trial = [...batch, fragment];
+      const trialBlock: GenericPreviewBlock = { field: { ...field, _chunkHtml: trial.join('') } };
+      const trialHeight = this.measureBlockHeight(trialBlock, landscape);
+
+      if (batch.length > 0 && trialHeight > budget) {
+        if (this.isWordEditorTableFragment(fragment)) {
+          const existingHtml = batch.join('');
+          const existingBlock: GenericPreviewBlock = { field: { ...field, _chunkHtml: existingHtml } };
+          const existingHeight = this.measureBlockHeight(existingBlock, landscape);
+          const remainingBudget = Math.max(0, budget - existingHeight);
+          const split = this.splitHtmlTableByMeasuredRows(field, fragment, landscape, remainingBudget);
+
+          if (split.length > 1 && typeof split[0]?.field?._chunkHtml === 'string') {
+            blocks.push({ field: { ...field, _chunkHtml: `${existingHtml}${split[0].field._chunkHtml}` } });
+            batch = [];
+            blocks.push(...split.slice(1));
+            continue;
+          }
+        }
+
+        flush();
+        batch = [fragment];
+      } else {
+        batch = trial;
+      }
+    }
+
+    flush();
+    return blocks.length ? blocks : [{ field: { ...field, _chunkHtml: html } }];
+  }
+
+  private isWordEditorTableFragment(fragment: string): boolean {
+    const trimmed = String(fragment || '').trim();
+    return /^\s*<table\b/i.test(trimmed) || /<table\b/i.test(trimmed);
+  }
+
+  private extractWordEditorHtmlFragments(html: string): string[] {
+    const normalized = this.normalizeWordEditorHtmlForDisplay(String(html || ''));
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = normalized;
+
+    const container =
+      wrapper.children.length === 1 && wrapper.firstElementChild
+        ? (wrapper.firstElementChild as HTMLElement)
+        : wrapper;
+
+    const fragments: string[] = [];
+    const pushFragment = (piece: string) => {
+      const trimmed = String(piece || '').trim();
+      if (trimmed) {
+        fragments.push(trimmed);
+      }
+    };
+
+    const blockTags = new Set(['p', 'div', 'table', 'ul', 'ol', 'blockquote', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+    const visitNode = (node: ChildNode) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = (node.textContent || '').trim();
+        if (text) {
+          pushFragment(`<p>${this.escapeHtml(text)}</p>`);
+        }
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        return;
+      }
+
+      const el = node as HTMLElement;
+      const tag = el.tagName.toLowerCase();
+
+      if (tag === 'table') {
+        pushFragment(el.outerHTML);
+        return;
+      }
+
+      if (tag === 'p' && /<br\s*\/?>/i.test(el.innerHTML)) {
+        el.innerHTML
+          .split(/<br\s*\/?>/gi)
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .forEach((part) => pushFragment(`<p>${part}</p>`));
+        return;
+      }
+
+      if (tag === 'br') {
+        return;
+      }
+
+      if (tag === 'div') {
+        const childElements = Array.from(el.children) as HTMLElement[];
+        const hasStructuredChildren = childElements.some((child) => blockTags.has(child.tagName.toLowerCase()));
+        const hasMultipleNodes = el.childNodes.length > 1;
+        const hasInlineMarkup = childElements.some((child) =>
+          ['span', 'strong', 'em', 'b', 'i', 'u'].includes(child.tagName.toLowerCase())
+        );
+        if (hasStructuredChildren || hasMultipleNodes || hasInlineMarkup || /<br\s*\/?>/i.test(el.innerHTML)) {
+          Array.from(el.childNodes).forEach((child) => visitNode(child));
+          return;
+        }
+        const divText = (el.textContent || '').trim();
+        if (divText) {
+          pushFragment(`<p>${this.escapeHtml(divText)}</p>`);
+          return;
+        }
+      }
+
+      if (blockTags.has(tag)) {
+        pushFragment(el.outerHTML);
+        return;
+      }
+
+      pushFragment(el.outerHTML);
+    };
+
+    for (const node of Array.from(container.childNodes)) {
+      visitNode(node);
+    }
+
+    if (!fragments.length && container.innerHTML.trim()) {
+      pushFragment(container.innerHTML);
+    }
+
+    return fragments;
+  }
+
+  private buildWordEditorTableFromRows(sourceTable: HTMLTableElement, rows: Element[], includeHeader: boolean): string {
+    const table = sourceTable.cloneNode(false) as HTMLTableElement;
+    Array.from(sourceTable.children).forEach((child) => {
+      if (child.tagName.toLowerCase() === 'colgroup') {
+        table.appendChild(child.cloneNode(true));
+      }
+    });
+    if (includeHeader) {
+      const thead = sourceTable.querySelector('thead');
+      if (thead) {
+        table.appendChild(thead.cloneNode(true));
+      }
+    }
+    const tbody = document.createElement('tbody');
+    rows.forEach((row) => tbody.appendChild(row.cloneNode(true)));
+    table.appendChild(tbody);
+    return table.outerHTML;
+  }
+
+  private splitHtmlTableByMeasuredRows(
+    field: FormField | any,
+    tableHtml: string,
+    landscape: boolean,
+    budget: number
+  ): GenericPreviewBlock[] {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = tableHtml;
+    const table = wrapper.querySelector('table');
+    if (!table) {
+      return [{ field: { ...field, _chunkHtml: tableHtml } }];
+    }
+
+    const bodyRows = Array.from(table.querySelectorAll('tbody tr'));
+    const rows = bodyRows.length ? bodyRows : Array.from(table.querySelectorAll('tr'));
+    if (rows.length <= 1) {
+      return [{ field: { ...field, _chunkHtml: tableHtml } }];
+    }
+
+    const hasThead = !!table.querySelector('thead');
+    const blocks: GenericPreviewBlock[] = [];
+    let batch: Element[] = [];
+    let includeHeader = hasThead;
+
+    const flushRows = () => {
+      if (!batch.length) {
+        return;
+      }
+      blocks.push({
+        field: {
+          ...field,
+          _chunkHtml: this.buildWordEditorTableFromRows(table, batch, includeHeader),
+        },
+      });
+      includeHeader = false;
+      batch = [];
+    };
+
+    for (const row of rows) {
+      const trial = [...batch, row];
+      const trialHtml = this.buildWordEditorTableFromRows(table, trial, includeHeader);
+      const trialBlock: GenericPreviewBlock = { field: { ...field, _chunkHtml: trialHtml } };
+      const trialHeight = this.measureBlockHeight(trialBlock, landscape);
+
+      if (batch.length > 0 && trialHeight > budget) {
+        flushRows();
+        batch = [row];
+        continue;
+      }
+      batch.push(row);
+    }
+
+    flushRows();
+    return blocks.length ? blocks : [{ field: { ...field, _chunkHtml: tableHtml } }];
+  }
+
+  private stripHtmlToText(html: string): string {
+    if (!html) {
+      return '';
+    }
+    return html
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private splitPlainTextWordEditorFragment(
+    field: FormField | any,
+    fragment: string,
+    landscape: boolean,
+    budget: number
+  ): GenericPreviewBlock[] {
+    const text = this.stripHtmlToText(fragment);
+    if (!text) {
+      return [{ field: { ...field, _chunkHtml: fragment } }];
+    }
+
+    const lines = this.wrapPlainLineToSegments(text, this.getPreviewMaxCharsPerLine());
+    const blocks: GenericPreviewBlock[] = [];
+    let batch: string[] = [];
+
+    const flush = () => {
+      if (!batch.length) {
+        return;
+      }
+      blocks.push({ field: { ...field, _chunkHtml: this.linesToWordEditorHtml(batch) } });
+      batch = [];
+    };
+
+    for (const line of lines) {
+      const trial = [...batch, line];
+      const trialBlock: GenericPreviewBlock = { field: { ...field, _chunkHtml: this.linesToWordEditorHtml(trial) } };
+      const trialHeight = this.measureBlockHeight(trialBlock, landscape);
+      if (batch.length > 0 && trialHeight > budget) {
+        flush();
+      }
+      batch.push(line);
+    }
+
+    flush();
+    return blocks.length ? blocks : [{ field: { ...field, _chunkHtml: fragment } }];
+  }
+
+  private splitTableIntoMeasuredBlocks(field: FormField, landscape: boolean): GenericPreviewBlock[] {
+    const rows = this.getPreviewTableValue(field);
+    if (!rows.length) {
+      return [];
+    }
+
+    const blocks: GenericPreviewBlock[] = [];
+    let batch: any[][] = [];
+
+    const flush = () => {
+      if (!batch.length) {
+        return;
+      }
+      blocks.push({ field: { ...field, _tableRows: [...batch] } });
+      batch = [];
+    };
+
+    for (const row of rows) {
+      const trial = [...batch, row];
+      const trialBlock: GenericPreviewBlock = { field: { ...field, _tableRows: trial } };
+      const trialHeight = this.measureBlockHeight(trialBlock, landscape);
+      const budget = this.getPageContentBudgetPx(landscape, blocks.length === 0 && batch.length === 0, false);
+      if (batch.length > 0 && trialHeight > budget) {
+        flush();
+        batch = [row];
+      } else {
+        batch = trial;
+      }
+    }
+
+    flush();
+    return blocks;
+  }
+
+  private splitTableRowsBlockByBudget(field: FormField | any, landscape: boolean, budget: number): GenericPreviewBlock[] {
+    const rows = Array.isArray(field?._tableRows) ? field._tableRows : this.getPreviewTableValue(field);
+    if (!rows.length) {
+      return [];
+    }
+
+    const blocks: GenericPreviewBlock[] = [];
+    let batch: any[][] = [];
+
+    const flush = () => {
+      if (!batch.length) {
+        return;
+      }
+      blocks.push({ field: { ...field, _tableRows: [...batch] } });
+      batch = [];
+    };
+
+    for (const row of rows) {
+      const trial = [...batch, row];
+      const trialBlock: GenericPreviewBlock = { field: { ...field, _tableRows: trial } };
+      const trialHeight = this.measureBlockHeight(trialBlock, landscape);
+      if (batch.length > 0 && trialHeight > budget) {
+        flush();
+      }
+      batch.push(row);
+    }
+
+    flush();
+    return blocks.length ? blocks : [{ field: { ...field, _tableRows: rows } }];
+  }
+
+  private packMeasuredBlocksIntoPages(
+    blocks: GenericPreviewBlock[],
+    landscape: boolean,
+    hasFooter: boolean
+  ): GenericPreviewBlock[][] {
+    if (!blocks.length) {
+      return hasFooter ? this.ensureFooterFitsOnLastPageMeasured([[]], landscape) : [[]];
+    }
+
+    const pages: GenericPreviewBlock[][] = [];
+    let current: GenericPreviewBlock[] = [];
+    let currentHeight = 0;
+
+    const flush = () => {
+      if (current.length) {
+        pages.push(current);
+        current = [];
+        currentHeight = 0;
+      }
+    };
+
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
+      const blockHeight = this.measureBlockHeight(block, landscape);
+      const isFirstPage = pages.length === 0 && current.length === 0;
+      const isFinalPage = i === blocks.length - 1;
+      const reserveFooter = hasFooter && isFinalPage;
+      let budget = this.getPageContentBudgetPx(landscape, isFirstPage, reserveFooter);
+
+      if (blockHeight > budget) {
+        flush();
+        pages.push([block]);
+        continue;
+      }
+
+      if (current.length > 0 && currentHeight + blockHeight > budget) {
+        flush();
+        budget = this.getPageContentBudgetPx(landscape, pages.length === 0, hasFooter && i === blocks.length - 1);
+      }
+
+      current.push(block);
+      currentHeight += blockHeight;
+    }
+
+    flush();
+    return hasFooter ? this.ensureFooterFitsOnLastPageMeasured(pages, landscape) : pages;
+  }
+
+  private blocksFitMeasuredPage(
+    blocks: GenericPreviewBlock[],
+    landscape: boolean,
+    pageIndex: number,
+    reserveFooter: boolean
+  ): boolean {
+    if (!blocks.length) {
+      if (!reserveFooter) {
+        return true;
+      }
+      return this.getPageContentBudgetPx(landscape, pageIndex === 0, true) > 0;
+    }
+    const totalHeight = blocks.reduce((sum, block) => sum + this.measureBlockHeight(block, landscape), 0);
+    const budget =
+      this.getPageContentBudgetPx(landscape, pageIndex === 0, reserveFooter) -
+      ApplicationComponent.PAGE_FIT_SAFETY_PX;
+    return totalHeight <= budget;
+  }
+
+  private ensureFooterFitsOnLastPageMeasured(pages: GenericPreviewBlock[][], landscape: boolean): GenericPreviewBlock[][] {
+    let result = pages.map((page) => [...page]);
+    if (!result.length) {
+      result.push([]);
+    }
+
+    const expected = this.countGenericBlocks(result);
+    let guard = 0;
+    while (guard++ < 120) {
+      result = this.compactTrailingEmptyPagesPreserveFooterSlot(result, true);
+      if (!result.length) {
+        break;
+      }
+
+      const lastIdx = result.length - 1;
+      const lastPage = result[lastIdx];
+
+      if (!lastPage.length) {
+        result.pop();
+        continue;
+      }
+
+      if (this.blocksFitMeasuredPage(lastPage, landscape, lastIdx, true)) {
+        break;
+      }
+
+      if (lastPage.length === 1) {
+        const split = this.trySplitOverflowBlock(lastPage[0], lastIdx, true);
+        if (split && split.length > 1) {
+          const repacked = this.packMeasuredBlocksIntoPages(split, landscape, true);
+          result.pop();
+          result.push(...repacked);
+          if (this.countGenericBlocks(result) !== expected) {
+            return pages.map((page) => [...page]);
+          }
+          continue;
+        }
+        if (this.blocksFitMeasuredPage(lastPage, landscape, lastIdx, false)) {
+          result.push([]);
+          break;
+        }
+        break;
+      }
+
+      const priorBlocks = lastPage.slice(0, -1);
+      const trailingBlock = lastPage[lastPage.length - 1];
+      const splitIntoFooterPage = this.trySplitBlockIntoCurrentPage(trailingBlock, priorBlocks, lastIdx, true);
+      if (splitIntoFooterPage && splitIntoFooterPage.length > 1) {
+        const trailingPages = this.packMeasuredBlocksIntoPages(splitIntoFooterPage.slice(1), landscape, true);
+        result.splice(
+          lastIdx,
+          1,
+          [...priorBlocks, splitIntoFooterPage[0]],
+          ...trailingPages
+        );
+        if (this.countGenericBlocks(result) !== expected) {
+          return pages.map((page) => [...page]);
+        }
+        continue;
+      }
+
+      const moved = lastPage[lastPage.length - 1];
+      result[lastIdx] = lastPage.slice(0, -1);
+      result.splice(lastIdx + 1, 0, [moved]);
+    }
+
+    return this.countGenericBlocks(result) === expected ? result : pages.map((page) => [...page]);
+  }
+
+  private wrapPlainLineToSegments(line: string, maxChars: number): string[] {
+    const text = String(line ?? '');
+    if (!text) {
+      return [''];
+    }
+    const normalizedMax = Math.max(8, maxChars);
+    const words = text.trim().split(/\s+/);
+    if (words.length <= 1 && text.length <= normalizedMax) {
+      return [text];
+    }
+
+    const segments: string[] = [];
+    let current = '';
+    for (const word of words) {
+      if (!current) {
+        current = word;
+        continue;
+      }
+      const trial = `${current} ${word}`;
+      if (trial.length <= normalizedMax) {
+        current = trial;
+      } else {
+        segments.push(current);
+        current = word;
+      }
+    }
+    if (current) {
+      segments.push(current);
+    }
+    return segments.length ? segments : [text];
+  }
+
+  private linesToWordEditorHtml(lines: string[]): string {
+    return lines.map((line) => `<p>${line ? this.escapeHtml(line) : '&nbsp;'}</p>`).join('');
+  }
+
+  getTableRowsForBlock(field: any): any[][] {
+    if (field && Array.isArray(field._tableRows)) {
+      return field._tableRows;
+    }
+    return this.getPreviewTableValue(field);
   }
 
   getPreviewTableValue(field: FormField): any[][] {
@@ -2618,15 +4465,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
         pdfBlob = await this.applicationPdfService.renderXyzHostElementToPdf(expensePreviewRoot);
       }
 
-      const previewPages = (previewScaleEl?.querySelector('.app-preview-pages') as HTMLElement | null)
-        || (document.querySelector('.app-preview-pages') as HTMLElement | null);
-      const paperCount = previewPages
-        ? previewPages.querySelectorAll('.xyz-paper-page, .xyz-paper').length
-        : 0;
-      if (!pdfBlob && previewPages && paperCount > 0) {
-        // Keep submission-email snapshot identical to on-screen generic preview pagination.
-        pdfBlob = await this.applicationPdfService.renderMultiPageXyzPapersToPdfBlob(previewPages);
-      } else if (!pdfBlob) {
+      if (!pdfBlob) {
         const htmlContent = this.applicationPdfService.buildPdfHtmlForApplication(
           application,
           form,

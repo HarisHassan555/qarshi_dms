@@ -1,5 +1,13 @@
 /* Applications View Component Styles */
 
+:host ::ng-deep .ck.ck-editor__editable_inline {
+    min-height: 260px;
+}
+
+:host ::ng-deep .ck.ck-toolbar {
+    flex-wrap: wrap;
+}
+
 .loader-spinner {
     width: 1.1rem;
     height: 1.1rem;

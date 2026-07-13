@@ -1,5 +1,3 @@
-/* Application Details Component Styles */
-
 .xyz-page-inline {
     background: transparent;
     padding: 0;
@@ -12,14 +10,12 @@
     gap: 0;
 }
 
-/* Single scroll for the whole stack of pages (parent scrollable, pages not) */
 .xyz-pages-scroll {
     max-height: none;
     overflow-y: visible;
     padding-bottom: 24px;
 }
 
-/* Multi-page: each page is a separate A4 card, slightly separated */
 .xyz-paper-page {
     margin-bottom: 12mm;
 }
@@ -27,23 +23,21 @@
     margin-bottom: 3mm;
 }
 
-/* Non-last preview pages: fixed A4 height (overrides portrait ngStyle height:auto) so pagination matches layout. */
-.xyz-paper.xyz-paper-page.xyz-paper-measured:not(.xyz-last-page):not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
+.xyz-paper.xyz-paper-page.xyz-paper-measured:not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
     height: 297mm !important;
     max-height: 297mm !important;
     min-height: 297mm !important;
     overflow: hidden !important;
 }
 
-.xyz-paper.xyz-paper-page.xyz-paper-measured:not(.xyz-last-page).xyz-paper--landscape,
-.xyz-paper.xyz-paper-page.xyz-paper-measured:not(.xyz-last-page)[data-paper-orientation="landscape"] {
+.xyz-paper.xyz-paper-page.xyz-paper-measured.xyz-paper--landscape,
+.xyz-paper.xyz-paper-page.xyz-paper-measured[data-paper-orientation="landscape"] {
     height: 210mm !important;
     max-height: 210mm !important;
     min-height: 210mm !important;
     overflow: hidden !important;
 }
 
-/* Hidden DOM to measure block heights — keep out of scroll area; parent #generic-pdf-content is position:relative. */
 #generic-pdf-content {
     position: relative;
     overflow-x: hidden;
@@ -65,7 +59,6 @@
     contain: layout style;
 }
 
-/* In-component measure station: inherits ::ng-deep ql-editor/table rules from this component. */
 .generic-measure-station {
     position: absolute;
     left: 0;
@@ -77,9 +70,9 @@
     contain: layout style;
 }
 
-/* Measured pagination: fixed A4 card + grid rows (header / body / footer) — footer never overlaps body. */
 .xyz-paper.xyz-paper-measured {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto;
     box-sizing: border-box;
     overflow: hidden;
@@ -95,13 +88,21 @@
     min-height: 0;
     overflow: hidden;
     box-sizing: border-box;
-    padding-bottom: 2px;
+    padding-top: 2px;
+    padding-bottom: 4px;
     width: 100%;
     min-width: 0;
+    max-width: 100%;
+    justify-self: stretch;
+    align-self: start;
 }
 
 .xyz-paper.xyz-paper-measured > .xyz-header-container {
     grid-row: 1;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    justify-self: stretch;
 }
 
 .xyz-paper.xyz-paper-measured > .xyz-content-body.xyz-generic-measured-body {
@@ -111,15 +112,22 @@
 .xyz-paper.xyz-paper-measured > .xyz-footer,
 .xyz-paper.xyz-paper-measured > .xyz-footer-spacer {
     grid-row: 3;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    justify-self: stretch;
 }
 
-/* Continuation pages have no header — use full paper height for body (row 2 was collapsing). */
 .xyz-paper.xyz-paper-measured.xyz-paper--continuation:not(.xyz-last-page) {
     grid-template-rows: minmax(0, 1fr);
 }
 
 .xyz-paper.xyz-paper-measured.xyz-paper--continuation:not(.xyz-last-page) > .xyz-content-body.xyz-generic-measured-body {
     grid-row: 1;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    justify-self: stretch !important;
 }
 
 .xyz-paper.xyz-paper-measured.xyz-paper--continuation.xyz-last-page {
@@ -128,6 +136,10 @@
 
 .xyz-paper.xyz-paper-measured.xyz-paper--continuation.xyz-last-page > .xyz-content-body.xyz-generic-measured-body {
     grid-row: 1;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    justify-self: stretch !important;
 }
 
 .xyz-paper.xyz-paper-measured.xyz-paper--continuation.xyz-last-page > .xyz-footer,
@@ -174,8 +186,51 @@
     padding: 0;
 }
 
-/* Match /application preview: min A4 height only — content grows so nothing is clipped.
-   Fixed 297mm + overflow:hidden was cutting off lines when pagination used char heuristics. */
+.xyz-generic-content--line-pages {
+    font-family: "Times New Roman", Times, serif;
+    font-size: 13.5px;
+    line-height: 1.35;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding-top: 1px;
+    padding-bottom: 2px;
+}
+
+.xyz-preview-line {
+    min-height: 1.35em;
+    margin: 0;
+    padding: 0 0 0.08em 0;
+    line-height: 1.35;
+}
+
+.xyz-generic-table {
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    margin-top: 4px;
+}
+
+.xyz-generic-table tr {
+    width: 100%;
+}
+
+.xyz-generic-table td {
+    border: 1px solid #000;
+    padding: 4px 6px;
+    font-size: 12px;
+    box-sizing: border-box;
+    vertical-align: middle;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
 .xyz-paper {
     width: 210mm;
     max-width: none;
@@ -223,12 +278,10 @@
     overflow-x: auto;
 }
 
-/* Ensure paper container uses full height for flex layout */
 .xyz-paper {
     justify-content: flex-start;
 }
 
-/* PDF-only capture: strict A4 box + clip for html2canvas (screen preview stays overflow:visible above) */
 .pdf-capture .xyz-paper {
     width: 210mm !important;
     height: 297mm !important;
@@ -261,7 +314,6 @@
     page-break-inside: avoid;
 }
 
-/* PDF capture: footer already in-flow */
 .pdf-capture .xyz-footer {
     position: static !important;
 }
@@ -319,7 +371,7 @@
 
 .xyz-header {
     display: grid;
-    grid-template-columns: 120px 1fr 120px;
+    grid-template-columns: 90px 1fr 90px;
     align-items: end;
     column-gap: 12px;
     margin-bottom: 6px;
@@ -353,7 +405,7 @@
 
 .xyz-company-name {
     font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif;
-    font-size: 24px;
+    font-size: 30px;
     font-weight: 700;
 }
 
@@ -396,7 +448,6 @@
     bottom: -2px;
 }
 
-/* PDF capture only: keep 3-line rule but avoid pseudo-element width glitches in html2canvas. */
 .pdf-generation-mode .xyz-rule.thick,
 .xyz-paper.pdf-generation-mode .xyz-rule.thick {
     height: 1px;
@@ -420,13 +471,12 @@
     text-align: center;
     font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif;
     font-weight: 700;
-    font-size: 20px;
+    font-size: 26px;
     line-height: 1.25;
     margin: 6px 0 16px 0;
     flex-shrink: 0;
 }
 
-/* Header: fixed at top of each page as part of content (no sticky/float) */
 .xyz-header-container {
     flex-shrink: 0;
     position: static;
@@ -576,8 +626,6 @@
     word-break: break-word;
 }
 
-/* Important: content rendered via [innerHTML] does not always inherit
-   component-scoped descendant styles. Use ng-deep to ensure preview styling applies. */
 :host ::ng-deep .xyz-generic-word .ql-editor {
     white-space: normal !important;
     font-family: "Times New Roman", Times, serif;
@@ -610,15 +658,15 @@
 :host ::ng-deep .xyz-content-body .ql-editor table,
 :host ::ng-deep .q-table-wrapper table {
     width: 100% !important;
+    min-width: 100% !important;
     max-width: 100% !important;
     border-collapse: collapse !important;
     border-spacing: 0 !important;
     border: none !important;
-    table-layout: auto !important;
-    margin: 8px 0 !important;
+    table-layout: fixed !important;
+    margin: 0 !important;
 }
 
-/* Cancel global Tailwind `table tbody tr { border-b }` inside document preview tables. */
 :host ::ng-deep .xyz-generic-word .ql-editor table tbody tr,
 :host ::ng-deep .xyz-content-body .ql-editor table tbody tr,
 :host ::ng-deep .q-table-wrapper table tbody tr,
@@ -670,10 +718,11 @@
 
 .xyz-generic-word .ql-editor table {
     width: 100%;
+    min-width: 100%;
     border-collapse: collapse;
     border: none;
-    table-layout: auto;
-    margin: 8px 0;
+    table-layout: fixed;
+    margin: 0;
 }
 
 .xyz-generic-word .ql-editor table tr {
@@ -736,7 +785,6 @@
     word-wrap: break-word;
     overflow-x: hidden;
     overflow-y: visible;
-    /* Size to content: do not shrink below content height (was min-height:0 + flex-shrink → overflow past page). */
     flex: 0 0 auto;
     min-height: auto;
     display: block;
@@ -748,15 +796,27 @@
     text-align: center !important;
 }
 
+.xyz-content-body.xyz-content-centered .xyz-generic-word .ql-editor table,
+.xyz-content-body.xyz-content-centered .xyz-generic-word .q-table-wrapper,
+.xyz-content-body.xyz-content-centered .xyz-generic-word .q-table-wrapper table {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    text-align: left !important;
+}
+
 .xyz-dynamic table,
 .xyz-content-body > table {
     width: 100% !important;
+    min-width: 100% !important;
     max-width: 100% !important;
     border-collapse: collapse;
     border: none;
     margin: 8px 0;
     font-size: 14px;
-    table-layout: auto !important;
+    table-layout: fixed !important;
 }
 
 .xyz-dynamic table tbody tr,
@@ -834,12 +894,10 @@
     flex-direction: column;
 }
 
-/* Default: body height follows content (no flex-grow shrink trap). */
 .xyz-paper > .xyz-content-body {
     flex: 0 0 auto;
 }
 
-/* Last page: at least A4; grow with body + footer so no text is clipped (same idea as /application) */
 .xyz-paper.xyz-last-page:not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
     display: flex;
     flex-direction: column;
@@ -863,13 +921,11 @@
     min-height: 0;
     overflow: hidden !important;
 }
-/* Last page: margin-top:auto alone is not enough when .xyz-content-body has flex:1 (it swallows free space). */
 .xyz-paper.xyz-last-page > .xyz-footer {
     flex-shrink: 0;
     margin-top: auto;
 }
 
-/* Individual pipeline: flex spacer between body and footer pins the table to the bottom of the A4 card. */
 .xyz-footer-spacer {
     flex: 1 1 auto;
     min-height: 0;
@@ -882,7 +938,6 @@
 }
 
 .xyz-paper.xyz-paper--footer-pinned:not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
-    /* Screen preview: footer-pinned sheet must still grow with long body content. */
     min-height: 297mm;
     height: auto !important;
     max-height: none !important;
@@ -1001,19 +1056,25 @@
     min-height: 210mm !important;
     max-height: 210mm !important;
     display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
     grid-template-rows: auto minmax(0, 1fr) auto !important;
+    align-content: start !important;
 }
 
 .xyz-paper.xyz-paper--landscape.xyz-paper-measured.xyz-paper--continuation:not(.xyz-last-page) {
+    grid-template-columns: minmax(0, 1fr) !important;
     grid-template-rows: minmax(0, 1fr) !important;
 }
 
+.xyz-paper.xyz-paper--landscape.xyz-paper-measured:not(.xyz-paper--footer-pinned) > .xyz-header-container,
 .xyz-paper.xyz-paper--landscape.xyz-paper-measured:not(.xyz-paper--footer-pinned) > .xyz-content-body.xyz-generic-measured-body {
+    width: 100% !important;
+    min-width: 0 !important;
+    justify-self: stretch !important;
     min-height: 0 !important;
     overflow: hidden !important;
 }
 
-/* Last page: flex + spacer pins pipeline footer to bottom of landscape A4. */
 .xyz-paper.xyz-paper--landscape.xyz-paper-measured.xyz-paper--footer-pinned {
     height: 210mm !important;
     min-height: 210mm !important;
@@ -1265,8 +1326,6 @@
     box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
 }
 
-/* If a stage shows multiple approvers (side-by-side mini boxes),
-   give the parent card more width so content fits nicely. */
 .approval-node:has(.approval-multi-approvers) {
     min-width: 320px;
     max-width: 420px;
@@ -1355,7 +1414,6 @@
     text-overflow: ellipsis;
 }
 
-/* When multiple approvers are shown side-by-side, let the value area expand so both boxes fit horizontally */
 .approval-node-row .value:has(.approval-multi-approvers) {
     max-width: 100%;
     min-width: 0;
@@ -1410,7 +1468,6 @@
     white-space: nowrap;
 }
 
-/* Prior Approvals: compact gap under workflow; comment cells use line-clamp without a fixed max-height slot. */
 .prior-approvals-comments-clamp {
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -1432,7 +1489,6 @@
     display: block;
 }
 
-/* Expense claim slip preview (EXP-* on application-details; matches create-flow live preview) */
 .expense-claim-preview-table {
     width: 100%;
     border-collapse: collapse;
@@ -1661,7 +1717,6 @@
     font-weight: 400;
 }
 
-/* Temporary Advance Slip (TAS-*) — matches FIN-BKP-FM-06 layout */
 .tas-slip-preview-root.xyz-paper.tas-slip {
     font-family: Helvetica, Arial, sans-serif;
     color: #000;
@@ -1913,3 +1968,35 @@
         max-width: 420px;
     }
 }
+
+/* Generic preview parity with /application. */
+.app-preview-paper-a4 { max-width:none !important; min-width:0; box-sizing:border-box; flex-shrink:0; }
+.app-preview-paper-a4.xyz-paper--portrait,
+.app-preview-paper-a4:not(.xyz-paper--landscape) { width:210mm !important; min-height:297mm !important; height:auto !important; max-height:none !important; overflow:visible !important; }
+.app-preview-paper-a4.xyz-paper--landscape { width:297mm !important; height:210mm !important; min-height:210mm !important; max-height:210mm !important; aspect-ratio:297 / 210 !important; overflow:hidden !important; }
+.app-preview-paper-a4.xyz-paper-measured { display:grid !important; grid-template-columns:minmax(0,1fr) !important; grid-template-rows:auto minmax(0,1fr) auto !important; box-sizing:border-box !important; overflow:hidden !important; }
+.app-preview-paper-a4.xyz-paper-measured:not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) { height:297mm !important; min-height:297mm !important; max-height:297mm !important; overflow:hidden !important; }
+.app-preview-paper-a4.xyz-paper-page.xyz-paper-measured.xyz-paper--landscape,
+.app-preview-paper-a4.xyz-paper-page.xyz-paper-measured[data-paper-orientation="landscape"] { height:210mm !important; min-height:210mm !important; max-height:210mm !important; overflow:hidden !important; }
+.app-preview-paper-a4.xyz-paper-measured > .xyz-content-body.xyz-generic-measured-body { grid-row:2 !important; display:flex !important; flex-direction:column !important; flex:1 1 auto !important; min-height:0 !important; gap:12px !important; margin-top:0 !important; overflow:hidden !important; box-sizing:border-box !important; padding-top:2px !important; padding-bottom:4px !important; width:100% !important; min-width:0 !important; max-width:100% !important; align-self:stretch !important; justify-self:stretch !important; }
+.app-preview-paper-a4.xyz-paper-measured > .xyz-header-container { grid-row:1 !important; width:100% !important; min-width:0 !important; max-width:100% !important; align-self:stretch !important; justify-self:stretch !important; padding-bottom:0 !important; }
+.app-preview-paper-a4.xyz-paper-measured > .xyz-footer { grid-row:3 !important; width:100% !important; min-width:0 !important; max-width:100% !important; align-self:stretch !important; justify-self:stretch !important; }
+.app-preview-paper-a4.xyz-paper-measured.xyz-paper--continuation:not(.xyz-last-page) { grid-template-rows:minmax(0,1fr) !important; }
+.app-preview-paper-a4.xyz-paper-measured.xyz-paper--continuation:not(.xyz-last-page) > .xyz-content-body.xyz-generic-measured-body { grid-row:1 !important; margin-top:0 !important; }
+.app-preview-paper-a4.xyz-paper-measured.xyz-paper--continuation.xyz-last-page { grid-template-rows:minmax(0,1fr) auto !important; }
+.app-preview-paper-a4.xyz-paper-measured.xyz-paper--continuation.xyz-last-page > .xyz-content-body.xyz-generic-measured-body { grid-row:1 !important; }
+.app-preview-paper-a4.xyz-paper-measured.xyz-paper--continuation.xyz-last-page > .xyz-footer { grid-row:2 !important; }
+.app-preview-paper-a4.xyz-paper-measured.xyz-last-page > .xyz-content-body.xyz-generic-measured-body { min-height:0 !important; overflow:hidden !important; }
+.app-preview-paper-a4.xyz-paper-measured > .xyz-content-body.xyz-generic-measured-body.xyz-content-centered,
+.app-preview-paper-a4.xyz-paper-measured > .xyz-content-body.xyz-generic-measured-body.xyz-content-centered .xyz-generic-value,
+.app-preview-paper-a4.xyz-paper-measured > .xyz-content-body.xyz-generic-measured-body.xyz-content-centered .xyz-generic-word { text-align:center !important; }
+.app-preview-paper-a4 .xyz-header { grid-template-columns:90px 1fr 90px !important; }
+.app-preview-paper-a4 .xyz-company-name { font-size:30px !important; line-height:1.1 !important; white-space:nowrap !important; }
+.app-preview-paper-a4 .xyz-company-address { font-size:12px !important; line-height:1.2 !important; white-space:nowrap !important; }
+.app-preview-paper-a4 .xyz-title { font-size:26px !important; line-height:1.25 !important; }
+.app-preview-paper-a4 .xyz-generic-content--line-pages { font-size:13.5px !important; line-height:1.35 !important; padding-top:1px !important; padding-bottom:2px !important; }
+.app-preview-paper-a4 .xyz-preview-line { min-height:1.35em !important; margin:0 !important; padding:0 0 0.08em 0 !important; line-height:1.35 !important; }
+.app-preview-paper-a4 .xyz-signatures { table-layout:fixed !important; }
+.app-preview-paper-a4 .xyz-signatures th,
+.app-preview-paper-a4 .xyz-signatures td { white-space:normal !important; word-break:break-word !important; overflow-wrap:anywhere !important; vertical-align:middle !important; line-height:1.2 !important; }
+.app-preview-paper-a4 .xyz-signatures tr:nth-child(2) th { padding-top:10px !important; padding-bottom:10px !important; line-height:1.45 !important; }

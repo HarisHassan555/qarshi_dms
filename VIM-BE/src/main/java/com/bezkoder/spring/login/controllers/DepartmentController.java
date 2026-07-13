@@ -22,8 +22,10 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.*;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @CrossOrigin(origins = "*", maxAge = 3600)
 @RestController
@@ -207,19 +209,41 @@ public class DepartmentController {
 			// Get all users and update those in the list
 			List<CfgTblUser> allUsers = userService.getAllUser();
 			int updatedCount = 0;
+			Set<Integer> affectedDepartmentIds = new LinkedHashSet<>();
+			affectedDepartmentIds.add(departmentId);
 			
 			for (CfgTblUser user : allUsers) {
 				if (userIds.contains(user.getSerUserId())) {
+					Integer previousDepartmentId = user.getHrTblDepartment() != null
+							? user.getHrTblDepartment().getSerDepartmentId()
+							: null;
+					if (previousDepartmentId != null && !previousDepartmentId.equals(departmentId)) {
+						affectedDepartmentIds.add(previousDepartmentId);
+					}
 					// Assign user to department
+					userService.updateUserDepartment(user.getSerUserId(), department);
 					user.setHrTblDepartment(department);
-					userService.updateUser(user);
 					updatedCount++;
 				} else if (user.getHrTblDepartment() != null && 
 						   user.getHrTblDepartment().getSerDepartmentId() != null &&
 						   user.getHrTblDepartment().getSerDepartmentId().equals(departmentId)) {
 					// Remove user from department if not in the new list
+					userService.updateUserDepartment(user.getSerUserId(), null);
 					user.setHrTblDepartment(null);
-					userService.updateUser(user);
+				}
+			}
+
+			for (Integer affectedDepartmentId : affectedDepartmentIds) {
+				HrTblDepartment affectedDepartment = findDepartmentById(departments, affectedDepartmentId);
+				if (affectedDepartment == null) {
+					continue;
+				}
+
+				String cleanedHeadIds = getValidDepartmentHeadIds(affectedDepartment, allUsers);
+				String currentHeadIds = normalizeDepartmentHeadIds(affectedDepartment.getSerDepartmentHeadId());
+				if (!currentHeadIds.equals(cleanedHeadIds)) {
+					affectedDepartment.setSerDepartmentHeadId(cleanedHeadIds.isEmpty() ? null : cleanedHeadIds);
+					departmentService.updateDepartment(affectedDepartment);
 				}
 			}
 			
@@ -231,6 +255,79 @@ public class DepartmentController {
 		} catch (Exception ex) {
 			logger.error("Error assigning users to department: " + ex.getMessage(), ex);
 			return "{\"status\":\"Failure\",\"message\":\"" + ex.getMessage() + "\"}";
+		}
+	}
+
+	private HrTblDepartment findDepartmentById(List<HrTblDepartment> departments, Integer departmentId) {
+		if (departments == null || departmentId == null) {
+			return null;
+		}
+
+		for (HrTblDepartment department : departments) {
+			if (department != null && departmentId.equals(department.getSerDepartmentId())) {
+				return department;
+			}
+		}
+		return null;
+	}
+
+	private String getValidDepartmentHeadIds(HrTblDepartment department, List<CfgTblUser> allUsers) {
+		if (department == null || department.getSerDepartmentId() == null) {
+			return "";
+		}
+
+		String normalizedHeadIds = normalizeDepartmentHeadIds(department.getSerDepartmentHeadId());
+		if (normalizedHeadIds.isEmpty()) {
+			return "";
+		}
+
+		List<String> validHeadIds = new ArrayList<>();
+		for (String headId : normalizedHeadIds.split(",")) {
+			Integer parsedHeadId = parseInteger(headId);
+			if (parsedHeadId == null) {
+				continue;
+			}
+
+			for (CfgTblUser user : allUsers) {
+				if (user == null || user.getSerUserId() == null || !parsedHeadId.equals(user.getSerUserId())) {
+					continue;
+				}
+
+				if (user.getHrTblDepartment() != null
+						&& department.getSerDepartmentId().equals(user.getHrTblDepartment().getSerDepartmentId())) {
+					validHeadIds.add(String.valueOf(parsedHeadId));
+				}
+				break;
+			}
+		}
+
+		return String.join(",", validHeadIds);
+	}
+
+	private String normalizeDepartmentHeadIds(String headIds) {
+		if (headIds == null || headIds.trim().isEmpty()) {
+			return "";
+		}
+
+		List<String> normalizedIds = new ArrayList<>();
+		for (String headId : headIds.split(",")) {
+			Integer parsedHeadId = parseInteger(headId);
+			if (parsedHeadId != null) {
+				String normalizedId = String.valueOf(parsedHeadId);
+				if (!normalizedIds.contains(normalizedId)) {
+					normalizedIds.add(normalizedId);
+				}
+			}
+		}
+
+		return String.join(",", normalizedIds);
+	}
+
+	private Integer parseInteger(String value) {
+		try {
+			return value == null ? null : Integer.parseInt(value.trim());
+		} catch (NumberFormatException ex) {
+			return null;
 		}
 	}
 	

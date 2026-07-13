@@ -6,7 +6,7 @@ import {
   resolveCapfLogoCssClass,
   resolveCapfFormNameFromSources,
 } from 'src/app/utils/capf-logo.util';
-import { formatCapfFormNumberDisplay } from 'src/app/utils/capf-form.util';
+import { formatCapfFormNumberDisplay, CAPF_CEO_SIGNATURE_PIPELINE_ORDER, capfHasPipelineCeoSignatureSlot, getPipelineDepartmentName, isCapfPipelineCeoSignatureStage, resolveCapfPipelineOrder } from 'src/app/utils/capf-form.util';
 import {
   A4_LONG_EDGE_MM,
   A4_SHORT_EDGE_MM,
@@ -15,6 +15,12 @@ import {
   resolveFormOrientation,
 } from 'src/app/utils/form-orientation.util';
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
+import {
+  DOCUMENT_HEADER_ADDRESS,
+  isDocumentHeaderFieldType,
+  resolveDocumentHeaderBrandTitle,
+  resolveDocumentHeaderLogoPath,
+} from 'src/app/utils/document-header.util';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
@@ -504,26 +510,24 @@ export class ApplicationPdfService {
     const paperLandscape = paper.classList.contains('xyz-paper--landscape');
     const PDF_WIDTH = paperLandscape ? A4_LONG_EDGE_MM : A4_SHORT_EDGE_MM;
     const PDF_HEIGHT = paperLandscape ? A4_SHORT_EDGE_MM : A4_LONG_EDGE_MM;
-    const footerPinned = paper.classList.contains('xyz-paper-footer-pinned');
+    const footerPinned =
+      paper.classList.contains('xyz-paper-footer-pinned') ||
+      paper.classList.contains('xyz-paper--footer-pinned');
     setStyle(paper, 'overflow', 'visible');
     if (footerPinned) {
       setStyle(paper, 'display', 'flex');
       setStyle(paper, 'flex-direction', 'column');
       setStyle(paper, 'min-height', `${PDF_HEIGHT}mm`);
       setStyle(paper, 'height', 'auto');
-      setStyle(paper, 'max-height', 'none');
+      setStyle(paper, 'max-height', paperLandscape ? `${PDF_HEIGHT}mm` : 'none');
       const footer = paper.querySelector('.xyz-footer') as HTMLElement | null;
-      const spacer = paper.querySelector('.xyz-footer-spacer') as HTMLElement | null;
       if (footer) {
         setStyle(footer, 'flex-shrink', '0');
-        setStyle(footer, 'margin-top', '0');
-      }
-      if (spacer) {
-        setStyle(spacer, 'flex', '1 1 auto');
+        setStyle(footer, 'margin-top', paperLandscape ? 'auto' : '0');
       }
       if (contentArea) {
-        setStyle(contentArea, 'overflow', 'visible');
-        setStyle(contentArea, 'flex', '0 1 auto');
+        setStyle(contentArea, 'overflow', paperLandscape ? 'hidden' : 'visible');
+        setStyle(contentArea, 'flex', paperLandscape ? '1 1 auto' : '0 1 auto');
       }
     } else {
       setStyle(paper, 'height', 'auto');
@@ -635,9 +639,9 @@ export class ApplicationPdfService {
       const sigCells = Array.from(table.querySelectorAll('tr.xyz-signatures-blank td')) as HTMLElement[];
       sigCells.forEach((cell) => {
         const hasSigContent = !!cell.querySelector('.xyz-sig-img, .xyz-sig-time');
-        setStyle(cell, 'vertical-align', 'top');
-        setStyle(cell, 'padding-top', '2px');
-        setStyle(cell, 'padding-bottom', '2px');
+        setStyle(cell, 'vertical-align', 'middle');
+        setStyle(cell, 'padding-top', '0');
+        setStyle(cell, 'padding-bottom', '0');
         setStyle(cell, 'height', '46px');
         setStyle(cell, 'min-height', '46px');
         setStyle(cell, 'box-sizing', 'border-box');
@@ -655,33 +659,35 @@ export class ApplicationPdfService {
 
         if (wrapper && hasSigContent) {
           setStyle(wrapper, 'position', 'absolute');
-          setStyle(wrapper, 'top', '1px');
+          setStyle(wrapper, 'top', '0');
+          setStyle(wrapper, 'bottom', '0');
           setStyle(wrapper, 'left', '0');
           setStyle(wrapper, 'right', '0');
           setStyle(wrapper, 'display', 'flex');
           setStyle(wrapper, 'flex-direction', 'column');
           setStyle(wrapper, 'align-items', 'center');
-          setStyle(wrapper, 'justify-content', 'flex-start');
-          setStyle(wrapper, 'height', 'auto');
-          setStyle(wrapper, 'min-height', '0');
+          setStyle(wrapper, 'justify-content', 'center');
+          setStyle(wrapper, 'height', '100%');
+          setStyle(wrapper, 'min-height', '100%');
           setStyle(wrapper, 'margin', '0');
           setStyle(wrapper, 'padding', '0');
           setStyle(wrapper, 'box-sizing', 'border-box');
+          setStyle(wrapper, 'transform', 'none');
         }
 
         const img = cell.querySelector('.xyz-sig-img') as HTMLElement | null;
         if (img) {
           setStyle(img, 'display', 'block');
-          setStyle(img, 'margin', '0 auto 2px auto');
-          setStyle(img, 'max-height', '14px');
+          setStyle(img, 'margin', '0 auto 1px auto');
+          setStyle(img, 'max-height', '12px');
         }
 
         const timeEl = cell.querySelector('.xyz-sig-time') as HTMLElement | null;
         if (timeEl) {
           setStyle(timeEl, 'display', 'block');
           setStyle(timeEl, 'margin', '0 auto');
-          setStyle(timeEl, 'line-height', '1.1');
-          setStyle(timeEl, 'font-size', '7px');
+          setStyle(timeEl, 'line-height', '1');
+          setStyle(timeEl, 'font-size', '6px');
         }
       });
 
@@ -782,9 +788,9 @@ export class ApplicationPdfService {
       }
       [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr.xyz-signatures-blank td,
       [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr.xyz-signatures-blank td {
-        vertical-align: top !important;
-        padding-top: 6px !important;
-        padding-bottom: 2px !important;
+        vertical-align: middle !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
         height: 46px !important;
         min-height: 46px !important;
         box-sizing: border-box !important;
@@ -798,29 +804,33 @@ export class ApplicationPdfService {
       [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr.xyz-signatures-blank td > div,
       [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr.xyz-signatures-blank td > div {
         position: absolute !important;
-        top: 1px !important;
+        top: 0 !important;
+        bottom: 0 !important;
         left: 0 !important;
         right: 0 !important;
         display: flex !important;
         flex-direction: column !important;
         align-items: center !important;
-        justify-content: flex-start !important;
-        height: auto !important;
-        min-height: 0 !important;
+        justify-content: center !important;
+        height: 100% !important;
+        min-height: 100% !important;
         margin: 0 !important;
         padding: 0 !important;
         box-sizing: border-box !important;
+        transform: none !important;
       }
       [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr.xyz-signatures-blank .xyz-sig-img,
       [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr.xyz-signatures-blank .xyz-sig-img {
         display: block !important;
-        margin: 0 auto 2px auto !important;
+        margin: 0 auto 1px auto !important;
+        max-height: 12px !important;
       }
       [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr.xyz-signatures-blank .xyz-sig-time,
       [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr.xyz-signatures-blank .xyz-sig-time {
         display: block !important;
         margin: 0 auto !important;
-        line-height: 1.1 !important;
+        line-height: 1 !important;
+        font-size: 6px !important;
       }
       [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr:nth-child(2) th,
       [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr:nth-child(2) th {
@@ -1062,12 +1072,24 @@ export class ApplicationPdfService {
           setStyle(contentArea, 'overflow', paperLandscape ? 'hidden' : 'visible');
         }
         if (spacer) {
-          setStyle(spacer, 'flex', '1 1 auto');
-          setStyle(spacer, 'min-height', '0');
+          if (paperLandscape) {
+            setStyle(spacer, 'display', 'none');
+            setStyle(spacer, 'flex', '0 0 0');
+            setStyle(spacer, 'height', '0');
+            setStyle(spacer, 'min-height', '0');
+            if (footer) {
+              setStyle(footer, 'margin-top', 'auto');
+            }
+          } else {
+            setStyle(spacer, 'flex', '1 1 auto');
+            setStyle(spacer, 'min-height', '0');
+          }
         }
         if (footer) {
           setStyle(footer, 'flex-shrink', '0');
-          setStyle(footer, 'margin-top', spacer ? '0' : 'auto');
+          if (!paperLandscape || !spacer) {
+            setStyle(footer, 'margin-top', spacer ? '0' : 'auto');
+          }
         }
 
         // Keep footer at the bottom of the final page by snapping paper height
@@ -2418,10 +2440,7 @@ export class ApplicationPdfService {
     const normalizeFieldType = (fieldType: any): string => String(fieldType || '').toLowerCase().replace(/\s+/g, '_');
     const getFieldLabel = (field: any): string => field?.label || field?.txtFieldLabel || field?.name || field?.txtFieldName || 'Field';
     const getFieldType = (field: any): string => normalizeFieldType(field?.type || field?.txtFieldType || field?.fieldType);
-    const isDocumentHeaderType = (fieldType: string): boolean => {
-      const t = normalizeFieldType(fieldType);
-      return t === 'document_header';
-    };
+    const isDocumentHeaderType = (fieldType: string): boolean => isDocumentHeaderFieldType(normalizeFieldType(fieldType));
     const slugify = (label: string): string =>
       String(label || '')
         .toLowerCase()
@@ -2474,6 +2493,7 @@ export class ApplicationPdfService {
         ...applicationMeta,
         formOrientation,
         contentBlocks: contentHtml.trim() ? [contentHtml] : [],
+        documentHeaderFieldType: headerField?.type || headerField?.txtFieldType || '',
       }
     );
   }
@@ -2508,10 +2528,7 @@ export class ApplicationPdfService {
       const t = normalizeFieldType(fieldType);
       return t === 'individual_pipeline_footer';
     };
-    const isDocumentHeaderType = (fieldType: string): boolean => {
-      const t = normalizeFieldType(fieldType);
-      return t === 'document_header';
-    };
+    const isDocumentHeaderType = (fieldType: string): boolean => isDocumentHeaderFieldType(normalizeFieldType(fieldType));
     const isAttachmentFieldType = (fieldType: string): boolean => {
       const t = normalizeFieldType(fieldType);
       return t === 'attachment' || t === 'file' || t === 'multi_attachment';
@@ -2561,8 +2578,117 @@ export class ApplicationPdfService {
       return wrapper.innerHTML;
     };
 
+    const formOrientation = resolveFormOrientation(applicationFormData, formFields);
+    const previewMaxCharsPerLine = formOrientation === 'landscape'
+      ? Math.round(88 * (A4_LONG_EDGE_MM / A4_SHORT_EDGE_MM))
+      : 88;
+    const wrapPlainLineToSegments = (text: string): string[] => {
+      const trimmed = String(text || '').trim();
+      if (!trimmed) return [];
+      if (trimmed.length <= previewMaxCharsPerLine) return [trimmed];
+
+      const segments: string[] = [];
+      let remaining = trimmed;
+      while (remaining.length > 0) {
+        if (remaining.length <= previewMaxCharsPerLine) {
+          segments.push(remaining);
+          break;
+        }
+        let slice = remaining.slice(0, previewMaxCharsPerLine);
+        const lastSpace = slice.lastIndexOf(' ');
+        if (lastSpace > previewMaxCharsPerLine / 3) {
+          slice = remaining.slice(0, lastSpace);
+          remaining = remaining.slice(lastSpace).trimStart();
+        } else {
+          remaining = remaining.slice(previewMaxCharsPerLine);
+        }
+        segments.push(slice);
+      }
+      return segments;
+    };
+    const wordEditorHtmlToPlainLines = (html: string): string[] => {
+      if (!html || !String(html).trim()) return ['-'];
+      const normalized = normalizeWordEditorHtml(String(html));
+      const withBreaks = normalized
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n')
+        .replace(/<\/div>/gi, '\n')
+        .replace(/<\/li>/gi, '\n')
+        .replace(/<\/tr>/gi, '\n')
+        .replace(/<\/h[1-6]>/gi, '\n');
+      const tmp = document.createElement('div');
+      tmp.innerHTML = withBreaks.replace(/<[^>]+>/g, ' ');
+      const plain = (tmp.textContent || tmp.innerText || '')
+        .replace(/\u00a0/g, ' ')
+        .replace(/\r/g, '');
+      const rawLines = plain.split('\n').map((line) => line.replace(/\s+$/g, ''));
+      const out: string[] = [];
+      rawLines.forEach((raw) => {
+        if (raw === '') {
+          out.push('');
+        } else {
+          out.push(...wrapPlainLineToSegments(raw));
+        }
+      });
+      return out.length ? out : ['-'];
+    };
+    const lineBasedFields = (formFields || []).filter((field: any) => {
+      const fieldType = getFieldType(field);
+      return !isDocumentHeaderType(fieldType) &&
+        fieldType !== 'footer' &&
+        !isAttachmentFieldType(fieldType) &&
+        !isIndividualFooterType(fieldType);
+    });
+    const useLineBasedContentBlocks = lineBasedFields.every((field: any) => {
+      const fieldType = getFieldType(field);
+      return !isWordEditorType(fieldType) && fieldType !== 'table';
+    });
+
     const contentBlocks: string[] = [];
     let dynamicFooterFields: any[] = Array.isArray(applicationFormData?.footerFields) ? applicationFormData.footerFields : [];
+
+    if (useLineBasedContentBlocks) {
+      const flatLines: string[] = [];
+      lineBasedFields.forEach((field: any) => {
+        const fieldType = getFieldType(field);
+        const value = getFieldValue(field);
+
+        if (isIndividualFooterType(fieldType)) {
+          return;
+        }
+
+        if (isWordEditorType(fieldType)) {
+          flatLines.push(...wordEditorHtmlToPlainLines(String(value ?? '')));
+          flatLines.push('');
+          return;
+        }
+
+        if (value === null || value === undefined || value === '') {
+          return;
+        }
+
+        const parts = String(value).split(/\r?\n/);
+        parts.forEach((part: string) => {
+          const trimmed = part.trimEnd();
+          if (trimmed === '') {
+            flatLines.push('');
+          } else {
+            flatLines.push(...wrapPlainLineToSegments(trimmed));
+          }
+        });
+        flatLines.push('');
+      });
+
+      while (flatLines.length && flatLines[flatLines.length - 1] === '') {
+        flatLines.pop();
+      }
+
+      (flatLines.length ? flatLines : ['-']).forEach((line) => {
+        contentBlocks.push(`<div class="xyz-preview-line">${line ? escapeHtml(line) : '&nbsp;'}</div>`);
+      });
+    } else {
 
     (formFields || []).forEach((field: any) => {
       const fieldType = getFieldType(field);
@@ -2618,6 +2744,7 @@ export class ApplicationPdfService {
         </div>
       `);
     });
+    }
 
     const contentHtml = contentBlocks.join('');
     
@@ -2634,7 +2761,6 @@ export class ApplicationPdfService {
     
     const dateStr = application?.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleDateString() : new Date().toLocaleDateString();
     const individualPipelineFooter = Array.isArray(dynamicFooterFields) && dynamicFooterFields.length > 0;
-    const formOrientation = resolveFormOrientation(applicationFormData, formFields);
     return this.generateBudgetApprovalXyzHtml(
       headingText,
       dateStr,
@@ -2650,6 +2776,8 @@ export class ApplicationPdfService {
         individualPipelineFooter,
         formOrientation,
         contentBlocks,
+        lineBasedContent: useLineBasedContentBlocks,
+        documentHeaderFieldType: headerField?.type || headerField?.txtFieldType || '',
       }
     );
   }
@@ -2657,7 +2785,342 @@ export class ApplicationPdfService {
   private estimateHtmlTextLength(html: string): number {
     const div = document.createElement('div');
     div.innerHTML = html;
-    return (div.textContent || '').replace(/\s+/g, ' ').trim().length;
+    const textLength = (div.textContent || '').replace(/\s+/g, ' ').trim().length;
+    const paragraphCount = div.querySelectorAll('p').length;
+    const divCount = div.querySelectorAll('div').length;
+    const listItemCount = div.querySelectorAll('li').length;
+    const headingCount = div.querySelectorAll('h1, h2, h3, h4, h5, h6').length;
+    const blockQuoteCount = div.querySelectorAll('blockquote, pre').length;
+    const tableCount = div.querySelectorAll('table').length;
+    const tableRowCount = div.querySelectorAll('tr').length;
+    const tableHeaderCellCount = div.querySelectorAll('th').length;
+    const tableCellCount = div.querySelectorAll('td').length;
+    const breakCount = div.querySelectorAll('br').length;
+
+    return textLength
+      + (paragraphCount * 52)
+      + (divCount * 14)
+      + (listItemCount * 44)
+      + (headingCount * 60)
+      + (blockQuoteCount * 58)
+      + (tableCount * 120)
+      + (tableRowCount * 56)
+      + (tableHeaderCellCount * 10)
+      + (tableCellCount * 4)
+      + (breakCount * 26);
+  }
+
+  private getEmailPaginationMaxChars(
+    orientation: FormOrientation,
+    hasDynamicFooter = false
+  ): number {
+    if (orientation === 'landscape') {
+      return hasDynamicFooter ? 1750 : 1900;
+    }
+    return hasDynamicFooter ? 2650 : 3000;
+  }
+
+  private getEmailFooterReserveChars(
+    orientation: FormOrientation,
+    hasDynamicFooter = false
+  ): number {
+    if (orientation === 'landscape') {
+      return hasDynamicFooter ? 650 : 520;
+    }
+    return hasDynamicFooter ? 760 : 320;
+  }
+
+  private buildEmailTableHtmlFromRows(
+    sourceTable: HTMLTableElement,
+    rows: Element[],
+    includeHeader: boolean
+  ): string {
+    const table = sourceTable.cloneNode(false) as HTMLTableElement;
+    Array.from(sourceTable.children).forEach((child) => {
+      const tag = child.tagName.toLowerCase();
+      if (tag === 'colgroup') {
+        table.appendChild(child.cloneNode(true));
+      }
+    });
+    if (includeHeader) {
+      const thead = sourceTable.querySelector('thead');
+      if (thead) {
+        table.appendChild(thead.cloneNode(true));
+      }
+    }
+    const tbody = document.createElement('tbody');
+    rows.forEach((row) => tbody.appendChild(row.cloneNode(true)));
+    table.appendChild(tbody);
+    return table.outerHTML;
+  }
+
+  private splitEmailTableHtmlByRows(tableHtml: string, maxChars: number): string[] {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = tableHtml;
+    const table = wrapper.querySelector('table');
+    if (!table) {
+      return [tableHtml];
+    }
+
+    const bodyRows = Array.from(table.querySelectorAll('tbody tr'));
+    const rows = bodyRows.length ? bodyRows : Array.from(table.querySelectorAll('tr'));
+    if (rows.length <= 1) {
+      return [tableHtml];
+    }
+
+    const safeMaxChars = Math.max(220, maxChars);
+    const hasThead = !!table.querySelector('thead');
+    const chunks: string[] = [];
+    let batch: Element[] = [];
+    let includeHeader = hasThead;
+
+    const flush = () => {
+      if (!batch.length) {
+        return;
+      }
+      chunks.push(this.buildEmailTableHtmlFromRows(table, batch, includeHeader));
+      includeHeader = false;
+      batch = [];
+    };
+
+    for (const row of rows) {
+      const trial = [...batch, row];
+      const trialHtml = this.buildEmailTableHtmlFromRows(table, trial, includeHeader);
+      const trialLen = this.estimateHtmlTextLength(trialHtml);
+      if (batch.length > 0 && trialLen > safeMaxChars) {
+        flush();
+        batch = [row];
+        continue;
+      }
+      batch.push(row);
+    }
+
+    flush();
+    return chunks.length ? chunks : [tableHtml];
+  }
+
+  private escapeHtmlValue(text: string): string {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+  }
+
+  private normalizeWordEditorHtmlForEmail(html: string): string {
+    if (!html) return '';
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = stripEditorTableChromeFromHtml(html);
+
+    wrapper.querySelectorAll('div,p,ul,ol,li,h1,h2,h3,h4,h5,h6,section,article,aside,header,footer').forEach((node: Element) => {
+      const el = node as HTMLElement;
+      el.style.removeProperty('width');
+      el.style.removeProperty('min-width');
+      el.style.removeProperty('max-width');
+      el.style.removeProperty('margin-left');
+      el.style.removeProperty('margin-right');
+      el.style.removeProperty('left');
+      el.style.removeProperty('right');
+      el.style.removeProperty('position');
+      el.style.removeProperty('float');
+      el.style.maxWidth = '100%';
+      if (el.tagName.toLowerCase() !== 'li') {
+        el.style.width = 'auto';
+      }
+      if (!el.style.boxSizing) {
+        el.style.boxSizing = 'border-box';
+      }
+      if (el.querySelector('table')) {
+        el.style.display = 'block';
+        el.style.width = '100%';
+        el.style.minWidth = '100%';
+        el.style.maxWidth = '100%';
+        el.style.textAlign = 'left';
+      }
+    });
+
+    wrapper.querySelectorAll('textarea').forEach((node: Element) => {
+      const textarea = node as HTMLTextAreaElement;
+      const replacement = document.createElement('div');
+      const raw = textarea.value || textarea.textContent || '';
+      replacement.style.whiteSpace = 'normal';
+      replacement.style.margin = '0';
+      replacement.style.padding = '0';
+      replacement.textContent = raw.replace(/\r\n/g, '\n').trim();
+      textarea.replaceWith(replacement);
+    });
+
+    wrapper.querySelectorAll('.q-table-wrapper').forEach((node: Element) => {
+      const el = node as HTMLElement;
+      el.style.width = '100%';
+      el.style.minWidth = '100%';
+      el.style.maxWidth = '100%';
+      el.style.marginLeft = '0';
+      el.style.marginRight = '0';
+      el.style.boxSizing = 'border-box';
+    });
+
+    wrapper.querySelectorAll('table').forEach((table: Element) => {
+      const tableEl = table as HTMLElement;
+      tableEl.removeAttribute('border');
+      tableEl.removeAttribute('width');
+      tableEl.removeAttribute('cellpadding');
+      tableEl.removeAttribute('cellspacing');
+      tableEl.style.border = 'none';
+      tableEl.style.borderCollapse = 'collapse';
+      tableEl.style.borderSpacing = '0';
+      tableEl.style.width = '100%';
+      tableEl.style.minWidth = '100%';
+      tableEl.style.maxWidth = '100%';
+      tableEl.style.tableLayout = 'fixed';
+      tableEl.style.marginLeft = '0';
+      tableEl.style.marginRight = '0';
+    });
+
+    wrapper.querySelectorAll('colgroup, col').forEach((node: Element) => {
+      const el = node as HTMLElement;
+      el.removeAttribute('width');
+      el.style.removeProperty('width');
+      el.style.removeProperty('min-width');
+      el.style.removeProperty('max-width');
+    });
+
+    wrapper.querySelectorAll('tr').forEach((row: Element) => {
+      const rowEl = row as HTMLElement;
+      rowEl.style.border = 'none';
+      rowEl.style.background = 'transparent';
+      rowEl.style.removeProperty('height');
+      rowEl.style.removeProperty('min-height');
+      rowEl.style.breakInside = 'avoid';
+      rowEl.style.pageBreakInside = 'avoid';
+    });
+
+    wrapper.querySelectorAll('td,th').forEach((cell: Element) => {
+      const el = cell as HTMLElement;
+      el.removeAttribute('border');
+      el.removeAttribute('width');
+      el.style.removeProperty('border');
+      el.style.removeProperty('border-top');
+      el.style.removeProperty('border-right');
+      el.style.removeProperty('border-bottom');
+      el.style.removeProperty('border-left');
+      el.style.removeProperty('width');
+      el.style.removeProperty('min-width');
+      el.style.removeProperty('max-width');
+      el.style.removeProperty('min-height');
+      el.style.padding = '6px 6px';
+      el.style.lineHeight = '1.35';
+      el.style.verticalAlign = 'middle';
+
+      while (el.firstChild && el.firstChild.nodeType === Node.TEXT_NODE && !(el.firstChild.textContent || '').trim()) {
+        el.removeChild(el.firstChild);
+      }
+      while (el.lastChild && el.lastChild.nodeType === Node.TEXT_NODE && !(el.lastChild.textContent || '').trim()) {
+        el.removeChild(el.lastChild);
+      }
+      while (el.firstElementChild && el.firstElementChild.tagName === 'BR') {
+        el.removeChild(el.firstElementChild);
+      }
+      while (el.lastElementChild && el.lastElementChild.tagName === 'BR') {
+        el.removeChild(el.lastElementChild);
+      }
+
+      const plainText = (el.textContent || '').replace(/\u00a0/g, '').trim();
+      const hasMedia = !!el.querySelector('img,svg,canvas');
+      if (!plainText && !hasMedia && el.children.length === 0) {
+        el.style.minHeight = '1.35em';
+        el.innerHTML = '<span style="display:block;min-height:1.35em;line-height:1.35;">&nbsp;</span>';
+      }
+    });
+
+    return wrapper.innerHTML;
+  }
+
+  private extractWordEditorHtmlFragmentsForEmail(html: string): string[] {
+    const normalized = this.normalizeWordEditorHtmlForEmail(String(html || ''));
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = normalized;
+
+    const container =
+      wrapper.children.length === 1 && wrapper.firstElementChild
+        ? (wrapper.firstElementChild as HTMLElement)
+        : wrapper;
+
+    const fragments: string[] = [];
+    const pushFragment = (piece: string) => {
+      const trimmed = String(piece || '').trim();
+      if (trimmed) {
+        fragments.push(trimmed);
+      }
+    };
+
+    const blockTags = new Set(['p', 'div', 'table', 'ul', 'ol', 'blockquote', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+    const visitNode = (node: ChildNode) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = (node.textContent || '').trim();
+        if (text) {
+          pushFragment(`<p>${this.escapeHtmlValue(text)}</p>`);
+        }
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        return;
+      }
+
+      const el = node as HTMLElement;
+      const tag = el.tagName.toLowerCase();
+
+      if (tag === 'table') {
+        pushFragment(el.outerHTML);
+        return;
+      }
+
+      if (tag === 'p' && /<br\s*\/?>/i.test(el.innerHTML)) {
+        el.innerHTML
+          .split(/<br\s*\/?>/gi)
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .forEach((part) => pushFragment(`<p>${part}</p>`));
+        return;
+      }
+
+      if (tag === 'br') {
+        return;
+      }
+
+      if (tag === 'div') {
+        const childElements = Array.from(el.children) as HTMLElement[];
+        const hasStructuredChildren = childElements.some((child) => {
+          const childTag = child.tagName.toLowerCase();
+          return childTag === 'table' || blockTags.has(childTag) || childTag.startsWith('h');
+        });
+        const hasMultipleNodes = el.childNodes.length > 1;
+        const hasInlineMarkup = childElements.some((child) => {
+          const childTag = child.tagName.toLowerCase();
+          return childTag === 'span' || childTag === 'strong' || childTag === 'em' || childTag === 'b' || childTag === 'i' || childTag === 'u';
+        });
+        if (hasStructuredChildren || hasMultipleNodes || hasInlineMarkup || /<br\s*\/?>/i.test(el.innerHTML)) {
+          Array.from(el.childNodes).forEach((child) => visitNode(child));
+          return;
+        }
+        const divText = (el.textContent || '').trim();
+        if (divText) {
+          pushFragment(`<p>${this.escapeHtmlValue(divText)}</p>`);
+          return;
+        }
+      }
+
+      if (blockTags.has(tag) || tag.startsWith('h')) {
+        pushFragment(el.outerHTML);
+        return;
+      }
+
+      pushFragment(el.outerHTML);
+    };
+
+    for (const node of Array.from(container.childNodes)) {
+      visitNode(node);
+    }
+
+    return fragments.length ? fragments : [normalized].filter(Boolean);
   }
 
   private splitHtmlBlockForEmailPagination(blockHtml: string, maxChars: number): string[] {
@@ -2688,16 +3151,47 @@ export class ApplicationPdfService {
       return tag === 'p' || tag === 'div' || tag === 'table' || tag === 'ul' || tag === 'ol' || tag.startsWith('h');
     });
 
-    if (blocks.length <= 1) {
-      return [trimmed];
-    }
-
     const wrapChunk = (inner: string): string => {
       if (isGenericWord) {
         return `<div class="xyz-generic-word"><div class="ql-editor">${inner}</div></div>`;
       }
       return inner;
     };
+
+    if (isGenericWord) {
+      const fragments = this.extractWordEditorHtmlFragmentsForEmail(innerContainer.innerHTML);
+      if (fragments.length > 1) {
+        const chunks: string[] = [];
+        let currentHtml = '';
+        let currentChars = 0;
+
+        for (const fragment of fragments) {
+          const fragmentParts = [fragment];
+
+          for (const part of fragmentParts) {
+            const partLen = this.estimateHtmlTextLength(part);
+            if (currentChars > 0 && currentChars + partLen > maxChars) {
+              chunks.push(wrapChunk(currentHtml));
+              currentHtml = '';
+              currentChars = 0;
+            }
+            currentHtml += part;
+            currentChars += partLen;
+          }
+        }
+
+        if (currentHtml) {
+          chunks.push(wrapChunk(currentHtml));
+        }
+
+        return chunks.length ? chunks : [trimmed];
+      }
+    }
+
+    if (blocks.length <= 1) {
+      const onlyNode = blocks[0] as Element | undefined;
+      return [trimmed];
+    }
 
     const chunks: string[] = [];
     let currentHtml = '';
@@ -2708,16 +3202,18 @@ export class ApplicationPdfService {
         node.nodeType === Node.TEXT_NODE
           ? `<p>${(node.textContent || '').trim()}</p>`
           : (node as Element).outerHTML;
-      const nodeLen = this.estimateHtmlTextLength(nodeHtml);
+      const nodeParts = [nodeHtml];
 
-      if (currentChars > 0 && currentChars + nodeLen > maxChars) {
-        chunks.push(wrapChunk(currentHtml));
-        currentHtml = '';
-        currentChars = 0;
+      for (const part of nodeParts) {
+        const partLen = this.estimateHtmlTextLength(part);
+        if (currentChars > 0 && currentChars + partLen > maxChars) {
+          chunks.push(wrapChunk(currentHtml));
+          currentHtml = '';
+          currentChars = 0;
+        }
+        currentHtml += part;
+        currentChars += partLen;
       }
-
-      currentHtml += nodeHtml;
-      currentChars += nodeLen;
     }
 
     if (currentHtml) {
@@ -2727,8 +3223,12 @@ export class ApplicationPdfService {
     return chunks.length ? chunks : [trimmed];
   }
 
-  private paginateEmailContentBlocks(blocks: string[], orientation: FormOrientation): string[][] {
-    const maxChars = orientation === 'landscape' ? 1500 : 2200;
+  private paginateEmailContentBlocks(
+    blocks: string[],
+    orientation: FormOrientation,
+    hasDynamicFooter = false
+  ): string[][] {
+    const maxChars = this.getEmailPaginationMaxChars(orientation, hasDynamicFooter);
     const expanded: string[] = [];
     for (const block of blocks) {
       expanded.push(...this.splitHtmlBlockForEmailPagination(block, maxChars));
@@ -2739,14 +3239,30 @@ export class ApplicationPdfService {
     let currentChars = 0;
 
     for (const part of expanded) {
-      const partLen = this.estimateHtmlTextLength(part);
-      if (current.length > 0 && currentChars + partLen > maxChars) {
-        pages.push(current);
-        current = [];
-        currentChars = 0;
+      let partQueue = [part];
+      while (partQueue.length) {
+        const currentPart = partQueue.shift() as string;
+        const partLen = this.estimateHtmlTextLength(currentPart);
+        if (current.length > 0 && currentChars + partLen > maxChars) {
+          const remaining = maxChars - currentChars;
+          const split = this.splitHtmlBlockForEmailPagination(currentPart, remaining);
+          if (split.length > 1) {
+            const [head, ...tail] = split;
+            current.push(head);
+            currentChars += this.estimateHtmlTextLength(head);
+            pages.push(current);
+            current = [];
+            currentChars = 0;
+            partQueue = [...tail, ...partQueue];
+            continue;
+          }
+          pages.push(current);
+          current = [];
+          currentChars = 0;
+        }
+        current.push(currentPart);
+        currentChars += partLen;
       }
-      current.push(part);
-      currentChars += partLen;
     }
 
     if (current.length) {
@@ -2757,27 +3273,497 @@ export class ApplicationPdfService {
       return [[]];
     }
 
-    return this.trimLastEmailPageForFooter(pages, orientation);
+    return this.trimLastEmailPageForFooter(pages, orientation, hasDynamicFooter);
+  }
+
+  private paginateEmailContentBlocksByDom(
+    blocks: string[],
+    orientation: FormOrientation,
+    hasDynamicFooter: boolean,
+    css: string,
+    headerHtml: string,
+    footerHtml: string,
+    paperExtraClass = ''
+  ): string[][] {
+    void css;
+    void headerHtml;
+    void footerHtml;
+    void paperExtraClass;
+    return this.paginateEmailContentBlocks(blocks, orientation, hasDynamicFooter);
+  }
+
+  private buildAtomicEmailPaginationBlocks(
+    blocks: string[]
+  ): Array<{ type: 'word' | 'field'; html: string }> {
+    const atomic: Array<{ type: 'word' | 'field'; html: string }> = [];
+
+    for (const block of blocks || []) {
+      const trimmed = String(block || '').trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = trimmed;
+      const root = wrapper.firstElementChild as HTMLElement | null;
+
+      if (root?.classList.contains('xyz-generic-word')) {
+        const qlEditor = (root.querySelector('.ql-editor') as HTMLElement | null) || root;
+        const fragments = this.extractWordEditorHtmlFragmentsForEmail(qlEditor.innerHTML);
+        for (const fragment of fragments) {
+          const fragmentTrimmed = String(fragment || '').trim();
+          if (!fragmentTrimmed) {
+            continue;
+          }
+          const rowSplit = /<table\b/i.test(fragmentTrimmed)
+            ? this.splitEmailTableHtmlByRows(fragmentTrimmed, Number.MAX_SAFE_INTEGER)
+            : [fragmentTrimmed];
+          rowSplit.forEach((piece) => {
+            const safePiece = String(piece || '').trim();
+            if (safePiece) {
+              atomic.push({ type: 'word', html: safePiece });
+            }
+          });
+        }
+        continue;
+      }
+
+      atomic.push({ type: 'field', html: trimmed });
+    }
+
+    return atomic;
+  }
+
+  private renderAtomicEmailPageBlocks(
+    blocks: Array<{ type: 'word' | 'field'; html: string }>
+  ): string[] {
+    const parts: string[] = [];
+    let wordHtmlParts: string[] = [];
+
+    const flushWord = () => {
+      if (!wordHtmlParts.length) {
+        return;
+      }
+      parts.push(
+        `<div class="xyz-generic-field"><div class="xyz-generic-word"><div class="ql-editor">${wordHtmlParts.join('')}</div></div></div>`
+      );
+      wordHtmlParts = [];
+    };
+
+    for (const block of blocks || []) {
+      if (block.type === 'word') {
+        wordHtmlParts.push(block.html);
+      } else {
+        flushWord();
+        parts.push(block.html);
+      }
+    }
+
+    flushWord();
+    return parts;
+  }
+
+  private hasTableLikeAtomicEmailBlocks(
+    blocks: Array<{ type: 'word' | 'field'; html: string }>
+  ): boolean {
+    return (blocks || []).some((block) => /<table\b/i.test(String(block?.html || '')));
+  }
+
+  private measureEmailRenderedContentPx(container: HTMLElement): number {
+    if (!container.childElementCount) {
+      return 0;
+    }
+    const top = container.getBoundingClientRect().top;
+    let bottom = top;
+    for (const child of Array.from(container.children) as HTMLElement[]) {
+      const rect = child.getBoundingClientRect();
+      bottom = Math.max(bottom, rect.bottom, rect.top + child.scrollHeight);
+      for (const descendant of Array.from(child.querySelectorAll('*')) as HTMLElement[]) {
+        const descendantRect = descendant.getBoundingClientRect();
+        bottom = Math.max(bottom, descendantRect.bottom, descendantRect.top + descendant.scrollHeight);
+      }
+    }
+    const paddingBottom = parseFloat(window.getComputedStyle(container).paddingBottom) || 0;
+    return Math.ceil(bottom - top + paddingBottom);
+  }
+
+  private measureEmailContentWidthPx(
+    measureHost: HTMLElement,
+    orientationClass: string,
+    paperExtraClassName: string,
+    headerHtml: string,
+    footerHtml: string
+  ): number {
+    const paper = document.createElement('div');
+    paper.className = `xyz-paper ${orientationClass} xyz-paper-page${paperExtraClassName}`;
+    paper.innerHTML = `
+      ${headerHtml}
+      <div class="xyz-content-area"><div class="xyz-dynamic"><div class="xyz-generic-word"><div class="ql-editor">A</div></div></div></div>
+      ${footerHtml}
+    `;
+    measureHost.appendChild(paper);
+    const contentArea = paper.querySelector('.xyz-content-area') as HTMLElement | null;
+    const qlEditor = paper.querySelector('.xyz-generic-word .ql-editor') as HTMLElement | null;
+    const width = Math.max(
+      120,
+      Math.floor((qlEditor?.clientWidth || contentArea?.clientWidth || paper.clientWidth || 0) - 2)
+    );
+    measureHost.removeChild(paper);
+    return width;
+  }
+
+  private measureEmailWordLineHeightPx(
+    measureHost: HTMLElement,
+    orientationClass: string,
+    paperExtraClassName: string
+  ): number {
+    const paper = document.createElement('div');
+    paper.className = `xyz-paper ${orientationClass} xyz-paper-page${paperExtraClassName}`;
+    paper.innerHTML = `
+      <div class="xyz-content-area">
+        <div class="xyz-dynamic">
+          <div class="xyz-generic-word">
+            <div class="ql-editor"><div class="xyz-split-line">A</div></div>
+          </div>
+        </div>
+      </div>
+    `;
+    measureHost.appendChild(paper);
+    const lineEl = paper.querySelector('.xyz-split-line') as HTMLElement | null;
+    const computed = lineEl ? window.getComputedStyle(lineEl) : null;
+    const parsed = computed ? parseFloat(computed.lineHeight) : NaN;
+    const measured = lineEl?.getBoundingClientRect().height || 0;
+    measureHost.removeChild(paper);
+    return Math.max(12, Math.ceil(Number.isFinite(parsed) ? parsed : measured || 19));
+  }
+
+  private measureEmailBodyLineBudget(
+    measureHost: HTMLElement,
+    orientationClass: string,
+    paperExtraClassName: string,
+    headerHtml: string,
+    footerHtml: string
+  ): number {
+    const paper = document.createElement('div');
+    paper.className = `xyz-paper ${orientationClass} xyz-paper-page${paperExtraClassName}`;
+    paper.innerHTML = `
+      ${headerHtml}
+      <div class="xyz-content-area">
+        <div class="xyz-dynamic">
+          <div class="xyz-generic-word">
+            <div class="ql-editor"><div class="xyz-split-line">A</div></div>
+          </div>
+        </div>
+      </div>
+      ${footerHtml}
+    `;
+    measureHost.appendChild(paper);
+    const contentArea = paper.querySelector('.xyz-content-area') as HTMLElement | null;
+    const lineEl = paper.querySelector('.xyz-split-line') as HTMLElement | null;
+    const lineHeight = Math.max(
+      12,
+      Math.ceil(
+        parseFloat(window.getComputedStyle(lineEl || paper).lineHeight || '0') ||
+          lineEl?.getBoundingClientRect().height ||
+          19
+      )
+    );
+    const bodyHeight = Math.max(0, (contentArea?.clientHeight || 0) - 6);
+    measureHost.removeChild(paper);
+    return Math.max(1, Math.floor(bodyHeight / lineHeight));
+  }
+
+  private buildRenderedLinePaginationUnits(
+    blocks: string[],
+    measureHost: HTMLElement,
+    orientationClass: string,
+    paperExtraClassName: string,
+    contentWidthPx: number,
+    lineHeightPx: number
+  ): Array<{ html: string; lineCount: number }> {
+    const units: Array<{ html: string; lineCount: number }> = [];
+    for (const block of blocks || []) {
+      const trimmed = String(block || '').trim();
+      if (!trimmed) {
+        continue;
+      }
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = trimmed;
+      const root = wrapper.firstElementChild as HTMLElement | null;
+      if (root?.classList.contains('xyz-generic-word')) {
+        units.push(
+          ...this.buildWordEditorLineUnits(
+            root,
+            measureHost,
+            orientationClass,
+            paperExtraClassName,
+            contentWidthPx,
+            lineHeightPx
+          )
+        );
+        continue;
+      }
+
+      const lineCount = this.measureEmailHtmlLineCount(
+        trimmed,
+        measureHost,
+        orientationClass,
+        paperExtraClassName,
+        contentWidthPx,
+        lineHeightPx
+      );
+      units.push({ html: trimmed, lineCount });
+    }
+    return units;
+  }
+
+  private buildWordEditorLineUnits(
+    wordRoot: HTMLElement,
+    measureHost: HTMLElement,
+    orientationClass: string,
+    paperExtraClassName: string,
+    contentWidthPx: number,
+    lineHeightPx: number
+  ): Array<{ html: string; lineCount: number }> {
+    const qlEditor = (wordRoot.querySelector('.ql-editor') as HTMLElement | null) || wordRoot;
+    const fragments = this.extractWordEditorHtmlFragmentsForEmail(qlEditor.innerHTML);
+    const units: Array<{ html: string; lineCount: number }> = [];
+
+    fragments.forEach((fragmentHtml, fragmentIndex) => {
+      const fragmentWrapper = document.createElement('div');
+      fragmentWrapper.innerHTML = fragmentHtml;
+      const fragmentEl = fragmentWrapper.firstElementChild as HTMLElement | null;
+      const tag = (fragmentEl?.tagName || 'div').toLowerCase();
+
+      if (tag === 'table' && fragmentEl) {
+        const tableChunks = this.buildWordEditorTableLineUnits(
+          fragmentEl as HTMLTableElement,
+          measureHost,
+          orientationClass,
+          paperExtraClassName,
+          contentWidthPx,
+          lineHeightPx
+        );
+        units.push(...tableChunks);
+        return;
+      }
+
+      if ((tag === 'ul' || tag === 'ol') && fragmentEl) {
+        const listItems = Array.from(fragmentEl.querySelectorAll(':scope > li')) as HTMLElement[];
+        listItems.forEach((item, itemIndex) => {
+          const prefix = tag === 'ol' ? `${itemIndex + 1}. ` : '\u2022 ';
+          const lines = this.splitPlainTextIntoRenderedLines(
+            `${prefix}${(item.textContent || '').replace(/\s+/g, ' ').trim()}`,
+            measureHost,
+            orientationClass,
+            paperExtraClassName,
+            contentWidthPx,
+            'xyz-split-line xyz-split-line--li'
+          );
+          lines.forEach((line) => {
+            units.push({
+              html: `<div class="xyz-split-line xyz-split-line--li">${this.escapeHtmlValue(line) || '&nbsp;'}</div>`,
+              lineCount: 1,
+            });
+          });
+        });
+        return;
+      }
+
+      const fragmentClasses = fragmentEl
+        ? Array.from(fragmentEl.classList).filter(
+            (cls) => cls.startsWith('ql-align-') || cls.startsWith('ql-direction-')
+          )
+        : [];
+      const classSuffix =
+        tag.startsWith('h')
+          ? ' xyz-split-line--heading'
+          : tag === 'blockquote'
+            ? ' xyz-split-line--blockquote'
+            : tag === 'pre'
+              ? ' xyz-split-line--pre'
+              : '';
+      const className = `xyz-split-line${classSuffix}${fragmentClasses.length ? ` ${fragmentClasses.join(' ')}` : ''}`;
+      const sourceText = (fragmentEl?.textContent || fragmentWrapper.textContent || '')
+        .replace(/\u00a0/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const lines = this.splitPlainTextIntoRenderedLines(
+        sourceText,
+        measureHost,
+        orientationClass,
+        paperExtraClassName,
+        contentWidthPx,
+        className
+      );
+      lines.forEach((line) => {
+        units.push({
+          html: `<div class="${className}">${this.escapeHtmlValue(line) || '&nbsp;'}</div>`,
+          lineCount: 1,
+        });
+      });
+
+      if (fragmentIndex < fragments.length - 1 && lines.length > 0) {
+        units.push({
+          html: `<div class="xyz-split-gap" aria-hidden="true"></div>`,
+          lineCount: 1,
+        });
+      }
+    });
+
+    return units;
+  }
+
+  private buildWordEditorTableLineUnits(
+    tableEl: HTMLTableElement,
+    measureHost: HTMLElement,
+    orientationClass: string,
+    paperExtraClassName: string,
+    contentWidthPx: number,
+    lineHeightPx: number
+  ): Array<{ html: string; lineCount: number }> {
+    const bodyRows = Array.from(tableEl.querySelectorAll('tbody tr'));
+    const rows = bodyRows.length ? bodyRows : Array.from(tableEl.querySelectorAll('tr'));
+    if (!rows.length) {
+      return [];
+    }
+
+    return rows.map((row) => {
+      const tableHtml = this.buildEmailTableHtmlFromRows(tableEl, [row], true);
+      return {
+        html: tableHtml,
+        lineCount: this.measureEmailHtmlLineCount(
+          tableHtml,
+          measureHost,
+          orientationClass,
+          paperExtraClassName,
+          contentWidthPx,
+          lineHeightPx
+        ),
+      };
+    });
+  }
+
+  private measureEmailHtmlLineCount(
+    html: string,
+    measureHost: HTMLElement,
+    orientationClass: string,
+    paperExtraClassName: string,
+    contentWidthPx: number,
+    lineHeightPx: number
+  ): number {
+    const paper = document.createElement('div');
+    paper.className = `xyz-paper ${orientationClass} xyz-paper-page${paperExtraClassName}`;
+    paper.innerHTML = `
+      <div class="xyz-content-area">
+        <div class="xyz-dynamic" style="width:${contentWidthPx}px; max-width:${contentWidthPx}px;">${html}</div>
+      </div>
+    `;
+    measureHost.appendChild(paper);
+    const dynamic = paper.querySelector('.xyz-dynamic') as HTMLElement | null;
+    const height = Math.max(dynamic?.scrollHeight || 0, dynamic?.getBoundingClientRect().height || 0, 1);
+    measureHost.removeChild(paper);
+    return Math.max(1, Math.ceil(height / Math.max(1, lineHeightPx)));
+  }
+
+  private splitPlainTextIntoRenderedLines(
+    text: string,
+    measureHost: HTMLElement,
+    orientationClass: string,
+    paperExtraClassName: string,
+    contentWidthPx: number,
+    lineClassName: string
+  ): string[] {
+    const normalized = String(text || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalized) {
+      return [''];
+    }
+
+    const paper = document.createElement('div');
+    paper.className = `xyz-paper ${orientationClass} xyz-paper-page${paperExtraClassName}`;
+    paper.innerHTML = `
+      <div class="xyz-content-area">
+        <div class="xyz-dynamic" style="width:${contentWidthPx}px; max-width:${contentWidthPx}px;">
+          <div class="xyz-generic-word">
+            <div class="ql-editor">
+              <div class="${lineClassName}"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    measureHost.appendChild(paper);
+    const lineEl = paper.querySelector(`.${lineClassName.split(' ').join('.')}`) as HTMLElement | null;
+    const lineHeight = Math.max(
+      12,
+      Math.ceil(
+        parseFloat(window.getComputedStyle(lineEl || paper).lineHeight || '0') ||
+          lineEl?.getBoundingClientRect().height ||
+          19
+      )
+    );
+    const limitHeight = lineHeight + 2;
+    const words = normalized.split(' ');
+    const lines: string[] = [];
+    let current = '';
+
+    for (const word of words) {
+      const trial = current ? `${current} ${word}` : word;
+      if (lineEl) {
+        lineEl.textContent = trial;
+      }
+      const exceeds = (lineEl?.scrollHeight || 0) > limitHeight;
+      if (exceeds && current) {
+        lines.push(current);
+        current = word;
+        if (lineEl) {
+          lineEl.textContent = current;
+        }
+      } else {
+        current = trial;
+      }
+    }
+
+    if (current) {
+      lines.push(current);
+    }
+
+    measureHost.removeChild(paper);
+    return lines.length ? lines : [''];
   }
 
   /** Move overflow off the last page so the pipeline footer does not overlap body content. */
-  private trimLastEmailPageForFooter(pages: string[][], orientation: FormOrientation): string[][] {
-    const maxChars = orientation === 'landscape' ? 1500 : 2200;
-    const footerReserve = orientation === 'landscape' ? 500 : 400;
+  private trimLastEmailPageForFooter(
+    pages: string[][],
+    orientation: FormOrientation,
+    hasDynamicFooter = false
+  ): string[][] {
+    const maxChars = this.getEmailPaginationMaxChars(orientation, hasDynamicFooter);
+    const footerReserve = this.getEmailFooterReserveChars(orientation, hasDynamicFooter);
     const lastPageLimit = Math.max(700, maxChars - footerReserve);
     const result = pages.map((page) => [...page]);
     let lastPage = result[result.length - 1];
     let lastChars = lastPage.reduce((sum, block) => sum + this.estimateHtmlTextLength(block), 0);
 
     while (lastChars > lastPageLimit && lastPage.length > 1) {
-      const moved = lastPage.pop();
+      if (/<table\b/i.test(String(lastPage[0] || ''))) {
+        result.push([]);
+        break;
+      }
+      const moved = lastPage.shift();
       if (!moved) {
         break;
       }
-      lastChars -= this.estimateHtmlTextLength(moved);
+      lastChars = lastPage.reduce((sum, block) => sum + this.estimateHtmlTextLength(block), 0);
       result.splice(result.length - 1, 0, [moved]);
       lastPage = result[result.length - 1];
-      lastChars = lastPage.reduce((sum, block) => sum + this.estimateHtmlTextLength(block), 0);
+    }
+
+    if (lastChars > lastPageLimit && lastPage.length === 1 && /<table\b/i.test(String(lastPage[0] || ''))) {
+      result.push([]);
     }
 
     return result;
@@ -2798,6 +3784,8 @@ export class ApplicationPdfService {
       individualPipelineFooter?: boolean;
       formOrientation?: FormOrientation;
       contentBlocks?: string[];
+      lineBasedContent?: boolean;
+      documentHeaderFieldType?: string;
     }
   ): string {
     const omitApprovalSignatures = !!applicationMeta?.omitApprovalSignaturesInPdf;
@@ -2805,12 +3793,6 @@ export class ApplicationPdfService {
     const orientation: FormOrientation = applicationMeta?.formOrientation ?? 'portrait';
     const isLandscape = orientation === 'landscape';
     const { widthMm: paperWidthMm, heightMm: paperHeightMm } = getA4PaperSizeMm(orientation);
-    const rawContentBlocks =
-      applicationMeta?.contentBlocks?.length
-        ? applicationMeta.contentBlocks
-        : (contentHtml.trim() ? [contentHtml] : []);
-    const contentPages = this.paginateEmailContentBlocks(rawContentBlocks, orientation);
-    const multiPage = contentPages.length > 1;
     let approvalHistory: any[] = [];
     if (approvalHistoryJson) {
       try {
@@ -2922,7 +3904,11 @@ export class ApplicationPdfService {
       return renderUserCell(user, sectionLabel);
     };
     const renderFooterUserSlot = (user: any): string => {
-      if (!user) return '&nbsp;';
+      if (!user) {
+        return isIndividualPipelineEmail
+          ? `<div class="xyz-footer-user-text"><div class="xyz-footer-user-inner">&nbsp;</div><div class="xyz-footer-cell-pad" aria-hidden="true"></div></div>`
+          : '&nbsp;';
+      }
       const name = user?.txtUserName || user?.userName || user?.name || '';
       const designation = user?.txtDesignation || user?.designation || '';
       let dept = user?.hrTblDepartment?.txtDepartmentName || user?.departmentName || user?.txtDepartmentName || '';
@@ -2937,15 +3923,21 @@ export class ApplicationPdfService {
         div.textContent = p;
         return div.innerHTML;
       });
-      const inner = safe.join('<br>');
+      const inner = safe.join('<br>') || '&nbsp;';
       if (isIndividualPipelineEmail) {
-        return `<div class="xyz-footer-user-text">${inner}</div>`;
+        return `<div class="xyz-footer-user-text"><div class="xyz-footer-user-inner">${inner}</div><div class="xyz-footer-cell-pad" aria-hidden="true"></div></div>`;
       }
       return inner;
     };
     const hasDynamicFooter = Array.isArray(footerFields) && footerFields.length > 0;
-    const useFooterPinned = hasDynamicFooter && !multiPage && !isLandscape;
-    const paperExtraClass = isIndividualPipelineEmail ? ' xyz-individual-pipeline-email' : '';
+    const paperExtraClass = hasDynamicFooter ? 'xyz-individual-pipeline-email' : '';
+    const hasDocumentHeader = isDocumentHeaderFieldType(applicationMeta?.documentHeaderFieldType || '');
+    const documentHeaderLogoPath = hasDocumentHeader
+      ? resolveDocumentHeaderLogoPath(applicationMeta?.documentHeaderFieldType)
+      : '';
+    const documentHeaderBrandTitle = hasDocumentHeader
+      ? resolveDocumentHeaderBrandTitle(applicationMeta?.documentHeaderFieldType)
+      : '';
     const css = `
     * { box-sizing: border-box; }
     body { margin: 0; padding: 0; background:#ffffff; color:#000; text-align: center; }
@@ -3000,7 +3992,7 @@ export class ApplicationPdfService {
       font-size: 13.5px;
       line-height: 1.35;
       border: none;
-      padding: 10mm 10mm 10mm 12mm;
+      padding: 18mm 16mm 16mm 16mm;
       display:flex;
       flex-direction:column;
       min-height: ${paperHeightMm}mm;
@@ -3112,6 +4104,10 @@ export class ApplicationPdfService {
       flex: 1 1 auto;
       overflow: visible;
       min-height: 0;
+      box-sizing: border-box;
+      padding-top: 2px;
+      padding-bottom: 4px;
+      width: 100%;
     }
     @media print {
       .xyz-content-area {
@@ -3158,6 +4154,27 @@ export class ApplicationPdfService {
       position: static;
       width: 100%;
     }
+    .xyz-paper.xyz-paper--landscape.xyz-paper-footer-pinned {
+      height: ${A4_SHORT_EDGE_MM}mm !important;
+      min-height: ${A4_SHORT_EDGE_MM}mm !important;
+      max-height: ${A4_SHORT_EDGE_MM}mm !important;
+      overflow: hidden !important;
+    }
+    .xyz-paper.xyz-paper--landscape.xyz-paper-footer-pinned > .xyz-content-area {
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      overflow: hidden !important;
+    }
+    .xyz-paper.xyz-paper--landscape.xyz-paper-footer-pinned > .xyz-footer-spacer {
+      display: none !important;
+      flex: 0 0 0 !important;
+      min-height: 0 !important;
+      height: 0 !important;
+    }
+    .xyz-paper.xyz-paper--landscape.xyz-paper-footer-pinned > .xyz-footer {
+      flex: 0 0 auto !important;
+      margin-top: auto !important;
+    }
     .xyz-footer {
       flex-shrink: 0;
       background:#ffffff;
@@ -3175,29 +4192,57 @@ export class ApplicationPdfService {
     }
     .xyz-signatures { width:100%; border-collapse:collapse; font-family: "Calibri", "Arial", sans-serif; font-size:12px; table-layout:fixed; }
     .xyz-signatures th, .xyz-signatures td { border:1px solid #000; padding:4px 6px; text-align:center !important; vertical-align:middle !important; word-wrap:break-word; overflow-wrap:break-word; max-width:0; }
-    .xyz-signatures-blank td { height:52px; min-height:52px; padding:2px 4px 4px 4px; background:#fff; overflow:hidden; position:relative; box-sizing:border-box; vertical-align:top !important; text-align:center !important; border-bottom:1px solid #000; }
+    .xyz-signatures-blank td { height:52px; min-height:52px; padding:0 4px !important; background:#fff; overflow:hidden; box-sizing:border-box; vertical-align:middle !important; text-align:center !important; border-bottom:1px solid #000; }
     .xyz-signatures tr:nth-child(2) th { padding-top:8px; padding-bottom:5px; }
     .xyz-signatures th { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:11px; font-weight:700; background:#8f8f8f; text-align:center; text-transform:none; letter-spacing:0; }
     .xyz-signatures th[colspan="2"] { text-align:center; }
     .xyz-signatures td { font-family: Calibri, "Calibri (Body)", Arial, sans-serif; font-size:12px; text-align:center !important; vertical-align:middle !important; }
     .xyz-sig-img { max-height: 14px; max-width: 85%; width: auto; height: auto; object-fit: contain; display:block; margin:0 auto 1px auto; box-sizing:border-box; vertical-align:bottom; }
     .xyz-signatures-blank td .xyz-sig-img { max-height: 14px !important; max-width: calc(85% - 8px) !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 0 auto 1px auto !important; vertical-align: bottom !important; }
-    .xyz-signatures-blank td > div { text-align:center; vertical-align:middle; display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; padding-top:2px; margin-top:0; }
-    .xyz-paper.xyz-individual-pipeline-email .xyz-signatures-blank td { padding-top:2px !important; padding-bottom:2px !important; vertical-align:top !important; }
-    .xyz-paper.xyz-individual-pipeline-email .xyz-signatures-blank td > div { justify-content:flex-start !important; height:auto !important; min-height:0 !important; padding-top:0 !important; }
-    .xyz-paper.xyz-individual-pipeline-email .xyz-signatures-blank .xyz-sig-img { margin:0 auto 2px auto !important; }
-    .xyz-paper.xyz-individual-pipeline-email .xyz-signatures-blank .xyz-sig-time { display:block !important; margin:0 auto !important; line-height:1.1 !important; }
+    .xyz-signatures-blank td > div { text-align:center; vertical-align:middle; display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; min-height:52px; padding:0; margin:0; box-sizing:border-box; transform:none; }
+    .xyz-paper.xyz-paper--landscape.xyz-individual-pipeline-email .xyz-signatures-blank td { position:relative !important; padding-top:0 !important; padding-bottom:0 !important; vertical-align:top !important; }
+    .xyz-paper.xyz-paper--landscape.xyz-individual-pipeline-email .xyz-signatures-blank td > div { position:absolute !important; top:4px !important; left:0 !important; right:0 !important; justify-content:flex-start !important; align-items:center !important; height:auto !important; min-height:0 !important; padding:0 !important; margin:0 !important; transform:none !important; }
+    .xyz-paper.xyz-paper--landscape.xyz-individual-pipeline-email .xyz-signatures-blank .xyz-sig-img { max-height:12px !important; margin:0 auto 1px auto !important; }
+    .xyz-paper.xyz-paper--landscape.xyz-individual-pipeline-email .xyz-signatures-blank .xyz-sig-time { display:block !important; margin:0 auto !important; line-height:1 !important; font-size:6px !important; }
+    .xyz-paper.xyz-paper--portrait.xyz-individual-pipeline-email .xyz-signatures-blank td { position:relative !important; padding-top:0 !important; padding-bottom:0 !important; vertical-align:top !important; }
+    .xyz-paper.xyz-paper--portrait.xyz-individual-pipeline-email .xyz-signatures-blank td > div { position:absolute !important; top:4px !important; left:0 !important; right:0 !important; justify-content:flex-start !important; align-items:center !important; height:auto !important; min-height:0 !important; padding:0 !important; margin:0 !important; transform:none !important; }
+    .xyz-paper.xyz-paper--portrait.xyz-individual-pipeline-email .xyz-signatures-blank .xyz-sig-img { max-height:12px !important; margin:0 auto 1px auto !important; }
+    .xyz-paper.xyz-paper--portrait.xyz-individual-pipeline-email .xyz-signatures-blank .xyz-sig-time { display:block !important; margin:0 auto !important; line-height:1 !important; font-size:6px !important; }
     .xyz-sig-time { font-size:7px; color:#6b7280; margin-top:0; line-height:1.1; }
     .xyz-signatures-blank td .xyz-sig-time { font-size: 7px !important; margin-top: 0 !important; }
     .xyz-generic-field { margin-bottom:10px; }
     .xyz-generic-label { font-size:12px; font-weight:700; margin-bottom:3px; text-transform:uppercase; letter-spacing:.2px; }
-    .xyz-generic-value { font-size:13.5px; }
-    .xyz-generic-word { margin:8px 0 12px 0; }
-    .xyz-generic-word .ql-editor { padding:0; }
-    .xyz-generic-word .ql-editor p { margin:0 0 6px 0; }
-    .xyz-generic-word .ql-editor table { width:100%; border-collapse:collapse; border-spacing:0; border:none; table-layout:fixed; margin:4px 0; }
+    .xyz-generic-value { font-size:13px; line-height:1.4; }
+    .xyz-generic-word { margin:8px 0 12px 0; font-size:13px; line-height:1.4; }
+    .xyz-generic-content--line-pages {
+      font-size: 13.5px;
+      line-height: 1.35;
+      box-sizing: border-box;
+      padding-top: 1px;
+      padding-bottom: 2px;
+      width: 100%;
+      max-width: 100%;
+    }
+    .xyz-preview-line { min-height: 1.35em; margin: 0; padding: 0 0 0.08em 0; line-height: 1.35; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; position: relative; top: -1px; }
+    .xyz-generic-word .ql-editor {
+      padding:0;
+      font-family:"Times New Roman", Times, serif;
+      font-size:13px;
+      line-height:1.45;
+      color:#000;
+      max-width:100%;
+      box-sizing:border-box;
+      overflow-wrap:anywhere;
+      word-break:break-word;
+    }
+    .xyz-generic-word .ql-editor p,
+    .xyz-generic-word .ql-editor div { margin:0 0 6px 0; break-inside:avoid; page-break-inside:avoid; }
+    .xyz-generic-word .ql-editor ul,
+    .xyz-generic-word .ql-editor ol { margin:6px 0 6px 22px; padding:0; list-style-position:outside; break-inside:avoid; page-break-inside:avoid; }
+    .xyz-generic-word .ql-editor li { margin:2px 0; break-inside:avoid; page-break-inside:avoid; }
+    .xyz-generic-word .ql-editor table { width:100%; border-collapse:collapse; border-spacing:0; border:none; table-layout:fixed; margin:4px 0; break-inside:avoid; page-break-inside:avoid; }
     .xyz-generic-word .ql-editor table tbody tr, .xyz-generic-word .ql-editor table thead tr { border:none; background:transparent; }
-    .xyz-generic-word .ql-editor table tr { min-height:0; }
+    .xyz-generic-word .ql-editor table tr { min-height:0; break-inside:avoid; page-break-inside:avoid; }
     .xyz-generic-word .ql-editor th, .xyz-generic-word .ql-editor td {
       border:none;
       border-right:1px solid #000;
@@ -3219,7 +4264,36 @@ export class ApplicationPdfService {
     .xyz-generic-word .ql-editor td > *, .xyz-generic-word .ql-editor th > * {
       margin:0 !important;
       padding:0 !important; 
-      line-height:1 !important;
+      line-height:inherit !important;
+    }
+    .xyz-split-line {
+      display:block;
+      margin:0;
+      min-height:1.45em;
+      line-height:1.45;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:clip;
+    }
+    .xyz-split-line--heading {
+      font-weight:700;
+    }
+    .xyz-split-line--blockquote {
+      padding-left:12px;
+      border-left:2px solid #9ca3af;
+      font-style:italic;
+    }
+    .xyz-split-line--pre {
+      font-family: "Courier New", Courier, monospace;
+    }
+    .xyz-split-line--li {
+      padding-left:10px;
+      text-indent:-10px;
+    }
+    .xyz-split-gap {
+      display:block;
+      min-height:1.45em;
+      line-height:1.45;
     }
     .xyz-generic-word .ql-editor p:last-child { margin-bottom:0; }
     .xyz-generic-word .ql-align-center { text-align:center; }
@@ -3235,30 +4309,49 @@ export class ApplicationPdfService {
     .xyz-paper.xyz-individual-pipeline-email .xyz-signatures td.xyz-footer-user {
       vertical-align: top !important;
       padding-top: 8px !important;
-      padding-bottom: 14px !important;
+      padding-bottom: 0 !important;
       line-height: 1.45 !important;
     }
     .xyz-paper.xyz-individual-pipeline-email .xyz-footer-user-text {
       display: block;
-      padding-bottom: 6px;
       line-height: 1.45;
+    }
+    .xyz-paper.xyz-individual-pipeline-email .xyz-footer-user-inner {
+      display: block;
+      margin: 0;
+      padding: 0;
+      line-height: 1.45;
+    }
+    .xyz-paper.xyz-individual-pipeline-email .xyz-footer-cell-pad {
+      display: block;
+      width: 100%;
+      height: 16px;
+      min-height: 16px;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      pointer-events: none;
+      box-sizing: border-box;
     }
     `;
 
-    const headerHtml = `
+    const headerHtml = hasDocumentHeader
+      ? `
       <div class="xyz-header-container">
         <div class="xyz-date-row"><div class="xyz-date">Date: ${dateStr}</div></div>
         <div class="xyz-header">
-          <div class="xyz-logo"><img src="assets/images/qarshi-logo.png" alt="Qarshi" /></div>
+          <div class="xyz-logo"><img src="${documentHeaderLogoPath}" alt="${documentHeaderBrandTitle}" /></div>
           <div class="xyz-company">
-            <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
-            <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+            <div class="xyz-company-name">${documentHeaderBrandTitle}</div>
+            <div class="xyz-company-address">${DOCUMENT_HEADER_ADDRESS}</div>
           </div>
           <div class="xyz-header-spacer"></div>
         </div>
         <div class="xyz-rule thick"></div>
         <div class="xyz-title">${headingText}</div>
-      </div>`;
+      </div>`
+      : '';
 
     const footerTableBody = hasDynamicFooter
       ? `
@@ -3304,6 +4397,22 @@ export class ApplicationPdfService {
       </table>
       </div>`;
 
+    const rawContentBlocks =
+      applicationMeta?.contentBlocks?.length
+        ? applicationMeta.contentBlocks
+        : (contentHtml.trim() ? [contentHtml] : []);
+    const contentPages = this.paginateEmailContentBlocksByDom(
+      rawContentBlocks,
+      orientation,
+      hasDynamicFooter,
+      css,
+      headerHtml,
+      footerHtml,
+      paperExtraClass
+    );
+    const multiPage = contentPages.length > 1;
+    const useFooterPinned = hasDynamicFooter && !multiPage;
+
     const papersHtml = contentPages
       .map((pageBlocks, pageIndex) => {
         const isFirst = pageIndex === 0;
@@ -3313,16 +4422,22 @@ export class ApplicationPdfService {
           isLandscape ? 'xyz-paper--landscape' : 'xyz-paper--portrait',
           multiPage ? 'xyz-paper-page' : '',
           useFooterPinned ? 'xyz-paper-footer-pinned' : '',
-          paperExtraClass.trim(),
+          paperExtraClass,
         ].filter(Boolean);
+        const pageContentHtml = applicationMeta?.lineBasedContent
+          ? `<div class="xyz-generic-content--line-pages">${pageBlocks.join('')}</div>`
+          : pageBlocks.join('');
+        const footerSpacerHtml = useFooterPinned && isLast
+          ? `<div class="xyz-footer-spacer"></div>`
+          : '';
 
         return `
       <div class="${pageClassParts.join(' ')}">
       ${isFirst ? headerHtml : ''}
       <div class="xyz-content-area">
-        <div class="xyz-dynamic">${pageBlocks.join('')}</div>
+        <div class="xyz-dynamic">${pageContentHtml}</div>
       </div>
-      ${useFooterPinned && isLast ? '<div class="xyz-footer-spacer" aria-hidden="true"></div>' : ''}
+      ${footerSpacerHtml}
       ${isLast ? footerHtml : ''}
     </div>`;
       })
@@ -3687,40 +4802,19 @@ export class ApplicationPdfService {
         ? [...pipelines].sort((a: any, b: any) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0))
         : [];
 
-      if (sortedPipelines.length === 0) {
-        const fallback = [
-          { label: 'User Deptt. (HoD)', order: 1 },
-          { label: 'Technical Expert', order: 2 },
-          { label: 'Procurement', order: 3 },
-          { label: 'Finance', order: 4 },
-          { label: 'Core Team HTR. / CCT HO', order: 5 }
-        ];
-        return fallback.map((f) => {
-          const entry = getApprovalEntryForPipeline(f.order);
-          const nameText = omitApprovalSignaturesInPdf ? '' : getNameText(entry);
-          const designationText = omitApprovalSignaturesInPdf ? '' : getDesignationText(entry);
-          const departmentText = f.label;
-          const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
-          const hasSignature = !!entry?.signaturePath;
-          const signatureUrl = userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '';
-          let html = '';
-          if (omitApprovalSignaturesInPdf) {
-            html = pipelineSigPlaceholderHtml;
-          } else if (signatureUrl) {
-            html = `<img class="sig-img" src="${signatureUrl}" alt="Signature" crossorigin="anonymous" />`;
-          }
-          const time = !omitApprovalSignaturesInPdf && hasSignature ? formatEntryDate(entry) : '';
-          return { nameText, designationText, departmentText, html, time };
-        });
-      }
-
-      return sortedPipelines.slice(0, staticLabels.length).map((pipeline: any, index: number) => {
-        const order = pipeline.intApprovalOrder || (index + 1);
-        const departmentId = pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId || pipeline.departmentId;
-        const entry = getApprovalEntryForPipeline(order, departmentId);
+      return staticLabels.map((departmentText, index) => {
+        const order = index;
+        const pipeline = order === 0
+          ? null
+          : sortedPipelines.find((p: any, i: number) => {
+              const pOrder = resolveCapfPipelineOrder(p, i);
+              return pOrder === order && pOrder < CAPF_CEO_SIGNATURE_PIPELINE_ORDER;
+            }) || null;
+        const departmentId = pipeline?.hrTblDepartment?.serDepartmentId || pipeline?.serDepartmentId || pipeline?.departmentId;
+        const departmentName = pipeline ? getPipelineDepartmentName(pipeline) : undefined;
+        const entry = getApprovalEntryForPipeline(order, departmentId, departmentName);
         const nameText = omitApprovalSignaturesInPdf ? '' : getNameText(entry);
         const designationText = omitApprovalSignaturesInPdf ? '' : getDesignationText(entry);
-        const departmentText = staticLabels[index] || `Department ${order}`;
         const userId = entry?.approvedBy || entry?.approverUserId || entry?.userId;
         const hasSignature = !!entry?.signaturePath;
         const signatureUrl = userId && hasSignature ? `${urls.API_URL}getSignature?userId=${userId}` : '';
@@ -3735,8 +4829,28 @@ export class ApplicationPdfService {
       });
     };
 
+    const getPipelineCeoEntry = (): any | null => {
+      const sortedPipelines = Array.isArray(pipelines)
+        ? [...pipelines].sort((a: any, b: any) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0))
+        : [];
+      for (let i = 0; i < sortedPipelines.length; i++) {
+        const pipeline = sortedPipelines[i];
+        if (!isCapfPipelineCeoSignatureStage(pipeline, i)) {
+          continue;
+        }
+        const order = resolveCapfPipelineOrder(pipeline, i);
+        const departmentId = pipeline.hrTblDepartment?.serDepartmentId || pipeline.serDepartmentId || pipeline.departmentId;
+        const departmentName = getPipelineDepartmentName(pipeline);
+        const entry = getApprovalEntryForPipeline(order, departmentId, departmentName);
+        if (entry) {
+          return entry;
+        }
+      }
+      return getLatestCeoEntry();
+    };
+
     const signatureSlots = buildSignatureSlots();
-    const ceoEntry = getLatestCeoEntry();
+    const ceoEntry = capfHasPipelineCeoSignatureSlot(pipelines) ? getPipelineCeoEntry() : getLatestCeoEntry();
     const ceoUserId = ceoEntry?.approvedBy || ceoEntry?.approverUserId || ceoEntry?.userId;
     const ceoHasSignature = !!ceoEntry?.signaturePath && !!ceoUserId;
     const ceoSignatureUrl = ceoHasSignature ? `${urls.API_URL}getSignature?userId=${ceoUserId}` : '';
@@ -4767,6 +5881,17 @@ export class ApplicationPdfService {
           <img src="${capfLogoPath}" alt="" class="${capfLogoClass}">
         </div>
         <div class="brand-title">${capfBrandTitle}</div>
+        ${(application?.txtAssetCode || application?.txtPrCode) ? `
+        <div style="margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+          ${application?.txtAssetCode ? `
+          <span style="display:inline-block; border:1px solid rgba(0,0,0,0.3); background:rgba(34,197,94,0.10); color:#166534; padding:4px 12px; font-size:12px; font-weight:700;">
+            Asset Code: ${escapeHtml(String(application.txtAssetCode).trim())}
+          </span>` : ''}
+          ${application?.txtPrCode ? `
+          <span style="display:inline-block; border:1px solid rgba(0,0,0,0.3); background:rgba(34,197,94,0.10); color:#166534; padding:4px 12px; font-size:12px; font-weight:700;">
+            PR Code: ${escapeHtml(String(application.txtPrCode).trim())}
+          </span>` : ''}
+        </div>` : ''}
       </div>
 
       <table class="grid">
@@ -4954,7 +6079,7 @@ export class ApplicationPdfService {
         <div class="row">
           <div class="field">
             <div class="label">P. O. No. WITH DATE:</div>
-            <div class="line"></div>
+            <div class="line">${escapeHtml(String(application?.txtPoCode || '').trim())}</div>
           </div>
         </div>
 

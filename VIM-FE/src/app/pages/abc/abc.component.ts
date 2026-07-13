@@ -5,7 +5,13 @@ import { filter } from 'rxjs/operators';
 import { CommonModule } from '@angular/common';
 import { urls } from 'src/app/utils/urls';
 import { resolveCapfLogoPath, resolveCapfBrandTitle, resolveCapfLogoCssClass } from 'src/app/utils/capf-logo.util';
-import { formatCapfFormNumberDisplay } from 'src/app/utils/capf-form.util';
+import {
+    formatCapfFormNumberDisplay,
+    CAPF_CEO_SIGNATURE_PIPELINE_ORDER,
+    capfHasPipelineCeoSignatureSlot,
+    resolveCapfPipelineOrder,
+    isCapfPipelineCeoSignatureStage
+} from 'src/app/utils/capf-form.util';
 
 @Component({
     selector: 'app-abc',
@@ -32,6 +38,10 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
 
     get capfLogoClass(): string {
         return resolveCapfLogoCssClass();
+    }
+
+    get capfPoCodeDisplay(): string {
+        return String(this.application?.txtPoCode || '').trim();
     }
 
     private getCapfFormName(): string {
@@ -368,16 +378,20 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         const pipelines = this.getPipelineData();
         console.log('[CAPF FE][abc] approvalHistoryCount=', this.approvalHistory.length, 'pipelineCount=', pipelines.length, 'appId=', this.application?.serApplicationId);
 
-        // ALWAYS show at least the 5 slots required for the physical form, but expand for longer workflows (e.g., stage 6+)
-        const totalSlotsCount = Math.max(pipelines.length, this.fallbackSignatureSlots.length);
+        // CAPF sig-row is fixed at 5 columns (HoD + orders 1–4). Order 5+ uses the Chief Executive block below.
+        const totalSlotsCount = this.fallbackSignatureSlots.length;
         const usedEntryKeys = new Set<string>();
 
         this.signatureSlots = Array.from({ length: totalSlotsCount }).map((_, index) => {
-            const pipeline = pipelines[index] || null;
-            const slot = this.fallbackSignatureSlots[index] || null;
-
-            // Correct for falsy 0: if intApprovalOrder is 0 (Level 0), use 0.
-            const order = (pipeline && pipeline.intApprovalOrder !== undefined) ? pipeline.intApprovalOrder : (index + 1);
+            const slot = this.fallbackSignatureSlots[index];
+            const order = index;
+            const pipeline = pipelines.find((p: any) => {
+                const pOrder = Number(p?.intApprovalOrder);
+                if (order === 0) {
+                    return p?.isVirtual === true || pOrder === 0;
+                }
+                return pOrder === order && pOrder < CAPF_CEO_SIGNATURE_PIPELINE_ORDER;
+            }) || null;
             const departmentId = pipeline?.hrTblDepartment?.serDepartmentId || pipeline?.serDepartmentId || pipeline?.departmentId;
 
             // Priority matching: pipeline data first, then fallback to keywords
@@ -404,9 +418,7 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
             const nameText = getNameText(entry);
             const designationText = getDesignationText(entry);
 
-            // Labels: Indices 0-4 use physical form labels, Index 5+ (the "last department") uses system name
-            const pipelineDeptName = pipeline?.hrTblDepartment?.txtDepartmentName || pipeline?.departmentName;
-            const departmentText = slot ? slot.label : (pipelineDeptName || `Department ${order}`);
+            const departmentText = slot.label;
 
             const approvedDate = entry?.approvedDate;
             const hasSignature = !!entry?.signaturePath;
@@ -657,10 +669,41 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
 
     public getCeoApproval(): any {
         if (!this.approvalHistory || this.approvalHistory.length === 0) return null;
-        
-        // Find CEO approval in history
-        const ceoEntry = this.approvalHistory.find((e: any) => 
-            (e.role || '').toString().toLowerCase().includes('ceo') || 
+
+        const rawPipelines = this.getPipelineData().filter((p: any) => !p?.isVirtual);
+        const sortedPipelines = [...rawPipelines].sort(
+            (a: any, b: any) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0)
+        );
+
+        if (capfHasPipelineCeoSignatureSlot(sortedPipelines)) {
+            for (let i = 0; i < sortedPipelines.length; i++) {
+                const pipeline = sortedPipelines[i];
+                if (!isCapfPipelineCeoSignatureStage(pipeline, i)) {
+                    continue;
+                }
+                const order = resolveCapfPipelineOrder(pipeline, i);
+                const departmentId =
+                    pipeline?.hrTblDepartment?.serDepartmentId ||
+                    pipeline?.serDepartmentId ||
+                    pipeline?.departmentId;
+                const entries = this.getApprovalEntriesForPipeline(order, departmentId);
+                const entry = entries.find((e: any) => !!e?.signaturePath) || entries[0];
+                if (entry?.signaturePath) {
+                    const userId = entry.approvedBy || entry.approverUserId || entry.userId;
+                    return {
+                        nameText: (entry.approverName || entry.approvedByName || entry.userName || '').toLowerCase(),
+                        designationText: entry.designation || entry.txtDesignation || entry.approverDesignation || '',
+                        departmentName: pipeline?.hrTblDepartment?.txtDepartmentName || pipeline?.departmentName || '',
+                        approvedDateText: this.formatApprovalDate(entry.approvedDate || entry.approvedAt),
+                        signatureUrl: userId ? `${urls.API_URL}getSignature?userId=${userId}` : ''
+                    };
+                }
+            }
+            return null;
+        }
+
+        const ceoEntry = this.approvalHistory.find((e: any) =>
+            (e.role || '').toString().toLowerCase().includes('ceo') ||
             (e.departmentName || '').toString().toLowerCase().includes('ceo') ||
             (e.txtStatus || '').toString().toUpperCase() === 'CEO_APPROVED'
         );
@@ -1030,6 +1073,5 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         return value === 'na' || value === 'n/a' || value === 'not applicable';
     }
 }
-
 
 

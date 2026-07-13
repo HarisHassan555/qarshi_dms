@@ -24,6 +24,8 @@ interface ApprovalPipeline {
   serDepartmentId?: number;
   serUserId?: number;
   intApprovalOrder: number;
+  txtDepartmentName?: string;
+  txtUserName?: string;
   hrTblDepartment?: any;
   hrTblUser?: any;
 }
@@ -35,6 +37,7 @@ interface CustomForm {
   txtFormName?: string;
   txtFormCode?: string;
   txtConventionPrefix?: string;
+  txtApprovalPipeline?: string;
   fields: FormField[];
   cfgTblCustomFormFields?: any[];
   approvalPipelines?: ApprovalPipeline[];
@@ -58,7 +61,11 @@ export class FormBuilderComponent implements OnInit {
   isSubmit = false;
   editingFormId: number | null = null;
   fieldTypes = [
-    {value : 'document_header', label: 'Document Header'},
+    {value : 'document_header', label: 'Document Header QI'},
+    {value : 'document_header_qu', label: 'Document Header QU'},
+    {value : 'document_header_qf', label: 'Document Header QF'},
+    {value : 'document_header_qri', label: 'Document Header QRI'},
+    {value : 'document_header_qb', label: 'Document Header QB'},
     { value: 'text', label: 'Text' },
     { value: 'number', label: 'Number' },
     { value: 'email', label: 'Email' },
@@ -128,6 +135,7 @@ export class FormBuilderComponent implements OnInit {
           this.departments = data.filter((dept: any) =>
             dept.blIsDeleted === false && dept.blnStatus === true
           );
+          this.refreshLoadedFormPipelines();
         }
       },
       (error) => {
@@ -140,6 +148,7 @@ export class FormBuilderComponent implements OnInit {
     this.userService.getUsers().subscribe(
       (data: any) => {
         this.allUsers = Array.isArray(data) ? data : [];
+        this.refreshLoadedFormPipelines();
       },
       (error) => {
         this.notificationService.showMessage('Error loading users: ' + (error.error?.message || error.message), 'danger');
@@ -194,9 +203,9 @@ export class FormBuilderComponent implements OnInit {
 
   getPipelineDisplayName(p: ApprovalPipeline): string {
     if (p.type === 'individual') {
-      return p.hrTblUser?.txtUserName || p.hrTblUser?.userName || p.hrTblUser?.name || 'User ' + (p.serUserId || '');
+      return p.hrTblUser?.txtUserName || p.hrTblUser?.userName || p.hrTblUser?.name || p.txtUserName || 'User ' + (p.serUserId || '');
     }
-    return p.hrTblDepartment?.txtDepartmentName || 'Department ' + (p.serDepartmentId || '');
+    return p.hrTblDepartment?.txtDepartmentName || p.txtDepartmentName || 'Department ' + (p.serDepartmentId || '');
   }
 
   removeApprovalPipeline(index: number) {
@@ -413,6 +422,7 @@ export class FormBuilderComponent implements OnInit {
             txtFormName: form.txtFormName,
             txtFormCode: form.txtFormCode,
             txtConventionPrefix: form.txtConventionPrefix,
+            txtApprovalPipeline: form.txtApprovalPipeline,
             fields: (form.cfgTblCustomFormFields || []).map((field: any) => ({
               serFieldId: field.serFieldId,
               label: field.txtFieldLabel,
@@ -511,9 +521,7 @@ export class FormBuilderComponent implements OnInit {
     });
 
     // Load approval pipelines (from parsed form which supports both department and individual)
-    this.approvalPipelines = form.approvalPipelines && form.approvalPipelines.length > 0
-      ? form.approvalPipelines
-      : [];
+    this.approvalPipelines = this.parseApprovalPipelinesFromForm(form);
     this.showApprovalPipeline = this.approvalPipelines.length > 0;
 
     this.modal.open();
@@ -528,43 +536,84 @@ export class FormBuilderComponent implements OnInit {
     return form.txtUserIds.split(',').filter((id: string) => id.trim().length > 0).length;
   }
 
+  private getPipelineType(p: any): 'department' | 'individual' {
+    const userId = p?.serUserId ?? p?.hrTblUser?.serUserId ?? p?.userId ?? p?.id;
+    const departmentId = p?.serDepartmentId ?? p?.hrTblDepartment?.serDepartmentId ?? p?.departmentId;
+
+    if (userId != null && userId !== 0) {
+      return 'individual';
+    }
+
+    if (p?.type === 'individual' || p?.type === 'department') {
+      return p.type;
+    }
+
+    if (departmentId != null && departmentId !== 0) {
+      return 'department';
+    }
+
+    return 'department';
+  }
+
+  private normalizeApprovalPipeline(p: any, index: number): ApprovalPipeline {
+    const type = this.getPipelineType(p);
+
+    if (type === 'individual') {
+      const userId = p?.serUserId ?? p?.hrTblUser?.serUserId ?? p?.userId ?? p?.id;
+      const user = this.allUsers.find(u => (u.serUserId ?? u.userId ?? u.id) === userId) || p?.hrTblUser;
+
+      return {
+        type: 'individual',
+        serUserId: userId,
+        intApprovalOrder: p?.intApprovalOrder ?? index + 1,
+        txtUserName: p?.txtUserName ?? user?.txtUserName ?? user?.userName ?? user?.name,
+        hrTblUser: user || (userId != null ? { serUserId: userId, txtUserName: p?.txtUserName ?? ('User ' + userId) } : undefined)
+      };
+    }
+
+    const departmentId = p?.serDepartmentId ?? p?.hrTblDepartment?.serDepartmentId ?? p?.departmentId;
+    const department = this.departments.find(d => d.serDepartmentId === departmentId) || p?.hrTblDepartment;
+
+    return {
+      type: 'department',
+      serApprovalPipelineId: p?.serApprovalPipelineId,
+      serDepartmentId: departmentId,
+      intApprovalOrder: p?.intApprovalOrder ?? index + 1,
+      txtDepartmentName: p?.txtDepartmentName ?? department?.txtDepartmentName,
+      hrTblDepartment: department
+    };
+  }
+
+  private refreshLoadedFormPipelines() {
+    this.customForms = this.customForms.map(form => ({
+      ...form,
+      approvalPipelines: this.parseApprovalPipelinesFromForm(form)
+    }));
+
+    if (this.approvalPipelines.length > 0) {
+      this.approvalPipelines = this.approvalPipelines
+        .map((pipeline, index) => this.normalizeApprovalPipeline(pipeline, index))
+        .sort((a, b) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0));
+    }
+  }
+
   parseApprovalPipelinesFromForm(form: any): ApprovalPipeline[] {
     if (form.txtApprovalPipeline && typeof form.txtApprovalPipeline === 'string') {
       try {
         const arr = JSON.parse(form.txtApprovalPipeline);
         if (Array.isArray(arr)) {
-          return arr.map((p: any, i: number) => {
-            if (p.type === 'individual' && p.serUserId) {
-              const user = this.allUsers.find(u => (u.serUserId || u.userId || u.id) === p.serUserId);
-              return {
-                type: 'individual',
-                serUserId: p.serUserId,
-                intApprovalOrder: p.intApprovalOrder ?? i + 1,
-                hrTblUser: user || { serUserId: p.serUserId, txtUserName: 'User ' + p.serUserId }
-              } as ApprovalPipeline;
-            }
-            const deptId = p.serDepartmentId || p.hrTblDepartment?.serDepartmentId;
-            const dept = this.departments.find(d => d.serDepartmentId === deptId) || p.hrTblDepartment;
-            return {
-              type: 'department',
-              serDepartmentId: deptId,
-              intApprovalOrder: p.intApprovalOrder ?? i + 1,
-              hrTblDepartment: dept
-            } as ApprovalPipeline;
-          });
+          return arr
+            .map((p: any, i: number) => this.normalizeApprovalPipeline(p, i))
+            .sort((a: ApprovalPipeline, b: ApprovalPipeline) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0));
         }
       } catch (e) {
         console.warn('Error parsing txtApprovalPipeline:', e);
       }
     }
     const pipes = form.approvalPipelines || form.cfgTblCustomFormApprovalPipelines || [];
-    return pipes.map((p: any, i: number) => ({
-      type: 'department' as const,
-      serApprovalPipelineId: p.serApprovalPipelineId,
-      serDepartmentId: p.hrTblDepartment?.serDepartmentId || p.serDepartmentId,
-      intApprovalOrder: p.intApprovalOrder ?? i + 1,
-      hrTblDepartment: p.hrTblDepartment || this.departments.find((d: any) => d.serDepartmentId === (p.serDepartmentId || p.hrTblDepartment?.serDepartmentId))
-    })).sort((a: ApprovalPipeline, b: ApprovalPipeline) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0));
+    return pipes
+      .map((p: any, i: number) => this.normalizeApprovalPipeline(p, i))
+      .sort((a: ApprovalPipeline, b: ApprovalPipeline) => (a.intApprovalOrder || 0) - (b.intApprovalOrder || 0));
   }
 
   getDisplayedForms() {

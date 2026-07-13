@@ -36,7 +36,10 @@
                             [headingControl]="getDocumentHeaderControl()"
                             [headingLabel]="documentHeaderField.label || 'Form Heading'"
                             [placeholder]="documentHeaderField.placeholder || 'Enter form heading'"
-                            [required]="documentHeaderField.required">
+                            [required]="documentHeaderField.required"
+                            [logoPath]="getDocumentHeaderLogoPath()"
+                            [brandTitle]="getDocumentHeaderBrandTitle()"
+                            [brandAddress]="getDocumentHeaderBrandAddress()">
                         </app-form-document-header>
 
                         <!-- Application Code (Auto-generated, Read-only) -->
@@ -171,13 +174,10 @@
 
                                 <!-- Word Editor -->
                                 <div *ngIf="isWordEditorType(field.type)" [ngClass]="getFormFieldFullSpanClass()">
-                                    <quill-editor [formControlName]="getFieldName(field.label)"
-                                        (onEditorCreated)="onWordEditorCreated(getFieldName(field.label), $event)"
-                                        (onContentChanged)="onWordEditorQuillContentChanged()"
-                                        [modules]="wordEditorModules"
-                                        [styles]="{height: '280px'}"
-                                        [placeholder]="field.placeholder || 'Enter details, bullet points, headings...'">
-                                    </quill-editor>
+                                    <ckeditor [editor]="wordEditor" [config]="wordEditorConfig"
+                                        [formControlName]="getFieldName(field.label)"
+                                        (change)="onWordEditorContentChanged()">
+                                    </ckeditor>
                                     <p *ngIf="isFieldInvalid(getFieldName(field.label))"
                                         class="mt-1 text-xs text-danger">
                                         {{ getFieldErrorMessage(getFieldName(field.label)) }}
@@ -723,152 +723,31 @@
                             </div>
                         </div>
 
-                        <!-- Temporary Advance Slip (TAS-*) live preview -->
-                        <div *ngIf="isTemporaryAdvanceSlipSelected()" class="app-preview-body">
-                            <div class="app-preview-canvas" #previewCanvas>
-                                <div class="app-preview-scale" #previewScale>
-                                    <div class="tas-slip-preview-root xyz-paper app-preview-paper-a4 tas-slip">
-                                        <div class="tas-slip-main">
-                                            <div class="tas-slip-company-row">
-                                                <img class="tas-slip-logo" src="assets/images/qarshi-logo.png" alt="" />
-                                                <div class="tas-slip-company-name">QARSHI INDUSTRIES (PVT.) LTD.</div>
-                                            </div>
-                                            <table class="tas-slip-admin tas-slip-admin-unified" aria-hidden="true">
-                                                <colgroup>
-                                                    <col /><col /><col /><col /><col /><col />
-                                                    <col /><col /><col /><col /><col /><col />
-                                                </colgroup>
-                                                <tr>
-                                                    <td colspan="4">Division: {{ getTemporaryAdvanceSlipMetaDivision() }}</td>
-                                                    <td colspan="4">Department: {{ getTemporaryAdvanceSlipMetaDepartment() }}</td>
-                                                    <td colspan="4">Section: {{ getTemporaryAdvanceSlipMetaSection() }}</td>
-                                                </tr>
-                                                <tr>
-                                                    <td colspan="4">Document No. {{ getTemporaryAdvanceSlipMetaDocumentNo() }}</td>
-                                                    <td colspan="4">Original Issue: {{ getTemporaryAdvanceSlipMetaOriginalIssue() }}</td>
-                                                    <td colspan="2">Rev.# {{ getTemporaryAdvanceSlipMetaRev() }}</td>
-                                                    <td colspan="2">Rev. Date: {{ getTemporaryAdvanceSlipMetaRevDate() }}</td>
-                                                </tr>
-                                            </table>
-                                            <div class="tas-slip-banner">TEMPORARY ADVANCE SLIP</div>
-                                            <div class="tas-slip-body">
-                                                <div class="tas-slip-field-row">
-                                                    <span class="tas-slip-label">DATE:</span>
-                                                    <span class="tas-slip-value">{{ getTemporaryAdvanceSlipDateLine() }}</span>
-                                                </div>
-                                                <div class="tas-slip-field-row">
-                                                    <span class="tas-slip-label">PLEASE PAY RS.:</span>
-                                                    <span class="tas-slip-value">{{ getTemporaryAdvanceSlipPreviewValue('please pay', 'pay rs', 'amount rs') }}</span>
-                                                </div>
-                                                <div class="tas-slip-field-row tas-slip-field-row--full">
-                                                    <span class="tas-slip-label">RUPEES:</span>
-                                                    <span class="tas-slip-value">{{ getTemporaryAdvanceSlipPreviewValue('rupees', 'in words') }}</span>
-                                                </div>
-                                                <div class="tas-slip-field-row tas-slip-field-row--full">
-                                                    <span class="tas-slip-label">TO MR. / MS.:</span>
-                                                    <span class="tas-slip-value">{{ getTemporaryAdvanceSlipPreviewValue('to mr', 'payee', 'mr/ms', 'mr / ms') }}</span>
-                                                </div>
-                                                <div class="tas-slip-purpose-label">FOR THE PURPOSE OF:</div>
-                                                <div class="tas-slip-purpose-lines">
-                                                    <div class="tas-slip-purpose-line">{{ getTemporaryAdvanceSlipPurposeDisplay() }}</div>
-                                                    <div class="tas-slip-purpose-line">&nbsp;</div>
-                                                    <div class="tas-slip-purpose-line">&nbsp;</div>
-                                                </div>
-                                                <div class="tas-slip-field-row tas-slip-field-row--tight">
-                                                    <span class="tas-slip-label tas-slip-label--long">THE AMOUNT WILL BE ADJUSTED ON OR BEFORE:</span>
-                                                    <span class="tas-slip-value">{{ getTemporaryAdvanceSlipPreviewValue('adjusted', 'on or before', 'adjust') }}</span>
-                                                </div>
-                                            </div>
-                                            <div class="tas-slip-sig-grid">
-                                                <div class="tas-slip-sig-cell">
-                                                    <div class="tas-slip-sig-caption">SIGNATURE BY<br />APPLICANT</div>
-                                                    <div class="tas-slip-sig-line"></div>
-                                                </div>
-                                                <div class="tas-slip-sig-cell">
-                                                    <div class="tas-slip-sig-caption">APPROVED BY<br />FINANCE WING</div>
-                                                    <div class="tas-slip-sig-line"></div>
-                                                </div>
-                                                <div class="tas-slip-sig-cell">
-                                                    <div class="tas-slip-sig-caption">RECOMMENDED BY<br />DEPTT. HEAD</div>
-                                                    <div class="tas-slip-sig-line"></div>
-                                                </div>
-                                                <div class="tas-slip-sig-cell">
-                                                    <div class="tas-slip-sig-caption">RECEIVED<br />BY</div>
-                                                    <div class="tas-slip-sig-line"></div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="tas-slip-footer-fixed">
-                                            <div class="ec-slip-pipeline-footer" *ngIf="hasSlipPipelineFooter()">
-                                                <table class="xyz-signatures" *ngIf="getSlipPipelineFooterSections() as sections">
-                                                    <tr class="xyz-signatures-blank">
-                                                        <ng-container *ngFor="let section of sections">
-                                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
-                                                        </ng-container>
-                                                    </tr>
-                                                    <tr>
-                                                        <th *ngFor="let section of sections"
-                                                            [attr.colspan]="getIndividualFooterColSpan(section)">
-                                                            {{ section.label || 'New Field' }}:
-                                                        </th>
-                                                    </tr>
-                                                    <tr>
-                                                        <ng-container *ngFor="let section of sections">
-                                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                                                <span [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></span>
-                                                            </td>
-                                                        </ng-container>
-                                                    </tr>
-                                                </table>
-                                            </div>
-                                            <table class="tas-slip-bottom-row tas-slip-footer-prepared" aria-hidden="true">
-                                                <tr>
-                                                    <td>
-                                                        <div class="tas-slip-bottom-cell-inner">
-                                                            <span class="tas-slip-bottom-key">Prepared by:</span>
-                                                            <span class="tas-slip-bottom-sig-slot" aria-hidden="true"></span>
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        <div class="tas-slip-bottom-cell-inner">
-                                                            <span class="tas-slip-bottom-key">Reviewed By:</span>
-                                                            <span class="tas-slip-bottom-sig-slot" aria-hidden="true"></span>
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        <div class="tas-slip-bottom-cell-inner">
-                                                            <span class="tas-slip-bottom-key">Approved By:</span>
-                                                            <span class="tas-slip-bottom-sig-slot" aria-hidden="true"></span>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            </table>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
                         <!-- Generic preview: one scrollable A4-width sheet -->
-                        <div *ngIf="!isCapfSelected() && !isExpenseClaimSelected() && !isTemporaryAdvanceSlipSelected() && selectedForm"
+                        <div *ngIf="!isCapfSelected() && !isExpenseClaimSelected() && selectedForm"
                             class="app-preview-body"
                             [class.app-preview-body--landscape]="isLandscapeOrientation()">
                             <div class="app-preview-canvas" #previewCanvas>
                                 <div class="app-preview-scale" #previewScale>
-                                    <div class="app-preview-pages">
-                                        <div class="xyz-paper xyz-paper-page app-preview-paper-a4" [ngClass]="getPreviewPaperOrientationClass()" [ngStyle]="getPreviewPaperStyle()" *ngFor="let pageLines of getGenericPreviewLinePages(); let pageIndex = index; let isLast = last">
-                                            <ng-container *ngIf="pageIndex === 0">
+                                    <div class="generic-measure-station" aria-hidden="true">
+                                        <div #genericMeasurePaper
+                                            class="xyz-paper xyz-paper-page xyz-paper-measured app-preview-paper-a4"
+                                            [class.xyz-paper--has-pipeline-footer]="hasGenericPreviewFooter()"
+                                            [attr.data-paper-orientation]="formOrientation"
+                                            [ngClass]="getPreviewPaperOrientationClass()"
+                                            [ngStyle]="getPreviewPaperStyle()">
+                                            <div #genericMeasureHeader class="xyz-header-container" *ngIf="documentHeaderField">
                                                 <div class="xyz-date-row">
                                                     <div class="xyz-date">Date: {{ previewDate }}</div>
                                                 </div>
 
                                                 <div class="xyz-header">
                                                     <div class="xyz-logo">
-                                                        <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
+                                                        <img [src]="getDocumentHeaderLogoPath()" [alt]="getDocumentHeaderBrandTitle()">
                                                     </div>
                                                     <div class="xyz-company">
-                                                        <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
-                                                        <div class="xyz-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+                                                        <div class="xyz-company-name">{{ getDocumentHeaderBrandTitle() }}</div>
+                                                        <div class="xyz-company-address">{{ getDocumentHeaderBrandAddress() }}</div>
                                                     </div>
                                                     <div class="xyz-header-spacer"></div>
                                                 </div>
@@ -876,32 +755,109 @@
                                                 <div class="xyz-rule thick"></div>
 
                                                 <div class="xyz-title">{{ getDocumentHeaderPreviewValue() }}</div>
-                                            </ng-container>
-
-                                            <div class="xyz-generic-content">
-                                                <div *ngFor="let field of getGenericPreviewFields()" class="xyz-generic-field">
-                                                    <div *ngIf="isWordEditorType(field.type)" class="xyz-generic-word">
-                                                        <div class="ql-editor" [innerHTML]="getPreviewWordEditorValue(field)"></div>
-                                                    </div>
-
-                                                    <div *ngIf="isTableType(field.type)" class="overflow-x-auto">
-                                                        <table class="xyz-generic-table">
-                                                            <tbody>
-                                                                <tr *ngFor="let row of getPreviewTableValue(field)">
-                                                                    <td *ngFor="let cell of row">{{ cell ?? '-' }}</td>
-                                                                </tr>
-                                                            </tbody>
-                                                        </table>
-                                                    </div>
-
-                                                    <div *ngIf="!isWordEditorType(field.type) && !isTableType(field.type)" class="xyz-generic-value">
-                                                        {{ getPreviewFieldDisplayValue(field) }}
-                                                    </div>
-                                                </div>
                                             </div>
 
-                                            <ng-container *ngIf="isLast">
-                                                <div *ngIf="getPreviewDepartmentFooterField()" class="mt-8 pt-4 xyz-footer">
+                                            <div #genericMeasureBody class="xyz-content-body xyz-generic-measured-body"></div>
+
+                                            <div #genericMeasureFooter class="xyz-footer" *ngIf="hasGenericPreviewFooter()">
+                                                <div *ngIf="getPreviewDepartmentFooterField()">
+                                                    <div class="flex flex-wrap justify-center gap-6 py-2">
+                                                        <div *ngFor="let pipeline of selectedForm?.approvalPipelines; let i = index"
+                                                                class="flex flex-col items-center min-w-[120px]">
+                                                            <div class="w-full h-10 flex items-end justify-center mb-1"></div>
+                                                            <div class="w-full border-t border-gray-300 mb-1"></div>
+                                                            <div class="text-[10px] font-bold text-center uppercase tracking-wider text-gray-700">
+                                                                {{ getPipelineDisplayName(pipeline) }}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <table class="xyz-signatures" *ngIf="getPreviewIndividualFooterField() as footerField">
+                                                    <tr class="xyz-signatures-blank">
+                                                        <ng-container *ngFor="let section of getIndividualPipelineFooterFields(footerField)">
+                                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
+                                                        </ng-container>
+                                                    </tr>
+                                                    <tr>
+                                                        <th *ngFor="let section of getIndividualPipelineFooterFields(footerField)"
+                                                            [attr.colspan]="getIndividualFooterColSpan(section)">
+                                                            {{ section.label || 'New Field' }}:
+                                                        </th>
+                                                    </tr>
+                                                    <tr>
+                                                        <ng-container *ngFor="let section of getIndividualPipelineFooterFields(footerField)">
+                                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                                                <span [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></span>
+                                                            </td>
+                                                        </ng-container>
+                                                    </tr>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="app-preview-pages">
+                                        <div class="xyz-paper xyz-paper-page xyz-paper-measured app-preview-paper-a4"
+                                            [class.xyz-paper--continuation]="!first"
+                                            [class.xyz-last-page]="hasGenericPreviewFooter() && last"
+                                            [class.xyz-paper--has-pipeline-footer]="hasGenericPreviewFooter() && last"
+                                            [class.xyz-paper--footer-pinned]="hasGenericPreviewFooter() && last"
+                                            [attr.data-paper-orientation]="formOrientation"
+                                            [ngClass]="getPreviewPaperOrientationClass()"
+                                            [ngStyle]="getPreviewPaperStyle()"
+                                            *ngFor="let pageBlocks of getGenericPreviewPages(); let first = first; let last = last">
+                                            <div class="xyz-header-container" *ngIf="first && documentHeaderField">
+                                                <div class="xyz-date-row">
+                                                    <div class="xyz-date">Date: {{ previewDate }}</div>
+                                                </div>
+
+                                                <div class="xyz-header">
+                                                    <div class="xyz-logo">
+                                                        <img [src]="getDocumentHeaderLogoPath()" [alt]="getDocumentHeaderBrandTitle()">
+                                                    </div>
+                                                    <div class="xyz-company">
+                                                        <div class="xyz-company-name">{{ getDocumentHeaderBrandTitle() }}</div>
+                                                        <div class="xyz-company-address">{{ getDocumentHeaderBrandAddress() }}</div>
+                                                    </div>
+                                                    <div class="xyz-header-spacer"></div>
+                                                </div>
+
+                                                <div class="xyz-rule thick"></div>
+
+                                                <div class="xyz-title">{{ getDocumentHeaderPreviewValue() }}</div>
+                                            </div>
+
+                                            <div class="xyz-content-body xyz-generic-measured-body">
+                                                <ng-container *ngFor="let segment of getPageRenderSegments(pageBlocks)">
+                                                    <div *ngIf="isWordEditorRenderSegment(segment)" class="xyz-generic-field">
+                                                        <div class="xyz-generic-word">
+                                                            <div class="ql-editor" [innerHTML]="segment.html"></div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div *ngIf="isFieldRenderSegment(segment) && segment.block" class="xyz-field-block">
+                                                        <div *ngIf="isTableType(segment.block.field?.type); else genericFieldValue" class="overflow-x-auto">
+                                                            <table class="xyz-generic-table">
+                                                                <tbody>
+                                                                    <tr *ngFor="let row of getTableRowsForBlock(segment.block.field); let rowIndex = index">
+                                                                        <td class="xyz-row-label">{{ getTableRowLabel(segment.block.field, rowIndex) }}</td>
+                                                                        <td *ngFor="let cell of row">{{ cell ?? '-' }}</td>
+                                                                    </tr>
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+
+                                                        <ng-template #genericFieldValue>
+                                                            <div class="xyz-field-label">{{ segment.block.field.label }}</div>
+                                                            <div class="xyz-field-value">{{ getPreviewFieldDisplayValue(segment.block.field) }}</div>
+                                                        </ng-template>
+                                                    </div>
+                                                </ng-container>
+                                            </div>
+
+                                            <ng-container *ngIf="last">
+                                                <div *ngIf="getPreviewDepartmentFooterField()" class="xyz-footer">
                                                     <div class="flex flex-wrap justify-center gap-6 py-2">
                                                         <div *ngFor="let pipeline of selectedForm?.approvalPipelines; let i = index"
                                                                 class="flex flex-col items-center min-w-[120px]">
@@ -916,7 +872,7 @@
                                                     </div>
                                                 </div>
 
-                                                <div *ngIf="getPreviewIndividualFooterField() as footerField" class="mt-8 pt-4 xyz-footer">
+                                                <div *ngIf="getPreviewIndividualFooterField() as footerField" class="xyz-footer">
                                                     <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields(footerField) as sections">
                                                         <tr class="xyz-signatures-blank">
                                                             <ng-container *ngFor="let section of sections">

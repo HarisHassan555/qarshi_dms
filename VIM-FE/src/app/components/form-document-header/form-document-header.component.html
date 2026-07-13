@@ -5,11 +5,11 @@
 
     <div class="fdh-header">
         <div class="fdh-logo">
-            <img src="assets/images/qarshi-logo.png" alt="Qarshi Logo">
+            <img [src]="logoPath" [alt]="brandTitle">
         </div>
         <div class="fdh-company">
-            <div class="fdh-company-name">Qarshi Industries (Pvt) Ltd.</div>
-            <div class="fdh-company-address">15-6, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+            <div class="fdh-company-name">{{ brandTitle }}</div>
+            <div class="fdh-company-address">{{ brandAddress }}</div>
         </div>
         <div class="fdh-spacer"></div>
     </div>
