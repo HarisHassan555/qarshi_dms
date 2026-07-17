@@ -96,7 +96,8 @@ public class AuthController {
       SecurityContextHolder.getContext().setAuthentication(authentication);
 
       String token = jwtUtils.generateJwtToken(authentication);
-      CfgTblUser user = userRepository.findByTxtUserName(loginRequest.getUsername()).get();
+      CfgTblUser user = userRepository.findByLoginNameForAuthentication(loginRequest.getUsername())
+              .orElseThrow(() -> new RuntimeException("User not found for authenticated login"));
       LoginResponse loginResponse = new LoginResponse();
       loginResponse.setToken("Bearer " + token);
       loginResponse.setUser(user);

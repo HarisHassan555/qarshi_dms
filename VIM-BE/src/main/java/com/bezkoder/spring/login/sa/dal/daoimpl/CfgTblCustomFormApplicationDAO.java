@@ -49,6 +49,7 @@ import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 
 @Repository
 public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicationDAO {
+    private static final String DEPARTMENT_ADMIN_ROLE = "department_admin";
     private static final long MAX_TOTAL_ATTACHMENT_BYTES = 5L * 1024L * 1024L; // 5 MB combined
     private static final java.util.Set<String> ALLOWED_ATTACHMENT_MIME_TYPES = new java.util.HashSet<>(
             java.util.Arrays.asList("application/pdf", "image/webp", "image/png", "image/jpeg"));
@@ -193,6 +194,88 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         }
         Set<Integer> headIds = parseDepartmentHeadIds(em, departmentId);
         return !headIds.isEmpty() && headIds.contains(userId);
+    }
+
+    private java.util.Set<Integer> findDepartmentIdsHeadedByUser(EntityManager entityManager, Integer userId) {
+        java.util.Set<Integer> departmentIds = new java.util.HashSet<>();
+        if (entityManager == null || userId == null || userId <= 0) {
+            return departmentIds;
+        }
+        try {
+            List<HrTblDepartment> departments = entityManager.createQuery(
+                    "SELECT d FROM HrTblDepartment d",
+                    HrTblDepartment.class)
+                    .getResultList();
+            for (HrTblDepartment department : departments) {
+                if (department == null || department.getSerDepartmentId() == null) {
+                    continue;
+                }
+                if (parseDepartmentHeadIds(entityManager, department.getSerDepartmentId()).contains(userId)) {
+                    departmentIds.add(department.getSerDepartmentId());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to resolve headed departments for user {}: {}", userId, e.getMessage());
+        }
+        return departmentIds;
+    }
+
+    private DepartmentAccessScope resolveDepartmentAdminAccessScope(EntityManager entityManager, Integer userId) {
+        if (entityManager == null || userId == null || userId <= 0) {
+            return null;
+        }
+
+        try {
+            CfgTblUser user = entityManager.find(CfgTblUser.class, userId);
+            if (user == null || !userHasRole(user, DEPARTMENT_ADMIN_ROLE)) {
+                return null;
+            }
+
+            Integer departmentId = loadUserDepartmentId(entityManager, userId);
+            String departmentName = departmentId != null ? resolveDepartmentName(entityManager, departmentId, null)
+                    : null;
+            if ((departmentName == null || departmentName.trim().isEmpty()) && user.getTxtDepartmentName() != null) {
+                departmentName = user.getTxtDepartmentName().trim();
+            }
+
+            java.util.Set<Integer> departmentIds = new java.util.HashSet<>();
+            java.util.Map<Integer, String> departmentNamesById = new java.util.HashMap<>();
+            java.util.Set<String> normalizedDepartmentNames = new java.util.HashSet<>();
+
+            if (departmentId != null) {
+                departmentIds.add(departmentId);
+                departmentNamesById.put(departmentId, departmentName);
+            }
+
+            String normalizedDepartmentName = normalizeDeptText(departmentName);
+            if (!normalizedDepartmentName.isEmpty()) {
+                normalizedDepartmentNames.add(normalizedDepartmentName);
+            }
+
+            if (departmentIds.isEmpty() && normalizedDepartmentNames.isEmpty()) {
+                log.warn("Department admin user {} does not have an assigned department", userId);
+                return null;
+            }
+
+            return new DepartmentAccessScope(departmentIds, departmentNamesById, normalizedDepartmentNames);
+        } catch (Exception e) {
+            log.warn("Failed to resolve department admin scope for user {}: {}", userId, e.getMessage());
+            return null;
+        }
+    }
+
+    private static final class DepartmentAccessScope {
+        private final java.util.Set<Integer> departmentIds;
+        private final java.util.Map<Integer, String> departmentNamesById;
+        private final java.util.Set<String> normalizedDepartmentNames;
+
+        private DepartmentAccessScope(java.util.Set<Integer> departmentIds,
+                java.util.Map<Integer, String> departmentNamesById,
+                java.util.Set<String> normalizedDepartmentNames) {
+            this.departmentIds = departmentIds;
+            this.departmentNamesById = departmentNamesById;
+            this.normalizedDepartmentNames = normalizedDepartmentNames;
+        }
     }
 
     private Set<Integer> getApprovedHodsForStage(List<java.util.Map<String, Object>> approvalHistory,
@@ -619,18 +702,18 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     private CfgTblCustomFormApplication toApplicationSummary(Object[] row) {
         CfgTblCustomFormApplication app = new CfgTblCustomFormApplication();
-        app.setSerApplicationId((Integer) row[0]);
-        app.setSerFormId((Integer) row[1]);
-        app.setTxtFormCode((String) row[2]);
-        app.setTxtStatus((String) row[3]);
-        app.setIntCurrentApprovalLevel((Integer) row[4]);
-        app.setSerSubmittedBy((Integer) row[5]);
-        app.setSerCurrentApprover((Integer) row[6]);
-        app.setDteCreatedDate((java.sql.Timestamp) row[7]);
+        app.setSerApplicationId(safeInt(row[0], null));
+        app.setSerFormId(safeInt(row[1], null));
+        app.setTxtFormCode(row[2] != null ? String.valueOf(row[2]) : null);
+        app.setTxtStatus(row[3] != null ? String.valueOf(row[3]) : null);
+        app.setIntCurrentApprovalLevel(safeInt(row[4], null));
+        app.setSerSubmittedBy(safeInt(row[5], null));
+        app.setSerCurrentApprover(safeInt(row[6], null));
+        app.setDteCreatedDate(safeTimestamp(row[7]));
 
-        Integer formId = (Integer) row[8];
-        String formName = (String) row[9];
-        String formCode = (String) row[10];
+        Integer formId = safeInt(row[8], null);
+        String formName = row[9] != null ? String.valueOf(row[9]) : null;
+        String formCode = row[10] != null ? String.valueOf(row[10]) : null;
         if (formId != null || formName != null || formCode != null) {
             CfgTblCustomForm form = new CfgTblCustomForm();
             form.setSerFormId(formId);
@@ -638,7 +721,33 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             form.setTxtFormCode(formCode);
             app.setCfgTblCustomForm(form);
         }
+        if (row.length > 11) {
+            app.setSubmittedDepartmentId(safeInt(row[11], null));
+        }
+        if (row.length > 12) {
+            app.setSubmittedDepartmentName(row[12] != null ? String.valueOf(row[12]) : null);
+        }
+        if (row.length > 13) {
+            app.setSubmittedByUserName(row[13] != null ? String.valueOf(row[13]) : null);
+        }
         return app;
+    }
+
+    private java.sql.Timestamp safeTimestamp(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof java.sql.Timestamp) {
+            return (java.sql.Timestamp) value;
+        }
+        if (value instanceof java.util.Date) {
+            return new java.sql.Timestamp(((java.util.Date) value).getTime());
+        }
+        try {
+            return java.sql.Timestamp.valueOf(String.valueOf(value));
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     private List<CfgTblCustomFormApplication> toApplicationSummaries(List<CfgTblCustomFormApplication> applications) {
@@ -659,6 +768,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             app.setSerSubmittedBy(original.getSerSubmittedBy());
             app.setSerCurrentApprover(original.getSerCurrentApprover());
             app.setDteCreatedDate(original.getDteCreatedDate());
+            app.setSubmittedDepartmentId(original.getSubmittedDepartmentId());
+            app.setSubmittedDepartmentName(original.getSubmittedDepartmentName());
+            app.setSubmittedByUserName(original.getSubmittedByUserName());
 
             CfgTblCustomForm originalForm = original.getCfgTblCustomForm();
             if (originalForm != null) {
@@ -785,6 +897,143 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
     }
 
     @Override
+    @SuppressWarnings("unchecked")
+    public List<CfgTblCustomFormApplication> getDepartmentApplications(Integer userId) {
+        EntityManager entityManager = getEntityManager();
+        try {
+            entityManager.getTransaction().begin();
+
+            if (userId == null || userId <= 0) {
+                entityManager.getTransaction().commit();
+                return new java.util.ArrayList<>();
+            }
+
+            DepartmentAccessScope accessScope = resolveDepartmentAdminAccessScope(entityManager, userId);
+            if (accessScope == null
+                    || (accessScope.departmentIds.isEmpty() && accessScope.normalizedDepartmentNames.isEmpty())) {
+                entityManager.getTransaction().commit();
+                return new java.util.ArrayList<>();
+            }
+
+            @SuppressWarnings("unchecked")
+            List<Object[]> rows = entityManager.createNativeQuery(
+                    "SELECT a.ser_application_id AS app_application_id, " +
+                            "a.ser_form_id AS app_form_id, " +
+                            "a.txt_form_code AS app_form_code, " +
+                            "a.txt_status AS app_status, " +
+                            "a.int_current_approval_level AS app_current_approval_level, " +
+                            "a.ser_submitted_by AS app_submitted_by, " +
+                            "a.ser_current_approver AS app_current_approver, " +
+                            "a.dte_created_date AS app_created_date, " +
+                            "f.ser_form_id AS form_ser_form_id, " +
+                            "f.txt_form_name AS form_name, " +
+                            "f.txt_form_code AS form_code, " +
+                            "CAST(NULL AS SIGNED) AS submitted_department_id, " +
+                            "CAST(NULL AS CHAR(255)) AS submitted_department_name, " +
+                            "u.txt_user_name AS submitted_by_user_name, " +
+                            "a.txt_application_data AS app_application_data " +
+                            "FROM cfg_tbl_custom_form_application a " +
+                            "LEFT JOIN cfg_tbl_custom_form f ON f.ser_form_id = a.ser_form_id " +
+                            "LEFT JOIN cfg_tbl_user u ON u.ser_user_id = a.ser_submitted_by " +
+                            "WHERE (a.bl_is_deleted = 0 OR a.bl_is_deleted IS NULL) " +
+                            "ORDER BY a.dte_created_date DESC")
+                    .getResultList();
+
+            entityManager.getTransaction().commit();
+            return filterDepartmentApplications(rows, accessScope.departmentIds, accessScope.departmentNamesById,
+                    accessScope.normalizedDepartmentNames);
+        } catch (Exception e) {
+            if (entityManager.getTransaction().isActive()) {
+                entityManager.getTransaction().rollback();
+            }
+            log.error("Error getting department applications: " + e.getMessage(), e);
+            throw e;
+        } finally {
+            if (entityManager.isOpen()) {
+                entityManager.close();
+            }
+        }
+    }
+
+    private List<CfgTblCustomFormApplication> filterDepartmentApplications(
+            List<Object[]> rows,
+            java.util.Set<Integer> headedDepartmentIds,
+            java.util.Map<Integer, String> headedDepartmentNamesById,
+            java.util.Set<String> headedDepartmentNames) {
+        List<CfgTblCustomFormApplication> applications = new java.util.ArrayList<>();
+        if (rows == null || rows.isEmpty()) {
+            return applications;
+        }
+
+        int skippedWithoutSnapshot = 0;
+        for (Object[] row : rows) {
+            CfgTblCustomFormApplication app = toApplicationSummary(row);
+            String rawApplicationData = row.length > 14 && row[14] != null ? String.valueOf(row[14]) : null;
+            Map<String, Object> applicationData = parseApplicationData(rawApplicationData);
+
+            populateSubmittedDepartmentFields(app, applicationData, headedDepartmentNamesById);
+            if (app.getSubmittedDepartmentId() == null
+                    && normalizeDeptText(app.getSubmittedDepartmentName()).isEmpty()) {
+                skippedWithoutSnapshot++;
+                continue;
+            }
+            if (belongsToHeadedDepartment(app, headedDepartmentIds, headedDepartmentNames)) {
+                applications.add(app);
+            }
+        }
+
+        if (skippedWithoutSnapshot > 0) {
+            log.info("Skipped {} department application(s) that do not have a saved submission department snapshot",
+                    skippedWithoutSnapshot);
+        }
+        return applications;
+    }
+
+    private void populateSubmittedDepartmentFields(
+            CfgTblCustomFormApplication application,
+            Map<String, Object> applicationData,
+            java.util.Map<Integer, String> departmentNamesById) {
+        if (application == null) {
+            return;
+        }
+
+        Integer submittedDepartmentId = application.getSubmittedDepartmentId();
+        if (submittedDepartmentId == null) {
+            submittedDepartmentId = extractSubmittedDepartmentId(applicationData);
+            application.setSubmittedDepartmentId(submittedDepartmentId);
+        }
+
+        String submittedDepartmentName = application.getSubmittedDepartmentName();
+        if (submittedDepartmentName == null || submittedDepartmentName.trim().isEmpty()) {
+            submittedDepartmentName = extractSubmittedDepartmentName(applicationData);
+            if ((submittedDepartmentName == null || submittedDepartmentName.trim().isEmpty())
+                    && submittedDepartmentId != null && departmentNamesById != null) {
+                submittedDepartmentName = departmentNamesById.get(submittedDepartmentId);
+            }
+            application.setSubmittedDepartmentName(submittedDepartmentName);
+        }
+    }
+
+    private boolean belongsToHeadedDepartment(
+            CfgTblCustomFormApplication application,
+            java.util.Set<Integer> headedDepartmentIds,
+            java.util.Set<String> headedDepartmentNames) {
+        if (application == null) {
+            return false;
+        }
+
+        Integer submittedDepartmentId = application.getSubmittedDepartmentId();
+        if (submittedDepartmentId != null) {
+            return headedDepartmentIds != null && headedDepartmentIds.contains(submittedDepartmentId);
+        }
+
+        String normalizedDepartmentName = normalizeDeptText(application.getSubmittedDepartmentName());
+        return !normalizedDepartmentName.isEmpty()
+                && headedDepartmentNames != null
+                && headedDepartmentNames.contains(normalizedDepartmentName);
+    }
+
+    @Override
     public CfgTblCustomFormApplication getApplicationById(Integer applicationId) {
         EntityManager entityManager = getEntityManager();
         try {
@@ -904,6 +1153,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             if (application.getTxtApplicationData() == null || application.getTxtApplicationData().trim().isEmpty()) {
                 application.setTxtApplicationData("{}");
             }
+            application.setTxtApplicationData(enrichApplicationDataWithDepartmentSnapshot(entityManager, application));
             String attachmentValidationMessage = validateAttachmentPayloadSizeLimit(application.getTxtApplicationData());
             if (attachmentValidationMessage != null) {
                 entityManager.getTransaction().rollback();
@@ -6569,8 +6819,14 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
     }
 
     private Map<String, Object> parseApplicationData(CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return new java.util.HashMap<>();
+        }
+        return parseApplicationData(application.getTxtApplicationData());
+    }
+
+    private Map<String, Object> parseApplicationData(String raw) {
         try {
-            String raw = application.getTxtApplicationData();
             if (raw == null || raw.trim().isEmpty())
                 return new java.util.HashMap<>();
             ObjectMapper mapper = new ObjectMapper();
@@ -6580,6 +6836,134 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             log.warn("Error parsing application data: " + e.getMessage());
             return new java.util.HashMap<>();
         }
+    }
+
+    private String enrichApplicationDataWithDepartmentSnapshot(EntityManager entityManager,
+            CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return "{}";
+        }
+        Map<String, Object> applicationData = parseApplicationData(application);
+        boolean changed = false;
+
+        Integer submittedDepartmentId = extractSubmittedDepartmentId(applicationData);
+        if (submittedDepartmentId == null) {
+            submittedDepartmentId = loadUserDepartmentId(entityManager, application.getSerSubmittedBy());
+            if (submittedDepartmentId != null) {
+                applicationData.put("submittedDepartmentId", submittedDepartmentId);
+                changed = true;
+            }
+        }
+
+        String submittedDepartmentName = extractSubmittedDepartmentName(applicationData);
+        if ((submittedDepartmentName == null || submittedDepartmentName.trim().isEmpty()) && submittedDepartmentId != null) {
+            submittedDepartmentName = resolveDepartmentName(entityManager, submittedDepartmentId, null);
+            if (submittedDepartmentName != null && !submittedDepartmentName.trim().isEmpty()) {
+                applicationData.put("submittedDepartmentName", submittedDepartmentName);
+                changed = true;
+            }
+        }
+
+        if (!changed) {
+            String raw = application.getTxtApplicationData();
+            return raw == null || raw.trim().isEmpty() ? "{}" : raw;
+        }
+
+        try {
+            return new ObjectMapper().writeValueAsString(applicationData);
+        } catch (Exception e) {
+            log.warn("Failed to persist submitted department snapshot for app {}: {}",
+                    application.getSerApplicationId(), e.getMessage());
+            String raw = application.getTxtApplicationData();
+            return raw == null || raw.trim().isEmpty() ? "{}" : raw;
+        }
+    }
+
+    private Integer resolveSubmittedDepartmentId(EntityManager entityManager,
+            CfgTblCustomFormApplication application,
+            Map<Integer, String> departmentNameCache) {
+        if (application == null) {
+            return null;
+        }
+        Map<String, Object> applicationData = parseApplicationData(application);
+        Integer submittedDepartmentId = extractSubmittedDepartmentId(applicationData);
+        if (submittedDepartmentId != null
+                && (application.getSubmittedDepartmentName() == null || application.getSubmittedDepartmentName().trim().isEmpty())) {
+            application.setSubmittedDepartmentName(resolveSubmittedDepartmentName(entityManager, application,
+                    submittedDepartmentId, departmentNameCache));
+        }
+        return submittedDepartmentId;
+    }
+
+    private String resolveSubmittedDepartmentName(EntityManager entityManager,
+            CfgTblCustomFormApplication application,
+            Integer submittedDepartmentId,
+            Map<Integer, String> departmentNameCache) {
+        if (application == null) {
+            return null;
+        }
+        Map<String, Object> applicationData = parseApplicationData(application);
+        String submittedDepartmentName = extractSubmittedDepartmentName(applicationData);
+        if (submittedDepartmentName != null && !submittedDepartmentName.trim().isEmpty()) {
+            return submittedDepartmentName;
+        }
+        return resolveDepartmentName(entityManager, submittedDepartmentId, null, departmentNameCache);
+    }
+
+    private Integer extractSubmittedDepartmentId(Map<String, Object> applicationData) {
+        if (applicationData == null || applicationData.isEmpty()) {
+            return null;
+        }
+        Integer departmentId = safeInt(applicationData.get("submittedDepartmentId"), null);
+        if (departmentId != null) {
+            return departmentId;
+        }
+        departmentId = safeInt(applicationData.get("serSubmittedDepartmentId"), null);
+        if (departmentId != null) {
+            return departmentId;
+        }
+        return safeInt(applicationData.get("submitterDepartmentId"), null);
+    }
+
+    private String extractSubmittedDepartmentName(Map<String, Object> applicationData) {
+        if (applicationData == null || applicationData.isEmpty()) {
+            return null;
+        }
+        Object name = applicationData.get("submittedDepartmentName");
+        if (name == null) {
+            name = applicationData.get("submitterDepartmentName");
+        }
+        if (name == null) {
+            name = applicationData.get("txtSubmittedDepartmentName");
+        }
+        if (name == null) {
+            return null;
+        }
+        String normalized = String.valueOf(name).trim();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private String resolveUserNameForSummary(EntityManager entityManager, Integer userId,
+            Map<Integer, String> userNameCache) {
+        if (userId == null || userId <= 0) {
+            return null;
+        }
+        if (userNameCache != null && userNameCache.containsKey(userId)) {
+            return userNameCache.get(userId);
+        }
+        String userName = null;
+        try {
+            CfgTblUser user = entityManager.find(CfgTblUser.class, userId);
+            if (user != null) {
+                userName = user.getTxtUserName();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to resolve submitter name for user {}: {}", userId, e.getMessage());
+        }
+        if (userNameCache != null) {
+            userNameCache.put(userId, userName);
+        }
+        return userName;
     }
 
     private boolean hasDynamicFooterFlow(CfgTblCustomFormApplication application) {
@@ -7206,7 +7590,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             // Keep original spacing below third-party assessment.
             y -= 10;
             y = drawCapfSignatureSection(content, lineStart, y, lineEnd - lineStart,
-                    application.getTxtApprovalHistory(), document);
+                    application.getTxtApprovalHistory(), document, form);
             y -= 12;
             content.setFont(PDType1Font.HELVETICA_BOLD, 9);
             drawCentered(content, pageWidth, y, "PART II (TO BE FILLED BY PROCUREMENT DEPARTMENT)");
@@ -7738,6 +8122,14 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         return "Qarshi Industries (Pvt) Ltd.";
     }
 
+    private String resolveCapfApprovedByTitle(com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form) {
+        if (form == null || form.getTxtFormName() == null) {
+            return "Chief Executive";
+        }
+        String normalized = form.getTxtFormName().trim().toUpperCase(Locale.ROOT);
+        return "CAPF QU".equals(normalized) ? "Vice Chancellor" : "Chief Executive";
+    }
+
     private static final float CAPF_HEADER_LOGO_HEIGHT_PT = 11f;
 
     private float drawCapfHeaderLogo(PDDocument document, PDPageContentStream content, float x, float y,
@@ -8028,7 +8420,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
     }
 
     private float drawCapfSignatureSection(PDPageContentStream content, float x, float y, float width,
-            String approvalHistoryJson, PDDocument document) throws java.io.IOException {
+            String approvalHistoryJson, PDDocument document,
+            com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm form) throws java.io.IOException {
         float colWidth = width / 6f;
         float sigHeight = 18f;
         float lineY = y - sigHeight - 2f;
@@ -8052,7 +8445,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 "Procurement",
                 "Finance",
                 "Core Team HRT / CCT HO",
-                "Vice Chancellor"
+                resolveCapfApprovedByTitle(form)
         };
 
         float sigRowY = y - sigHeight;
@@ -8276,7 +8669,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             }
         }
 
-        // Map pipeline order 5+ to the Chief Executive signature slot.
+        // Map pipeline order 5+ to the final approval signature slot.
         if (pipelines != null && !pipelines.isEmpty()) {
             java.util.List<Map<String, Object>> sorted = new java.util.ArrayList<>(pipelines);
             sorted.sort(
@@ -10432,8 +10825,9 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         } catch (Exception ignored) {
         }
 
+        String approvedByTitle = resolveCapfApprovedByTitle(form);
         String signatureSlots = buildCapfSignatureSlotsHtml(pipelines, historyForEmail,
-                getBaseUrl(), hideFromOrder);
+                getBaseUrl(), hideFromOrder, approvedByTitle);
 
         String check = "<span>&#10003;</span>";
         String logoUrl = getBaseUrl() + "/assets/images/" + resolveCapfLogoFileName(form);
@@ -10443,6 +10837,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         html = html.replace("{{LOGO_URL}}", escapeHtml(logoUrl));
         html = html.replace("{{LOGO_HEIGHT}}", String.valueOf(resolveCapfLogoEmailHeightPx(form)));
         html = html.replace("{{BRAND_TITLE}}", escapeHtml(resolveCapfBrandTitle(form)));
+        html = html.replace("{{APPROVED_BY_TITLE}}", escapeHtml(approvedByTitle));
         html = html.replace("{{APPLICATION_CODES}}", applicationCodesHtml);
         html = html.replace("{{CAPF_NUMBER}}", escapeHtml(capfNumber));
         html = html.replace("{{DIVISION_DEPARTMENT}}",
@@ -10516,7 +10911,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
     }
 
     private String buildCapfSignatureSlotsHtml(List<Map<String, Object>> pipelines, String approvalHistoryJson,
-            String baseUrl, Integer hideFromOrder) {
+            String baseUrl, Integer hideFromOrder, String approvedByTitle) {
         List<Map<String, Object>> approvalHistory = parseApprovalHistory(approvalHistoryJson);
         java.util.Set<Integer> usedIndices = new java.util.HashSet<>();
         List<Map<String, Object>> sortedPipelines = new java.util.ArrayList<>();
@@ -10537,7 +10932,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             slots.add(buildFallbackSlot(4, "Finance", approvalHistory, baseUrl, usedIndices, hideFromOrder));
             slots.add(buildFallbackSlot(5, "Core Team HTR. / CCT HO", approvalHistory, baseUrl, usedIndices, hideFromOrder));
             // CEO slot is not part of CAPF pipeline; map by role/level (-99) from history.
-            slots.add(buildCeoSlot(approvalHistory, baseUrl, usedIndices));
+            slots.add(buildCeoSlot(approvalHistory, baseUrl, usedIndices, approvedByTitle));
         } else {
             boolean hasPipelineCeoSlot = capfHasPipelineCeoSignatureSlot(sortedPipelines);
             String[] pipelineSlotLabels = new String[] {
@@ -10590,10 +10985,10 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             }
             if (hasPipelineCeoSlot) {
                 slots.add(buildCapfPipelineCeoSlot(sortedPipelines, approvalHistory, baseUrl, usedIndices,
-                        hideFromOrder));
+                        approvedByTitle, hideFromOrder));
             } else {
                 // Legacy: CEO slot is not part of CAPF pipeline; append explicitly.
-                slots.add(buildCeoSlot(approvalHistory, baseUrl, usedIndices));
+                slots.add(buildCeoSlot(approvalHistory, baseUrl, usedIndices, approvedByTitle));
             }
         }
 
@@ -10671,14 +11066,14 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
     }
 
     private CapfSignatureSlot buildCeoSlot(List<Map<String, Object>> approvalHistory, String baseUrl,
-            java.util.Set<Integer> usedIndices) {
+            java.util.Set<Integer> usedIndices, String approvedByTitle) {
         List<Map<String, Object>> entries = getCeoApprovalEntries(approvalHistory, usedIndices);
-        return buildSlotFromEntries("Vice Chancellor", entries, baseUrl);
+        return buildSlotFromEntries(approvedByTitle, entries, baseUrl);
     }
 
     private CapfSignatureSlot buildCapfPipelineCeoSlot(List<Map<String, Object>> pipelines,
             List<Map<String, Object>> approvalHistory, String baseUrl, java.util.Set<Integer> usedIndices,
-            Integer hideFromOrder) {
+            String approvedByTitle, Integer hideFromOrder) {
         List<Map<String, Object>> entries = new java.util.ArrayList<>();
         if (pipelines != null) {
             java.util.List<Map<String, Object>> sorted = new java.util.ArrayList<>(pipelines);
@@ -10700,7 +11095,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         if (entries.isEmpty()) {
             entries.addAll(getCeoApprovalEntries(approvalHistory, usedIndices));
         }
-        return buildSlotFromEntries("Vice Chancellor", entries, baseUrl);
+        return buildSlotFromEntries(approvedByTitle, entries, baseUrl);
     }
 
     private List<Map<String, Object>> getCeoApprovalEntries(List<Map<String, Object>> approvalHistory,

@@ -2,6 +2,7 @@ import { Component, OnInit, ViewChild } from '@angular/core';
 import { AbstractControl, FormBuilder, FormGroup, ValidationErrors, Validators } from '@angular/forms';
 import { NotificationService } from 'src/app/NotificationService';
 import { CustomerService } from 'src/app/services/customer/customer.service';
+import { DepartmentService } from 'src/app/services/department/department.service';
 import { UserService } from 'src/app/services/user/user.service';
 import { map, Observable, of } from "rxjs";
 import { PermissionService } from "../../../services/shared-data/permission-service";
@@ -24,12 +25,16 @@ export class UserListComponent implements OnInit {
   roles: any;
   passwordPolicies: any;
   customers: any;
+  departments: any[] = [];
   isRoleVendor = false;
   isRoleAdmin = false;
 
   cols = [
-    { field: 'txtUserName', title: 'Username' },
+    { field: 'txtUserName', title: 'Name' },
+    { field: 'txtLoginName', title: 'Login Name', width: '180px' },
     { field: 'txtCnic', title: 'Employee ID', width: '160px' },
+    { field: 'txtDepartmentName', title: 'Department', width: '180px' },
+    { field: 'txtDesignation', title: 'Designation', width: '180px' },
     { field: 'txtContactNo', title: 'Contact Number', width: '160px' },
     { field: 'cfgTblRole.txtRoleName', title: 'Role', width: '120px' },
     { field: 'txtAddress', title: 'Email' },
@@ -41,6 +46,7 @@ export class UserListComponent implements OnInit {
     private fb: FormBuilder,
     private userService: UserService,
     private customerService: CustomerService,
+    private departmentService: DepartmentService,
     private notificationService: NotificationService,
     private permissionService: PermissionService
   ) { }
@@ -49,6 +55,7 @@ export class UserListComponent implements OnInit {
     this.form = this.fb.group({
       serUserId: [''],
       txtUserName: ['', Validators.required],
+      txtLoginName: ['', Validators.required],
       txtAddress: ['', [Validators.required, Validators.email]], // Correct email validation
       // Keep txtCnic as payload key for backend compatibility, but use it as Employee ID in UI.
       txtCnic: ['', [Validators.required], this.asyncCnicValidator()],
@@ -56,11 +63,15 @@ export class UserListComponent implements OnInit {
         serRoleId: ['', Validators.required]
       }),
       txtContactNo: ['', [Validators.required, Validators.pattern(/^\d{10}$/)]],
-      cfgTblManager: [''],
+      serDepartmentId: ['', Validators.required],
+      txtDesignation: ['', Validators.required],
+      cfgTblManager: this.fb.group({
+        serUserId: ['']
+      }),
       cfgTblCustomer: this.fb.group({
         serCustomerId: ['']
       }),
-      blnStatus: [true, Validators.requiredTrue],
+      blnStatus: [true],
     });
     const userJson = localStorage.getItem('user');
     let user: {
@@ -79,6 +90,7 @@ export class UserListComponent implements OnInit {
       this.getUsers();
       this.getPasswordPolicies();
       this.getCustomers();
+      this.getDepartments();
     });
 
   }
@@ -88,19 +100,10 @@ export class UserListComponent implements OnInit {
     this.userService.getUsers()
       .subscribe(data => {
         this.users = data;
-
-        this.users = this.users.map((user: { cfgTblRole: null; }) => {
-
-          if (user.cfgTblRole) {
-            const filteredRole = this.roles.find((role: { serRoleId: null; }) => role.serRoleId === user.cfgTblRole);
-            user.cfgTblRole = filteredRole || null;
-          } else {
-            user.cfgTblRole = null;
-          }
-
-          return user;
-        });
-
+        this.users = (this.users || []).map((user: any) => ({
+          ...user,
+          cfgTblRole: this.resolveRoleObject(user?.cfgTblRole)
+        }));
         this.filteredUsers = this.getDisplayedUsers();
 
       });
@@ -111,6 +114,11 @@ export class UserListComponent implements OnInit {
       .subscribe(data => {
         if (data) {
           this.roles = data;
+          this.users = (this.users || []).map((user: any) => ({
+            ...user,
+            cfgTblRole: this.resolveRoleObject(user?.cfgTblRole)
+          }));
+          this.filteredUsers = this.getDisplayedUsers();
         }
       });
   }
@@ -133,51 +141,99 @@ export class UserListComponent implements OnInit {
       });
   }
 
+  getDepartments() {
+    this.departmentService.getAll()
+      .subscribe((data: any) => {
+        this.departments = Array.isArray(data) ? data : [];
+      });
+  }
+
   add() {
     this.isSubmit = false;
-    this.form.reset();
-    this.blnStatus = false;
+    this.isRoleVendor = false;
+    this.isRoleAdmin = false;
+    this.form.reset({
+      serUserId: '',
+      txtUserName: '',
+      txtLoginName: '',
+      txtAddress: '',
+      txtCnic: '',
+      cfgTblRole: {
+        serRoleId: ''
+      },
+      txtContactNo: '',
+      serDepartmentId: '',
+      txtDesignation: '',
+      cfgTblManager: {
+        serUserId: ''
+      },
+      cfgTblCustomer: {
+        serCustomerId: ''
+      },
+      blnStatus: true
+    });
+    this.blnStatus = true;
     this.modal.open();
   }
 
   edit(user: any) {
-    console.log(user);
-    this.form.reset();
+    const roleName = this.getRoleName(user);
+    const departmentId = this.resolveDepartmentId(user);
+
+    this.isSubmit = false;
+    this.isRoleVendor = false;
+    this.isRoleAdmin = false;
+    this.form.reset({
+      serUserId: user?.serUserId || '',
+      txtUserName: user?.txtUserName || '',
+      txtLoginName: user?.txtLoginName || user?.txtUserName || '',
+      txtAddress: user?.txtAddress || '',
+      txtCnic: user?.txtCnic || '',
+      cfgTblRole: {
+        serRoleId: user?.cfgTblRole?.serRoleId || user?.cfgTblRole || ''
+      },
+      txtContactNo: user?.txtContactNo || '',
+      serDepartmentId: departmentId || '',
+      txtDesignation: user?.txtDesignation || '',
+      cfgTblManager: {
+        serUserId: user?.cfgTblManager?.serUserId || ''
+      },
+      cfgTblCustomer: {
+        serCustomerId: user?.cfgTblCustomer?.serCustomerId || ''
+      },
+      blnStatus: user?.blnStatus ?? true
+    });
     this.modal.open();
-    debugger;
-    this.form.patchValue(user);
-    this.blnStatus = user.blnStatus;
-    if (user.cfgTblRole && user.cfgTblRole.txtRoleName) {
-      this.setControlValidations(user.cfgTblRole.txtRoleName.toLowerCase());
+    this.blnStatus = user?.blnStatus ?? true;
+    if (roleName) {
+      this.setControlValidations(roleName.toLowerCase());
     }
   }
 
   submit() {
     this.isSubmit = true;
-    console.log(this.form.controls['txtCnic'].errors);
     if (this.form.invalid) return;
-    let payload = this.form.value;
+    const payload = this.buildPayload();
 
-    if (this.isUsernameDuplicate(payload.txtUserName, payload.serUserId)) {
-      const usernameControl = this.form.controls['txtUserName'];
-      usernameControl.setErrors({ ...(usernameControl.errors || {}), duplicate: true });
-      this.notificationService.showMessage('Username already exists. Please choose a different username', 'danger');
+    if (this.isLoginNameDuplicate(payload.txtLoginName, payload.serUserId)) {
+      const loginNameControl = this.form.controls['txtLoginName'];
+      loginNameControl.setErrors({ ...(loginNameControl.errors || {}), duplicate: true });
+      this.notificationService.showMessage('Login name already exists. Please choose a different login name', 'danger');
       return;
     }
 
     if (payload.serUserId) {
-      // payload.blnStatus = this.blnStatus;
       payload.blIsDeleted = false;
     } else {
       delete payload.serUserId;
     }
 
     if (this.isRoleVendor) {
-      delete payload.cfgTblManager;
+      payload.cfgTblManager = null;
     } else {
-      delete payload.cfgTblCustomer
+      payload.cfgTblCustomer = null;
       if (this.isRoleAdmin) {
-        delete payload.cfgTblManager
+        payload.cfgTblManager = null;
       }
     }
     this.userService
@@ -201,10 +257,15 @@ export class UserListComponent implements OnInit {
     const needle = this.search.toLowerCase().trim();
     return this.users.filter((u: any) => {
       const roleName = u?.cfgTblRole?.txtRoleName || '';
+      const departmentName = u?.txtDepartmentName || u?.hrTblDepartment?.txtDepartmentName || '';
+      const designation = u?.txtDesignation || '';
       const statusText = u?.blnStatus ? 'active' : 'inactive';
       const haystack = [
         u?.txtUserName,
+        u?.txtLoginName,
         u?.txtCnic,
+        departmentName,
+        designation,
         u?.txtContactNo,
         u?.txtAddress,
         roleName,
@@ -221,8 +282,8 @@ export class UserListComponent implements OnInit {
 
   setControlValidations(role: any) {
     if (role === 'vendor') {
-      console.log(role);
       this.isRoleVendor = true;
+      this.isRoleAdmin = false;
       this.form.get('cfgTblManager.serUserId')?.clearValidators();
       this.form.get('cfgTblCustomer.serCustomerId')?.setValidators([Validators.required]);
     } else if (role === 'admin') {
@@ -232,6 +293,7 @@ export class UserListComponent implements OnInit {
       this.form.get('cfgTblCustomer.serCustomerId')?.clearValidators();
     } else {
       this.isRoleVendor = false;
+      this.isRoleAdmin = false;
       this.form.get('cfgTblManager.serUserId')?.setValidators([Validators.required]);
       this.form.get('cfgTblCustomer.serCustomerId')?.clearValidators();
     }
@@ -276,13 +338,78 @@ export class UserListComponent implements OnInit {
     return (value || '').trim().toLowerCase();
   }
 
-  private isUsernameDuplicate(username: string, currentUserId?: number): boolean {
+  private resolveRoleObject(roleValue: any): any {
+    if (!roleValue) {
+      return null;
+    }
+    if (typeof roleValue === 'object') {
+      return roleValue;
+    }
+    if (!Array.isArray(this.roles)) {
+      return roleValue;
+    }
+    return this.roles.find((role: any) => Number(role?.serRoleId) === Number(roleValue)) || null;
+  }
+
+  private getRoleName(user: any): string {
+    const resolvedRole = this.resolveRoleObject(user?.cfgTblRole);
+    return resolvedRole?.txtRoleName || '';
+  }
+
+  private resolveDepartmentId(user: any): number | null {
+    const departmentId = Number(user?.hrTblDepartment?.serDepartmentId);
+    if (Number.isFinite(departmentId) && departmentId > 0) {
+      return departmentId;
+    }
+
+    const departmentName = (user?.txtDepartmentName || '').toString().trim().toLowerCase();
+    if (!departmentName) {
+      return null;
+    }
+
+    const matchedDepartment = (this.departments || []).find((department: any) =>
+      (department?.txtDepartmentName || '').toString().trim().toLowerCase() === departmentName
+    );
+
+    return matchedDepartment?.serDepartmentId || null;
+  }
+
+  private buildPayload(): any {
+    const formValue = this.form.getRawValue();
+    const departmentId = Number(formValue?.serDepartmentId);
+    const selectedDepartment = (this.departments || []).find((department: any) =>
+      Number(department?.serDepartmentId) === departmentId
+    );
+
+    return {
+      ...formValue,
+      cfgTblRole: formValue?.cfgTblRole?.serRoleId ? {
+        serRoleId: Number(formValue.cfgTblRole.serRoleId)
+      } : null,
+      cfgTblManager: formValue?.cfgTblManager?.serUserId ? {
+        serUserId: Number(formValue.cfgTblManager.serUserId)
+      } : null,
+      cfgTblCustomer: formValue?.cfgTblCustomer?.serCustomerId ? {
+        serCustomerId: Number(formValue.cfgTblCustomer.serCustomerId)
+      } : null,
+      hrTblDepartment: departmentId > 0 ? {
+        serDepartmentId: departmentId
+      } : null,
+      txtUserName: (formValue?.txtUserName || '').toString().trim(),
+      txtLoginName: (formValue?.txtLoginName || '').toString().trim(),
+      txtDepartmentName: selectedDepartment?.txtDepartmentName || '',
+      txtDesignation: (formValue?.txtDesignation || '').toString().trim(),
+      blnStatus: !!formValue?.blnStatus
+    };
+  }
+
+  private isLoginNameDuplicate(loginName: string, currentUserId?: number): boolean {
     if (!Array.isArray(this.users)) return false;
-    const normalized = this.normalizeUsername(username);
+    const normalized = this.normalizeUsername(loginName);
     if (!normalized) return false;
 
     return this.users.some((user: any) => {
-      const userName = this.normalizeUsername(user?.txtUserName || '');
+      const userName = this.normalizeUsername(user?.txtLoginName || user?.txtUserName || '');
       const userId = Number(user?.serUserId || 0);
       const editingUserId = Number(currentUserId || 0);
       return userName === normalized && userId !== editingUserId;

@@ -39,6 +39,12 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     }
 
     @Override
+    public List<CfgTblCustomFormApplication> getDepartmentApplications(Integer userId) {
+        logger.debug("getDepartmentApplications() - userId: " + userId);
+        return customFormApplicationDAO.getDepartmentApplications(userId);
+    }
+
+    @Override
     public CfgTblCustomFormApplication getApplicationById(Integer applicationId) {
         logger.debug("getApplicationById() - applicationId: " + applicationId);
         return customFormApplicationDAO.getApplicationById(applicationId);

@@ -86,6 +86,20 @@ public class CustomFormApplicationController {
         }
     }
 
+    @RequestMapping(value = "/getDepartmentApplications", method = RequestMethod.GET)
+    public List<CfgTblCustomFormApplication> getDepartmentApplications(@RequestParam Integer userId,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("getDepartmentApplications() - userId: " + userId);
+        try {
+            return customFormApplicationService.getDepartmentApplications(userId);
+        } catch (Exception ex) {
+            logger.error("Error fetching department applications: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return null;
+        }
+    }
+
     @RequestMapping(value = "/getApplicationById", method = RequestMethod.GET)
     public CfgTblCustomFormApplication getApplicationById(@RequestParam Integer applicationId,
             HttpServletRequest request,

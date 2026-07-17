@@ -27,6 +27,10 @@ export class CustomFormApplicationService {
     return this.http.get(urls.API_URL + 'getApplicationsByUserId?userId=' + userId);
   }
 
+  getDepartmentApplications(userId: number) {
+    return this.http.get(urls.API_URL + 'getDepartmentApplications?userId=' + userId);
+  }
+
   getApplicationById(applicationId: number) {
     return this.http.get(urls.API_URL + 'getApplicationById?applicationId=' + applicationId);
   }

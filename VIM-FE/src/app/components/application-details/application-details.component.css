@@ -160,7 +160,7 @@
 }
 
 .xyz-generic-measured-body .xyz-field-block {
-    margin-bottom: 10px;
+    margin-bottom: 0;
 }
 
 .xyz-generic-measured-body .xyz-field-label {
@@ -214,7 +214,7 @@
     max-width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
-    margin-top: 4px;
+    margin-top: 0;
 }
 
 .xyz-generic-table tr {
@@ -336,8 +336,11 @@
     border: none !important;
     border-right: 1px solid #000 !important;
     border-bottom: 1px solid #000 !important;
-    padding: 4px 6px;
+    padding: 6px 6px;
     font-size: 12px;
+    line-height: 1.35 !important;
+    vertical-align: middle !important;
+    white-space: normal !important;
     box-sizing: border-box !important;
 }
 
@@ -579,13 +582,7 @@
 }
 
 .xyz-generic-field {
-    border: none;
-    padding: 0;
-    margin-bottom: 8px;
     min-width: 0;
-    max-width: 100%;
-    width: 100%;
-    box-sizing: border-box;
 }
 
 .xyz-generic-measured-body > .xyz-generic-field:last-child {
@@ -626,7 +623,63 @@
     word-break: break-word;
 }
 
-:host ::ng-deep .xyz-generic-word .ql-editor {
+.xyz-generic-word .word-editor-content {
+    display: block;
+    padding: 0;
+    white-space: normal;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    letter-spacing: normal !important;
+    word-spacing: normal !important;
+    text-align: left;
+}
+
+:host ::ng-deep .ck-content figure.table,
+:host ::ng-deep .ck-editor__editable figure.table {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 6px 0 !important;
+    box-sizing: border-box !important;
+}
+
+:host ::ng-deep .ck-content figure.table table,
+:host ::ng-deep .ck-editor__editable figure.table table {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    box-sizing: border-box !important;
+}
+
+:host ::ng-deep .ck-content figure.table td,
+:host ::ng-deep .ck-content figure.table th,
+:host ::ng-deep .ck-editor__editable figure.table td,
+:host ::ng-deep .ck-editor__editable figure.table th {
+    border: 1px solid #000;
+    padding: 4px !important;
+    line-height: 1.25 !important;
+    height: auto !important;
+    min-height: 30px !important;
+    box-sizing: border-box !important;
+    vertical-align: top !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+}
+
+:host ::ng-deep .ck-content figure.table td > *,
+:host ::ng-deep .ck-content figure.table th > *,
+:host ::ng-deep .ck-editor__editable figure.table td > *,
+:host ::ng-deep .ck-editor__editable figure.table th > * {
+    max-width: 100%;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+}
+
+:host ::ng-deep .xyz-generic-word .ql-editor,
+:host ::ng-deep .xyz-generic-word .word-editor-content {
     white-space: normal !important;
     font-family: "Times New Roman", Times, serif;
     font-size: 13px;
@@ -639,39 +692,84 @@
 }
 
 :host ::ng-deep .xyz-generic-word .ql-editor p,
-:host ::ng-deep .xyz-generic-word .ql-editor div {
+:host ::ng-deep .xyz-generic-word .ql-editor div,
+:host ::ng-deep .xyz-generic-word .word-editor-content p,
+:host ::ng-deep .xyz-generic-word .word-editor-content div {
     margin: 0 0 6px 0 !important;
 }
 
+:host ::ng-deep .xyz-generic-word .ql-editor > p:first-child,
+:host ::ng-deep .xyz-generic-word .ql-editor > div:first-child,
+:host ::ng-deep .xyz-generic-word .word-editor-content > p:first-child,
+:host ::ng-deep .xyz-generic-word .word-editor-content > div:first-child {
+    margin-top: 0 !important;
+}
+
+:host ::ng-deep .xyz-generic-word .ql-editor > p:last-child,
+:host ::ng-deep .xyz-generic-word .ql-editor > div:last-child,
+:host ::ng-deep .xyz-generic-word .word-editor-content > p:last-child,
+:host ::ng-deep .xyz-generic-word .word-editor-content > div:last-child {
+    margin-bottom: 0 !important;
+}
+
 :host ::ng-deep .xyz-generic-word .ql-editor ul,
-:host ::ng-deep .xyz-generic-word .ql-editor ol {
+:host ::ng-deep .xyz-generic-word .ql-editor ol,
+:host ::ng-deep .xyz-generic-word .word-editor-content ul,
+:host ::ng-deep .xyz-generic-word .word-editor-content ol {
     margin: 6px 0 6px 22px !important;
     padding: 0 !important;
     list-style-position: outside !important;
 }
 
-:host ::ng-deep .xyz-generic-word .ql-editor li {
+:host ::ng-deep .xyz-generic-word .ql-editor li,
+:host ::ng-deep .xyz-generic-word .word-editor-content li {
     margin: 2px 0 !important;
 }
 
 :host ::ng-deep .xyz-generic-word .ql-editor table,
-:host ::ng-deep .xyz-content-body .ql-editor table,
+:host ::ng-deep .xyz-word-preview .ql-editor table,
+:host ::ng-deep .xyz-generic-word .word-editor-content table,
 :host ::ng-deep .q-table-wrapper table {
     width: 100% !important;
-    min-width: 100% !important;
     max-width: 100% !important;
-    border-collapse: collapse !important;
-    border-spacing: 0 !important;
-    border: none !important;
+    border-collapse: collapse;
+    margin: 6px 0;
+    table-layout: fixed;
+}
+
+:host ::ng-deep .xyz-generic-word .ql-editor figure.table,
+:host ::ng-deep .xyz-word-preview .ql-editor figure.table,
+:host ::ng-deep .xyz-generic-word .word-editor-content figure.table,
+:host ::ng-deep .q-table-wrapper figure.table {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 6px 0 !important;
+    box-sizing: border-box !important;
+}
+
+:host ::ng-deep .xyz-generic-word .ql-editor figure.table table,
+:host ::ng-deep .xyz-word-preview .ql-editor figure.table table,
+:host ::ng-deep .xyz-generic-word .word-editor-content figure.table table,
+:host ::ng-deep .q-table-wrapper figure.table table {
+    width: 100% !important;
+    max-width: 100% !important;
     table-layout: fixed !important;
-    margin: 0 !important;
+}
+
+:host ::ng-deep .xyz-generic-word .ql-editor table tr,
+:host ::ng-deep .xyz-word-preview .ql-editor table tr,
+:host ::ng-deep .xyz-generic-word .word-editor-content table tr,
+:host ::ng-deep .q-table-wrapper table tr {
+    height: auto !important;
 }
 
 :host ::ng-deep .xyz-generic-word .ql-editor table tbody tr,
-:host ::ng-deep .xyz-content-body .ql-editor table tbody tr,
+:host ::ng-deep .xyz-word-preview .ql-editor table tbody tr,
+:host ::ng-deep .xyz-generic-word .word-editor-content table tbody tr,
 :host ::ng-deep .q-table-wrapper table tbody tr,
 :host ::ng-deep .xyz-generic-word .ql-editor table thead tr,
-:host ::ng-deep .xyz-content-body .ql-editor table thead tr,
+:host ::ng-deep .xyz-word-preview .ql-editor table thead tr,
+:host ::ng-deep .xyz-generic-word .word-editor-content table thead tr,
 :host ::ng-deep .q-table-wrapper table thead tr {
     border: none !important;
     background: transparent !important;
@@ -679,80 +777,99 @@
 
 :host ::ng-deep .xyz-generic-word .ql-editor th,
 :host ::ng-deep .xyz-generic-word .ql-editor td,
-:host ::ng-deep .xyz-content-body .ql-editor th,
-:host ::ng-deep .xyz-content-body .ql-editor td,
+:host ::ng-deep .xyz-word-preview .ql-editor th,
+:host ::ng-deep .xyz-word-preview .ql-editor td,
+:host ::ng-deep .xyz-generic-word .word-editor-content th,
+:host ::ng-deep .xyz-generic-word .word-editor-content td,
 :host ::ng-deep .q-table-wrapper th,
 :host ::ng-deep .q-table-wrapper td {
-    border: none !important;
-    border-right: 1px solid #000 !important;
-    border-bottom: 1px solid #000 !important;
-    padding: 6px !important;
-    vertical-align: top !important;
-    word-break: break-word !important;
-    overflow-wrap: anywhere !important;
-    white-space: normal !important;
+    border: 1px solid #000;
+    padding: 4px !important;
+    line-height: 1.25 !important;
+    height: auto !important;
+    min-height: 30px !important;
     box-sizing: border-box !important;
-    font-weight: normal !important;
+    vertical-align: top !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
 }
 
-:host ::ng-deep .xyz-generic-word .ql-editor tr > :first-child,
-:host ::ng-deep .xyz-content-body .ql-editor tr > :first-child,
-:host ::ng-deep .q-table-wrapper tr > :first-child {
-    border-left: 1px solid #000 !important;
-}
-
-:host ::ng-deep .xyz-generic-word .ql-editor table tr:first-child > *,
-:host ::ng-deep .xyz-content-body .ql-editor table tr:first-child > *,
-:host ::ng-deep .q-table-wrapper table tr:first-child > * {
-    border-top: 1px solid #000 !important;
-}
-
-:host ::ng-deep .xyz-generic-word .ql-editor img {
+:host ::ng-deep .xyz-generic-word .ql-editor img,
+:host ::ng-deep .xyz-generic-word .word-editor-content img {
     max-width: 100% !important;
     height: auto !important;
 }
 
-.xyz-generic-word .ql-editor p {
+.xyz-generic-word .ql-editor p,
+.xyz-generic-word .word-editor-content p {
     margin: 0 0 4px 0;
 }
 
-.xyz-generic-word .ql-editor table {
+.xyz-generic-word .word-editor-content,
+.xyz-generic-word .word-editor-content * {
+    letter-spacing: normal !important;
+    word-spacing: normal !important;
+}
+
+.xyz-generic-word .ql-editor table,
+.xyz-generic-word .word-editor-content table {
     width: 100%;
-    min-width: 100%;
     border-collapse: collapse;
     border: none;
     table-layout: fixed;
-    margin: 0;
+    margin: 6px 0;
 }
 
-.xyz-generic-word .ql-editor table tr {
-    min-height: 0;
+.xyz-generic-word .ql-editor figure.table,
+.xyz-generic-word .word-editor-content figure.table {
+    width: 100%;
+    max-width: 100%;
+    margin: 6px 0;
+    box-sizing: border-box;
+}
+
+.xyz-generic-word .ql-editor table tr,
+.xyz-generic-word .word-editor-content table tr {
+    height: auto !important;
 }
 
 .xyz-generic-word .ql-editor th,
 .xyz-generic-word .ql-editor td {
-    border: none;
-    border-right: 1px solid #000;
-    border-bottom: 1px solid #000;
-    padding: 6px 6px !important;
-    line-height: 1.35 !important;
-    vertical-align: middle !important;
-    min-height: 0 !important;
+    border: 1px solid #000;
+    padding: 4px !important;
+    line-height: 1.25 !important;
+    height: auto !important;
+    min-height: 30px !important;
     box-sizing: border-box !important;
-    overflow: visible;
+    vertical-align: top !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+    white-space: normal !important;
+    font-weight: normal !important;
 }
 
-.xyz-generic-word .ql-editor tr > :first-child {
-    border-left: 1px solid #000;
-}
-
-.xyz-generic-word .ql-editor table tr:first-child > * {
-    border-top: 1px solid #000;
+.xyz-generic-word .word-editor-content th,
+.xyz-generic-word .word-editor-content td {
+    border: 1px solid #000;
+    padding: 4px !important;
+    line-height: 1.25 !important;
+    height: auto !important;
+    min-height: 30px !important;
+    box-sizing: border-box !important;
+    vertical-align: top !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+    white-space: normal !important;
+    font-weight: normal !important;
 }
 
 .xyz-generic-word .ql-editor td>*,
-.xyz-generic-word .ql-editor th>* {
-    line-height: inherit !important;
+.xyz-generic-word .ql-editor th>*,
+.xyz-generic-word .word-editor-content td>*,
+.xyz-generic-word .word-editor-content th>* {
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.25 !important;
 }
 
 .xyz-table-row-label {
@@ -762,7 +879,7 @@
 }
 
 .xyz-dynamic {
-    margin-top: 4px;
+    margin-top: 6px;
     font-family: "Times New Roman", Times, serif;
     font-size: 14px;
     width: 100% !important;
@@ -770,24 +887,14 @@
     box-sizing: border-box;
     overflow-wrap: break-word;
     word-wrap: break-word;
-    overflow: visible;
 }
 
 .xyz-content-body {
-    margin-top: 4px;
-    font-family: "Times New Roman", Times, serif;
-    font-size: 14px;
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0;
-    box-sizing: border-box;
-    overflow-wrap: break-word;
-    word-wrap: break-word;
-    overflow-x: hidden;
-    overflow-y: visible;
-    flex: 0 0 auto;
-    min-height: auto;
-    display: block;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    gap: 12px;
 }
 
 .xyz-content-body.xyz-content-centered,
@@ -800,20 +907,14 @@
 .xyz-content-body.xyz-content-centered .xyz-generic-word .q-table-wrapper,
 .xyz-content-body.xyz-content-centered .xyz-generic-word .q-table-wrapper table {
     width: 100% !important;
-    min-width: 100% !important;
-    max-width: 100% !important;
-    margin-left: 0 !important;
-    margin-right: 0 !important;
     text-align: left !important;
 }
 
 .xyz-dynamic table,
 .xyz-content-body > table {
     width: 100% !important;
-    min-width: 100% !important;
     max-width: 100% !important;
     border-collapse: collapse;
-    border: none;
     margin: 8px 0;
     font-size: 14px;
     table-layout: fixed !important;
@@ -829,25 +930,11 @@
 .xyz-dynamic td,
 .xyz-content-body > table th,
 .xyz-content-body > table td {
-    border: none;
-    border-right: 1px solid #000;
-    border-bottom: 1px solid #000;
-    padding: 2px 4px;
-    line-height: 1.15;
+    border: 1px solid #000 !important;
+    padding: 4px 6px;
     word-wrap: break-word !important;
     overflow-wrap: break-word !important;
     min-height: 32px;
-    box-sizing: border-box;
-}
-
-.xyz-dynamic tr > :first-child,
-.xyz-content-body > table tr > :first-child {
-    border-left: 1px solid #000;
-}
-
-.xyz-dynamic table tr:first-child > *,
-.xyz-content-body > table tr:first-child > * {
-    border-top: 1px solid #000;
 }
 
 .xyz-content-body td p,
@@ -874,134 +961,22 @@
 .xyz-signatures {
     width: 100%;
     border-collapse: collapse;
-    margin-top: 8px;
+    margin-top: 12px;
     font-size: 11px;
-    table-layout: fixed;
 }
 
-/* Footer default: in-flow */
 .xyz-footer {
-    flex-shrink: 0;
-    position: static;
-    background: #ffffff;
-    padding-top: 6px;
-    width: 100%;
-    box-sizing: border-box;
-}
-
-.xyz-paper {
-    display: flex;
-    flex-direction: column;
-}
-
-.xyz-paper > .xyz-content-body {
-    flex: 0 0 auto;
-}
-
-.xyz-paper.xyz-last-page:not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
-    display: flex;
-    flex-direction: column;
-    min-height: 297mm;
-    height: auto;
-    max-height: none;
-}
-.xyz-paper.xyz-last-page:not(.xyz-paper-measured) > .xyz-content-body {
-    flex: 0 0 auto;
-    min-height: auto;
-    overflow-x: hidden;
-    overflow-y: visible;
-}
-.pdf-capture .xyz-paper.xyz-last-page {
-    height: 297mm !important;
-    max-height: 297mm !important;
-    overflow: hidden !important;
-}
-.pdf-capture .xyz-paper.xyz-last-page > .xyz-content-body {
-    flex: 1 1 0;
-    min-height: 0;
-    overflow: hidden !important;
-}
-.xyz-paper.xyz-last-page > .xyz-footer {
-    flex-shrink: 0;
     margin-top: auto;
 }
 
 .xyz-footer-spacer {
     flex: 1 1 auto;
-    min-height: 0;
+    min-height: 12px;
     width: 100%;
 }
 
 .xyz-paper.xyz-paper--footer-pinned > .xyz-footer {
-    margin-top: 0;
-    flex-shrink: 0;
-}
-
-.xyz-paper.xyz-paper--footer-pinned:not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
-    min-height: 297mm;
-    height: auto !important;
-    max-height: none !important;
-    overflow: visible !important;
-}
-
-.xyz-paper.xyz-paper--footer-pinned > .xyz-content-body {
-    flex: 0 0 auto !important;
-    min-height: auto;
-    overflow-x: hidden;
-    overflow-y: visible;
-    max-height: none !important;
-}
-
-.xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned {
-    display: flex !important;
-    flex-direction: column !important;
-    overflow: hidden !important;
-}
-
-.xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned:not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
-    height: 297mm !important;
-    min-height: 297mm !important;
-    max-height: 297mm !important;
-}
-
-.xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-header-container {
-    flex: 0 0 auto !important;
-}
-
-.xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-content-body.xyz-generic-measured-body {
-    flex: 0 0 auto !important;
-    min-height: 0 !important;
-    overflow: hidden !important;
-}
-
-.xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-footer-spacer {
-    display: block !important;
-    flex: 1 1 0 !important;
-    min-height: 0 !important;
-    width: 100%;
-}
-
-.xyz-paper.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-footer {
-    flex: 0 0 auto !important;
     margin-top: 0 !important;
-}
-
-.xyz-paper.xyz-paper--footer-pinned.xyz-last-page:not(.xyz-paper-measured):not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) {
-    min-height: 297mm;
-    height: auto;
-    max-height: none;
-}
-
-.pdf-capture .xyz-paper.xyz-paper--footer-pinned.xyz-last-page > .xyz-content-body,
-.pdf-capture .xyz-paper.xyz-paper--footer-pinned.xyz-last-page > .xyz-content-body.xyz-generic-measured-body {
-    flex: 0 1 auto !important;
-    min-height: 0;
-    overflow: hidden !important;
-}
-
-.pdf-capture .xyz-paper.xyz-paper--footer-pinned.xyz-last-page > .xyz-footer-spacer {
-    flex: 1 1 0 !important;
-    min-height: 0 !important;
 }
 
 /* Landscape A4: 297mm wide × 210mm tall */
@@ -1017,114 +992,6 @@
     overflow: hidden !important;
 }
 
-.xyz-paper.xyz-paper--landscape.xyz-paper--footer-pinned,
-.xyz-paper[data-paper-orientation="landscape"].xyz-paper--footer-pinned {
-    height: 210mm !important;
-    min-height: 210mm !important;
-    max-height: 210mm !important;
-}
-
-.xyz-paper.xyz-paper--landscape .xyz-header-container {
-    flex: 0 0 auto;
-}
-
-.xyz-paper.xyz-paper--landscape:not(.xyz-paper-measured) > .xyz-content-body,
-.xyz-paper.xyz-paper--landscape.xyz-paper--footer-pinned:not(.xyz-paper-measured) > .xyz-content-body,
-.xyz-paper.xyz-paper--landscape.xyz-last-page:not(.xyz-paper-measured) > .xyz-content-body {
-    flex: 1 1 auto !important;
-    min-height: 0 !important;
-    max-height: none !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-}
-
-.xyz-paper.xyz-paper--landscape.xyz-paper--footer-pinned > .xyz-footer-spacer {
-    display: none !important;
-    flex: 0 0 0 !important;
-    min-height: 0 !important;
-    height: 0 !important;
-}
-
-.xyz-paper.xyz-paper--landscape.xyz-paper--footer-pinned:not(.xyz-paper-measured) > .xyz-footer,
-.xyz-paper.xyz-paper--landscape.xyz-last-page:not(.xyz-paper-measured) > .xyz-footer {
-    flex: 0 0 auto !important;
-    margin-top: auto !important;
-}
-
-.xyz-paper.xyz-paper--landscape.xyz-paper-measured:not(.xyz-paper--footer-pinned) {
-    height: 210mm !important;
-    min-height: 210mm !important;
-    max-height: 210mm !important;
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) !important;
-    grid-template-rows: auto minmax(0, 1fr) auto !important;
-    align-content: start !important;
-}
-
-.xyz-paper.xyz-paper--landscape.xyz-paper-measured.xyz-paper--continuation:not(.xyz-last-page) {
-    grid-template-columns: minmax(0, 1fr) !important;
-    grid-template-rows: minmax(0, 1fr) !important;
-}
-
-.xyz-paper.xyz-paper--landscape.xyz-paper-measured:not(.xyz-paper--footer-pinned) > .xyz-header-container,
-.xyz-paper.xyz-paper--landscape.xyz-paper-measured:not(.xyz-paper--footer-pinned) > .xyz-content-body.xyz-generic-measured-body {
-    width: 100% !important;
-    min-width: 0 !important;
-    justify-self: stretch !important;
-    min-height: 0 !important;
-    overflow: hidden !important;
-}
-
-.xyz-paper.xyz-paper--landscape.xyz-paper-measured.xyz-paper--footer-pinned {
-    height: 210mm !important;
-    min-height: 210mm !important;
-    max-height: 210mm !important;
-    display: flex !important;
-    flex-direction: column !important;
-    overflow: hidden !important;
-}
-
-.xyz-paper.xyz-paper--landscape.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-header-container {
-    flex: 0 0 auto !important;
-}
-
-.xyz-paper.xyz-paper--landscape.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-content-body.xyz-generic-measured-body {
-    flex: 0 0 auto !important;
-    min-height: 0 !important;
-    overflow: hidden !important;
-    padding-bottom: 4px;
-}
-
-.xyz-paper.xyz-paper--landscape.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-footer-spacer {
-    display: block !important;
-    flex: 1 1 0 !important;
-    min-height: 0 !important;
-    width: 100%;
-}
-
-.xyz-paper.xyz-paper--landscape.xyz-paper-measured.xyz-paper--footer-pinned > .xyz-footer {
-    flex: 0 0 auto !important;
-    margin-top: 0 !important;
-    position: relative;
-    z-index: 1;
-    background: #ffffff;
-}
-
-.pdf-capture .xyz-paper.xyz-paper--landscape.xyz-last-page,
-.pdf-capture .xyz-paper.xyz-paper--landscape.xyz-paper--footer-pinned.xyz-last-page {
-    width: 297mm !important;
-    height: 210mm !important;
-    min-height: 210mm !important;
-    max-height: 210mm !important;
-}
-
-.pdf-capture .xyz-paper.xyz-paper--landscape.xyz-paper--footer-pinned.xyz-last-page > .xyz-content-body,
-.pdf-capture .xyz-paper.xyz-paper--landscape.xyz-paper--footer-pinned.xyz-last-page > .xyz-content-body.xyz-generic-measured-body {
-    flex: 1 1 0 !important;
-    min-height: 0 !important;
-    overflow: hidden !important;
-}
-
 #generic-pdf-content.generic-pdf-content--landscape {
     overflow-x: auto;
 }
@@ -1137,7 +1004,6 @@
     vertical-align: middle;
     word-wrap: break-word;
     overflow-wrap: break-word;
-    max-width: 0;
 }
 
 .xyz-signatures-blank td {
@@ -1158,9 +1024,6 @@
     font-weight: 700;
     background: #8f8f8f;
     text-align: center;
-    padding-top: 8px;
-    padding-bottom: 6px;
-    border-top: none;
 }
 
 .xyz-signatures td {
@@ -1176,7 +1039,7 @@
 
 .xyz-signatures tr:last-child td {
     vertical-align: top;
-    padding-top: 6px;
+    padding-top: 8px;
     line-height: 1.45;
 }
 
@@ -1968,35 +1831,3 @@
         max-width: 420px;
     }
 }
-
-/* Generic preview parity with /application. */
-.app-preview-paper-a4 { max-width:none !important; min-width:0; box-sizing:border-box; flex-shrink:0; }
-.app-preview-paper-a4.xyz-paper--portrait,
-.app-preview-paper-a4:not(.xyz-paper--landscape) { width:210mm !important; min-height:297mm !important; height:auto !important; max-height:none !important; overflow:visible !important; }
-.app-preview-paper-a4.xyz-paper--landscape { width:297mm !important; height:210mm !important; min-height:210mm !important; max-height:210mm !important; aspect-ratio:297 / 210 !important; overflow:hidden !important; }
-.app-preview-paper-a4.xyz-paper-measured { display:grid !important; grid-template-columns:minmax(0,1fr) !important; grid-template-rows:auto minmax(0,1fr) auto !important; box-sizing:border-box !important; overflow:hidden !important; }
-.app-preview-paper-a4.xyz-paper-measured:not(.xyz-paper--landscape):not([data-paper-orientation="landscape"]) { height:297mm !important; min-height:297mm !important; max-height:297mm !important; overflow:hidden !important; }
-.app-preview-paper-a4.xyz-paper-page.xyz-paper-measured.xyz-paper--landscape,
-.app-preview-paper-a4.xyz-paper-page.xyz-paper-measured[data-paper-orientation="landscape"] { height:210mm !important; min-height:210mm !important; max-height:210mm !important; overflow:hidden !important; }
-.app-preview-paper-a4.xyz-paper-measured > .xyz-content-body.xyz-generic-measured-body { grid-row:2 !important; display:flex !important; flex-direction:column !important; flex:1 1 auto !important; min-height:0 !important; gap:12px !important; margin-top:0 !important; overflow:hidden !important; box-sizing:border-box !important; padding-top:2px !important; padding-bottom:4px !important; width:100% !important; min-width:0 !important; max-width:100% !important; align-self:stretch !important; justify-self:stretch !important; }
-.app-preview-paper-a4.xyz-paper-measured > .xyz-header-container { grid-row:1 !important; width:100% !important; min-width:0 !important; max-width:100% !important; align-self:stretch !important; justify-self:stretch !important; padding-bottom:0 !important; }
-.app-preview-paper-a4.xyz-paper-measured > .xyz-footer { grid-row:3 !important; width:100% !important; min-width:0 !important; max-width:100% !important; align-self:stretch !important; justify-self:stretch !important; }
-.app-preview-paper-a4.xyz-paper-measured.xyz-paper--continuation:not(.xyz-last-page) { grid-template-rows:minmax(0,1fr) !important; }
-.app-preview-paper-a4.xyz-paper-measured.xyz-paper--continuation:not(.xyz-last-page) > .xyz-content-body.xyz-generic-measured-body { grid-row:1 !important; margin-top:0 !important; }
-.app-preview-paper-a4.xyz-paper-measured.xyz-paper--continuation.xyz-last-page { grid-template-rows:minmax(0,1fr) auto !important; }
-.app-preview-paper-a4.xyz-paper-measured.xyz-paper--continuation.xyz-last-page > .xyz-content-body.xyz-generic-measured-body { grid-row:1 !important; }
-.app-preview-paper-a4.xyz-paper-measured.xyz-paper--continuation.xyz-last-page > .xyz-footer { grid-row:2 !important; }
-.app-preview-paper-a4.xyz-paper-measured.xyz-last-page > .xyz-content-body.xyz-generic-measured-body { min-height:0 !important; overflow:hidden !important; }
-.app-preview-paper-a4.xyz-paper-measured > .xyz-content-body.xyz-generic-measured-body.xyz-content-centered,
-.app-preview-paper-a4.xyz-paper-measured > .xyz-content-body.xyz-generic-measured-body.xyz-content-centered .xyz-generic-value,
-.app-preview-paper-a4.xyz-paper-measured > .xyz-content-body.xyz-generic-measured-body.xyz-content-centered .xyz-generic-word { text-align:center !important; }
-.app-preview-paper-a4 .xyz-header { grid-template-columns:90px 1fr 90px !important; }
-.app-preview-paper-a4 .xyz-company-name { font-size:30px !important; line-height:1.1 !important; white-space:nowrap !important; }
-.app-preview-paper-a4 .xyz-company-address { font-size:12px !important; line-height:1.2 !important; white-space:nowrap !important; }
-.app-preview-paper-a4 .xyz-title { font-size:26px !important; line-height:1.25 !important; }
-.app-preview-paper-a4 .xyz-generic-content--line-pages { font-size:13.5px !important; line-height:1.35 !important; padding-top:1px !important; padding-bottom:2px !important; }
-.app-preview-paper-a4 .xyz-preview-line { min-height:1.35em !important; margin:0 !important; padding:0 0 0.08em 0 !important; line-height:1.35 !important; }
-.app-preview-paper-a4 .xyz-signatures { table-layout:fixed !important; }
-.app-preview-paper-a4 .xyz-signatures th,
-.app-preview-paper-a4 .xyz-signatures td { white-space:normal !important; word-break:break-word !important; overflow-wrap:anywhere !important; vertical-align:middle !important; line-height:1.2 !important; }
-.app-preview-paper-a4 .xyz-signatures tr:nth-child(2) th { padding-top:10px !important; padding-bottom:10px !important; line-height:1.45 !important; }

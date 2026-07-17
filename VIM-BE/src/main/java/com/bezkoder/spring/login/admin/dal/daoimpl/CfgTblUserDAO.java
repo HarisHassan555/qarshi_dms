@@ -190,18 +190,20 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			cfgTblRole.setSerRoleId(CfgTblUser.getCfgTblRole().getSerRoleId());
 			CfgTblUser.setCfgTblRole(cfgTblRole);
 
-			if (CfgTblUser.getCfgTblManager() != null && CfgTblUser.getCfgTblManager().getSerUserId() > 0) {
-				cfgTblCustomerObj = entityManager.find(CfgTblCustomer.class, CfgTblUser.getCfgTblManager().getSerUserId());
-			} else if (CfgTblUser.getCfgTblCustomer() != null) {
-				cfgTblCustomerObj = entityManager.find(CfgTblCustomer.class, CfgTblUser.getCfgTblCustomer().getSerCustomerId());
-			}
-
+			CfgTblUser.setCfgTblRole(resolveRole(entityManager, CfgTblUser.getCfgTblRole(), null));
+			CfgTblUser.setCfgTblManager(resolveManager(entityManager, CfgTblUser.getCfgTblManager(), null));
+			cfgTblCustomerObj = resolveCustomer(entityManager, CfgTblUser.getCfgTblCustomer(), null);
 			CfgTblUser.setCfgTblCustomer(cfgTblCustomerObj);
+			CfgTblUser.setHrTblDepartment(resolveDepartment(entityManager, CfgTblUser.getHrTblDepartment(), null));
+			syncDepartmentName(CfgTblUser);
+			CfgTblUser.setTxtUserName(normalizeNullable(CfgTblUser.getTxtUserName()));
+			CfgTblUser.setTxtLoginName(normalizeNullable(CfgTblUser.getTxtLoginName()));
+			CfgTblUser.setTxtDesignation(normalizeNullable(CfgTblUser.getTxtDesignation()));
 
 			entityManager.persist(CfgTblUser);
 			entityManager.getTransaction().commit();
 
-			emailService.sendPassordinMail(CfgTblUser.getTxtAddress(), CfgTblUser.getTxtUserName(), plaintText);
+			emailService.sendPassordinMail(CfgTblUser.getTxtAddress(), CfgTblUser.getEffectiveLoginName(), plaintText);
 
 			return "{\"status\":\"Success\"}";
 
@@ -283,6 +285,7 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			if (isBlank(CfgTblUser.getTxtContactNo())) CfgTblUser.setTxtContactNo(existingUser.getTxtContactNo());
 			if (isBlank(CfgTblUser.getTxtPassword())) CfgTblUser.setTxtPassword(existingUser.getTxtPassword());
 			if (isBlank(CfgTblUser.getTxtUserName())) CfgTblUser.setTxtUserName(existingUser.getTxtUserName());
+			if (isBlank(CfgTblUser.getTxtLoginName())) CfgTblUser.setTxtLoginName(existingUser.getTxtLoginName());
 			if (isBlank(CfgTblUser.getTxtrole())) CfgTblUser.setTxtrole(existingUser.getTxtrole());
 			if (CfgTblUser.getCfgTblUserRoles() == null) CfgTblUser.setCfgTblUserRoles(existingUser.getCfgTblUserRoles());
 			if (CfgTblUser.getSerGroupId() == null) CfgTblUser.setSerGroupId(existingUser.getSerGroupId());
@@ -299,6 +302,15 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			if (isBlank(CfgTblUser.getTxtSignaturePath())) CfgTblUser.setTxtSignaturePath(existingUser.getTxtSignaturePath());
 			if (isBlank(CfgTblUser.getTxtDepartmentName())) CfgTblUser.setTxtDepartmentName(existingUser.getTxtDepartmentName());
 			if (isBlank(CfgTblUser.getTxtDesignation())) CfgTblUser.setTxtDesignation(existingUser.getTxtDesignation());
+
+			CfgTblUser.setCfgTblRole(resolveRole(entityManager, CfgTblUser.getCfgTblRole(), existingUser.getCfgTblRole()));
+			CfgTblUser.setCfgTblManager(resolveManager(entityManager, CfgTblUser.getCfgTblManager(), existingUser.getCfgTblManager()));
+			CfgTblUser.setCfgTblCustomer(resolveCustomer(entityManager, CfgTblUser.getCfgTblCustomer(), existingUser.getCfgTblCustomer()));
+			CfgTblUser.setHrTblDepartment(resolveDepartment(entityManager, CfgTblUser.getHrTblDepartment(), existingUser.getHrTblDepartment()));
+			syncDepartmentName(CfgTblUser);
+			CfgTblUser.setTxtUserName(normalizeNullable(CfgTblUser.getTxtUserName()));
+			CfgTblUser.setTxtLoginName(normalizeNullable(CfgTblUser.getTxtLoginName()));
+			CfgTblUser.setTxtDesignation(normalizeNullable(CfgTblUser.getTxtDesignation()));
 
 			if (CfgTblUser.getCfgTblRole() != null && isBlank(CfgTblUser.getTxtrole())) {
 				CfgTblUser.setTxtrole(CfgTblUser.getCfgTblRole().getTxtRoleName());
@@ -341,6 +353,7 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			}
 
 			existingUser.setHrTblDepartment(managedDepartment);
+			existingUser.setTxtDepartmentName(managedDepartment != null ? managedDepartment.getTxtDepartmentName() : null);
 			entityManager.merge(existingUser);
 			entityManager.getTransaction().commit();
 			entityManager.close();
@@ -353,6 +366,65 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 
 	private boolean isBlank(String value) {
 		return value == null || value.trim().isEmpty();
+	}
+
+	private String normalizeNullable(String value) {
+		if (value == null) {
+			return null;
+		}
+		String trimmed = value.trim();
+		return trimmed.isEmpty() ? null : trimmed;
+	}
+
+	private void syncDepartmentName(CfgTblUser user) {
+		if (user == null) {
+			return;
+		}
+		if (user.getHrTblDepartment() != null) {
+			user.setTxtDepartmentName(user.getHrTblDepartment().getTxtDepartmentName());
+			return;
+		}
+		user.setTxtDepartmentName(normalizeNullable(user.getTxtDepartmentName()));
+	}
+
+	private CfgTblRole resolveRole(EntityManager entityManager, CfgTblRole role, CfgTblRole fallbackRole) {
+		Integer roleId = role != null ? role.getSerRoleId() : null;
+		if (roleId == null || roleId <= 0) {
+			return fallbackRole;
+		}
+
+		CfgTblRole managedRole = entityManager.find(CfgTblRole.class, roleId);
+		return managedRole != null ? managedRole : fallbackRole;
+	}
+
+	private CfgTblUser resolveManager(EntityManager entityManager, CfgTblUser manager, CfgTblUser fallbackManager) {
+		Integer managerId = manager != null ? manager.getSerUserId() : null;
+		if (managerId == null || managerId <= 0) {
+			return fallbackManager;
+		}
+
+		CfgTblUser managedManager = entityManager.find(CfgTblUser.class, managerId);
+		return managedManager != null ? managedManager : fallbackManager;
+	}
+
+	private CfgTblCustomer resolveCustomer(EntityManager entityManager, CfgTblCustomer customer, CfgTblCustomer fallbackCustomer) {
+		Integer customerId = customer != null ? customer.getSerCustomerId() : null;
+		if (customerId == null || customerId <= 0) {
+			return fallbackCustomer;
+		}
+
+		CfgTblCustomer managedCustomer = entityManager.find(CfgTblCustomer.class, customerId);
+		return managedCustomer != null ? managedCustomer : fallbackCustomer;
+	}
+
+	private HrTblDepartment resolveDepartment(EntityManager entityManager, HrTblDepartment department, HrTblDepartment fallbackDepartment) {
+		Integer departmentId = department != null ? department.getSerDepartmentId() : null;
+		if (departmentId == null || departmentId <= 0) {
+			return fallbackDepartment;
+		}
+
+		HrTblDepartment managedDepartment = entityManager.find(HrTblDepartment.class, departmentId);
+		return managedDepartment != null ? managedDepartment : fallbackDepartment;
 	}
 
 	@Override
@@ -416,35 +488,41 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 	public List<CfgTblUser> searchUser(CfgTblUser User) {
 			EntityManager entityManager = getEntityManager();
 	    entityManager.getTransaction().begin();
-	    String query = "from CfgTblUser User where 1=1 ";
-	   
-	    if(User.getTxtUserName() !=null){
-	    	query+=" and upper(User.txtUserName) like"+" upper('"+User.getTxtUserName()+"%')"+"  ";
+	    StringBuilder query = new StringBuilder("from CfgTblUser User where 1=1 ");
+
+	    String loginName = normalizeNullable(User.getTxtLoginName());
+	    if (loginName != null) {
+	    	query.append(" and (upper(User.txtLoginName) = upper(:loginName) ")
+	    		.append("or ((User.txtLoginName is null or trim(User.txtLoginName) = '') and upper(User.txtUserName) = upper(:loginName))) ");
 	    }
-	    
-	  
-	    
+
 	    if(User.getTxtAddress() !=null){
-	    	query+=" and upper(User.txtAddress) like"+" upper('"+User.getTxtAddress()+"')"+"  ";
+	    	query.append(" and upper(User.txtAddress) like upper(:email) ");
 	    }
 	    
 	    if(User.getSerUserId() !=null){
-	    	query+=" and User.serUserId ="+" "+User.getSerUserId()+""+"  ";
+	    	query.append(" and User.serUserId = :userId ");
 	    }
 	    
 	    if(User.getCfgTblCustomer()!=null && User.getCfgTblCustomer().getSerCustomerId() !=null){
-	    	query+=" and User.cfgTblCustomer.serCustomerId ="+" "+User.getCfgTblCustomer().getSerCustomerId()+""+"  ";
+	    	query.append(" and User.cfgTblCustomer.serCustomerId = :customerId ");
 	    }
 	    
-	    
-	  
-	    query+=" order by User.serUserId  DESC";
-	    log.info("Query is ---"+query.substring(0, query.length()));
-	    
-	    System.out.println("query ----:"+query.substring(0, query.length()));
-	    String subQuery = query.substring(0, query.length());
-	    List<CfgTblUser> cust = entityManager.createQuery(
-	    		subQuery).getResultList();
+	    query.append(" order by User.serUserId DESC");
+	    TypedQuery<CfgTblUser> typedQuery = entityManager.createQuery(query.toString(), CfgTblUser.class);
+	    if (loginName != null) {
+	    	typedQuery.setParameter("loginName", loginName);
+	    }
+	    if (User.getTxtAddress() != null) {
+	    	typedQuery.setParameter("email", User.getTxtAddress());
+	    }
+	    if (User.getSerUserId() != null) {
+	    	typedQuery.setParameter("userId", User.getSerUserId());
+	    }
+	    if (User.getCfgTblCustomer() != null && User.getCfgTblCustomer().getSerCustomerId() != null) {
+	    	typedQuery.setParameter("customerId", User.getCfgTblCustomer().getSerCustomerId());
+	    }
+	    List<CfgTblUser> cust = typedQuery.getResultList();
 	    
 	    entityManager.getTransaction().commit();
 	    entityManager.close();
@@ -460,31 +538,34 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 	public List<CfgTblUser> CheckUserDuplicationForUpdate(CfgTblUser User) {
 		EntityManager entityManager = getEntityManager();
     entityManager.getTransaction().begin();
-    String query = "from CfgTblUser User where 1=1 ";
+    StringBuilder query = new StringBuilder("from CfgTblUser User where 1=1 ");
    
-    if(User.getTxtUserName() !=null){
-    	query+=" and upper(User.txtUserName) like"+" upper('"+User.getTxtUserName()+"%')"+"  ";
+    String loginName = normalizeNullable(User.getTxtLoginName());
+    if (loginName != null) {
+    	query.append(" and (upper(User.txtLoginName) = upper(:loginName) ")
+    		.append("or ((User.txtLoginName is null or trim(User.txtLoginName) = '') and upper(User.txtUserName) = upper(:loginName))) ");
     }
     
-  
-    
     if(User.getTxtAddress() !=null){
-    	query+=" and upper(User.txtAddress) like"+" upper('"+User.getTxtAddress()+"')"+"  ";
+    	query.append(" and upper(User.txtAddress) like upper(:email) ");
     }
     
     if(User.getSerUserId() !=null){
-    	query+=" and User.serUserId !="+" "+User.getSerUserId()+""+"  ";
+    	query.append(" and User.serUserId != :userId ");
     }
     
-    
-  
-    query+=" order by User.serUserId  DESC";
-    log.info("Query is ---"+query.substring(0, query.length()));
-    
-    System.out.println("query ----:"+query.substring(0, query.length()));
-    String subQuery = query.substring(0, query.length());
-    List<CfgTblUser> cust = entityManager.createQuery(
-    		subQuery).getResultList();
+    query.append(" order by User.serUserId DESC");
+    TypedQuery<CfgTblUser> typedQuery = entityManager.createQuery(query.toString(), CfgTblUser.class);
+    if (loginName != null) {
+    	typedQuery.setParameter("loginName", loginName);
+    }
+    if (User.getTxtAddress() != null) {
+    	typedQuery.setParameter("email", User.getTxtAddress());
+    }
+    if (User.getSerUserId() != null) {
+    	typedQuery.setParameter("userId", User.getSerUserId());
+    }
+    List<CfgTblUser> cust = typedQuery.getResultList();
     
     entityManager.getTransaction().commit();
     entityManager.close();
@@ -522,7 +603,7 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 	         Message mimeMessage = new MimeMessage(session);
 
 		      MimeBodyPart messageBodyPart = new MimeBodyPart();
-		      messageBodyPart.setContent("Your account User Name  is "+user_name+" and Password is "+pass, "text/html");
+		      messageBodyPart.setContent("Your account Login Name is "+user_name+" and Password is "+pass, "text/html");
 		       
 		       
 		      // code to add attachment...will be revealed later

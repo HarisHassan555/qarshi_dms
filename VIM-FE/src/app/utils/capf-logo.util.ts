@@ -42,6 +42,12 @@ export function resolveCapfBrandTitle(formName?: string | null): string {
   return DEFAULT_CAPF_BRAND_TITLE;
 }
 
+export function resolveCapfApprovedByTitle(formName?: string | null): string {
+  return normalizeCapfFormName(formName) === 'CAPF QU'
+    ? 'Vice Chancellor'
+    : 'Chief Executive';
+}
+
 export function resolveCapfLogoCssClass(): string {
   return CAPF_LOGO_CSS_CLASS;
 }

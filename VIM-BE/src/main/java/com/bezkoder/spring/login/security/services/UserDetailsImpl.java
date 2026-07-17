@@ -44,7 +44,7 @@ public class UserDetailsImpl implements UserDetails {
 
     return new UserDetailsImpl(
         Long.valueOf(user.getSerUserId()),
-        user.getTxtUserName(),
+        user.getEffectiveLoginName(),
         user.getTxtAddress(),
         user.getTxtPassword(),
         new ArrayList<>());

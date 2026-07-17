@@ -124,7 +124,7 @@ public class SlsTblDealDetails implements Serializable {
 
 	//bi-directional many-to-one association to SlsTblSaleOrder
 	@ManyToOne(fetch = FetchType.EAGER)
-	@JoinColumn(name="ser_deal_id")
+	@JoinColumn(name="ser_deal_id", foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
 	//@JsonBackReference("deals_details")
 	@JsonIgnoreProperties("slsTblDealDetails")
 	private SlsTblDeal slsTblDeal;

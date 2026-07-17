@@ -11,6 +11,8 @@ public interface ICfgTblCustomFormApplicationDAO {
 
     List<CfgTblCustomFormApplication> getApplicationsByUserId(Integer userId);
 
+    List<CfgTblCustomFormApplication> getDepartmentApplications(Integer userId);
+
     CfgTblCustomFormApplication getApplicationById(Integer applicationId);
 
     String submitApplication(CfgTblCustomFormApplication application);

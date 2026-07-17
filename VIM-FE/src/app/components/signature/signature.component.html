@@ -13,14 +13,17 @@
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Department
                 </label>
-                <input
-                    type="text"
+                <select
                     class="form-input"
-                    placeholder="Enter department"
                     [value]="department"
-                    (input)="onDepartmentInput($event)"
+                    (change)="onDepartmentChange($event)"
                     [disabled]="isLoading"
-                />
+                >
+                    <option value="">Select department</option>
+                    <option *ngFor="let departmentOption of departments" [value]="departmentOption">
+                        {{ departmentOption }}
+                    </option>
+                </select>
             </div>
 
             <div class="mb-4">

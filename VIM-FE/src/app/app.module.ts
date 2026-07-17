@@ -98,6 +98,7 @@ import { SignatureComponent } from './components/signature/signature.component';
 import { CapfComponent } from './components/capf/capf.component';
 import { ApplicationComponent } from './components/application/application.component';
 import { ApplicationsViewComponent } from './components/applications-view/applications-view.component';
+import { DepartmentApplicationComponent } from './components/department-application/department-application.component';
 import { PendingApprovalsComponent } from './components/pending-approvals/pending-approvals.component';
 import { ApplicationDetailsComponent } from './components/application-details/application-details.component';
 import { AssignAssetCodeComponent } from './components/assign-asset-code/assign-asset-code.component';
@@ -226,6 +227,7 @@ import { ActivityLogsComponent } from './components/activity-logs/activity-logs.
         CapfComponent,
         ApplicationComponent,
         ApplicationsViewComponent,
+        DepartmentApplicationComponent,
         PendingApprovalsComponent,
         ApplicationDetailsComponent,
         AssignAssetCodeComponent,

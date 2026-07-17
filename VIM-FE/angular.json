@@ -61,7 +61,8 @@
                                                                                                                                 "pako",
                                                                                                                                 "html2canvas",
                                                                                                                                 "html2pdf.js",
-                                                                                                                                "moment/moment"
+                                                                                                                                "moment/moment",
+                                                                                                                                "color-convert"
                                                                                                                             ]
                                                                                         },
                                                                             "configurations":  {

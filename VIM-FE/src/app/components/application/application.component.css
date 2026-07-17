@@ -4,6 +4,38 @@
     min-height: 280px;
 }
 
+:host ::ng-deep .ck-content figure.table,
+:host ::ng-deep .ck-editor__editable figure.table {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 10px 0 !important;
+    box-sizing: border-box !important;
+}
+
+:host ::ng-deep .ck-content figure.table table,
+:host ::ng-deep .ck-editor__editable figure.table table {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse;
+    box-sizing: border-box !important;
+}
+
+:host ::ng-deep .ck-content figure.table td,
+:host ::ng-deep .ck-content figure.table th,
+:host ::ng-deep .ck-editor__editable figure.table td,
+:host ::ng-deep .ck-editor__editable figure.table th {
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+}
+
+:host ::ng-deep .ck-content figure.table td > *,
+:host ::ng-deep .ck-content figure.table th > *,
+:host ::ng-deep .ck-editor__editable figure.table td > *,
+:host ::ng-deep .ck-editor__editable figure.table th > * {
+    max-width: 100%;
+}
+
 :host ::ng-deep .ck.ck-toolbar {
     flex-wrap: wrap;
 }
@@ -675,18 +707,18 @@
     word-break: break-word !important;
 }
 
-:host ::ng-deep .xyz-generic-word .ql-editor p,
-:host ::ng-deep .xyz-generic-word .ql-editor div {
+:host ::ng-deep .xyz-generic-word .ql-editor > p,
+:host ::ng-deep .xyz-generic-word .ql-editor > div {
     margin: 0 0 6px 0 !important;
 }
 
-:host ::ng-deep .xyz-generic-word .ql-editor p:first-child,
-:host ::ng-deep .xyz-generic-word .ql-editor div:first-child {
+:host ::ng-deep .xyz-generic-word .ql-editor > p:first-child,
+:host ::ng-deep .xyz-generic-word .ql-editor > div:first-child {
     margin-top: 0 !important;
 }
 
-:host ::ng-deep .xyz-generic-word .ql-editor p:last-child,
-:host ::ng-deep .xyz-generic-word .ql-editor div:last-child {
+:host ::ng-deep .xyz-generic-word .ql-editor > p:last-child,
+:host ::ng-deep .xyz-generic-word .ql-editor > div:last-child {
     margin-bottom: 0 !important;
 }
 
@@ -738,32 +770,57 @@
     padding: 0;
 }
 
-.xyz-word-preview table {
+:host ::ng-deep .xyz-word-preview .ql-editor table,
+:host ::ng-deep .xyz-generic-word .ql-editor table {
     width: 100%;
+    max-width: 100%;
     border-collapse: collapse;
-    margin-top: 6px;
+    margin: 6px 0;
     table-layout: fixed;
 }
 
-.xyz-word-preview table tr {
-    height: 30px !important;
-}
-
-.xyz-word-preview td,
-.xyz-word-preview th {
-    border: 1px solid #000;
-    padding: 0 4px !important;
-    line-height: 1 !important;
-    height: 30px !important;
+:host ::ng-deep .xyz-word-preview .ql-editor figure.table,
+:host ::ng-deep .xyz-generic-word .ql-editor figure.table {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 6px 0 !important;
     box-sizing: border-box !important;
-    vertical-align: middle !important;
 }
 
-.xyz-word-preview td > *,
-.xyz-word-preview th > * {
+:host ::ng-deep .xyz-word-preview .ql-editor figure.table table,
+:host ::ng-deep .xyz-generic-word .ql-editor figure.table table {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+}
+
+:host ::ng-deep .xyz-word-preview .ql-editor table tr,
+:host ::ng-deep .xyz-generic-word .ql-editor table tr {
+    height: auto !important;
+}
+
+:host ::ng-deep .xyz-word-preview .ql-editor td,
+:host ::ng-deep .xyz-word-preview .ql-editor th,
+:host ::ng-deep .xyz-generic-word .ql-editor td,
+:host ::ng-deep .xyz-generic-word .ql-editor th {
+    border: 1px solid #000;
+    padding: 4px !important;
+    line-height: 1.25 !important;
+    height: auto !important;
+    min-height: 30px !important;
+    box-sizing: border-box !important;
+    vertical-align: top !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+}
+
+:host ::ng-deep .xyz-word-preview .ql-editor td > *,
+:host ::ng-deep .xyz-word-preview .ql-editor th > *,
+:host ::ng-deep .xyz-generic-word .ql-editor td > *,
+:host ::ng-deep .xyz-generic-word .ql-editor th > * {
     margin: 0 !important;
     padding: 0 !important;
-    line-height: 1 !important;
+    line-height: 1.25 !important;
 }
 
 .xyz-generic-table {

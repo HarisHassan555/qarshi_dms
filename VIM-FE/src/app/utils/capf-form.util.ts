@@ -10,7 +10,7 @@ export function formatCapfFormNumberDisplay(value: string | null | undefined): s
   return raw.replace(/^CAPF[-\s#]*/i, '');
 }
 
-/** Pipeline orders 1–4 map to departmental slots; order 5+ maps to the Chief Executive signature column. */
+/** Pipeline orders 1–4 map to departmental slots; order 5+ maps to the final approval signature column. */
 export const CAPF_CEO_SIGNATURE_PIPELINE_ORDER = 5;
 
 export function getPipelineDepartmentName(pipeline: any): string {

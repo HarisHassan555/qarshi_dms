@@ -831,7 +831,7 @@
                                             <div class="xyz-content-body xyz-generic-measured-body">
                                                 <ng-container *ngFor="let segment of getPageRenderSegments(pageBlocks)">
                                                     <div *ngIf="isWordEditorRenderSegment(segment)" class="xyz-generic-field">
-                                                        <div class="xyz-generic-word">
+                                                        <div class="xyz-generic-word xyz-word-preview">
                                                             <div class="ql-editor" [innerHTML]="segment.html"></div>
                                                         </div>
                                                     </div>

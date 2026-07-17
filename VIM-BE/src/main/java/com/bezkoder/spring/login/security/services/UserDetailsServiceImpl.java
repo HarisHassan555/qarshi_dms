@@ -20,7 +20,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
 
   @Override
   public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-    CfgTblUser user = userRepository.findByTxtUserName(username)
+    CfgTblUser user = userRepository.findByLoginNameForAuthentication(username)
         .orElseThrow(() -> new UsernameNotFoundException("User Not Found with username: " + username));
      return UserDetailsImpl.build(user);
              //new org.springframework.security.core.userdetails.User(user.getTxtUserName(), user.getTxtPassword(), new ArrayList<>());

@@ -8,6 +8,7 @@ export const QRI_DOCUMENT_HEADER_LOGO = 'assets/images/QRI Logo.jpg.jpeg';
 export const QRI_DOCUMENT_HEADER_BRAND_TITLE = 'Qarshi Research International';
 export const QB_DOCUMENT_HEADER_BRAND_TITLE = 'Qarshi Brands';
 export const DOCUMENT_HEADER_ADDRESS = '15-G, Jam-e-Shirin Boulevard, Gulberg-III, Lahore';
+export const QRI_DOCUMENT_HEADER_ADDRESS = '149, 1st Floor, Al Hassan Plaza, Near Jamia Ashrafia, Ferozpur Road, Lahore';
 
 export function normalizeDocumentHeaderType(fieldType?: string | null): string {
   return String(fieldType || '').trim().toLowerCase().replace(/\s+/g, '_');
@@ -52,4 +53,12 @@ export function resolveDocumentHeaderBrandTitle(fieldType?: string | null): stri
     return QB_DOCUMENT_HEADER_BRAND_TITLE;
   }
   return DEFAULT_DOCUMENT_HEADER_BRAND_TITLE;
+}
+
+export function resolveDocumentHeaderAddress(fieldType?: string | null): string {
+  const normalized = normalizeDocumentHeaderType(fieldType);
+  if (normalized === 'document_header_qri') {
+    return QRI_DOCUMENT_HEADER_ADDRESS;
+  }
+  return DOCUMENT_HEADER_ADDRESS;
 }

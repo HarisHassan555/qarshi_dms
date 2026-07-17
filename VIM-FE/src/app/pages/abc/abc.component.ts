@@ -4,7 +4,7 @@ import { filter } from 'rxjs/operators';
 
 import { CommonModule } from '@angular/common';
 import { urls } from 'src/app/utils/urls';
-import { resolveCapfLogoPath, resolveCapfBrandTitle, resolveCapfLogoCssClass } from 'src/app/utils/capf-logo.util';
+import { resolveCapfLogoPath, resolveCapfBrandTitle, resolveCapfLogoCssClass, resolveCapfApprovedByTitle } from 'src/app/utils/capf-logo.util';
 import {
     formatCapfFormNumberDisplay,
     CAPF_CEO_SIGNATURE_PIPELINE_ORDER,
@@ -38,6 +38,10 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
 
     get capfLogoClass(): string {
         return resolveCapfLogoCssClass();
+    }
+
+    get capfApprovedByTitle(): string {
+        return resolveCapfApprovedByTitle(this.getCapfFormName());
     }
 
     get capfPoCodeDisplay(): string {
@@ -378,7 +382,7 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         const pipelines = this.getPipelineData();
         console.log('[CAPF FE][abc] approvalHistoryCount=', this.approvalHistory.length, 'pipelineCount=', pipelines.length, 'appId=', this.application?.serApplicationId);
 
-        // CAPF sig-row is fixed at 5 columns (HoD + orders 1–4). Order 5+ uses the Chief Executive block below.
+        // CAPF sig-row is fixed at 5 columns (HoD + orders 1–4). Order 5+ uses the final approval block below.
         const totalSlotsCount = this.fallbackSignatureSlots.length;
         const usedEntryKeys = new Set<string>();
 
@@ -1073,5 +1077,3 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         return value === 'na' || value === 'n/a' || value === 'not applicable';
     }
 }
-
-

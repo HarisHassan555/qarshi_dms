@@ -71,13 +71,22 @@
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                    <label for="username">Username*</label>
-                    <input formControlName="txtUserName" id="username" type="text" placeholder="Enter Username" class="form-input" />
+                    <label for="name">Name*</label>
+                    <input formControlName="txtUserName" id="name" type="text" placeholder="Enter Name" class="form-input" />
                     <ng-container *ngIf="isSubmit && form.controls['txtUserName'].invalid">
-                        <p class="mt-1 text-danger" *ngIf="form.controls['txtUserName'].errors?.['required']">Username is required</p>
-                        <p class="mt-1 text-danger" *ngIf="form.controls['txtUserName'].errors?.['duplicate']">Username already exists</p>
+                        <p class="mt-1 text-danger" *ngIf="form.controls['txtUserName'].errors?.['required']">Name is required</p>
                     </ng-container>
                 </div>
+                <div>
+                    <label for="loginName">Login Name*</label>
+                    <input formControlName="txtLoginName" id="loginName" type="text" placeholder="Enter Login Name" class="form-input" />
+                    <ng-container *ngIf="isSubmit && form.controls['txtLoginName'].invalid">
+                        <p class="mt-1 text-danger" *ngIf="form.controls['txtLoginName'].errors?.['required']">Login name is required</p>
+                        <p class="mt-1 text-danger" *ngIf="form.controls['txtLoginName'].errors?.['duplicate']">Login name already exists</p>
+                    </ng-container>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                     <label for="email">Email*</label>
                     <input formControlName="txtAddress" id="email" type="email" placeholder="Enter Email" class="form-input" />
@@ -94,7 +103,7 @@
                 <div [formGroup]="cfgTblRole">
                     <label for="role">Role*</label>
                     <select id="role" class="form-select text-white-dark" formControlName="serRoleId" (change)="onChangeRole($event)">
-                        <option value="null">Select Role</option>
+                        <option value="">Select Role</option>
                         <option *ngFor="let role of roles" value="{{role.serRoleId}}">
                             {{role.txtRoleName}}
                         </option>
@@ -113,10 +122,27 @@
                 </div>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="department">Department*</label>
+                    <ng-select [items]="departments" bindLabel="txtDepartmentName" bindValue="serDepartmentId" formControlName="serDepartmentId" placeholder="Select Department" [clearable]="true">
+                    </ng-select>
+                    <ng-container *ngIf="isSubmit && form.controls['serDepartmentId'].invalid">
+                        <p class="mt-1 text-danger">Department is required</p>
+                    </ng-container>
+                </div>
+                <div>
+                    <label for="designation">Designation*</label>
+                    <input formControlName="txtDesignation" id="designation" type="text" placeholder="Enter Designation" class="form-input" />
+                    <ng-container *ngIf="isSubmit && form.controls['txtDesignation'].invalid">
+                        <p class="mt-1 text-danger">Designation is required</p>
+                    </ng-container>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div *ngIf="!isRoleVendor" [formGroup]="cfgTblManager">
                     <label for="manager">Manager*</label>
                     <select id="manager" class="form-select text-white-dark" formControlName="serUserId">
-                        <option value="null">Select Manager</option>
+                        <option value="">Select Manager</option>
                         <option *ngFor="let user of users" value="{{user.serUserId}}">
                             {{user.txtUserName}}
                         </option>

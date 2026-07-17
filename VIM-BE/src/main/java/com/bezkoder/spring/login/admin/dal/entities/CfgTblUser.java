@@ -69,6 +69,9 @@ public class CfgTblUser implements Serializable {
 	@Column(name="txt_password")
 	private String txtPassword;
 
+	@Column(name="txt_login_name")
+	private String txtLoginName;
+
 	@Column(name="txt_user_name")
 	private String txtUserName;
 	
@@ -192,6 +195,21 @@ public class CfgTblUser implements Serializable {
 
 	public void setTxtUserName(String txtUserName) {
 		this.txtUserName = txtUserName;
+	}
+
+	public String getTxtLoginName() {
+		return this.txtLoginName;
+	}
+
+	public void setTxtLoginName(String txtLoginName) {
+		this.txtLoginName = txtLoginName;
+	}
+
+	public String getEffectiveLoginName() {
+		if (this.txtLoginName != null && !this.txtLoginName.trim().isEmpty()) {
+			return this.txtLoginName.trim();
+		}
+		return this.txtUserName != null ? this.txtUserName.trim() : null;
 	}
 
 	public List<CfgTblUserRole> getCfgTblUserRoles() {

@@ -141,7 +141,7 @@ public class SlsTblSoPayments implements Serializable {
 	
 	//bi-directional many-to-one association to SlsTblSaleOrder
 	@ManyToOne
-	@JoinColumn(name="ser_deal_id")
+	@JoinColumn(name="ser_deal_id", foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
 	private SlsTblDeal slsTblDeal;
 	
 	/*

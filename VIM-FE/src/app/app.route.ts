@@ -41,6 +41,7 @@ import { SignatureComponent } from './components/signature/signature.component';
 import { CapfComponent } from './components/capf/capf.component';
 import { ApplicationComponent } from './components/application/application.component';
 import { ApplicationsViewComponent } from './components/applications-view/applications-view.component';
+import { DepartmentApplicationComponent } from './components/department-application/department-application.component';
 import { PendingApprovalsComponent } from './components/pending-approvals/pending-approvals.component';
 import { ApplicationDetailsComponent } from './components/application-details/application-details.component';
 import { AssignAssetCodeComponent } from './components/assign-asset-code/assign-asset-code.component';
@@ -131,6 +132,7 @@ export const routes: Routes = [
             { path: 'CAPF', canActivate: [canActivate], component: CapfComponent, title: 'CAPF' },
             { path: 'application', canActivate: [canActivate], component: ApplicationComponent, title: 'Application' },
             { path: 'applicationsview', canActivate: [canActivate], component: ApplicationsViewComponent, title: 'Applications View' },
+            { path: 'department-application', canActivate: [canActivate], component: DepartmentApplicationComponent, title: 'Department Applications' },
             { path: 'pending-approvals', canActivate: [canActivate], component: PendingApprovalsComponent, title: 'Pending Approvals' },
             { path: 'application-details/:id', canActivate: [canActivate], component: ApplicationDetailsComponent, title: 'Application Details' },
             { path: 'approved-applications', canActivate: [canActivate], component: ApprovedApplicationsComponent, title: 'Approved Applications' },

@@ -24,11 +24,20 @@ import {
   WORD_EDITOR_CKEDITOR_CONFIG,
 } from 'src/app/utils/word-editor-ckeditor.util';
 import {
-  DOCUMENT_HEADER_ADDRESS,
   isDocumentHeaderFieldType,
+  resolveDocumentHeaderAddress,
   resolveDocumentHeaderBrandTitle,
   resolveDocumentHeaderLogoPath,
 } from 'src/app/utils/document-header.util';
+import {
+  DOCUMENT_RENDER_A4_LONG_EDGE_MM,
+  DOCUMENT_RENDER_A4_SHORT_EDGE_MM,
+  DOCUMENT_RENDER_FOOTER_PAGE_FILL_SLACK_PX,
+  DOCUMENT_RENDER_PAGE_FILL_LINE_SLACK_PX,
+  DOCUMENT_RENDER_PAGE_FIT_SAFETY_PX,
+  DOCUMENT_RENDER_TABLE_SPLIT_SAFETY_PX,
+  getDocumentRenderPreviewMaxCharsPerLine,
+} from 'src/app/utils/document-render.util';
 
 const Quill: any = QuillNamespace;
 const Q_TABLE_PASTE_GUARD = '__qTablePasteGuard';
@@ -202,13 +211,6 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   private genericPreviewUsedLiveMeasure = false;
   private genericMeasureRoot: HTMLElement | null = null;
   /** Approximate wrap width for long unbroken lines (~A4 content width). */
-  static readonly GENERIC_PREVIEW_MAX_CHARS_PER_LINE = 88;
-  static readonly A4_SHORT_EDGE_MM = 210;
-  static readonly A4_LONG_EDGE_MM = 297;
-  private static readonly PAGE_FIT_SAFETY_PX = 6;
-  private static readonly PAGE_FILL_LINE_SLACK_PX = 56;
-  private static readonly FOOTER_PAGE_FILL_SLACK_PX = 24;
-  private static readonly TABLE_SPLIT_SAFETY_PX = 10;
   /** Matches `.abc-wrapper.embedded .page` width in abc.component.css */
   static readonly CAPF_PAGE_WIDTH_MM = 280;
   private lastFocusedTableCellByEditor = new WeakMap<any, HTMLTableCellElement>();
@@ -529,17 +531,18 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       )
       : this.mmToPx(paperSize.widthMm);
     const minSheetHeight = this.mmToPx(paperSize.heightMm);
-    let naturalHeight = minSheetHeight;
-    if (!this.isLandscapeOrientation()) {
-      naturalHeight = Math.max(this.getPreviewContentNaturalHeight(previewContentEl), minSheetHeight);
-    }
+    // The preview host must grow to the full rendered page stack in both
+    // portrait and landscape. Landscape used to stay pinned to a single sheet
+    // height, which clipped multi-page content and kept the gray canvas from
+    // expanding behind added pages.
+    const naturalHeight = Math.max(this.getPreviewContentNaturalHeight(previewContentEl), minSheetHeight);
 
     if (!renderableWidth || !naturalWidth || !naturalHeight) {
       return;
     }
 
     // Keep the same px/mm scale when toggling orientation — only width/height swap.
-    const portraitWidthPx = this.mmToPx(ApplicationComponent.A4_SHORT_EDGE_MM);
+    const portraitWidthPx = this.mmToPx(DOCUMENT_RENDER_A4_SHORT_EDGE_MM);
     const scale = this.hasOrientationField()
       ? renderableWidth / portraitWidthPx
       : renderableWidth / naturalWidth;
@@ -552,7 +555,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     scaleHostEl.style.paddingLeft = '6px';
     scaleHostEl.style.paddingRight = '6px';
     scaleHostEl.style.boxSizing = 'border-box';
-    scaleHostEl.style.marginLeft = '0';
+    scaleHostEl.style.marginLeft = 'auto';
     scaleHostEl.style.marginRight = 'auto';
     previewContentEl.style.transform = `scale(${safeScale})`;
   }
@@ -606,8 +609,19 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   /** Inline mm sizes so landscape cannot collapse to a square before scaling. */
   private applyPreviewPaperDimensions(paper: HTMLElement): void {
     const { widthMm, heightMm } = this.getA4PaperSizeMm();
+    const isPagesContainer = paper.classList.contains('app-preview-pages');
     paper.style.boxSizing = 'border-box';
     paper.style.width = `${widthMm}mm`;
+
+    if (isPagesContainer) {
+      paper.style.height = 'auto';
+      paper.style.minHeight = '0';
+      paper.style.maxHeight = 'none';
+      paper.style.aspectRatio = '';
+      paper.style.overflow = 'visible';
+      return;
+    }
+
     if (this.isLandscapeOrientation()) {
       paper.style.height = `${heightMm}mm`;
       paper.style.minHeight = `${heightMm}mm`;
@@ -642,13 +656,13 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   private getA4PaperSizeMm(): { widthMm: number; heightMm: number } {
     if (this.isLandscapeOrientation()) {
       return {
-        widthMm: ApplicationComponent.A4_LONG_EDGE_MM,
-        heightMm: ApplicationComponent.A4_SHORT_EDGE_MM
+        widthMm: DOCUMENT_RENDER_A4_LONG_EDGE_MM,
+        heightMm: DOCUMENT_RENDER_A4_SHORT_EDGE_MM
       };
     }
     return {
-      widthMm: ApplicationComponent.A4_SHORT_EDGE_MM,
-      heightMm: ApplicationComponent.A4_LONG_EDGE_MM
+      widthMm: DOCUMENT_RENDER_A4_SHORT_EDGE_MM,
+      heightMm: DOCUMENT_RENDER_A4_LONG_EDGE_MM
     };
   }
 
@@ -893,7 +907,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     const usedHeight = hasLinePageContainer
       ? this.measureRenderedBodyContentPx(body)
       : Math.max(body.scrollHeight, this.measureRenderedBodyContentPx(body));
-    const allowance = Math.max(0, availableBodyBudget - ApplicationComponent.PAGE_FIT_SAFETY_PX);
+    const allowance = Math.max(0, availableBodyBudget - DOCUMENT_RENDER_PAGE_FIT_SAFETY_PX);
     return usedHeight <= allowance;
   }
 
@@ -1359,6 +1373,30 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     };
   }
 
+  private getPreviewPdfCaptureTarget(): HTMLElement | null {
+    const previewScaleEl = this.previewScale?.nativeElement || null;
+    if (!previewScaleEl) {
+      return null;
+    }
+
+    const tasPreviewRoot = previewScaleEl.querySelector('.tas-slip-preview-root') as HTMLElement | null;
+    if (tasPreviewRoot) {
+      return tasPreviewRoot;
+    }
+
+    const expensePreviewRoot = previewScaleEl.querySelector('.expense-claim-preview-root') as HTMLElement | null;
+    if (expensePreviewRoot) {
+      return expensePreviewRoot;
+    }
+
+    const genericPages = previewScaleEl.querySelector('.app-preview-pages') as HTMLElement | null;
+    if (genericPages) {
+      return genericPages;
+    }
+
+    return null;
+  }
+
   getBudgetPreviewContent(): SafeHtml {
     const html = this.budgetApprovalCmp?.editorContent || '';
     return this.sanitizer.bypassSecurityTrustHtml(html);
@@ -1587,7 +1625,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   getDocumentHeaderBrandAddress(): string {
-    return DOCUMENT_HEADER_ADDRESS;
+    return resolveDocumentHeaderAddress(this.documentHeaderField?.type);
   }
 
   getDocumentHeaderControl(): FormControl | null {
@@ -2180,13 +2218,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   getPreviewMaxCharsPerLine(): number {
-    if (this.isLandscapeOrientation()) {
-      return Math.round(
-        ApplicationComponent.GENERIC_PREVIEW_MAX_CHARS_PER_LINE
-          * (ApplicationComponent.A4_LONG_EDGE_MM / ApplicationComponent.A4_SHORT_EDGE_MM)
-      );
-    }
-    return ApplicationComponent.GENERIC_PREVIEW_MAX_CHARS_PER_LINE;
+    return getDocumentRenderPreviewMaxCharsPerLine(this.isLandscapeOrientation());
   }
 
   getPreviewPaperOrientationClass(): Record<string, boolean> {
@@ -2269,6 +2301,23 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     const wrapper = document.createElement('div');
     wrapper.innerHTML = stripEditorTableChromeFromHtml(html);
 
+    wrapper.querySelectorAll('figure.table').forEach((figure: Element) => {
+      const el = figure as HTMLElement;
+      el.style.width = '100%';
+      el.style.maxWidth = '100%';
+      el.style.margin = '6px 0';
+      el.style.boxSizing = 'border-box';
+    });
+
+    wrapper.querySelectorAll('table').forEach((tableNode: Element) => {
+      const table = tableNode as HTMLTableElement;
+      table.style.width = '100%';
+      table.style.maxWidth = '100%';
+      table.style.tableLayout = 'fixed';
+      table.style.borderCollapse = 'collapse';
+      table.style.boxSizing = 'border-box';
+    });
+
     // Replace editor textareas with static content so table cells don't keep textarea heights.
     wrapper.querySelectorAll('textarea').forEach((node: HTMLTextAreaElement) => {
       const replacement = document.createElement('div');
@@ -2287,6 +2336,8 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       el.style.padding = '6px 6px';
       el.style.lineHeight = '1.35';
       el.style.verticalAlign = 'middle';
+      el.style.overflowWrap = 'anywhere';
+      el.style.wordBreak = 'break-word';
 
       while (el.firstChild && el.firstChild.nodeType === Node.TEXT_NODE && !(el.firstChild.textContent || '').trim()) {
         el.removeChild(el.firstChild);
@@ -2414,15 +2465,15 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
   private getTableFitSafetyPx(blocks: GenericPreviewBlock[]): number {
     return this.hasTableLikePreviewBlock(blocks)
-      ? ApplicationComponent.TABLE_SPLIT_SAFETY_PX
+      ? DOCUMENT_RENDER_TABLE_SPLIT_SAFETY_PX
       : 0;
   }
 
   private getPageFitAllowancePx(clientHeight: number, showFooter: boolean): number {
     const slack = showFooter
-      ? ApplicationComponent.FOOTER_PAGE_FILL_SLACK_PX
-      : ApplicationComponent.PAGE_FILL_LINE_SLACK_PX;
-    return Math.max(0, clientHeight - ApplicationComponent.PAGE_FIT_SAFETY_PX + slack);
+      ? DOCUMENT_RENDER_FOOTER_PAGE_FILL_SLACK_PX
+      : DOCUMENT_RENDER_PAGE_FILL_LINE_SLACK_PX;
+    return Math.max(0, clientHeight - DOCUMENT_RENDER_PAGE_FIT_SAFETY_PX + slack);
   }
 
   private measureRenderedBodyContentPx(body: HTMLElement): number {
@@ -3174,6 +3225,44 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     return result;
   }
 
+  private mergeLastFooterPageBackIfItFits(
+    pages: GenericPreviewBlock[][]
+  ): GenericPreviewBlock[][] {
+    if (pages.length < 2) {
+      return pages.map((page) => [...page]);
+    }
+
+    const result = pages.map((page) => [...page]);
+    const lastIdx = result.length - 1;
+    const prevIdx = lastIdx - 1;
+    const lastPage = result[lastIdx];
+    const prevPage = result[prevIdx];
+
+    // Table fragments are too sensitive to be re-packed across the footer merge.
+    // Keeping the split stable avoids the distorted "pulled from previous page"
+    // layout seen after adding a footer below pasted tables.
+    if (this.hasTableLikePreviewBlock(prevPage) || this.hasTableLikePreviewBlock(lastPage)) {
+      return result;
+    }
+
+    if (!lastPage.length) {
+      return this.compactTrailingEmptyPagesPreserveFooterSlot(result, true);
+    }
+
+    const merged = [...prevPage, ...lastPage];
+    const fitsMerged = this.canUseLiveGenericMeasure()
+      ? this.blocksFitLiveMeasurePage(merged, prevIdx, true)
+      : this.blocksFitMeasuredPage(merged, this.isLandscapeOrientation(), prevIdx, true);
+
+    if (!fitsMerged) {
+      return result;
+    }
+
+    result[prevIdx] = merged;
+    result.splice(lastIdx, 1);
+    return this.compactTrailingEmptyPagesPreserveFooterSlot(result, true);
+  }
+
   private densifyGenericPages(pages: GenericPreviewBlock[][]): GenericPreviewBlock[][] {
     if (!this.canUseLiveGenericMeasure()) {
       return pages.map((page) => [...page]);
@@ -3284,7 +3373,11 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     }
 
     result = this.compactTrailingEmptyPagesPreserveFooterSlot(result, true);
-    return this.countGenericBlocks(result) === expected ? (result.length ? result : [[]]) : pages.map((page) => [...page]);
+    if (this.countGenericBlocks(result) !== expected) {
+      return pages.map((page) => [...page]);
+    }
+    const mergedResult = this.mergeLastFooterPageBackIfItFits(result);
+    return this.countGenericBlocks(mergedResult) === expected ? (mergedResult.length ? mergedResult : [[]]) : pages.map((page) => [...page]);
   }
 
   private trySplitOverflowBlock(
@@ -3342,7 +3435,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       this.genericMeasureRoot = root;
     }
 
-    const widthMm = landscape ? ApplicationComponent.A4_LONG_EDGE_MM : ApplicationComponent.A4_SHORT_EDGE_MM;
+    const widthMm = landscape ? DOCUMENT_RENDER_A4_LONG_EDGE_MM : DOCUMENT_RENDER_A4_SHORT_EDGE_MM;
     this.genericMeasureRoot.style.width = `${widthMm}mm`;
     this.genericMeasureRoot.style.padding = landscape ? '10mm 10mm 10mm 12mm' : '18mm 16mm 16mm 16mm';
     this.genericMeasureRoot.innerHTML = '';
@@ -3358,7 +3451,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       return Math.max(48, liveBody.clientHeight);
     }
 
-    const paperHeightMm = landscape ? ApplicationComponent.A4_SHORT_EDGE_MM : ApplicationComponent.A4_LONG_EDGE_MM;
+    const paperHeightMm = landscape ? DOCUMENT_RENDER_A4_SHORT_EDGE_MM : DOCUMENT_RENDER_A4_LONG_EDGE_MM;
     const paperPx = this.mmToPx(paperHeightMm);
     const verticalPaddingPx = this.mmToPx(landscape ? 20 : 34);
     const headerPx = isFirstPage ? this.mmToPx(landscape ? 54 : 58) : 0;
@@ -3396,7 +3489,12 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     }
     if (Array.isArray(field?._tableRows)) {
       const rows = field._tableRows
-        .map((row: any[]) => `<tr>${row.map((cell) => `<td>${this.escapeHtml(String(cell ?? '-'))}</td>`).join('')}</tr>`)
+        .map(
+          (row: any[], rowIndex: number) =>
+            `<tr><td class="xyz-row-label">${this.escapeHtml(this.getTableRowLabel(field, rowIndex))}</td>${row
+              .map((cell) => `<td>${this.escapeHtml(String(cell ?? '-'))}</td>`)
+              .join('')}</tr>`
+        )
         .join('');
       return `<div class="xyz-generic-field"><div class="overflow-x-auto"><table class="xyz-generic-table"><tbody>${rows}</tbody></table></div></div>`;
     }
@@ -3454,9 +3552,20 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
           const split = this.splitHtmlTableByMeasuredRows(field, fragment, landscape, remainingBudget);
 
           if (split.length > 1 && typeof split[0]?.field?._chunkHtml === 'string') {
-            blocks.push({ field: { ...field, _chunkHtml: `${existingHtml}${split[0].field._chunkHtml}` } });
-            batch = [];
-            blocks.push(...split.slice(1));
+            const firstPieceHtml = String(split[0].field._chunkHtml || '');
+            const combinedHtml = `${existingHtml}${firstPieceHtml}`;
+            const combinedBlock: GenericPreviewBlock = { field: { ...field, _chunkHtml: combinedHtml } };
+            const combinedHeight = this.measureBlockHeight(combinedBlock, landscape);
+
+            if (combinedHeight <= budget) {
+              blocks.push({ field: { ...field, _chunkHtml: combinedHtml } });
+              batch = [];
+              blocks.push(...split.slice(1));
+              continue;
+            }
+
+            flush();
+            blocks.push(...split);
             continue;
           }
         }
@@ -3824,7 +3933,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
     const totalHeight = blocks.reduce((sum, block) => sum + this.measureBlockHeight(block, landscape), 0);
     const budget =
       this.getPageContentBudgetPx(landscape, pageIndex === 0, reserveFooter) -
-      ApplicationComponent.PAGE_FIT_SAFETY_PX;
+      DOCUMENT_RENDER_PAGE_FIT_SAFETY_PX;
     return totalHeight <= budget;
   }
 
@@ -3894,7 +4003,11 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       result.splice(lastIdx + 1, 0, [moved]);
     }
 
-    return this.countGenericBlocks(result) === expected ? result : pages.map((page) => [...page]);
+    if (this.countGenericBlocks(result) !== expected) {
+      return pages.map((page) => [...page]);
+    }
+    const mergedResult = this.mergeLastFooterPageBackIfItFits(result);
+    return this.countGenericBlocks(mergedResult) === expected ? mergedResult : pages.map((page) => [...page]);
   }
 
   private wrapPlainLineToSegments(line: string, maxChars: number): string[] {
@@ -4455,17 +4568,14 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       this.requestPreviewFit();
       await new Promise((resolve) => setTimeout(resolve, 80));
 
-      const previewScaleEl = this.previewScale?.nativeElement || null;
-      const tasPreviewRoot = previewScaleEl?.querySelector('.tas-slip-preview-root') as HTMLElement | null;
-      if (this.isTemporaryAdvanceSlipSelected() && tasPreviewRoot) {
-        pdfBlob = await this.applicationPdfService.renderXyzHostElementToPdf(tasPreviewRoot);
-      }
-      const expensePreviewRoot = previewScaleEl?.querySelector('.expense-claim-preview-root') as HTMLElement | null;
-      if (!pdfBlob && this.isExpenseClaimSelected() && expensePreviewRoot) {
-        pdfBlob = await this.applicationPdfService.renderXyzHostElementToPdf(expensePreviewRoot);
-      }
-
-      if (!pdfBlob) {
+      const previewCaptureTarget = this.getPreviewPdfCaptureTarget();
+      if (previewCaptureTarget?.classList.contains('tas-slip-preview-root')) {
+        pdfBlob = await this.applicationPdfService.renderXyzHostElementToPdf(previewCaptureTarget);
+      } else if (previewCaptureTarget?.classList.contains('expense-claim-preview-root')) {
+        pdfBlob = await this.applicationPdfService.renderXyzHostElementToPdf(previewCaptureTarget);
+      } else if (previewCaptureTarget?.classList.contains('app-preview-pages')) {
+        pdfBlob = await this.applicationPdfService.renderMultiPageXyzPapersToPdfBlob(previewCaptureTarget);
+      } else {
         const htmlContent = this.applicationPdfService.buildPdfHtmlForApplication(
           application,
           form,

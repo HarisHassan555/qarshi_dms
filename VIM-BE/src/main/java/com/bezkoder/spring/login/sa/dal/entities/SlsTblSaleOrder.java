@@ -506,7 +506,7 @@ public class SlsTblSaleOrder implements Serializable {
 
 	//bi-directional many-to-one association to CfgTblCustomer
 	@ManyToOne
-	@JoinColumn(name="ser_deal_id")
+	@JoinColumn(name="ser_deal_id", foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
 	private SlsTblDeal slsTblDeal;
 
 

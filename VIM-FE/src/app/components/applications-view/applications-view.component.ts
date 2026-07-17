@@ -13,10 +13,11 @@ import {
   resolveCapfBrandTitle,
   resolveCapfLogoCssClass,
   resolveCapfFormNameFromSources,
+  resolveCapfApprovedByTitle,
 } from 'src/app/utils/capf-logo.util';
 import {
-  DOCUMENT_HEADER_ADDRESS,
   isDocumentHeaderFieldType as isSharedDocumentHeaderFieldType,
+  resolveDocumentHeaderAddress,
   resolveDocumentHeaderBrandTitle,
   resolveDocumentHeaderLogoPath,
 } from 'src/app/utils/document-header.util';
@@ -540,7 +541,7 @@ export class ApplicationsViewComponent implements OnInit {
   }
 
   getEditDocumentHeaderBrandAddress(): string {
-    return DOCUMENT_HEADER_ADDRESS;
+    return resolveDocumentHeaderAddress(this.getEditDocumentHeaderField()?.type);
   }
 
   /** Shown next to "Date:" in the edit modal document header (submission date). */
@@ -2665,6 +2666,7 @@ export class ApplicationsViewComponent implements OnInit {
     const capfLogoPath = resolveCapfLogoPath(capfFormName);
     const capfBrandTitle = resolveCapfBrandTitle(capfFormName);
     const capfLogoClass = resolveCapfLogoCssClass();
+    const capfApprovedByTitle = resolveCapfApprovedByTitle(capfFormName);
     // Helper function to get field value - completely self-contained, no dependency on abc component
     const getFieldValue = (fieldLabel: string): string => {
       // Helper: Slugify label to match backend keys
@@ -3860,7 +3862,7 @@ export class ApplicationsViewComponent implements OnInit {
               <div class="approved-meta">${ceoNameText ? escapeHtml(ceoNameText) : '&nbsp;'}</div>
               <div class="approved-meta">${ceoDesignationText ? escapeHtml(ceoDesignationText) : '&nbsp;'}</div>
             </div>
-            <div class="who b">Vice Chancellor</div>
+            <div class="who b">${escapeHtml(capfApprovedByTitle)}</div>
           </div>
         </div>
 

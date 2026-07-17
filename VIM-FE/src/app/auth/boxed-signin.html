@@ -27,16 +27,16 @@
           <p class="text-center text-xs font-semibold uppercase tracking-wide text-gray-500 mt-1">Qarshi Workflow Management System</p>
           <form class="mt-8 space-y-4" [formGroup]="signinForm" (submit)="onSignin()">
             <div>
-              <label class="text-gray-800 text-sm mb-2 block">Username</label>
+              <label class="text-gray-800 text-sm mb-2 block">Login Name</label>
               <div class="relative flex items-center">
-                <input formControlName="username" name="username" type="text" required class="w-full text-gray-800 text-sm border border-gray-300 px-4 py-3 rounded-md outline-blue-600" placeholder="Enter Username" />
+                <input formControlName="username" name="username" type="text" required class="w-full text-gray-800 text-sm border border-gray-300 px-4 py-3 rounded-md outline-blue-600" placeholder="Enter Login Name" />
                 <svg xmlns="http://www.w3.org/2000/svg" fill="#bbb" stroke="#bbb" class="w-4 h-4 absolute right-4" viewBox="0 0 24 24">
                   <circle cx="10" cy="7" r="6" data-original="#000000"></circle>
                   <path d="M14 15H6a5 5 0 0 0-5 5 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 5 5 0 0 0-5-5zm8-4h-2.59l.3-.29a1 1 0 0 0-1.42-1.42l-2 2a1 1 0 0 0 0 1.42l2 2a1 1 0 0 0 1.42 0 1 1 0 0 0 0-1.42l-.3-.29H22a1 1 0 0 0 0-2z" data-original="#000000"></path>
                 </svg>
               </div>
               <div *ngIf="isSubmitted && signinForm.controls['username'].invalid" class="text-red-500 p-1">
-                Username is required
+                Login name is required
               </div>
             </div>
 
@@ -80,7 +80,7 @@
               </button>
             </div>
             <div *ngIf="isError" class="text-red-500 p-1 text-center">
-              Username or Password is incorrect
+              Login name or password is incorrect
             </div>
             <!-- <p class="text-gray-800 text-sm !mt-8 text-center">Don't have an account? <a href="javascript:void(0);" class="text-blue-600 hover:underline ml-1 whitespace-nowrap font-semibold">Register here</a></p> -->
           </form>
@@ -97,7 +97,7 @@
     <div class="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
       <form class="space-y-6" action="#" method="POST">
         <div>
-          <label for="email" class="block text-sm font-medium leading-6 text-balance">Username</label>
+          <label for="email" class="block text-sm font-medium leading-6 text-balance">Login Name</label>
           <div class="mt-2">
             <input id="email" name="email" type="email" autocomplete="email" required class="block w-full rounded-md border-0 bg-white/5 py-1.5 text-cyan-600 shadow-sm ring-1 ring-inset ring-red-500 focus:ring-2 focus:ring-inset focus:ring-balck sm:text-sm sm:leading-6">
           </div>
@@ -197,7 +197,7 @@
                         <div>
                             <label for="Email">Email</label>
                             <div class="relative text-white-dark">
-                                <input formControlName="username" id="username" type="text" placeholder="Enter Username" class="form-input ps-10 placeholder:text-white-dark" />
+                                <input formControlName="username" id="username" type="text" placeholder="Enter Login Name" class="form-input ps-10 placeholder:text-white-dark" />
                                 <span class="absolute start-4 top-1/2 -translate-y-1/2">
                                     <icon-mail [fill]="true" />
                                 </span>

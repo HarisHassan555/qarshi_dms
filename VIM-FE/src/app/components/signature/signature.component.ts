@@ -2,6 +2,7 @@ import { Component, ElementRef, OnInit, ViewChild } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { NotificationService } from 'src/app/NotificationService';
 import { PermissionService } from '../../services/shared-data/permission-service';
+import { DepartmentService } from '../../services/department/department.service';
 import { urls } from 'src/app/utils/urls';
 
 @Component({
@@ -18,15 +19,18 @@ export class SignatureComponent implements OnInit {
   hasSignature = false;
   department = '';
   designation = '';
+  departments: string[] = [];
 
   constructor(
     private http: HttpClient,
     private notificationService: NotificationService,
-    private permissionService: PermissionService
+    private permissionService: PermissionService,
+    private departmentService: DepartmentService
   ) { }
 
   ngOnInit() {
     this.loadUserFieldsFromLocalStorage();
+    this.loadDepartments();
     this.loadCurrentSignature();
   }
 
@@ -270,8 +274,8 @@ export class SignatureComponent implements OnInit {
     }
   }
 
-  onDepartmentInput(event: Event) {
-    const target = event.target as HTMLInputElement;
+  onDepartmentChange(event: Event) {
+    const target = event.target as HTMLSelectElement;
     this.department = target?.value || '';
   }
 
@@ -295,9 +299,30 @@ export class SignatureComponent implements OnInit {
         user?.txtDesignation ||
         user?.designation ||
         this.designation;
+      this.ensureCurrentDepartmentOption();
     } catch (e) {
       console.error('Error parsing user from localStorage', e);
     }
+  }
+
+  private loadDepartments() {
+    this.departmentService.getAll().subscribe(
+      (response: any) => {
+        const departments = Array.isArray(response) ? response : [];
+        this.departments = Array.from(
+          new Set(
+            departments
+              .map((dept: any) => (dept?.txtDepartmentName || dept?.departmentName || '').trim())
+              .filter((name: string) => !!name)
+          )
+        ).sort((a, b) => a.localeCompare(b));
+        this.ensureCurrentDepartmentOption();
+      },
+      (error) => {
+        console.error('Error loading departments:', error);
+        this.ensureCurrentDepartmentOption();
+      }
+    );
   }
 
   private mapUserFieldsFromResponse(response: any) {
@@ -310,6 +335,7 @@ export class SignatureComponent implements OnInit {
       response?.txtDesignation ||
       response?.designation ||
       this.designation;
+    this.ensureCurrentDepartmentOption();
   }
 
   private updateUserInLocalStorage() {
@@ -325,5 +351,14 @@ export class SignatureComponent implements OnInit {
     } catch (e) {
       console.error('Error updating user in localStorage', e);
     }
+  }
+
+  private ensureCurrentDepartmentOption() {
+    const currentDepartment = this.department.trim();
+    if (!currentDepartment || this.departments.includes(currentDepartment)) {
+      return;
+    }
+
+    this.departments = [...this.departments, currentDepartment].sort((a, b) => a.localeCompare(b));
   }
 }
