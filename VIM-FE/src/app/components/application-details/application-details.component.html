@@ -503,7 +503,6 @@
                     </div>
                     <div #genericMeasureBody
                         class="xyz-content-body xyz-generic-measured-body"></div>
-                    <div #genericMeasureFooterSpacer class="xyz-footer-spacer" *ngIf="hasIndividualPipelineFooter()"></div>
                     <div #genericMeasureFooter class="xyz-footer" *ngIf="hasIndividualPipelineFooter()">
                         <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields() as sections">
                             <tr class="xyz-signatures-blank">
@@ -663,29 +662,30 @@
                         </ng-container>
                     </div>
 
-                    <div class="xyz-footer-spacer" *ngIf="hasIndividualPipelineFooter() && last"></div>
-                    <div class="xyz-footer" *ngIf="hasIndividualPipelineFooter() && last">
-                        <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields() as sections">
-                            <tr class="xyz-signatures-blank">
-                                <ng-container *ngFor="let section of sections">
-                                    <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
-                                </ng-container>
-                            </tr>
-                            <tr>
-                                <th *ngFor="let section of sections"
-                                    [attr.colspan]="getIndividualFooterColSpan(section)">
-                                    {{ section.label || 'New Field' }}:
-                                </th>
-                            </tr>
-                            <tr>
-                                <ng-container *ngFor="let section of sections">
-                                    <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                        <span [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></span>
-                                    </td>
-                                </ng-container>
-                            </tr>
-                        </table>
-                    </div>
+                    <ng-container *ngIf="last">
+                        <div class="xyz-footer" *ngIf="hasIndividualPipelineFooter()">
+                            <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields() as sections">
+                                <tr class="xyz-signatures-blank">
+                                    <ng-container *ngFor="let section of sections">
+                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
+                                    </ng-container>
+                                </tr>
+                                <tr>
+                                    <th *ngFor="let section of sections"
+                                        [attr.colspan]="getIndividualFooterColSpan(section)">
+                                        {{ section.label || 'New Field' }}:
+                                    </th>
+                                </tr>
+                                <tr>
+                                    <ng-container *ngFor="let section of sections">
+                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                            <span [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></span>
+                                        </td>
+                                    </ng-container>
+                                </tr>
+                            </table>
+                        </div>
+                    </ng-container>
                 </div>
                 </ng-container>
                 </div>
