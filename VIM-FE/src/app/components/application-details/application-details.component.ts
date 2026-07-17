@@ -4045,6 +4045,14 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
           changed = true;
           break;
         }
+
+        const split = this.trySplitBlockIntoCurrentPage(nextPage[0], result[i], i, false);
+        if (split && split.length > 1 && this.blocksFitLiveMeasurePage([...result[i], split[0]], i, false)) {
+          result[i] = [...result[i], split[0]];
+          result[i + 1] = [...split.slice(1), ...nextPage.slice(1)];
+          changed = true;
+          break;
+        }
       }
     }
 
@@ -4139,11 +4147,11 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
   ): GenericPreviewBlock[] | null {
     if (Array.isArray(block?.field?._tableRows)) {
       const split = this.canUseLiveGenericMeasure()
-        ? this.splitTableRowsBlockForLivePage(block.field, [], pageIndex, reserveFooter)
+        ? this.splitTableRowsBlockForLivePage(block.field, [], pageIndex, false)
         : this.splitTableRowsBlockByBudget(
             block.field,
             this.isLandscapeOrientation(),
-            this.getPageContentBudgetPx(this.isLandscapeOrientation(), pageIndex === 0, reserveFooter)
+            this.getPageContentBudgetPx(this.isLandscapeOrientation(), pageIndex === 0, false)
           );
       return split.length > 1 ? split : null;
     }
@@ -4156,12 +4164,12 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
 
     if (this.isWordEditorTableFragment(chunkHtml)) {
       const tableSplit = this.canUseLiveGenericMeasure()
-        ? this.splitHtmlTableFragmentForLivePage(block.field, chunkHtml, [], pageIndex, reserveFooter)
+        ? this.splitHtmlTableFragmentForLivePage(block.field, chunkHtml, [], pageIndex, false)
         : this.splitHtmlTableByMeasuredRows(
             block.field,
             chunkHtml,
             landscape,
-            this.getPageContentBudgetPx(landscape, pageIndex === 0, reserveFooter)
+            this.getPageContentBudgetPx(landscape, pageIndex === 0, false)
           );
       return tableSplit.length > 1 ? tableSplit : null;
     }
@@ -4170,7 +4178,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
       block.field,
       chunkHtml,
       landscape,
-      reserveFooter
+      false
     );
     return split.length > 1 ? split : null;
   }
