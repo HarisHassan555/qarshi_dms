@@ -3354,9 +3354,12 @@ export class ApplicationPdfService {
       el.style.removeProperty('min-width');
       el.style.removeProperty('max-width');
       el.style.removeProperty('min-height');
-      el.style.padding = '6px 6px';
-      el.style.lineHeight = '1.35';
-      el.style.verticalAlign = 'middle';
+      el.style.padding = '4px 4px 6px 4px';
+      el.style.lineHeight = '1.25';
+      el.style.verticalAlign = 'top';
+      el.style.boxSizing = 'border-box';
+      el.style.overflowWrap = 'anywhere';
+      el.style.wordBreak = 'break-word';
 
       while (el.firstChild && el.firstChild.nodeType === Node.TEXT_NODE && !(el.firstChild.textContent || '').trim()) {
         el.removeChild(el.firstChild);
@@ -4595,14 +4598,12 @@ export class ApplicationPdfService {
     .xyz-generic-word .ql-editor table tbody tr, .xyz-generic-word .ql-editor table thead tr { border:none; background:transparent; }
     .xyz-generic-word .ql-editor table tr { height:auto !important; break-inside:avoid; page-break-inside:avoid; }
     .xyz-generic-word .ql-editor th, .xyz-generic-word .ql-editor td {
-      border:none;
-      border-right:1px solid #000;
-      border-bottom:1px solid #000;
-      padding:4px !important;
+      border:1px solid #000;
+      padding:4px 4px 6px 4px !important;
       line-height:1.25 !important;
       height:auto !important;
       min-height:30px !important;
-      vertical-align:top;
+      vertical-align:top !important;
       box-sizing:border-box !important;
       word-wrap:break-word !important;
       overflow-wrap:break-word !important;
@@ -4611,8 +4612,6 @@ export class ApplicationPdfService {
       white-space:normal !important;
       font-weight:normal;
     }
-    .xyz-generic-word .ql-editor tr > :first-child { border-left:1px solid #000; }
-    .xyz-generic-word .ql-editor table tr:first-child > * { border-top:1px solid #000; }
     .xyz-generic-word .ql-editor td > *, .xyz-generic-word .ql-editor th > * {
       margin:0 !important;
       padding:0 !important; 

@@ -2633,7 +2633,10 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       return total <= this.getPageContentBudgetPx(this.isLandscapeOrientation(), pageIndex === 0, showFooter);
     }
 
-    const allowance = this.getPageFitAllowancePx(availableBodyBudget, showFooter);
+    const allowance = Math.max(
+      0,
+      this.getPageFitAllowancePx(availableBodyBudget, showFooter) - this.getTableFitSafetyPx(blocks)
+    );
     const usedHeight = Math.max(body.scrollHeight, this.measureRenderedBodyContentPx(body));
     return usedHeight <= allowance;
   }

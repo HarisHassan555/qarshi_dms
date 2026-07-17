@@ -3002,7 +3002,10 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
       return total <= this.getPageContentBudgetPx(landscape, pageIndex === 0, showFooter);
     }
 
-    const allowance = this.getPageFitAllowancePx(availableBodyBudget, showFooter);
+    const allowance = Math.max(
+      0,
+      this.getPageFitAllowancePx(availableBodyBudget, showFooter) - this.getTableFitSafetyPx(blocks)
+    );
     const usedHeight = Math.max(body.scrollHeight, this.measureRenderedBodyContentPx(body));
     return usedHeight <= allowance;
   }
@@ -7871,6 +7874,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
         await new Promise((resolve) => setTimeout(resolve, 80));
 
         const previewScaleEl = this.previewScale?.nativeElement || null;
+        const genericPagesEl = previewScaleEl?.querySelector('.app-preview-pages') as HTMLElement | null;
         const previewCaptureTarget =
           (previewScaleEl?.querySelector('.tas-slip-preview-root') as HTMLElement | null) ||
           (previewScaleEl?.querySelector('.expense-claim-preview-root') as HTMLElement | null) ||
@@ -7886,6 +7890,12 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
         if (previewCaptureTarget?.classList.contains('expense-claim-preview-root')) {
           return finishPdfGeneration(
             await this.applicationPdfService.renderXyzHostElementToPdf(previewCaptureTarget)
+          );
+        }
+
+        if (genericPagesEl) {
+          return finishPdfGeneration(
+            await this.applicationPdfService.renderExactPreviewToPdfBlob(genericPagesEl)
           );
         }
 
