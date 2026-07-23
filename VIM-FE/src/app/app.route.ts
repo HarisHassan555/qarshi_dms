@@ -84,6 +84,12 @@ import { RolesManagementComponent } from './components/roles-management/roles-ma
 import { MenuListComponent } from './components/menu-list/menu-list.component';
 import { SubmenuListComponent } from './components/submenu-list/submenu-list.component';
 import { ActivityLogsComponent } from './components/activity-logs/activity-logs.component';
+import { TemplateBuilderComponent } from './components/template-builder/template-builder.component';
+import { TemplateFillComponent } from './components/template-fill/template-fill.component';
+import { TemplateFormsComponent } from './components/template-forms/template-forms.component';
+import { TemplatePendingApprovalsComponent } from './components/template-pending-approvals/template-pending-approvals.component';
+import { TemplateApprovalComponent } from './components/template-approval/template-approval.component';
+import { MyApplicationComponent } from './components/my-application/my-application.component';
 
 
 export const routes: Routes = [
@@ -178,6 +184,15 @@ export const routes: Routes = [
             { path: 'budgetapprovalview', component: BudgetApprovalViewComponent, title: 'Budget Approval View' },
             { path: 'xyz', component: XyzComponent, title: 'XYZ' },
             { path: 'custom-document-builder', component: CustomDocumentBuilderComponent, title: 'Custom Document Builder' },
+            { path: 'template-builder', canActivate: [canActivate], component: TemplateBuilderComponent, title: 'Template Builder' },
+            { path: 'template-list', canActivate: [canActivate], component: TemplateFormsComponent, title: 'Template Forms' },
+            { path: 'template-forms', canActivate: [canActivate], component: TemplateFormsComponent, title: 'Template Forms' },
+            { path: 'template-fill/:id', canActivate: [canActivate], component: TemplateFillComponent, title: 'Template Fill' },
+            { path: 'template-fill', canActivate: [canActivate], component: TemplateFillComponent, title: 'Template Fill' },
+            { path: 'template-pending-approvals', canActivate: [canActivate], component: TemplatePendingApprovalsComponent, title: 'Template Pending Approvals' },
+            { path: 'template-approval/:id', canActivate: [canActivate], component: TemplateApprovalComponent, title: 'Template Approval' },
+            { path: 'my-application/:id', canActivate: [canActivate], component: MyApplicationComponent, title: 'My Application Details' },
+            { path: 'my-application', canActivate: [canActivate], component: MyApplicationComponent, title: 'My Applications' },
             { path: 'activitylogs', canActivate: [canActivate], component: ActivityLogsComponent, title: 'Activity Logs' },
 
 

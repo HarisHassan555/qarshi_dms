@@ -1,0 +1,520 @@
+<div class="template-builder-page">
+    <div class="builder-header">
+        <div>
+            <input class="template-name-input" [(ngModel)]="templateName" aria-label="Template name" />
+            <input class="code-convention-input" [(ngModel)]="codeConvention" aria-label="Code convention" placeholder="ABCD-0000" />
+            <div class="template-subtitle">Word-style template designer with embedded form fields and a local approval pipeline.</div>
+        </div>
+        <div class="header-actions">
+            <div class="orientation-toggle" role="group" aria-label="Page orientation">
+                <button
+                    type="button"
+                    class="btn btn-outline"
+                    [class.active]="pageOrientation === 'portrait'"
+                    (click)="setPageOrientation('portrait')">
+                    Portrait
+                </button>
+                <button
+                    type="button"
+                    class="btn btn-outline"
+                    [class.active]="pageOrientation === 'landscape'"
+                    (click)="setPageOrientation('landscape')">
+                    Landscape
+                </button>
+            </div>
+            <button type="button" class="btn btn-outline" (click)="addPage()">Add Page</button>
+            <button type="button" class="btn btn-primary" (click)="saveTemplate()">Save</button>
+            <button type="button" class="btn btn-outline" (click)="previewMode = !previewMode">
+                {{ previewMode ? 'Editor' : 'Payload' }}
+            </button>
+        </div>
+    </div>
+
+    <div class="builder-shell">
+        <aside class="builder-panel left-panel">
+            <div class="panel-section">
+                <h3>Hardcopy Form</h3>
+                <label class="file-upload-control">
+                    Upload Image/PDF
+                    <input type="file" accept="image/*,application/pdf" (change)="onBackgroundFileSelected($event)" />
+                </label>
+                <div class="background-file-card" *ngIf="backgroundFile">
+                    <div>
+                        <strong>{{ backgroundFile.name }}</strong>
+                        <span>{{ backgroundFile.type }}</span>
+                    </div>
+                    <button type="button" title="Remove background" (click)="removeBackgroundFile()">x</button>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-title-row">
+                    <h3>Fields</h3>
+                    <button type="button" class="icon-add-btn" title="Add field" (click)="openFieldModal()">+</button>
+                </div>
+                <div class="empty-state" *ngIf="fields.length === 0">No fields assigned yet.</div>
+                <div
+                    *ngFor="let field of fields"
+                    class="field-row"
+                    [class.active]="field.id === selectedFieldId"
+                    (click)="selectField(field.id)"
+                >
+                    <div>
+                        <strong>{{ field.label }}</strong>
+                        <span>{{ field.type }}{{ field.required ? ' - required' : '' }}{{ field.placement ? ' - positioned' : '' }}{{ isDocumentRegionFieldType(field.type) ? ' - pinned' : '' }}</span>
+                    </div>
+                    <button type="button" title="Remove field" (click)="removeField(field.id); $event.stopPropagation()">x</button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="document-stage" [class.payload-open]="previewMode">
+            <div *ngIf="!previewMode" class="paper-wrap">
+                <div
+                    #editorFrame
+                    class="editor-frame"
+                    [class.has-background]="backgroundFile"
+                    [style.width.px]="pageWidth"
+                    [style.min-height.px]="pageCount * pageHeight + ((pageCount - 1) * pageGap)"
+                    [style.--template-document-height]="(pageCount * pageHeight + ((pageCount - 1) * pageGap)) + 'px'"
+                    [style.--template-page-height]="pageHeight + 'px'"
+                    [style.--template-page-gap]="pageGap + 'px'">
+                    <div
+                        *ngIf="backgroundFile"
+                        class="background-document-layer"
+                        [style.top.px]="fieldLayerTop"
+                        [style.height.px]="pageCount * pageHeight + ((pageCount - 1) * pageGap)">
+                        <div
+                            *ngFor="let pageIndex of pageIndexes"
+                            class="background-document-page"
+                            [style.top.px]="pageIndex * (pageHeight + pageGap)"
+                            [style.width.px]="pageWidth"
+                            [style.height.px]="pageHeight">
+                            <img
+                                *ngIf="backgroundFile.type === 'image' && pageIndex === 0"
+                                [src]="backgroundFile.dataUrl"
+                                [alt]="backgroundFile.name" />
+                            <img
+                                *ngIf="backgroundFile.type === 'pdf' && backgroundFile.renderedPages?.[pageIndex]"
+                                [src]="backgroundFile.renderedPages?.[pageIndex]"
+                                [alt]="backgroundFile.name + ' page ' + (pageIndex + 1)" />
+                        </div>
+                    </div>
+                    <ckeditor
+                        class="template-ckeditor"
+                        [editor]="wordEditor"
+                        [config]="wordEditorConfig"
+                        [(ngModel)]="editorContent"
+                        (ready)="onEditorReady($event)"
+                        (change)="onEditorContentChanged()">
+                    </ckeditor>
+                    <div
+                        #fieldLayer
+                        class="floating-field-layer"
+                        [style.top.px]="fieldLayerTop"
+                        [style.height.px]="pageCount * pageHeight + ((pageCount - 1) * pageGap)">
+                        <div
+                            *ngFor="let pageIndex of pageIndexes"
+                            class="page-boundary"
+                            [style.top.px]="pageIndex * (pageHeight + pageGap)"
+                            [style.height.px]="pageHeight"
+                        >
+                            <span>Page {{ pageIndex + 1 }}</span>
+                        </div>
+                        <div
+                            *ngFor="let field of nonRadioFields"
+                            class="floating-field"
+                            [class.active]="field.id === selectedFieldId"
+                            [class.document-region]="isDocumentRegionFieldType(field.type)"
+                            [class.locked-region]="isDocumentRegionFieldType(field.type)"
+                            [hidden]="!field.placement"
+                            [style.left.px]="field.placement?.x"
+                            [style.top.px]="field.placement?.y"
+                            [style.width.px]="field.placement?.width"
+                            [style.height.px]="field.placement?.height"
+                            [ngStyle]="getFieldStyle(field)"
+                            (mousedown)="startFieldDrag($event, field)"
+                            (click)="selectField(field.id)"
+                        >
+                            <ng-container *ngIf="isHeaderFieldType(field.type); else nonHeaderRegion">
+                                <div class="document-header-preview">
+                                    <div class="header-date">Date: __________</div>
+                                    <div class="header-main">
+                                        <img [src]="getHeaderLogoPath(field.type)" [alt]="getHeaderBrandTitle(field.type)" />
+                                        <div>
+                                            <strong>{{ getHeaderBrandTitle(field.type) }}</strong>
+                                            <span>{{ getHeaderAddress(field.type) }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="header-rule"></div>
+                                </div>
+                            </ng-container>
+                            <ng-template #nonHeaderRegion>
+                                <ng-container *ngIf="isFooterFieldType(field.type); else normalFloatingField">
+                                    <div class="document-footer-preview">
+                                        <table>
+                                            <tr>
+                                                <td>Prepared By</td>
+                                                <td>Reviewed By</td>
+                                                <td>Approved By</td>
+                                            </tr>
+                                        </table>
+                                    </div>
+                                </ng-container>
+                            </ng-template>
+                            <ng-template #normalFloatingField>
+                                <ng-container *ngIf="isDynamicSignatureField(field); else regularFloatingField">
+                                    <span>{{ field.label }}</span>
+                                    <small>{{ getDynamicSignatureTargetLabel(field) }}</small>
+                                </ng-container>
+                                <ng-template #regularFloatingField>
+                                    <span>{{ field.label }}</span>
+                                    <small>{{ field.type }}</small>
+                                </ng-template>
+                            </ng-template>
+                            <button
+                                *ngIf="!isDocumentRegionFieldType(field.type)"
+                                type="button"
+                                class="resize-handle"
+                                title="Resize field"
+                                (mousedown)="startFieldResize($event, field)">
+                            </button>
+                        </div>
+                        <ng-container *ngFor="let field of fields">
+                            <div
+                                *ngFor="let optionBox of getRadioOptionPlacements(field); trackBy: trackByRadioOptionId"
+                                class="floating-field radio-option-box"
+                                [class.active]="field.id === selectedFieldId"
+                                [style.left.px]="optionBox.placement.x"
+                                [style.top.px]="optionBox.placement.y"
+                                [style.width.px]="optionBox.placement.width"
+                                [style.height.px]="optionBox.placement.height"
+                                [ngStyle]="getFieldStyle(field)"
+                                (mousedown)="startRadioOptionDrag($event, field, optionBox)"
+                                (click)="selectField(field.id)">
+                                <span>{{ optionBox.label }}</span>
+                                <small>radio option</small>
+                                <button
+                                    type="button"
+                                    class="resize-handle"
+                                    title="Resize radio option"
+                                    (mousedown)="startRadioOptionResize($event, field, optionBox)">
+                                </button>
+                            </div>
+                        </ng-container>
+                    </div>
+                </div>
+            </div>
+
+            <pre *ngIf="previewMode" class="payload-preview">{{ getTemplatePayload() }}</pre>
+        </main>
+
+        <aside class="builder-panel right-panel">
+            <div class="panel-section" *ngIf="selectedField as field">
+                <h3>Field Properties</h3>
+                <label>
+                    Label
+                    <input type="text" [(ngModel)]="field.label" />
+                </label>
+                <label *ngIf="!isDocumentRegionFieldType(field.type)">
+                    Font Size
+                    <input type="number" min="8" max="48" [(ngModel)]="field.style.fontSize" />
+                </label>
+                <div class="style-toggle-row" *ngIf="!isDocumentRegionFieldType(field.type)">
+                    <label class="check-row">
+                        <input type="checkbox" [(ngModel)]="field.style.bold" />
+                        Bold
+                    </label>
+                    <label class="check-row">
+                        <input type="checkbox" [(ngModel)]="field.style.italic" />
+                        Italic
+                    </label>
+                    <label class="check-row">
+                        <input type="checkbox" [(ngModel)]="field.style.underline" />
+                        Underline
+                    </label>
+                </div>
+                <label *ngIf="!isDocumentRegionFieldType(field.type)">
+                    Text Align
+                    <select [(ngModel)]="field.style.textAlign">
+                        <option value="left">Left</option>
+                        <option value="center">Center</option>
+                        <option value="right">Right</option>
+                    </select>
+                </label>
+                <label *ngIf="isDynamicSignatureField(field)">
+                    Signature Target
+                    <select
+                        [ngModel]="getDynamicSignatureTargetId(field)"
+                        (ngModelChange)="setDynamicSignatureTarget(field, $event)">
+                        <option *ngFor="let target of dynamicSignatureTargetOptions" [ngValue]="target.id">
+                            {{ target.label }}
+                        </option>
+                    </select>
+                </label>
+                <label *ngIf="field.placement && !isDocumentRegionFieldType(field.type)">
+                    Page
+                    <input type="number" min="1" [max]="pageCount" [ngModel]="field.page" (ngModelChange)="moveFieldToPage(field, $event)" />
+                </label>
+                <label *ngIf="field.placement && !isDocumentRegionFieldType(field.type)">
+                    Width
+                    <input type="number" min="1" [max]="pageWidth" [(ngModel)]="field.placement.width" />
+                </label>
+                <label *ngIf="field.placement && !isDocumentRegionFieldType(field.type)">
+                    Height
+                    <input type="number" min="1" [(ngModel)]="field.placement.height" />
+                </label>
+                <div class="radio-option-properties" *ngIf="field.type === 'radio'">
+                    <div class="radio-option-properties-header">
+                        <strong>Option Boxes</strong>
+                        <span>Drag each box to the matching checkbox on the form.</span>
+                    </div>
+                    <div class="empty-state compact-empty-state" *ngIf="getRadioOptions(field).length === 0">
+                        No radio options configured.
+                    </div>
+                    <div class="radio-option-property" *ngFor="let option of getRadioOptions(field)">
+                        <div>
+                            <strong>{{ option }}</strong>
+                            <span>{{ getRadioOptionPlacements(field).length }} mapped</span>
+                        </div>
+                        <button type="button" (click)="addRadioOptionBox(field, option)">Add Box</button>
+                    </div>
+                    <div class="radio-option-placement-row" *ngFor="let optionBox of getRadioOptionPlacements(field); trackBy: trackByRadioOptionId">
+                        <strong>{{ optionBox.label }}</strong>
+                        <label>
+                            Page
+                            <input type="number" min="1" [max]="pageCount" [ngModel]="optionBox.page" (ngModelChange)="moveRadioOptionToPage(optionBox, $event)" />
+                        </label>
+                        <label>
+                            W
+                            <input type="number" min="1" [max]="pageWidth" [(ngModel)]="optionBox.placement.width" />
+                        </label>
+                        <label>
+                            H
+                            <input type="number" min="1" [(ngModel)]="optionBox.placement.height" />
+                        </label>
+                        <button type="button" title="Remove option box" (click)="removeRadioOptionBox(field, optionBox.id)">x</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-title-row">
+                    <h3>Pipeline Steps</h3>
+                    <button type="button" class="icon-add-btn" title="Add pipeline step" (click)="openPipelineModal()">+</button>
+                </div>
+                <div
+                    *ngFor="let step of pipelineSteps; let i = index"
+                    class="pipeline-row"
+                    [class.fixed-pipeline-row]="step.type === 'initiator'"
+                    [title]="step.type === 'initiator' ? 'Edit field rights' : 'Edit pipeline step'"
+                    (click)="step.type === 'initiator' ? openPipelineRightsModal(step) : openPipelineModal(step)">
+                    <div class="step-index">{{ i + 1 }}</div>
+                    <div class="step-body">
+                        <strong>{{ step.name }}</strong>
+                        <span>{{ step.type }} - {{ step.approvalMode }}</span>
+                        <small>{{ getPipelineTargetLabel(step) }}</small>
+                        <small>{{ getPipelineFieldPermissionSummary(step) }}</small>
+                    </div>
+                    <div class="step-actions" *ngIf="step.type !== 'initiator'; else fixedStep">
+                        <button type="button" title="Move up" (click)="$event.stopPropagation(); movePipelineStep(i, 'up')">Up</button>
+                        <button type="button" title="Move down" (click)="$event.stopPropagation(); movePipelineStep(i, 'down')">Dn</button>
+                        <button type="button" title="Remove step" (click)="$event.stopPropagation(); removePipelineStep(i)">x</button>
+                    </div>
+                    <ng-template #fixedStep>
+                        <div class="fixed-step-badge">Default</div>
+                    </ng-template>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <div class="modal-backdrop" *ngIf="showFieldModal" (click)="closeFieldModal()">
+        <div class="builder-modal" (click)="$event.stopPropagation()">
+            <div class="modal-header">
+                <h3>Assign Field</h3>
+                <button type="button" title="Close" (click)="closeFieldModal()">x</button>
+            </div>
+            <label>
+                Label
+                <input type="text" [(ngModel)]="newFieldLabel" />
+            </label>
+            <label>
+                Type
+                <select [(ngModel)]="newFieldType" (ngModelChange)="onNewFieldTypeChanged()">
+                    <option *ngFor="let type of fieldTypes" [value]="type.value">{{ type.label }}</option>
+                </select>
+            </label>
+            <div class="radio-options-editor" *ngIf="newFieldType === 'radio'">
+                <div class="radio-options-editor-header">
+                    <strong>Radio Options</strong>
+                    <button type="button" (click)="addNewRadioOption()">+ Option</button>
+                </div>
+                <div
+                    class="radio-option-row"
+                    *ngFor="let option of newRadioOptions; let i = index; trackBy: trackByRadioOptionId">
+                    <input type="text" [(ngModel)]="option.label" placeholder="Option label" />
+                    <button type="button" title="Remove option" (click)="removeNewRadioOption(i)">x</button>
+                </div>
+            </div>
+            <label class="check-row">
+                <input type="checkbox" [(ngModel)]="newFieldRequired" />
+                Required
+            </label>
+            <label>
+                Page
+                <input type="number" min="1" [max]="pageCount" [(ngModel)]="newFieldPage" />
+            </label>
+            <button type="button" class="btn btn-primary full-width" (click)="assignField()">Assign Selected Area</button>
+            <button type="button" class="btn btn-outline full-width mt-2" (click)="addFloatingField()">
+                {{ isDocumentRegionFieldType(newFieldType) ? 'Add Page Region' : 'Place Draggable Field' }}
+            </button>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" *ngIf="showPipelineModal" (click)="closePipelineModal()">
+        <div class="builder-modal pipeline-modal" (click)="$event.stopPropagation()">
+            <div class="modal-header">
+                <h3>{{ editingPipelineStepId ? 'Edit Pipeline Step' : 'Add Pipeline Step' }}</h3>
+                <button type="button" title="Close" (click)="closePipelineModal()">x</button>
+            </div>
+            <label>
+                Step Type
+                <select [(ngModel)]="newPipelineType" (ngModelChange)="onPipelineTypeChanged()">
+                    <option *ngFor="let type of pipelineTypes" [value]="type.value">{{ type.label }}</option>
+                </select>
+            </label>
+
+            <label *ngIf="newPipelineType === 'department'">
+                Department
+                <select [(ngModel)]="selectedPipelineDepartmentId">
+                    <option [ngValue]="null">Select department</option>
+                    <option [ngValue]="selfHodDepartmentValue">Self HOD</option>
+                    <option *ngFor="let department of departments" [ngValue]="department.serDepartmentId">
+                        {{ getDepartmentName(department) }}
+                    </option>
+                </select>
+            </label>
+
+            <label *ngIf="newPipelineType === 'role'">
+                Role
+                <select [(ngModel)]="selectedPipelineRoleId">
+                    <option [ngValue]="null">Select role</option>
+                    <option *ngFor="let role of roles" [ngValue]="role.serRoleId">
+                        {{ getRoleName(role) }}
+                    </option>
+                </select>
+            </label>
+
+            <label *ngIf="newPipelineType === 'individual'">
+                Employees
+                <select multiple class="multi-select" [(ngModel)]="selectedPipelineUsers" [compareWith]="comparePipelineUsers">
+                    <option [ngValue]="initiatorPipelineUserOption">
+                        Initiator
+                    </option>
+                    <option *ngFor="let user of allUsers" [ngValue]="user">
+                        {{ getUserName(user) }}
+                    </option>
+                </select>
+            </label>
+
+            <div class="approval-mode-row" *ngIf="shouldShowPipelineApprovalMode()">
+                <span>Step Logic</span>
+                <label class="check-row">
+                    <input type="radio" name="newPipelineApprovalModeModal" value="OR" [(ngModel)]="newPipelineApprovalMode" />
+                    OR
+                </label>
+                <label class="check-row">
+                    <input type="radio" name="newPipelineApprovalModeModal" value="AND" [(ngModel)]="newPipelineApprovalMode" />
+                    AND
+                </label>
+            </div>
+
+            <label>
+                Step Name
+                <input type="text" [(ngModel)]="newPipelineName" placeholder="Optional display name" />
+            </label>
+
+            <div class="pipeline-field-rights">
+                <div class="pipeline-field-rights-header">
+                    <strong>Field Rights</strong>
+                    <span>Select fields this step can access.</span>
+                </div>
+
+                <div class="empty-state compact-empty-state" *ngIf="pipelineAssignableFields.length === 0">
+                    Add fields before assigning rights.
+                </div>
+
+                <div class="field-right-row" *ngFor="let field of pipelineAssignableFields">
+                    <label class="check-row field-right-check">
+                        <input
+                            type="checkbox"
+                            [checked]="isPipelineFieldSelected(field)"
+                            (change)="onPipelineFieldSelectionChanged(field, $any($event.target).checked)" />
+                        <span>
+                            <strong>{{ field.label }}</strong>
+                            <small>{{ field.type }}</small>
+                        </span>
+                    </label>
+                    <select
+                        [disabled]="!isPipelineFieldSelected(field)"
+                        [ngModel]="getPipelineFieldRight(field)"
+                        (ngModelChange)="setPipelineFieldRight(field, $event)">
+                        <option *ngFor="let right of pipelineFieldRights" [value]="right.value">{{ right.label }}</option>
+                    </select>
+                </div>
+            </div>
+
+            <button type="button" class="btn btn-secondary full-width" (click)="savePipelineStep()">
+                {{ editingPipelineStepId ? 'Save Step' : 'Add Step' }}
+            </button>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" *ngIf="showPipelineRightsModal" (click)="closePipelineRightsModal()">
+        <div class="builder-modal pipeline-modal" (click)="$event.stopPropagation()">
+            <div class="modal-header">
+                <h3>Edit Field Rights</h3>
+                <button type="button" title="Close" (click)="closePipelineRightsModal()">x</button>
+            </div>
+
+            <div class="rights-step-summary" *ngIf="editingPipelineStep as step">
+                <strong>{{ step.name }}</strong>
+                <span>{{ step.type }} - {{ step.approvalMode }}</span>
+                <small>{{ getPipelineTargetLabel(step) }}</small>
+            </div>
+
+            <div class="pipeline-field-rights">
+                <div class="pipeline-field-rights-header">
+                    <strong>Field Rights</strong>
+                    <span>Choose what this step can do with each field.</span>
+                </div>
+
+                <div class="empty-state compact-empty-state" *ngIf="pipelineAssignableFields.length === 0">
+                    Add fields before assigning rights.
+                </div>
+
+                <div class="field-right-row" *ngFor="let field of pipelineAssignableFields">
+                    <label class="check-row field-right-check">
+                        <input
+                            type="checkbox"
+                            [checked]="isEditingPipelineFieldSelected(field)"
+                            (change)="onEditingPipelineFieldSelectionChanged(field, $any($event.target).checked)" />
+                        <span>
+                            <strong>{{ field.label }}</strong>
+                            <small>{{ field.type }}</small>
+                        </span>
+                    </label>
+                    <select
+                        [disabled]="!isEditingPipelineFieldSelected(field)"
+                        [ngModel]="getEditingPipelineFieldRight(field)"
+                        (ngModelChange)="setEditingPipelineFieldRight(field, $event)">
+                        <option *ngFor="let right of pipelineFieldRights" [value]="right.value">{{ right.label }}</option>
+                    </select>
+                </div>
+            </div>
+
+            <button type="button" class="btn btn-secondary full-width" (click)="savePipelineRights()">Save Rights</button>
+        </div>
+    </div>
+</div>

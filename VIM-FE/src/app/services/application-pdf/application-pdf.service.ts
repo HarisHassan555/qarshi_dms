@@ -609,21 +609,9 @@ export class ApplicationPdfService {
       try {
         setStyle(target, 'transform', 'none');
         setStyle(target, 'transform-origin', 'top left');
-        setStyle(target, 'width', `${pdfWidth}mm`);
-        setStyle(target, 'max-width', `${pdfWidth}mm`);
-        setStyle(target, 'min-width', `${pdfWidth}mm`);
-
-        if (paperLandscape) {
-          setStyle(target, 'height', `${pdfHeight}mm`);
-          setStyle(target, 'min-height', `${pdfHeight}mm`);
-          setStyle(target, 'max-height', `${pdfHeight}mm`);
-          setStyle(target, 'overflow', 'hidden');
-        } else {
-          setStyle(target, 'height', `${pdfHeight}mm`);
-          setStyle(target, 'min-height', `${pdfHeight}mm`);
-          setStyle(target, 'max-height', `${pdfHeight}mm`);
-          setStyle(target, 'overflow', 'hidden');
-        }
+        setStyle(target, 'margin-left', '0');
+        setStyle(target, 'margin-right', '0');
+        setStyle(target, 'overflow', 'hidden');
 
         await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
 

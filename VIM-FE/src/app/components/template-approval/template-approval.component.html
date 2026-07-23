@@ -1,0 +1,247 @@
+<div class="template-fill-page template-approval-page">
+    <div class="template-action-overlay" *ngIf="isActing || isRedirectingAfterAction">
+        <div class="template-action-dialog">
+            <span class="template-action-spinner" aria-hidden="true"></span>
+            <div>
+                <strong>{{ isRedirectingAfterAction ? 'Redirecting...' : 'Processing...' }}</strong>
+                <p>{{ isRedirectingAfterAction ? 'Returning to pending approvals.' : 'Completing this step and preparing notifications.' }}</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="fill-header">
+        <div>
+            <h2>{{ template?.name || 'Template Approval' }}</h2>
+            <p *ngIf="application">
+                {{ application.txtFormCode || 'Application' }}
+                <span *ngIf="activeStep"> - Current step: {{ activeStep.name }}</span>
+            </p>
+        </div>
+        <div class="header-actions">
+            <button type="button" class="btn btn-outline" routerLink="/template-pending-approvals">Back</button>
+            <button type="button" class="btn btn-outline" [disabled]="isSaving || isActing" (click)="saveChanges()">
+                {{ isSaving ? 'Saving...' : 'Save' }}
+            </button>
+        </div>
+    </div>
+
+    <div *ngIf="isLoading" class="empty-template">Loading template application...</div>
+    <div *ngIf="!isLoading && !template" class="empty-template">Template application not found.</div>
+
+    <div *ngIf="!isLoading && template" class="fill-workspace approval-workspace">
+        <aside class="fill-values-panel approval-values-panel">
+            <h3>Fields For This Step</h3>
+            <div class="step-rights-note" *ngIf="activeStep && !isOpinionPending()">
+                {{ activeStep.name }} can fill/edit only the fields listed here. Hidden fields are removed from the preview.
+            </div>
+            <div class="step-rights-note opinion-note" *ngIf="isOpinionPending()">
+                Opinion requested by {{ getOpinionRequesterName() }}. Submit your opinion with remarks; the application will return to that same step.
+            </div>
+            <div class="empty-template compact-empty" *ngIf="editableFields.length === 0">
+                {{ isOpinionPending() ? 'No form fields are editable while giving an opinion.' : 'No fill/edit fields assigned for this step.' }}
+            </div>
+
+            <div class="value-field" *ngFor="let field of editableFields; trackBy: trackByFieldId">
+                <label [attr.for]="field.id">{{ field.label }}{{ field.required ? ' *' : '' }}</label>
+                <textarea
+                    *ngIf="field.type === 'textarea'"
+                    [id]="field.id"
+                    [(ngModel)]="values[field.id]"
+                    [required]="field.required"
+                    (ngModelChange)="onPanelValueChanged(field)">
+                </textarea>
+                <ckeditor
+                    *ngIf="field.type === 'word_editor'"
+                    class="panel-word-editor"
+                    [editor]="wordEditor"
+                    [config]="wordEditorConfig"
+                    [(ngModel)]="values[field.id]"
+                    (change)="onWordEditorChanged(field, $event)">
+                </ckeditor>
+                <label *ngIf="field.type === 'checkbox'" class="panel-checkbox">
+                    <input type="checkbox" [(ngModel)]="values[field.id]" (ngModelChange)="onPanelValueChanged(field)" />
+                    Checked
+                </label>
+                <div *ngIf="field.type === 'radio'" class="panel-radio-group">
+                    <label class="panel-radio-option" *ngFor="let option of getRadioOptions(field); trackBy: trackByRadioOption">
+                        <input
+                            type="radio"
+                            [name]="field.id"
+                            [value]="option"
+                            [(ngModel)]="values[field.id]"
+                            (ngModelChange)="onPanelValueChanged(field)" />
+                        <span>{{ option }}</span>
+                    </label>
+                </div>
+                <input
+                    *ngIf="field.type !== 'textarea' && field.type !== 'word_editor' && field.type !== 'checkbox' && field.type !== 'radio'"
+                    [id]="field.id"
+                    [type]="getPanelInputType(field)"
+                    [(ngModel)]="values[field.id]"
+                    [required]="field.required"
+                    (ngModelChange)="onPanelValueChanged(field)" />
+            </div>
+
+            <div class="approval-actions">
+                <label for="approval-remarks">Remarks *</label>
+                <textarea id="approval-remarks" #approvalRemarks [value]="remarks" placeholder="Enter remarks before action"></textarea>
+
+                <ng-container *ngIf="!isOpinionPending(); else opinionActions">
+                    <ng-container *ngIf="isInitiatorResubmissionStep(); else approvalActions">
+                        <button type="button" class="btn btn-primary full-width" [disabled]="isActing" (click)="resubmitToPipeline(approvalRemarks.value)">
+                            {{ isActing ? 'Working...' : 'Submit Again' }}
+                        </button>
+                    </ng-container>
+
+                    <ng-template #approvalActions>
+                        <button type="button" class="btn btn-primary full-width" [disabled]="isActing" (click)="approve(approvalRemarks.value)">
+                            {{ isActing ? 'Working...' : 'Approve' }}
+                        </button>
+                        <div class="secondary-actions">
+                            <button type="button" class="btn btn-danger" [disabled]="isActing" (click)="reject(approvalRemarks.value)">Reject</button>
+                            <button type="button" class="btn btn-outline" [disabled]="isActing" (click)="sendBack(approvalRemarks.value)">Send Back</button>
+                            <button type="button" class="btn btn-outline" [disabled]="isActing" (click)="sendBackToInitiator(approvalRemarks.value)">To Initiator</button>
+                        </div>
+
+                        <div class="opinion-request-box">
+                            <label for="opinion-user">Request Opinion From</label>
+                            <select id="opinion-user" [(ngModel)]="selectedOpinionUserId">
+                                <option [ngValue]="null">Select user</option>
+                                <option *ngFor="let user of getOpinionUsers()" [ngValue]="user.serUserId || user.userId || user.id">
+                                    {{ user.txtUserName || user.userName || user.name }}
+                                </option>
+                            </select>
+                            <button type="button" class="btn btn-outline full-width" [disabled]="isActing" (click)="requestOpinion(approvalRemarks.value)">
+                                Request Opinion
+                            </button>
+                        </div>
+                    </ng-template>
+                </ng-container>
+
+                <ng-template #opinionActions>
+                    <div class="secondary-actions opinion-actions">
+                        <button type="button" class="btn btn-primary" [disabled]="isActing" (click)="submitOpinion('approve', approvalRemarks.value)">
+                            Opinion Approve
+                        </button>
+                        <button type="button" class="btn btn-danger" [disabled]="isActing" (click)="submitOpinion('reject', approvalRemarks.value)">
+                            Opinion Reject
+                        </button>
+                    </div>
+                </ng-template>
+            </div>
+        </aside>
+
+        <div class="fill-stage">
+            <div
+                class="fill-frame"
+                [style.width.px]="template.page?.width || 794"
+                [style.min-height.px]="(template.page?.count || 1) * (template.page?.height || 1123) + (((template.page?.count || 1) - 1) * (template.page?.gap || 32))"
+                [style.--template-page-height]="(template.page?.height || 1123) + 'px'"
+                [style.--template-page-gap]="(template.page?.gap || 32) + 'px'">
+                <div
+                    *ngFor="let pageIndex of pageIndexes"
+                    class="page-boundary"
+                    [style.top.px]="pageIndex * ((template.page?.height || 1123) + (template.page?.gap || 32))"
+                    [style.height.px]="template.page?.height || 1123">
+                    <span>Page {{ pageIndex + 1 }}</span>
+                </div>
+
+                <div
+                    *ngIf="template.background"
+                    class="background-document-layer"
+                    [style.height.px]="(template.page?.count || 1) * (template.page?.height || 1123) + (((template.page?.count || 1) - 1) * (template.page?.gap || 32))">
+                    <div
+                        *ngFor="let pageIndex of pageIndexes"
+                        class="background-document-page"
+                        [style.top.px]="pageIndex * ((template.page?.height || 1123) + (template.page?.gap || 32))"
+                        [style.width.px]="template.page?.width || 794"
+                        [style.height.px]="template.page?.height || 1123">
+                        <img *ngIf="template.background.type === 'image' && pageIndex === 0" [src]="template.background.dataUrl" [alt]="template.background.name" />
+                        <img *ngIf="template.background.type === 'pdf' && template.background.renderedPages?.[pageIndex]" [src]="template.background.renderedPages?.[pageIndex]" [alt]="template.background.name + ' page ' + (pageIndex + 1)" />
+                    </div>
+                </div>
+
+                <div class="document-html" [innerHTML]="safeHtml"></div>
+
+                <ng-container *ngFor="let field of template.fields">
+                    <div
+                        *ngFor="let optionBox of getRadioOptionPlacements(field)"
+                        class="filled-field radio-option-filled-field"
+                        [attr.data-field-id]="field.id"
+                        [hidden]="field.type !== 'radio' || isFieldHiddenForCurrentStep(field)"
+                        [style.left.px]="optionBox.placement.x"
+                        [style.top.px]="optionBox.placement.y"
+                        [style.width.px]="optionBox.placement.width"
+                        [style.height.px]="optionBox.placement.height">
+                        <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                            {{ getFieldValueText(field, optionBox.label) }}
+                        </span>
+                    </div>
+                </ng-container>
+
+                <div
+                    *ngFor="let field of template.fields"
+                    class="filled-field"
+                    [attr.data-field-id]="field.id"
+                    [class.document-region]="isDocumentRegionFieldType(field.type)"
+                    [class.check-mark-filled-field]="field.type === 'checkbox'"
+                    [hidden]="field.type === 'radio' || !field.placement || isFieldHiddenForCurrentStep(field)"
+                    [style.left.px]="field.placement?.x"
+                    [style.top.px]="field.placement?.y"
+                    [style.width.px]="field.placement?.width"
+                    [style.height.px]="field.placement?.height">
+                    <ng-container *ngIf="isHeaderFieldType(field.type); else nonHeader">
+                        <div class="document-header-preview">
+                            <div class="header-date">Date: __________</div>
+                            <div class="header-main">
+                                <img [src]="getHeaderLogoPath(field.type)" [alt]="getHeaderBrandTitle(field.type)" />
+                                <div>
+                                    <strong>{{ getHeaderBrandTitle(field.type) }}</strong>
+                                    <span>{{ getHeaderAddress(field.type) }}</span>
+                                </div>
+                            </div>
+                            <div class="header-rule"></div>
+                        </div>
+                    </ng-container>
+                    <ng-template #nonHeader>
+                        <ng-container *ngIf="isFooterFieldType(field.type); else fieldValue">
+                            <div class="document-footer-preview">
+                                <table>
+                                    <tr>
+                                        <td>Prepared By</td>
+                                        <td>Reviewed By</td>
+                                        <td>Approved By</td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </ng-container>
+                    </ng-template>
+                    <ng-template #fieldValue>
+                        <ng-container *ngIf="isDynamicSignatureField(field); else nonSignatureField">
+                            <div class="pipeline-signature-field" [ngStyle]="getInputStyle(field)">
+                                <div class="pipeline-signature-slot" *ngFor="let slot of getDynamicSignatureSlots(field)">
+                                    <img *ngIf="getDynamicSignatureImageUrl(slot) as signatureUrl; else signaturePlaceholder" [src]="signatureUrl" [alt]="getDynamicSignatureLabel(slot)" />
+                                    <ng-template #signaturePlaceholder>
+                                    </ng-template>
+                                </div>
+                            </div>
+                        </ng-container>
+                        <ng-template #nonSignatureField>
+                            <span
+                                *ngIf="field.type === 'word_editor'; else plainFieldValue"
+                                class="filled-field-value word-editor-filled-value"
+                                [ngStyle]="getInputStyle(field)"
+                                [innerHTML]="getFieldValueHtml(field)">
+                            </span>
+                            <ng-template #plainFieldValue>
+                                <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                                    {{ getFieldValueText(field) }}
+                                </span>
+                            </ng-template>
+                        </ng-template>
+                    </ng-template>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

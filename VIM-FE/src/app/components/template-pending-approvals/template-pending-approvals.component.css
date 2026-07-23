@@ -1,0 +1,42 @@
+.loader-spinner {
+    border: 2px solid rgba(37, 99, 235, 0.2);
+    border-left-color: #2563eb;
+    border-radius: 999px;
+    display: inline-block;
+    height: 18px;
+    width: 18px;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.template-pending-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    border-top: 1px solid #e5e7eb;
+    color: #64748b;
+}
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.page-size-select {
+    width: 86px;
+}
+
+.page-indicator,
+.pagination-summary {
+    font-size: 13px;
+    font-weight: 700;
+}

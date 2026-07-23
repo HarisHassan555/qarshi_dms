@@ -1,0 +1,808 @@
+.template-fill-page {
+    color: #172033;
+}
+
+.fill-header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.header-actions {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+}
+
+.fill-header h2 {
+    font-size: 24px;
+    font-weight: 700;
+    margin: 0;
+}
+
+.fill-header p {
+    color: #64748b;
+    font-size: 13px;
+    margin: 4px 0 0;
+}
+
+.btn {
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 700;
+    min-height: 34px;
+    padding: 8px 12px;
+}
+
+.btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.btn-primary {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #ffffff;
+}
+
+.btn-outline {
+    background: #ffffff;
+    color: #172033;
+}
+
+.btn-danger {
+    background: #dc2626;
+    border-color: #dc2626;
+    color: #ffffff;
+}
+
+.compact-btn {
+    min-height: 34px;
+    padding: 7px 10px;
+    white-space: nowrap;
+}
+
+.full-width {
+    width: 100%;
+}
+
+.submission-code {
+    background: #ecfdf5;
+    border: 1px solid #86efac;
+    border-radius: 8px;
+    color: #14532d;
+    margin-bottom: 16px;
+    padding: 12px 14px;
+}
+
+.test-email-message {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    color: #1e3a8a;
+    margin-bottom: 16px;
+    padding: 12px 14px;
+}
+
+.empty-template {
+    background: #ffffff;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+    color: #64748b;
+    padding: 24px;
+    text-align: center;
+}
+
+.fill-workspace {
+    align-items: start;
+    display: grid;
+    gap: 16px;
+    grid-template-columns: 300px minmax(0, 1fr);
+}
+
+.fill-values-panel {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px;
+    position: sticky;
+    top: 84px;
+}
+
+.fill-values-panel h3 {
+    color: #111827;
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0 0 14px;
+}
+
+.value-field {
+    border-top: 1px solid #e2e8f0;
+    padding: 12px 0;
+}
+
+.value-field:first-of-type {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.value-field label {
+    color: #475569;
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.value-field input,
+.value-field textarea,
+.user-pipeline-step input,
+.user-pipeline-step select {
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    box-sizing: border-box;
+    color: #111827;
+    font-size: 13px;
+    outline: none;
+    padding: 8px 9px;
+    width: 100%;
+}
+
+.user-pipeline-panel {
+    border-top: 1px solid #e2e8f0;
+    margin-top: 14px;
+    padding-top: 14px;
+}
+
+.user-pipeline-header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.user-pipeline-header h3 {
+    margin: 0;
+}
+
+.user-pipeline-header button {
+    background: #2563eb;
+    border: 1px solid #2563eb;
+    border-radius: 999px;
+    color: #ffffff;
+    cursor: pointer;
+    font-size: 20px;
+    font-weight: 700;
+    height: 30px;
+    line-height: 1;
+    width: 30px;
+}
+
+.user-pipeline-step {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    padding: 10px;
+}
+
+.empty-pipeline {
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+    color: #64748b;
+    font-size: 13px;
+    margin-bottom: 10px;
+    padding: 14px;
+    text-align: center;
+}
+
+.section-title-row {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    margin-bottom: 10px;
+}
+
+.section-title-row .section-name-input {
+    min-height: 38px;
+}
+
+:host ::ng-deep .user-pipeline-step .ng-select .ng-select-container {
+    border-color: #cbd5e1;
+    border-radius: 6px;
+    min-height: 38px;
+}
+
+:host ::ng-deep .user-pipeline-step .ng-select.ng-select-multiple .ng-select-container .ng-value-container {
+    padding-left: 8px;
+}
+
+.xyz-footer {
+    margin-top: 16px;
+    padding-bottom: 14px;
+    overflow-x: auto;
+}
+
+.xyz-signatures {
+    border-collapse: collapse;
+    color: #111827;
+    font-family: Calibri, "Calibri (Body)", Arial, sans-serif;
+    font-size: 11px;
+    margin-top: 12px;
+    table-layout: fixed;
+    width: 100%;
+}
+
+.xyz-signatures th,
+.xyz-signatures td {
+    border: 1px solid #000000;
+    padding: 4px 6px;
+    text-align: center;
+    vertical-align: middle;
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+
+.xyz-signatures th {
+    background: #8f8f8f;
+    font-size: 14px;
+    font-weight: 700;
+    text-align: center;
+}
+
+.xyz-signatures-blank td {
+    background: #ffffff;
+    border-bottom: 1px solid #000000;
+    box-sizing: border-box;
+    height: 52px;
+    min-height: 52px;
+    overflow: hidden;
+    padding: 2px 4px 4px;
+    position: relative;
+    vertical-align: top;
+}
+
+.xyz-signatures td {
+    font-size: 12px;
+}
+
+.xyz-signatures tr:nth-child(2) th {
+    line-height: 1.45;
+    padding-bottom: 10px;
+    padding-top: 10px;
+}
+
+.xyz-signatures tr:last-child td {
+    line-height: 1.45;
+    padding-top: 8px;
+    vertical-align: top;
+}
+
+.xyz-signatures tr:last-child td > span {
+    display: block;
+    line-height: 1.45;
+}
+
+.value-field textarea {
+    min-height: 82px;
+    resize: vertical;
+}
+
+.panel-word-editor {
+    display: block;
+}
+
+:host ::ng-deep .panel-word-editor .ck.ck-editor {
+    width: 100%;
+}
+
+:host ::ng-deep .panel-word-editor .ck.ck-toolbar {
+    border-radius: 6px 6px 0 0;
+}
+
+:host ::ng-deep .panel-word-editor .ck.ck-editor__editable {
+    min-height: 180px;
+    max-height: 420px;
+}
+
+.panel-checkbox {
+    align-items: center;
+    display: flex !important;
+    gap: 8px;
+    margin-bottom: 0 !important;
+}
+
+.panel-checkbox input {
+    width: auto;
+}
+
+.panel-radio-group {
+    display: grid;
+    gap: 8px;
+}
+
+.panel-radio-option {
+    align-items: center;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    color: #111827 !important;
+    cursor: pointer;
+    display: flex !important;
+    gap: 8px;
+    margin: 0 !important;
+    padding: 8px 9px;
+}
+
+.panel-radio-option input {
+    flex: 0 0 auto;
+    margin: 0;
+    width: auto;
+}
+
+.panel-radio-option span {
+    overflow-wrap: anywhere;
+}
+
+.fill-stage {
+    background: #dbe3ef;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    overflow: auto;
+    padding: 24px;
+}
+
+.fill-frame {
+    background:
+        repeating-linear-gradient(
+            to bottom,
+            #ffffff 0,
+            #ffffff var(--template-page-height, 1123px),
+            #dbe3ef var(--template-page-height, 1123px),
+            #dbe3ef calc(var(--template-page-height, 1123px) + var(--template-page-gap, 16px))
+        );
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+    margin: 0 auto;
+    position: relative;
+}
+
+.background-document-layer {
+    left: 0;
+    pointer-events: none;
+    position: absolute;
+    right: 0;
+    top: 0;
+    z-index: 1;
+}
+
+.background-document-page {
+    background: #ffffff;
+    left: 0;
+    overflow: hidden;
+    position: absolute;
+    top: 0;
+}
+
+.background-document-page img {
+    border: 0;
+    display: block;
+    height: 100%;
+    object-fit: fill;
+    pointer-events: none;
+    width: 100%;
+}
+
+.background-document-page iframe {
+    border: 0;
+    display: block;
+    height: 100%;
+    overflow: hidden;
+    pointer-events: none;
+    width: 100%;
+}
+
+.pdf-background-frame {
+    background: #ffffff;
+}
+
+.document-html {
+    box-sizing: border-box;
+    color: #111827;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 14px;
+    line-height: 1.55;
+    max-width: 100%;
+    min-height: 1123px;
+    overflow-x: hidden;
+    padding: 22mm 18mm;
+    position: relative;
+    width: 100%;
+    word-break: break-word;
+    z-index: 2;
+}
+
+:host ::ng-deep .document-html table {
+    border-collapse: collapse;
+    box-sizing: border-box;
+    max-width: 100%;
+    table-layout: fixed;
+    width: 100%;
+}
+
+:host ::ng-deep .document-html th,
+:host ::ng-deep .document-html td {
+    max-width: 1px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+:host ::ng-deep .document-html tr,
+:host ::ng-deep .document-html p,
+:host ::ng-deep .document-html li {
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+:host ::ng-deep .document-html figure.table {
+    display: table;
+    max-width: 100%;
+    width: 100%;
+}
+
+:host ::ng-deep .document-html img,
+:host ::ng-deep .document-html figure.image {
+    height: auto;
+    max-width: 100%;
+}
+
+:host ::ng-deep .document-html *,
+:host ::ng-deep .document-html *::before,
+:host ::ng-deep .document-html *::after {
+    box-sizing: border-box;
+}
+
+:host ::ng-deep .document-html h2 {
+    font-size: 22px;
+    line-height: 1.25;
+    margin: 0 0 18px;
+    text-align: center;
+}
+
+:host ::ng-deep .document-html p {
+    margin: 0 0 12px;
+}
+
+:host ::ng-deep .document-html table {
+    border-collapse: collapse;
+    margin: 12px 0;
+}
+
+:host ::ng-deep .document-html th,
+:host ::ng-deep .document-html td {
+    border: 1px solid #334155;
+    padding: 8px;
+    vertical-align: top;
+}
+
+:host ::ng-deep .document-html figure.table {
+    clear: both;
+    margin: 12px 0;
+}
+
+:host ::ng-deep .document-html figure.table table {
+    max-width: 100%;
+    width: 100%;
+}
+
+:host ::ng-deep .document-html th {
+    background: #e2e8f0;
+    font-weight: 700;
+}
+
+:host ::ng-deep .document-html .template-field {
+    background: #dff7ea;
+    border: 1px solid #22c55e;
+    border-radius: 5px;
+    color: #14532d;
+    display: inline-block;
+    font-family: Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.25;
+    padding: 2px 6px;
+}
+
+:host ::ng-deep .document-html .inline-filled-value {
+    color: #111827;
+    display: inline-block;
+    font-family: inherit;
+    line-height: 1.15;
+    min-height: 30px;
+    min-width: 120px;
+    padding: 10px 0 0;
+    vertical-align: baseline;
+    white-space: pre-wrap;
+}
+
+:host ::ng-deep .document-html td .inline-filled-value,
+:host ::ng-deep .document-html th .inline-filled-value {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+}
+
+:host ::ng-deep .document-html .inline-filled-textarea-value {
+    min-height: 70px;
+    padding: 6px 0 0;
+    vertical-align: top;
+}
+
+:host ::ng-deep .document-html .inline-filled-word-editor-value {
+    display: block;
+    min-height: 120px;
+    padding: 0;
+    width: 100%;
+}
+
+:host ::ng-deep .document-html .inline-filled-word-editor-value table,
+.word-editor-filled-value table {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: 100%;
+}
+
+:host ::ng-deep .document-html .inline-filled-word-editor-value td,
+:host ::ng-deep .document-html .inline-filled-word-editor-value th,
+.word-editor-filled-value td,
+.word-editor-filled-value th {
+    border: 1px solid #334155;
+    padding: 6px;
+    vertical-align: top;
+}
+
+.page-boundary {
+    border-left: 1px dashed rgba(37, 99, 235, 0.28);
+    border-right: 1px dashed rgba(37, 99, 235, 0.28);
+    box-sizing: border-box;
+    left: 0;
+    pointer-events: none;
+    position: absolute;
+    right: 0;
+}
+
+.page-boundary span {
+    background: #dbe3ef;
+    color: #2563eb;
+    font-family: Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    left: -68px;
+    padding: 2px 6px;
+    position: absolute;
+    top: 8px;
+}
+
+.filled-field {
+    box-sizing: border-box;
+    position: absolute;
+    z-index: 3;
+}
+
+.filled-field-value {
+    box-sizing: border-box;
+    color: #111827;
+    display: block;
+    height: 100%;
+    line-height: 1.15;
+    overflow: hidden;
+    padding: 12px 0 0;
+    white-space: pre-wrap;
+    width: 100%;
+}
+
+.word-editor-filled-value {
+    overflow: hidden;
+    padding: 0;
+}
+
+.radio-option-filled-field .filled-field-value,
+.check-mark-filled-field .filled-field-value {
+    align-items: center;
+    display: flex;
+    font-weight: 700;
+    justify-content: center;
+    line-height: 1;
+    padding: 0;
+    text-align: center;
+}
+
+.pipeline-signature-field {
+    align-items: center;
+    box-sizing: border-box;
+    color: #111827;
+    display: grid;
+    gap: 3px;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    height: 100%;
+    justify-content: center;
+    line-height: 1.1;
+    overflow: hidden;
+    text-align: center;
+    width: 100%;
+}
+
+.pipeline-signature-slot {
+    align-items: center;
+    display: flex;
+    height: 100%;
+    justify-content: center;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.pipeline-signature-slot img {
+    display: block;
+    max-height: 100%;
+    max-width: 100%;
+    object-fit: contain;
+}
+
+.pipeline-signature-slot span {
+    color: #64748b;
+    display: block;
+    font-size: max(8px, 0.85em);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 100%;
+}
+
+.checkbox-input {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid #16a34a;
+    border-radius: 6px;
+    display: flex;
+    gap: 8px;
+    height: 100%;
+    padding: 6px 8px;
+}
+
+@media (max-width: 1180px) {
+    .fill-workspace {
+        grid-template-columns: 1fr;
+    }
+
+    .fill-values-panel {
+        position: static;
+    }
+}
+
+.document-header-preview,
+.document-footer-preview {
+    background: #ffffff;
+    color: #000000;
+    height: 100%;
+    overflow: hidden;
+    width: 100%;
+}
+
+.document-header-preview {
+    font-family: "Times New Roman", Times, serif;
+    padding: 8px 12px;
+}
+
+.header-date {
+    font-size: 11px;
+    margin-bottom: 4px;
+    text-align: right;
+}
+
+.header-main {
+    align-items: center;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: 54px minmax(0, 1fr);
+    text-align: center;
+}
+
+.header-main img {
+    height: 46px;
+    max-width: 54px;
+    object-fit: contain;
+}
+
+.header-main strong {
+    display: block;
+    font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif;
+    font-size: 22px;
+    line-height: 1.1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.header-main span {
+    display: block;
+    font-family: Verdana, Arial, sans-serif;
+    font-size: 10px;
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.header-rule {
+    border-top: 3px double #000000;
+    margin-top: 8px;
+}
+
+.document-footer-preview {
+    padding: 8px;
+}
+
+.individual-footer-preview {
+    padding: 0;
+    position: relative;
+}
+
+.individual-footer-preview-inner {
+    box-sizing: border-box;
+    inset: 0 8px 4px;
+    overflow: hidden;
+    position: absolute;
+}
+
+.document-footer-preview table {
+    border-collapse: collapse;
+    font-family: Calibri, Arial, sans-serif;
+    font-size: 12px;
+    height: 100%;
+    width: 100%;
+}
+
+.document-footer-preview td {
+    border: 1px solid #000000;
+    font-weight: 700;
+    padding: 6px;
+    text-align: center;
+}
+
+.individual-footer-preview .xyz-signatures {
+    font-size: 10px;
+    height: auto;
+    margin-top: 0;
+}
+
+.individual-footer-preview .xyz-signatures th,
+.individual-footer-preview .xyz-signatures td {
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+.individual-footer-preview .xyz-signatures-blank td {
+    height: 24px;
+    min-height: 0;
+    padding-bottom: 2px;
+}
+
+.individual-footer-preview .xyz-signatures tr:nth-child(2) th {
+    font-size: 10px;
+    line-height: 1.2;
+    padding-bottom: 3px;
+    padding-top: 3px;
+}
+
+.individual-footer-preview .xyz-signatures tr:last-child td {
+    font-size: 9px;
+    line-height: 1.18;
+    padding-bottom: 2px;
+    padding-top: 3px;
+}
+
+.individual-footer-preview .xyz-signatures tr:last-child td > span {
+    line-height: 1.18;
+}

@@ -2,6 +2,7 @@ package com.bezkoder.spring.login.controllers;
 
 import com.bezkoder.spring.login.sa.bll.services.ICustomFormApplicationService;
 import com.bezkoder.spring.login.sa.bll.services.IAppActivityLogService;
+import com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService;
 import com.bezkoder.spring.login.admin.bll.services.ICommonService;
 import com.bezkoder.spring.login.admin.utility.common.RequestMetadataUtil;
 import com.bezkoder.spring.login.sa.dal.dao.ICfgTblCustomFormApplicationDAO;
@@ -37,6 +38,9 @@ public class CustomFormApplicationController {
 
     @Autowired
     private ICommonService commonService;
+
+    @Autowired
+    private EmailService emailService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -186,10 +190,11 @@ public class CustomFormApplicationController {
     public Map<String, Object> updateApplicationPdf(@RequestParam Integer applicationId,
             @RequestParam("pdf") MultipartFile pdf,
             @RequestParam(required = false, defaultValue = "false") boolean refreshCapfSignatures,
+            @RequestParam(required = false, defaultValue = "false") boolean suppressEditNotification,
             HttpServletRequest request,
             HttpServletResponse response) {
         logger.debug("updateApplicationPdf() - applicationId: " + applicationId + ", refreshCapfSignatures="
-                + refreshCapfSignatures);
+                + refreshCapfSignatures + ", suppressEditNotification=" + suppressEditNotification);
         Map<String, Object> result = new HashMap<>();
         try {
             if (applicationId == null) {
@@ -206,7 +211,7 @@ public class CustomFormApplicationController {
             String pdfName = pdf.getOriginalFilename();
             String pdfMime = pdf.getContentType();
             String status = customFormApplicationService.updateApplicationPdf(applicationId, pdf.getBytes(), pdfName,
-                    pdfMime, refreshCapfSignatures);
+                    pdfMime, refreshCapfSignatures, suppressEditNotification);
             if ("Success".equals(status)) {
                 result.put("status", "Success");
                 result.put("message", "Application PDF updated successfully");
@@ -367,8 +372,13 @@ public class CustomFormApplicationController {
             if (requestBody.get("approverUserId") != null) {
                 approverUserId = (Integer) requestBody.get("approverUserId");
             }
+            boolean deferEmail = Boolean.TRUE.equals(requestBody.get("deferEmail"))
+                    || "true".equalsIgnoreCase(String.valueOf(requestBody.get("deferEmail")));
             String approvedVia = requestBody.get("approvedVia") != null ? String.valueOf(requestBody.get("approvedVia"))
                     : "SYSTEM";
+            if (deferEmail) {
+                approvedVia = "TEMPLATE_PORTAL_DEFER_EMAIL";
+            }
 
             if (applicationId == null) {
                 result.put("status", "Failure");
@@ -617,6 +627,151 @@ public class CustomFormApplicationController {
             return result;
         }
     }
+
+    @RequestMapping(value = "/resubmitApplicationFromInitiator", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> resubmitApplicationFromInitiator(@RequestBody Map<String, Object> requestBody,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("resubmitApplicationFromInitiator()");
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Integer applicationId = getIntegerValue(requestBody.get("applicationId"));
+            Integer userId = getIntegerValue(requestBody.get("userId"));
+            String remarks = requestBody.get("remarks") != null ? String.valueOf(requestBody.get("remarks")) : "";
+
+            if (applicationId == null) {
+                result.put("status", "Failure");
+                result.put("message", "Application ID is required");
+                return result;
+            }
+
+            String status = customFormApplicationService.resubmitApplicationFromInitiator(applicationId,
+                    remarks != null ? remarks.trim() : "", userId);
+            String logStatus = "Success".equals(status) ? "SUCCESS" : "FAILURE";
+            Map<String, Object> payload = buildApprovalPayload(applicationId, remarks, "SYSTEM", resolveClientIp(request),
+                    "RESUBMIT_INITIATOR");
+            logFormAction("RESUBMIT_INITIATOR", request, applicationId, logStatus,
+                    "Success".equals(status) ? "Application resubmitted by initiator" : status, payload,
+                    logStatus.equals("FAILURE") ? status : null);
+            if ("Success".equals(status)) {
+                result.put("status", "Success");
+                result.put("message", "Application resubmitted successfully");
+            } else {
+                result.put("status", "Failure");
+                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8)
+                        : "Failed to resubmit application");
+            }
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error resubmitting application from initiator: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return result;
+        }
+    }
+
+    @RequestMapping(value = "/requestApplicationOpinion", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> requestApplicationOpinion(@RequestBody Map<String, Object> requestBody,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("requestApplicationOpinion()");
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Integer applicationId = getIntegerValue(requestBody.get("applicationId"));
+            Integer opinionUserId = getIntegerValue(requestBody.get("opinionUserId"));
+            String remarks = requestBody.get("remarks") != null ? String.valueOf(requestBody.get("remarks")) : "";
+
+            if (applicationId == null) {
+                result.put("status", "Failure");
+                result.put("message", "Application ID is required");
+                return result;
+            }
+            if (opinionUserId == null || opinionUserId <= 0) {
+                result.put("status", "Failure");
+                result.put("message", "Opinion user is required");
+                return result;
+            }
+            if (remarks == null || remarks.trim().isEmpty()) {
+                result.put("status", "Failure");
+                result.put("message", "Remarks are required when requesting an opinion");
+                return result;
+            }
+
+            String status = customFormApplicationService.requestApplicationOpinion(applicationId, opinionUserId,
+                    remarks.trim());
+            String logStatus = "Success".equals(status) ? "SUCCESS" : "FAILURE";
+            Map<String, Object> payload = buildApprovalPayload(applicationId, remarks, "SYSTEM",
+                    resolveClientIp(request), "REQUEST_OPINION");
+            payload.put("opinionUserId", opinionUserId);
+            logFormAction("REQUEST_OPINION", request, applicationId, logStatus,
+                    "Success".equals(status) ? "Application sent for opinion" : status, payload,
+                    logStatus.equals("FAILURE") ? status : null);
+            if ("Success".equals(status)) {
+                result.put("status", "Success");
+                result.put("message", "Application sent for opinion successfully");
+            } else {
+                result.put("status", "Failure");
+                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8)
+                        : "Failed to request opinion");
+            }
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error requesting application opinion: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return result;
+        }
+    }
+
+    @RequestMapping(value = "/submitApplicationOpinion", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> submitApplicationOpinion(@RequestBody Map<String, Object> requestBody,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("submitApplicationOpinion()");
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Integer applicationId = getIntegerValue(requestBody.get("applicationId"));
+            String action = requestBody.get("action") != null ? String.valueOf(requestBody.get("action")) : "";
+            String remarks = requestBody.get("remarks") != null ? String.valueOf(requestBody.get("remarks")) : "";
+
+            if (applicationId == null) {
+                result.put("status", "Failure");
+                result.put("message", "Application ID is required");
+                return result;
+            }
+            if (remarks == null || remarks.trim().isEmpty()) {
+                result.put("status", "Failure");
+                result.put("message", "Remarks are required when submitting an opinion");
+                return result;
+            }
+
+            String status = customFormApplicationService.submitApplicationOpinion(applicationId, action, remarks.trim());
+            String logStatus = "Success".equals(status) ? "SUCCESS" : "FAILURE";
+            Map<String, Object> payload = buildApprovalPayload(applicationId, remarks, "SYSTEM",
+                    resolveClientIp(request), "SUBMIT_OPINION");
+            payload.put("opinionAction", action);
+            logFormAction("SUBMIT_OPINION", request, applicationId, logStatus,
+                    "Success".equals(status) ? "Opinion submitted" : status, payload,
+                    logStatus.equals("FAILURE") ? status : null);
+            if ("Success".equals(status)) {
+                result.put("status", "Success");
+                result.put("message", "Opinion submitted successfully");
+            } else {
+                result.put("status", "Failure");
+                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8)
+                        : "Failed to submit opinion");
+            }
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error submitting application opinion: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return result;
+        }
+    }
     @RequestMapping(value = "/sendBackApplicationFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
     public String sendBackApplicationFromEmail(@RequestParam Integer applicationId,
             @RequestParam Integer userId,
@@ -719,6 +874,149 @@ public class CustomFormApplicationController {
             return result;
         } catch (Exception ex) {
             logger.error("Error sending submission emails: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return result;
+        }
+    }
+
+    @RequestMapping(value = "/sendTemplatePostApprovalEmails", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> sendTemplatePostApprovalEmails(@RequestParam Integer applicationId,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("sendTemplatePostApprovalEmails() - applicationId: " + applicationId);
+        Map<String, Object> result = new HashMap<>();
+        try {
+            if (applicationId == null) {
+                result.put("status", "Failure");
+                result.put("message", "Application ID is required");
+                return result;
+            }
+
+            String status = customFormApplicationService.sendTemplatePostApprovalEmails(applicationId);
+            if ("Success".equals(status)) {
+                result.put("status", "Success");
+                result.put("message", "Approval emails sent successfully");
+            } else {
+                result.put("status", "Failure");
+                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8)
+                        : "Failed to send approval emails");
+            }
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error sending template post-approval emails: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return result;
+        }
+    }
+
+    @RequestMapping(value = "/sendTemplatePostApprovalEmailsWithPdfs", method = RequestMethod.POST, consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> sendTemplatePostApprovalEmailsWithPdfs(@RequestParam Integer applicationId,
+            @RequestParam(value = "initiatorPdf", required = false) MultipartFile initiatorPdf,
+            @RequestParam(value = "approverPdf", required = false) MultipartFile approverPdf,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("sendTemplatePostApprovalEmailsWithPdfs() - applicationId: " + applicationId);
+        Map<String, Object> result = new HashMap<>();
+        try {
+            if (applicationId == null) {
+                result.put("status", "Failure");
+                result.put("message", "Application ID is required");
+                return result;
+            }
+
+            byte[] initiatorBytes = initiatorPdf != null && !initiatorPdf.isEmpty() ? initiatorPdf.getBytes() : null;
+            byte[] approverBytes = approverPdf != null && !approverPdf.isEmpty() ? approverPdf.getBytes() : null;
+            String pdfName = approverPdf != null && approverPdf.getOriginalFilename() != null
+                    ? approverPdf.getOriginalFilename()
+                    : (initiatorPdf != null ? initiatorPdf.getOriginalFilename() : "template-application.pdf");
+            String pdfMime = approverPdf != null && approverPdf.getContentType() != null
+                    ? approverPdf.getContentType()
+                    : (initiatorPdf != null ? initiatorPdf.getContentType() : "application/pdf");
+
+            String status = customFormApplicationService.sendTemplatePostApprovalEmails(applicationId, initiatorBytes,
+                    approverBytes, pdfName, pdfMime);
+            if ("Success".equals(status)) {
+                result.put("status", "Success");
+                result.put("message", "Approval emails sent successfully");
+            } else {
+                result.put("status", "Failure");
+                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8)
+                        : "Failed to send approval emails");
+            }
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error sending template post-approval emails with PDFs: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return result;
+        }
+    }
+
+    @RequestMapping(value = "/sendTemplateTestEmailPdf", method = RequestMethod.POST, consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> sendTemplateTestEmailPdf(@RequestParam String recipients,
+            @RequestParam String subject,
+            @RequestParam String bodyHtml,
+            @RequestParam("pdf") MultipartFile pdf,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("sendTemplateTestEmailPdf()");
+        Map<String, Object> result = new HashMap<>();
+        try {
+            java.util.List<String> recipientEmails = new java.util.ArrayList<>();
+            try {
+                List<String> parsedRecipients = objectMapper.readValue(recipients, new TypeReference<List<String>>() {
+                });
+                if (parsedRecipients != null) {
+                    for (String item : parsedRecipients) {
+                        String email = item != null ? item.trim() : "";
+                        if (!email.isEmpty() && !recipientEmails.contains(email)) {
+                            recipientEmails.add(email);
+                        }
+                    }
+                }
+            } catch (Exception parseEx) {
+                String[] parts = recipients != null ? recipients.split(",") : new String[0];
+                for (String item : parts) {
+                    String email = item != null ? item.trim() : "";
+                    if (!email.isEmpty() && !recipientEmails.contains(email)) {
+                        recipientEmails.add(email);
+                    }
+                }
+            }
+
+            if (recipientEmails.isEmpty()) {
+                result.put("status", "Failure");
+                result.put("message", "No admin recipient email found");
+                return result;
+            }
+
+            if (pdf == null || pdf.isEmpty()) {
+                result.put("status", "Failure");
+                result.put("message", "Template PDF attachment is required");
+                return result;
+            }
+
+            String attachmentName = pdf.getOriginalFilename() != null && !pdf.getOriginalFilename().trim().isEmpty()
+                    ? pdf.getOriginalFilename()
+                    : "template-form.pdf";
+            emailService.sendHtmlEmailWithAttachment(
+                    recipientEmails,
+                    subject != null && !subject.trim().isEmpty() ? subject : "Template test email",
+                    bodyHtml != null && !bodyHtml.trim().isEmpty() ? bodyHtml : "<p>Attached is the filled template form PDF.</p>",
+                    pdf.getBytes(),
+                    attachmentName,
+                    pdf.getContentType() != null ? pdf.getContentType() : "application/pdf");
+            result.put("status", "Success");
+            result.put("message", "Template test email PDF sent successfully");
+            result.put("recipients", recipientEmails);
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error sending template test email PDF: " + ex.getMessage(), ex);
             result.put("status", "Failure");
             result.put("message", ex.getMessage());
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
@@ -866,6 +1164,21 @@ public class CustomFormApplicationController {
                 .replace("\"", "&quot;")
                 .replace("'", "&#39;");
     }
+
+    private Integer getIntegerValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        try {
+            return Integer.valueOf(String.valueOf(value));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private String resolveClientIp(HttpServletRequest request) {
         return RequestMetadataUtil.resolveClientIp(request);
     }

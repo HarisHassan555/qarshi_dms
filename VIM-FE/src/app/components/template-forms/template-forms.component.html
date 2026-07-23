@@ -1,0 +1,30 @@
+<div class="template-forms-page">
+    <div class="forms-header">
+        <div>
+            <h2>Template Forms</h2>
+            <p>Fill forms created in the template builder.</p>
+        </div>
+    </div>
+
+    <div class="empty-state error-state" *ngIf="loadError">
+        {{ loadError }}
+    </div>
+
+    <div class="empty-state" *ngIf="!loadError && templates.length === 0">
+        No template forms saved yet.
+    </div>
+
+    <div class="forms-grid" *ngIf="!loadError && templates.length > 0">
+        <div class="template-card" *ngFor="let template of templates">
+            <div>
+                <h3>{{ getTemplateName(template) }}</h3>
+                <span>{{ getCodeConvention(template) }}</span>
+                <small>Updated {{ template.updatedAt | date:'medium' }}</small>
+            </div>
+            <div class="template-actions">
+                <button type="button" class="btn btn-secondary" (click)="editTemplate(template)">Edit</button>
+                <button type="button" class="btn btn-primary" (click)="fillTemplate(template)">Fill</button>
+            </div>
+        </div>
+    </div>
+</div>

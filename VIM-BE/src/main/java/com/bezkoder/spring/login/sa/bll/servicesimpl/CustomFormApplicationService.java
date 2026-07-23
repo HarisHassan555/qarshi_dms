@@ -64,11 +64,11 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
 
     @Override
     public String updateApplicationPdf(Integer applicationId, byte[] pdfData, String pdfName, String pdfMime,
-            boolean refreshCapfSignatures) {
+            boolean refreshCapfSignatures, boolean suppressEditNotification) {
         logger.debug("updateApplicationPdf() - applicationId: " + applicationId + ", refreshCapfSignatures: "
-                + refreshCapfSignatures);
+                + refreshCapfSignatures + ", suppressEditNotification: " + suppressEditNotification);
         return customFormApplicationDAO.updateApplicationPdf(applicationId, pdfData, pdfName, pdfMime,
-                refreshCapfSignatures);
+                refreshCapfSignatures, suppressEditNotification);
     }
 
     @Override
@@ -147,11 +147,42 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
         return customFormApplicationDAO.sendBackApplicationToInitiator(applicationId, remarks);
     }
 
+    @Override
+    public String resubmitApplicationFromInitiator(Integer applicationId, String remarks, Integer userId) {
+        logger.debug("resubmitApplicationFromInitiator() - applicationId: " + applicationId + ", userId: " + userId);
+        return customFormApplicationDAO.resubmitApplicationFromInitiator(applicationId, remarks, userId);
+    }
+
+    @Override
+    public String requestApplicationOpinion(Integer applicationId, Integer opinionUserId, String remarks) {
+        logger.debug("requestApplicationOpinion() - applicationId: " + applicationId + ", opinionUserId: " + opinionUserId);
+        return customFormApplicationDAO.requestApplicationOpinion(applicationId, opinionUserId, remarks);
+    }
+
+    @Override
+    public String submitApplicationOpinion(Integer applicationId, String action, String remarks) {
+        logger.debug("submitApplicationOpinion() - applicationId: " + applicationId + ", action: " + action);
+        return customFormApplicationDAO.submitApplicationOpinion(applicationId, action, remarks);
+    }
 
     @Override
     public String sendSubmissionEmailsForApplication(Integer applicationId) {
         logger.debug("sendSubmissionEmailsForApplication() - applicationId: " + applicationId);
         return customFormApplicationDAO.sendSubmissionEmailsForApplication(applicationId);
+    }
+
+    @Override
+    public String sendTemplatePostApprovalEmails(Integer applicationId) {
+        logger.debug("sendTemplatePostApprovalEmails() - applicationId: " + applicationId);
+        return customFormApplicationDAO.sendTemplatePostApprovalEmails(applicationId);
+    }
+
+    @Override
+    public String sendTemplatePostApprovalEmails(Integer applicationId, byte[] initiatorPdf, byte[] approverPdf,
+            String pdfName, String pdfMime) {
+        logger.debug("sendTemplatePostApprovalEmails() - applicationId: " + applicationId + ", custom PDFs");
+        return customFormApplicationDAO.sendTemplatePostApprovalEmails(applicationId, initiatorPdf, approverPdf,
+                pdfName, pdfMime);
     }
 
     @Override

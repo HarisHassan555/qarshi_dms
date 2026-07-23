@@ -20,7 +20,7 @@ public interface ICfgTblCustomFormApplicationDAO {
     String updateApplication(CfgTblCustomFormApplication application);
 
     String updateApplicationPdf(Integer applicationId, byte[] pdfData, String pdfName, String pdfMime,
-            boolean refreshCapfSignatures);
+            boolean refreshCapfSignatures, boolean suppressEditNotification);
 
     String deleteApplication(Integer applicationId);
 
@@ -45,9 +45,18 @@ public interface ICfgTblCustomFormApplicationDAO {
 
     String sendBackApplication(Integer applicationId, String remarks);
     String sendBackApplicationToInitiator(Integer applicationId, String remarks);
+    String resubmitApplicationFromInitiator(Integer applicationId, String remarks, Integer userId);
 
+    String requestApplicationOpinion(Integer applicationId, Integer opinionUserId, String remarks);
+
+    String submitApplicationOpinion(Integer applicationId, String action, String remarks);
 
     String sendSubmissionEmailsForApplication(Integer applicationId);
+
+    String sendTemplatePostApprovalEmails(Integer applicationId);
+
+    String sendTemplatePostApprovalEmails(Integer applicationId, byte[] initiatorPdf, byte[] approverPdf,
+            String pdfName, String pdfMime);
 
     String assignAssetCode(Integer applicationId, String assetCode, Integer userId, String approvedIp);
 

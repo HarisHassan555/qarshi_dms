@@ -578,7 +578,13 @@
                             <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields() as sections">
                                 <tr class="xyz-signatures-blank">
                                     <ng-container *ngFor="let section of sections">
-                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
+                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                            <div *ngIf="slotUser && isUserApproved(slotUser)">
+                                                <img class="xyz-sig-img" [src]="getUserSignatureUrl(slotUser)"
+                                                    [alt]="(slotUser.txtUserName || slotUser.userName || slotUser.name || 'Approved user') + ' signature'">
+                                                <span class="xyz-sig-time">{{ getUserApprovalDate(slotUser) }}</span>
+                                            </div>
+                                        </td>
                                     </ng-container>
                                 </tr>
                                 <tr>
@@ -667,7 +673,13 @@
                             <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields() as sections">
                                 <tr class="xyz-signatures-blank">
                                     <ng-container *ngFor="let section of sections">
-                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
+                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                            <div *ngIf="slotUser && isUserApproved(slotUser)">
+                                                <img class="xyz-sig-img" [src]="getUserSignatureUrl(slotUser)"
+                                                    [alt]="(slotUser.txtUserName || slotUser.userName || slotUser.name || 'Approved user') + ' signature'">
+                                                <span class="xyz-sig-time">{{ getUserApprovalDate(slotUser) }}</span>
+                                            </div>
+                                        </td>
                                     </ng-container>
                                 </tr>
                                 <tr>

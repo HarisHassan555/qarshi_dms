@@ -1,0 +1,263 @@
+<ng-container *ngIf="!selectedApplication || !selectedTemplate; else applicationDetails">
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+            <div class="flex items-center gap-2">
+                <h5 class="text-xl font-bold dark:text-white-light">My Applications</h5>
+                <span class="badge badge-outline-primary" *ngIf="totalApplications > 0">
+                    {{ totalApplications }} applications
+                </span>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto">
+                <input [(ngModel)]="search" (ngModelChange)="onSearchChanged()" type="text" class="form-input" placeholder="Search my applications..." />
+            </div>
+        </div>
+
+        <div *ngIf="isLoading" class="px-5 py-10 text-center">
+            <div class="inline-flex items-center gap-3 text-primary">
+                <span class="loader-spinner" aria-hidden="true"></span>
+                <span>Loading my applications...</span>
+            </div>
+        </div>
+
+        <div class="datatable invoice-table" *ngIf="!isLoading && getDisplayedApplications().length > 0">
+            <ng-datatable
+                [rows]="getDisplayedApplications()"
+                [columns]="cols"
+                [hasCheckbox]="false"
+                [pagination]="false"
+                [sortable]="true"
+                skin="whitespace-nowrap bh-table-hover">
+                <ng-template slot="txtFormCode" let-value="data">
+                    <span class="badge badge-outline-primary" *ngIf="value.txtFormCode">{{ value.txtFormCode }}</span>
+                    <span class="text-gray-400" *ngIf="!value.txtFormCode">-</span>
+                </ng-template>
+                <ng-template slot="txtStatus" let-value="data">
+                    <span class="badge" [ngClass]="getStatusBadgeClass(value.txtStatus)">
+                        {{ value.txtStatus || 'PENDING' }}
+                    </span>
+                </ng-template>
+                <ng-template slot="intCurrentApprovalLevel" let-value="data">
+                    <span class="badge badge-outline-info">Level {{ getApplicationDisplayLevel(value) }}</span>
+                </ng-template>
+                <ng-template slot="dteCreatedDate" let-value="data">
+                    <span>{{ value.dteCreatedDate ? (value.dteCreatedDate | date:'short') : '-' }}</span>
+                </ng-template>
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center">
+                        <button type="button" class="btn btn-sm btn-outline-primary" (click)="openApplication(value)">
+                            Open
+                        </button>
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+
+        <div *ngIf="!isLoading && totalApplications > 0" class="my-application-pagination px-5 py-3">
+            <div class="pagination-summary">
+                Showing {{ pageStart }}-{{ pageEnd }} of {{ totalApplications }}
+            </div>
+            <div class="pagination-controls">
+                <select class="form-select page-size-select" [ngModel]="pageSize" (ngModelChange)="changePageSize($event)">
+                    <option [ngValue]="10">10</option>
+                    <option [ngValue]="25">25</option>
+                    <option [ngValue]="50">50</option>
+                    <option [ngValue]="100">100</option>
+                </select>
+                <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="page === 0" (click)="changePage(page - 1)">
+                    Previous
+                </button>
+                <span class="page-indicator">Page {{ page + 1 }} of {{ totalPages }}</span>
+                <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="page + 1 >= totalPages" (click)="changePage(page + 1)">
+                    Next
+                </button>
+            </div>
+        </div>
+
+        <div *ngIf="!isLoading && getDisplayedApplications().length === 0" class="px-5 py-8 text-center">
+            <p class="text-gray-600 dark:text-gray-400">No initiated template applications found.</p>
+        </div>
+    </div>
+</ng-container>
+
+<ng-template #applicationDetails>
+    <div class="my-application-page" *ngIf="selectedApplication as application">
+        <div class="panel selected-summary">
+            <div>
+                <h3>{{ application.templateName || selectedTemplate?.name || 'Template Application' }}</h3>
+                <p>{{ application.dteCreatedDate ? (application.dteCreatedDate | date:'medium') : 'Submitted application' }}</p>
+            </div>
+            <div class="summary-badges">
+                <span class="code-badge">{{ application.txtFormCode || '-' }}</span>
+                <span class="badge" [ngClass]="getStatusBadgeClass(application.txtStatus)">
+                    {{ application.txtStatus || 'PENDING' }}
+                </span>
+                <button type="button" class="btn btn-outline" (click)="backToList()">Back</button>
+            </div>
+        </div>
+
+        <div class="fill-stage readonly-stage">
+            <div
+                class="fill-frame"
+                [style.width.px]="selectedTemplate.page?.width || 794"
+                [style.min-height.px]="(selectedTemplate.page?.count || 1) * (selectedTemplate.page?.height || 1123) + (((selectedTemplate.page?.count || 1) - 1) * (selectedTemplate.page?.gap || 32))"
+                [style.--template-page-height]="(selectedTemplate.page?.height || 1123) + 'px'"
+                [style.--template-page-gap]="(selectedTemplate.page?.gap || 32) + 'px'">
+                <div
+                    *ngFor="let pageIndex of pageIndexes"
+                    class="page-boundary"
+                    [style.top.px]="pageIndex * ((selectedTemplate.page?.height || 1123) + (selectedTemplate.page?.gap || 32))"
+                    [style.height.px]="selectedTemplate.page?.height || 1123">
+                    <span>Page {{ pageIndex + 1 }}</span>
+                </div>
+
+                <div
+                    *ngIf="selectedTemplate.background"
+                    class="background-document-layer"
+                    [style.height.px]="(selectedTemplate.page?.count || 1) * (selectedTemplate.page?.height || 1123) + (((selectedTemplate.page?.count || 1) - 1) * (selectedTemplate.page?.gap || 32))">
+                    <div
+                        *ngFor="let pageIndex of pageIndexes"
+                        class="background-document-page"
+                        [style.top.px]="pageIndex * ((selectedTemplate.page?.height || 1123) + (selectedTemplate.page?.gap || 32))"
+                        [style.width.px]="selectedTemplate.page?.width || 794"
+                        [style.height.px]="selectedTemplate.page?.height || 1123">
+                        <img *ngIf="selectedTemplate.background.type === 'image' && pageIndex === 0" [src]="selectedTemplate.background.dataUrl" [alt]="selectedTemplate.background.name" />
+                        <img *ngIf="selectedTemplate.background.type === 'pdf' && selectedTemplate.background.renderedPages?.[pageIndex]" [src]="selectedTemplate.background.renderedPages?.[pageIndex]" [alt]="selectedTemplate.background.name + ' page ' + (pageIndex + 1)" />
+                    </div>
+                </div>
+
+                <div class="document-html" [innerHTML]="safeHtml"></div>
+
+                <ng-container *ngFor="let field of selectedTemplate.fields; trackBy: trackByFieldId">
+                    <div
+                        *ngFor="let optionBox of getRadioOptionPlacements(field)"
+                        class="filled-field radio-option-filled-field"
+                        [attr.data-field-id]="field.id"
+                        [hidden]="field.type !== 'radio'"
+                        [style.left.px]="optionBox.placement.x"
+                        [style.top.px]="optionBox.placement.y"
+                        [style.width.px]="optionBox.placement.width"
+                        [style.height.px]="optionBox.placement.height">
+                        <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                            {{ getFieldValueText(field, optionBox.label) }}
+                        </span>
+                    </div>
+                </ng-container>
+
+                <div
+                    *ngFor="let field of selectedTemplate.fields; trackBy: trackByFieldId"
+                    class="filled-field"
+                    [class.document-region]="isDocumentRegionFieldType(field.type)"
+                    [class.check-mark-filled-field]="field.type === 'checkbox'"
+                    [hidden]="field.type === 'radio' || !field.placement"
+                    [style.left.px]="field.placement?.x"
+                    [style.top.px]="field.placement?.y"
+                    [style.width.px]="field.placement?.width"
+                    [style.height.px]="field.placement?.height">
+                    <ng-container *ngIf="isDynamicSignatureField(field); else nonSignatureField">
+                        <div class="pipeline-signature-field" [ngStyle]="getInputStyle(field)">
+                            <div class="pipeline-signature-slot" *ngFor="let slot of getDynamicSignatureSlots(field)">
+                                <img *ngIf="getDynamicSignatureImageUrl(slot) as signatureUrl" [src]="signatureUrl" [alt]="getDynamicSignatureLabel(slot)" />
+                            </div>
+                        </div>
+                    </ng-container>
+                    <ng-template #nonSignatureField>
+                        <span
+                            *ngIf="field.type === 'word_editor'; else plainFieldValue"
+                            class="filled-field-value word-editor-filled-value"
+                            [ngStyle]="getInputStyle(field)"
+                            [innerHTML]="getFieldValueHtml(field)">
+                        </span>
+                        <ng-template #plainFieldValue>
+                            <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                                {{ getFieldValueText(field) }}
+                            </span>
+                        </ng-template>
+                    </ng-template>
+                </div>
+            </div>
+        </div>
+
+        <section class="panel progress-panel">
+            <div class="progress-heading">
+                <div>
+                    <h3>Approval Progress</h3>
+                    <p>{{ getPipelineProgress() }}% complete</p>
+                </div>
+                <div class="progress-track">
+                    <div [style.width.%]="getPipelineProgress()"></div>
+                </div>
+            </div>
+
+            <div class="approval-flow">
+                <ng-container *ngFor="let tile of progressTiles; let tileIndex = index; trackBy: trackByTile">
+                    <article class="approval-node" [ngClass]="getTileClass(tile)">
+                        <div class="approval-node-header">
+                            <div class="approval-node-title">{{ tile.title }}</div>
+                            <div class="approval-node-status">{{ tile.status === 'WAITING' ? 'PENDING' : tile.status }}</div>
+                        </div>
+                        <div class="approval-node-body">
+                            <div class="approval-node-row">
+                                <span class="label">Approved By</span>
+                                <span class="value">{{ tile.approver }}</span>
+                            </div>
+                            <div class="approval-node-row">
+                                <span class="label">Action Time</span>
+                                <span class="value">{{ tile.approvedAt }}</span>
+                            </div>
+                            <div class="approval-node-row">
+                                <span class="label">Remarks</span>
+                                <span class="value">{{ tile.remarks }}</span>
+                            </div>
+                            <div class="approval-node-row">
+                                <span class="label">Type</span>
+                                <span class="value">{{ tile.type }}</span>
+                            </div>
+                        </div>
+                    </article>
+                    <div *ngIf="tileIndex < progressTiles.length - 1" class="approval-arrow">
+                        <div class="approval-arrow-label">
+                            {{ getArrowLabel(tileIndex + 1) }}
+                        </div>
+                        <div class="approval-arrow-track">
+                            <div class="approval-arrow-line"></div>
+                            <div class="approval-arrow-head"></div>
+                        </div>
+                    </div>
+                </ng-container>
+            </div>
+
+            <div class="mt-4 prior-approvals-log" *ngIf="getApprovalLogRows().length > 0">
+                <h4 class="text-sm font-bold text-gray-800 dark:text-white mb-2">Prior Approvals</h4>
+                <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <table class="min-w-full text-xs">
+                        <thead class="bg-gray-100 dark:bg-gray-800">
+                            <tr>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Level</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Approver</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Role</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Status</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Date</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Comments</th>
+                                <th class="px-3 py-2 text-center font-semibold text-gray-700 dark:text-gray-200">Signature</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr *ngFor="let row of getApprovalLogRows()" class="border-t border-gray-200 dark:border-gray-700">
+                                <td class="px-3 py-2">{{ row.level }}</td>
+                                <td class="px-3 py-2">{{ row.approver }}</td>
+                                <td class="px-3 py-2">{{ row.role }}</td>
+                                <td class="px-3 py-2">{{ row.status }}</td>
+                                <td class="px-3 py-2">{{ row.date }}</td>
+                                <td class="px-3 py-2">{{ row.comments }}</td>
+                                <td class="px-3 py-2 text-center">
+                                    <img *ngIf="row.signatureUrl" [src]="row.signatureUrl" alt="Signature" class="approval-log-signature" />
+                                    <span *ngIf="!row.signatureUrl">--</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </div>
+</ng-template>

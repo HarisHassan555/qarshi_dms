@@ -1,0 +1,154 @@
+.template-approval-page .approval-workspace {
+    grid-template-columns: 340px minmax(0, 1fr);
+}
+
+.template-action-overlay {
+    align-items: center;
+    background: rgba(248, 250, 252, 0.82);
+    backdrop-filter: blur(2px);
+    display: flex;
+    inset: 0;
+    justify-content: center;
+    position: fixed;
+    z-index: 9999;
+}
+
+.template-action-dialog {
+    align-items: center;
+    background: #ffffff;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    box-shadow: 0 20px 45px rgba(15, 23, 42, 0.16);
+    color: #0f172a;
+    display: flex;
+    gap: 14px;
+    max-width: 360px;
+    padding: 18px 20px;
+}
+
+.template-action-dialog strong {
+    display: block;
+    font-size: 15px;
+    margin-bottom: 3px;
+}
+
+.template-action-dialog p {
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.4;
+    margin: 0;
+}
+
+.template-action-spinner {
+    animation: templateActionSpin 0.8s linear infinite;
+    border: 3px solid #dbeafe;
+    border-left-color: #4361ee;
+    border-radius: 999px;
+    flex: 0 0 auto;
+    height: 28px;
+    width: 28px;
+}
+
+@keyframes templateActionSpin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.approval-values-panel {
+    max-height: calc(100vh - 112px);
+    overflow: auto;
+}
+
+.step-rights-note {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    color: #475569;
+    font-size: 12px;
+    line-height: 1.4;
+    margin-bottom: 12px;
+    padding: 9px 10px;
+}
+
+.opinion-note {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+    color: #1e3a8a;
+}
+
+.compact-empty {
+    font-size: 13px;
+    padding: 14px;
+}
+
+.approval-actions {
+    border-top: 1px solid #e2e8f0;
+    margin-top: 16px;
+    padding-top: 14px;
+}
+
+.approval-actions label {
+    color: #475569;
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.approval-actions textarea {
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    box-sizing: border-box;
+    color: #111827;
+    min-height: 84px;
+    outline: none;
+    padding: 8px 9px;
+    resize: vertical;
+    width: 100%;
+}
+
+.opinion-request-box {
+    border-top: 1px solid #e2e8f0;
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+}
+
+.opinion-request-box select {
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    color: #111827;
+    height: 38px;
+    outline: none;
+    padding: 0 9px;
+    width: 100%;
+}
+
+.secondary-actions {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: 1fr 1fr 1fr;
+    margin-top: 8px;
+}
+
+.opinion-actions {
+    grid-template-columns: 1fr 1fr;
+}
+
+.secondary-actions .btn {
+    min-width: 0;
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+@media (max-width: 1180px) {
+    .template-approval-page .approval-workspace {
+        grid-template-columns: 1fr;
+    }
+
+    .approval-values-panel {
+        max-height: none;
+    }
+}
