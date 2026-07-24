@@ -36,7 +36,7 @@
                 </span>
             </ng-template>
             <ng-template slot="intCurrentApprovalLevel" let-value="data">
-                <span class="badge badge-outline-info">Level {{ value.intCurrentApprovalLevel || 0 }}</span>
+                <span class="badge badge-outline-info">Level {{ value.intCurrentApprovalLevel || 1 }}</span>
             </ng-template>
             <ng-template slot="dteCreatedDate" let-value="data">
                 <span>{{ value.dteCreatedDate ? (value.dteCreatedDate | date:'short') : '-' }}</span>

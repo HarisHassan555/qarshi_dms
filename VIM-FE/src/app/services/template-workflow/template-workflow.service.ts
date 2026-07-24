@@ -140,7 +140,7 @@ export class TemplateWorkflowService {
             txtFormCode: codeOverride || null,
             txtApplicationData: JSON.stringify(applicationData),
             txtStatus: 'PENDING',
-            intCurrentApprovalLevel: 0,
+            intCurrentApprovalLevel: 1,
             serSubmittedBy: this.getCurrentUserId(),
             blIsActive: true,
             blIsDeleted: false,
@@ -148,12 +148,12 @@ export class TemplateWorkflowService {
             deferEmail: true
         };
 
-        return this.http.post<any>(urls.API_URL + 'submitApplication', payload).pipe(
+        return this.http.post<any>(urls.API_URL + 'submitTemplateApplication', payload).pipe(
             map((response) => {
                 if (!response || response.status !== 'Success') {
                     throw new Error(response?.message || 'Template application could not be submitted');
                 }
-                const code = codeOverride || '';
+                const code = response.formCode || codeOverride || '';
                 return {
                     id: String(response.applicationId),
                     templateId: template.id,
@@ -201,7 +201,7 @@ export class TemplateWorkflowService {
     }
 
     getApplication(applicationId: string | number): Observable<any> {
-        return this.http.get<any>(urls.API_URL + 'getApplicationById?applicationId=' + encodeURIComponent(String(applicationId)));
+        return this.http.get<any>(urls.API_URL + 'getTemplateApplicationById?applicationId=' + encodeURIComponent(String(applicationId)));
     }
 
     updateTemplateApplication(application: any, values: Record<string, any>, templatePayload: any, userPipeline: any[] = []) {

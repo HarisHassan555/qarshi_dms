@@ -4864,16 +4864,30 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     ? entityManager.find(CfgTblCustomForm.class, application.getSerFormId())
                     : null;
             Map<String, Object> appData = parseApplicationData(application);
-            boolean isCapf = isCapfForm(form);
-            boolean isBudgetApproval = isBudgetApprovalForm(form);
+            boolean isTemplateBuilderApplication = isTemplateBuilderApplication(appData);
+            boolean isCapf = !isTemplateBuilderApplication && isCapfForm(form);
+            boolean isBudgetApproval = !isTemplateBuilderApplication && isBudgetApprovalForm(form);
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
-            boolean useIndividualPipelineFlow = !isCapf && (isBudgetApproval || hasDynamicFooterFlow);
+            boolean useIndividualPipelineFlow = !isTemplateBuilderApplication && !isCapf && (isBudgetApproval || hasDynamicFooterFlow);
             int currentLevel = currentLevelSafe(application);
+            if (isTemplateBuilderApplication) {
+                currentLevel = Math.max(0, currentLevel - 2);
+            }
             List<Map<String, Object>> pipelines = loadEffectiveApprovalPipeline(application, form, entityManager);
             List<BudgetApprover> sequence = useIndividualPipelineFlow
                     ? getBudgetApprovalSequence(appData, entityManager)
                     : java.util.Collections.emptyList();
             entityManager.getTransaction().commit();
+
+            if (isTemplateBuilderApplication) {
+                sendTemplateSubmitterProgressEmail(application, form, currentLevel, null, null, null);
+                sendTemplatePipelineNextApproverEmails(application, form, pipelines, currentLevel, null, null, null);
+                if ("COMPLETED".equalsIgnoreCase(application.getTxtStatus())
+                        || "APPROVED".equalsIgnoreCase(application.getTxtStatus())) {
+                    sendFinalInitiatorEmail(application);
+                }
+                return "Success";
+            }
 
             if (useIndividualPipelineFlow) {
                 if (currentLevel >= 0 && currentLevel < sequence.size()) {
@@ -4930,11 +4944,15 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     ? entityManager.find(CfgTblCustomForm.class, application.getSerFormId())
                     : null;
             Map<String, Object> appData = parseApplicationData(application);
-            boolean isCapf = isCapfForm(form);
-            boolean isBudgetApproval = isBudgetApprovalForm(form);
+            boolean isTemplateBuilderApplication = isTemplateBuilderApplication(appData);
+            boolean isCapf = !isTemplateBuilderApplication && isCapfForm(form);
+            boolean isBudgetApproval = !isTemplateBuilderApplication && isBudgetApprovalForm(form);
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
-            boolean useIndividualPipelineFlow = !isCapf && (isBudgetApproval || hasDynamicFooterFlow);
+            boolean useIndividualPipelineFlow = !isTemplateBuilderApplication && !isCapf && (isBudgetApproval || hasDynamicFooterFlow);
             int currentLevel = currentLevelSafe(application);
+            if (isTemplateBuilderApplication) {
+                currentLevel = Math.max(0, currentLevel - 2);
+            }
             List<Map<String, Object>> pipelines = loadEffectiveApprovalPipeline(application, form, entityManager);
             List<BudgetApprover> sequence = useIndividualPipelineFlow
                     ? getBudgetApprovalSequence(appData, entityManager)
@@ -4991,11 +5009,15 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 return;
             }
             String formName = getResolvedFormName(form);
+            boolean isTemplateBuilderApplication = isTemplateBuilderApplication(parseApplicationData(application));
+            int displayLevel = isTemplateBuilderApplication
+                    ? latestTemplateProgressDisplayLevel(application, currentLevel)
+                    : currentLevel;
             String subject = formName + " Updated - "
                     + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
             String html = generateApprovalEmailHtml(
                     submitter.getTxtUserName() != null ? submitter.getTxtUserName() : "User",
-                    currentLevel,
+                    displayLevel,
                     application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
                     formName,
                     application.getTxtStatus(),
@@ -5008,7 +5030,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     application.getTxtApprovalHistory(),
                     getBaseUrl());
             sendEmailWithSpecificPdf(java.util.Arrays.asList(submitter.getTxtAddress()), subject, html, application,
-                    form, isCapfForm(form), pdfBytes, pdfName, pdfMime);
+                    form, !isTemplateBuilderApplication && isCapfForm(form), pdfBytes, pdfName, pdfMime);
         } catch (Exception e) {
             if (em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
@@ -5019,6 +5041,30 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 em.close();
             }
         }
+    }
+
+    private int latestTemplateProgressDisplayLevel(CfgTblCustomFormApplication application, int currentPipelineIndex) {
+        int fallbackLevel = Math.max(1, currentPipelineIndex + 1);
+        if (application == null) {
+            return fallbackLevel;
+        }
+        List<Map<String, Object>> history = parseApprovalHistory(application.getTxtApprovalHistory());
+        for (int i = history.size() - 1; i >= 0; i--) {
+            Map<String, Object> entry = history.get(i);
+            if (entry == null) {
+                continue;
+            }
+            Object actionValue = entry.get("action");
+            String action = actionValue != null ? String.valueOf(actionValue) : "";
+            if (!"APPROVED".equalsIgnoreCase(action) && !"SUBMITTED".equalsIgnoreCase(action)) {
+                continue;
+            }
+            Integer level = safeInt(entry.get("level"), safeInt(entry.get("intApprovalOrder"), null));
+            if (level != null && level > 0) {
+                return level;
+            }
+        }
+        return fallbackLevel;
     }
 
     private void sendTemplateBudgetApproverEmail(CfgTblCustomFormApplication application, CfgTblCustomForm form,
@@ -5109,7 +5155,9 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             em.getTransaction().commit();
 
             String formName = getResolvedFormName(form);
-            String subject = formName + " Pending Approval - Level " + (currentLevel + 1) + " - "
+            boolean isTemplateBuilderApplication = isTemplateBuilderApplication(parseApplicationData(application));
+            int displayLevel = isTemplateBuilderApplication ? currentLevel + 2 : currentLevel + 1;
+            String subject = formName + " Pending Approval - Level " + displayLevel + " - "
                     + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
             for (CfgTblUser recipient : recipients) {
                 if (recipient.getTxtAddress() == null || recipient.getTxtAddress().trim().isEmpty()) {
@@ -5126,7 +5174,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                         + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
                 String html = generateApprovalEmailHtml(
                         recipient.getTxtUserName() != null ? recipient.getTxtUserName() : "User",
-                        currentLevel + 1,
+                        displayLevel,
                         application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
                         formName,
                         application.getTxtStatus(),
@@ -5139,7 +5187,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                         application.getTxtApprovalHistory(),
                         getBaseUrl());
                 sendEmailWithSpecificPdf(java.util.Arrays.asList(recipient.getTxtAddress()), subject, html, application,
-                        form, isCapfForm(form), pdfBytes, pdfName, pdfMime);
+                        form, !isTemplateBuilderApplication && isCapfForm(form), pdfBytes, pdfName, pdfMime);
             }
         } catch (Exception e) {
             if (em.getTransaction().isActive()) {
@@ -5166,7 +5214,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                         application.getTxtFormCode()));
                 application.setTxtPdfMime(pdfMime != null && !pdfMime.trim().isEmpty() ? pdfMime : "application/pdf");
             }
-            sendTemplateEmailWithPdfAttachment(recipients, subject, html, application, form, pdfBytes, pdfName,
+            sendTemplateEmailWithPdfAttachment(recipients, subject, html, application, form, isCapf, pdfBytes, pdfName,
                     pdfMime);
         } finally {
             if (application != null) {
@@ -5178,12 +5226,12 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
     }
 
     private void sendTemplateEmailWithPdfAttachment(List<String> recipients, String subject, String html,
-            CfgTblCustomFormApplication application, CfgTblCustomForm form, byte[] pdfBytes, String pdfName,
-            String pdfMime) {
+            CfgTblCustomFormApplication application, CfgTblCustomForm form, boolean isCapf, byte[] pdfBytes,
+            String pdfName, String pdfMime) {
         try {
             if (pdfBytes == null || pdfBytes.length == 0) {
-                sendEmailWithInlineFormPreview(recipients, subject, html, application, form, isCapfForm(form),
-                        isCapfForm(form) ? "capf-inline" : "form-inline");
+                sendEmailWithInlineFormPreview(recipients, subject, html, application, form, isCapf,
+                        isCapf ? "capf-inline" : "form-inline");
                 return;
             }
             String attachmentName = pdfName != null && !pdfName.trim().isEmpty()
@@ -5202,8 +5250,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             emailService.sendHtmlEmailWithAttachments(recipients, subject, html, attachments);
         } catch (Exception e) {
             log.warn("Template PDF attachment email failed, fallback to standard email: {}", e.getMessage());
-            sendEmailWithInlineFormPreview(recipients, subject, html, application, form, isCapfForm(form),
-                    isCapfForm(form) ? "capf-inline" : "form-inline");
+            sendEmailWithInlineFormPreview(recipients, subject, html, application, form, isCapf,
+                    isCapf ? "capf-inline" : "form-inline");
         }
     }
 
@@ -7733,6 +7781,11 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         } catch (Exception ex) {
             return false;
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean isTemplateBuilderApplication(Map<String, Object> appData) {
+        return appData != null && appData.get("templatePayload") instanceof Map;
     }
 
     @SuppressWarnings("unchecked")
@@ -14236,6 +14289,27 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
      */
     private List<Map<String, Object>> loadEffectiveApprovalPipeline(CfgTblCustomFormApplication application,
             CfgTblCustomForm form, EntityManager entityManager) {
+        Map<String, Object> appData = parseApplicationData(application);
+        if (isTemplateBuilderApplication(appData)) {
+            Object templatePayloadObj = appData.get("templatePayload");
+            if (templatePayloadObj instanceof Map) {
+                Object pipelineObj = ((Map<?, ?>) templatePayloadObj).get("pipeline");
+                if (pipelineObj instanceof List) {
+                    List<Map<String, Object>> templatePipeline = new java.util.ArrayList<>();
+                    for (Object item : (List<?>) pipelineObj) {
+                        if (item instanceof Map) {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> step = (Map<String, Object>) item;
+                            if (!"initiator".equalsIgnoreCase(String.valueOf(step.get("type")))) {
+                                templatePipeline.add(step);
+                            }
+                        }
+                    }
+                    return templatePipeline;
+                }
+            }
+            return new java.util.ArrayList<>();
+        }
         return applyCapfTechnicalExpertRoutingIfNeeded(application, form, entityManager, loadApprovalPipeline(form));
     }
 

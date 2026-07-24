@@ -313,7 +313,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         }
         const steps = this.getPipelineSteps();
         const applicationStatus = String(this.selectedApplication.txtStatus || '').toUpperCase();
-        const currentLevel = Number(this.selectedApplication.intCurrentApprovalLevel || 0);
+        const currentLevel = Number(this.selectedApplication.intCurrentApprovalLevel || 1);
         let stepLevel = 1;
 
         return steps.flatMap((step) => {
@@ -424,7 +424,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
 
     getApplicationDisplayLevel(application: MyTemplateApplication): number {
         const currentLevel = Number(application?.intCurrentApprovalLevel);
-        return Number.isFinite(currentLevel) ? currentLevel + 2 : 1;
+        return Number.isFinite(currentLevel) && currentLevel > 0 ? currentLevel : 1;
     }
 
     getRadioOptionPlacements(field: TemplateField): RadioOptionPlacement[] {
@@ -572,7 +572,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         const history = slot.history || null;
         const historyAction = String(history?.action || '').toUpperCase();
         let tileStatus: ProgressTile['status'] = 'WAITING';
-        const currentStepLevel = currentLevel + 2;
+        const currentStepLevel = currentLevel > 0 ? currentLevel : 1;
 
         if (isInitiator) {
             tileStatus = 'APPROVED';

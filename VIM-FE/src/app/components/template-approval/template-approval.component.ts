@@ -158,8 +158,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (steps.length === 0) {
             return null;
         }
-        const level = Number(application?.intCurrentApprovalLevel || 0);
-        return steps[level] || steps[Math.max(level - 1, 0)] || steps[0];
+        const level = Number(application?.intCurrentApprovalLevel || 2);
+        const index = Math.max(0, level - 2);
+        return steps[index] || steps[0];
     }
 
     get pageIndexes(): number[] {
@@ -214,6 +215,10 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         }
         const status = String(application?.txtStatus || '').toUpperCase();
         if (status === 'REJECTED' || status === 'APPROVED' || status === 'COMPLETED') {
+            return false;
+        }
+        const currentLevel = Number(application?.intCurrentApprovalLevel || 0);
+        if (Number.isFinite(currentLevel) && currentLevel > 1) {
             return false;
         }
         const currentApproverId = Number(application?.serCurrentApprover || 0);

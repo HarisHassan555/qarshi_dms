@@ -28,6 +28,7 @@ import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -41,6 +42,114 @@ public class TemplateDefinitionController {
 
     @Autowired
     private ICustomFormApplicationService customFormApplicationService;
+
+    @Transactional
+    @RequestMapping(value = "/submitTemplateApplication", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> submitTemplateApplication(@RequestBody CfgTblCustomFormApplication application,
+                                                         HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            if (application == null || application.getSerFormId() == null) {
+                throw new IllegalArgumentException("Template form ID is required");
+            }
+            TemplateDefinition definition = findByFormId(application.getSerFormId());
+            if (definition == null) {
+                throw new IllegalArgumentException("Template definition not found for this form");
+            }
+
+            if (application.getTxtApplicationData() == null || application.getTxtApplicationData().trim().isEmpty()) {
+                application.setTxtApplicationData("{}");
+            }
+            Map<String, Object> appData = parseMap(application.getTxtApplicationData());
+            if (asMap(appData.get("templatePayload")).isEmpty()) {
+                appData.put("templatePayload", parseMap(definition.getTxtTemplatePayload()));
+                application.setTxtApplicationData(writeJson(appData));
+            }
+            if (application.getSerSubmittedBy() == null) {
+                application.setSerSubmittedBy(toInteger(appData.get("submittedBy")));
+            }
+            if (application.getSerCreatedUser() == null) {
+                application.setSerCreatedUser(application.getSerSubmittedBy());
+            }
+            if (application.getTxtFormCode() == null || application.getTxtFormCode().trim().isEmpty()) {
+                application.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, null));
+            } else {
+                application.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, application.getTxtFormCode()));
+            }
+            application.setBlIsActive(application.getBlIsActive() == null ? true : application.getBlIsActive());
+            application.setBlIsDeleted(application.getBlIsDeleted() == null ? false : application.getBlIsDeleted());
+            application.setBlnStatus(application.getBlnStatus() == null ? true : application.getBlnStatus());
+            application.setDteCreatedDate(application.getDteCreatedDate() == null ? now() : application.getDteCreatedDate());
+            application.setDteModifiedDate(now());
+            application.setSerModifiedUser(application.getSerCreatedUser());
+
+            TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
+            TemplateStep firstStep = context.stepAt(0);
+            if (firstStep == null || firstStep.approverIds.isEmpty()) {
+                application.setTxtStatus("COMPLETED");
+                application.setIntCurrentApprovalLevel(1);
+                application.setSerCurrentApprover(null);
+            } else {
+                application.setTxtStatus("IN_PROGRESS");
+                application.setIntCurrentApprovalLevel(displayLevelForIndex(0));
+                application.setSerCurrentApprover(firstApproverId(firstStep));
+            }
+            appendSubmissionHistory(application);
+            entityManager.persist(application);
+
+            result.put("status", "Success");
+            result.put("message", "Template application submitted successfully");
+            result.put("applicationId", application.getSerApplicationId());
+            result.put("formCode", application.getTxtFormCode());
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error submitting template application: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            return result;
+        }
+    }
+
+    @RequestMapping(value = "/getTemplateApplicationById", method = RequestMethod.GET)
+    public Map<String, Object> getTemplateApplicationById(@RequestParam Integer applicationId,
+                                                          HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            CfgTblCustomFormApplication application = loadTemplateApplication(applicationId);
+            CfgTblUser submittedBy = application.getSerSubmittedBy() != null
+                    ? entityManager.find(CfgTblUser.class, application.getSerSubmittedBy())
+                    : null;
+            result.put("serApplicationId", application.getSerApplicationId());
+            result.put("serFormId", application.getSerFormId());
+            result.put("txtFormCode", application.getTxtFormCode());
+            result.put("txtApplicationData", application.getTxtApplicationData());
+            result.put("txtStatus", application.getTxtStatus());
+            result.put("intCurrentApprovalLevel", application.getIntCurrentApprovalLevel());
+            result.put("serSubmittedBy", application.getSerSubmittedBy());
+            result.put("serCurrentApprover", application.getSerCurrentApprover());
+            result.put("txtRemarks", application.getTxtRemarks());
+            result.put("txtApprovalHistory", application.getTxtApprovalHistory());
+            result.put("txtPriorApprovals", application.getTxtPriorApprovals());
+            result.put("txtPdfName", application.getTxtPdfName());
+            result.put("txtPdfMime", application.getTxtPdfMime());
+            result.put("dteCreatedDate", application.getDteCreatedDate());
+            result.put("dteModifiedDate", application.getDteModifiedDate());
+            result.put("serCreatedUser", application.getSerCreatedUser());
+            result.put("serModifiedUser", application.getSerModifiedUser());
+            result.put("submittedByUserName", submittedBy != null ? submittedBy.getTxtUserName() : "");
+            result.put("submittedDepartmentName", submittedBy != null ? submittedBy.getTxtDepartmentName() : "");
+            result.put("isTemplateBuilderApplication", true);
+            result.put("isCapfForm", false);
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error fetching template application: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            return result;
+        }
+    }
 
     @Transactional
     @RequestMapping(value = "/approveTemplateApplication", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
@@ -73,9 +182,9 @@ public class TemplateDefinitionController {
             }
             int targetLevel = Math.max(0, currentLevel - 1);
             TemplateStep targetStep = context.stepAt(targetLevel);
-            appendTemplateHistory(application, currentStep, actorId, "SENT_BACK", remarks, targetLevel + 1);
+            appendTemplateHistory(application, currentStep, actorId, "SENT_BACK", remarks, displayLevelForIndex(targetLevel));
             application.setTxtStatus("IN_PROGRESS");
-            application.setIntCurrentApprovalLevel(targetLevel);
+            application.setIntCurrentApprovalLevel(displayLevelForIndex(targetLevel));
             application.setSerCurrentApprover(firstApproverId(targetStep));
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
@@ -102,7 +211,7 @@ public class TemplateDefinitionController {
             }
             appendTemplateHistory(application, currentStep, actorId, "SENT_BACK_TO_INITIATOR", remarks, 1);
             application.setTxtStatus("PENDING");
-            application.setIntCurrentApprovalLevel(0);
+            application.setIntCurrentApprovalLevel(1);
             application.setSerCurrentApprover(application.getSerSubmittedBy());
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
@@ -129,7 +238,7 @@ public class TemplateDefinitionController {
             TemplateStep firstStep = context.stepAt(0);
             appendTemplateHistory(application, context.initiatorStep(), actorId, "RESUBMITTED_BY_INITIATOR", remarks, 1);
             application.setTxtStatus("IN_PROGRESS");
-            application.setIntCurrentApprovalLevel(0);
+            application.setIntCurrentApprovalLevel(displayLevelForIndex(0));
             application.setSerCurrentApprover(firstApproverId(firstStep));
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
@@ -168,7 +277,7 @@ public class TemplateDefinitionController {
             opinion.put("requestedDate", now().toString());
             appData.put("templateOpinionRequest", opinion);
             application.setTxtApplicationData(writeJson(appData));
-            appendTemplateHistory(application, currentStep, actorId, "OPINION_REQUESTED", remarks, safeLevel(application) + 1);
+            appendTemplateHistory(application, currentStep, actorId, "OPINION_REQUESTED", remarks, displayLevelForIndex(safeLevel(application)));
             application.setTxtStatus("OPINION_PENDING");
             application.setSerCurrentApprover(opinionUserId);
             application.setTxtRemarks(remarks);
@@ -198,14 +307,14 @@ public class TemplateDefinitionController {
             int returnLevel = toInteger(opinion.get("returnLevel")) != null ? toInteger(opinion.get("returnLevel")) : safeLevel(application);
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
             appendTemplateHistory(application, context.stepAt(returnLevel), actorId,
-                    "reject".equalsIgnoreCase(action) ? "OPINION_REJECTED" : "OPINION_APPROVED", remarks, returnLevel + 1);
+                    "reject".equalsIgnoreCase(action) ? "OPINION_REJECTED" : "OPINION_APPROVED", remarks, displayLevelForIndex(returnLevel));
             opinion.put("active", false);
             opinion.put("action", action);
             opinion.put("completedDate", now().toString());
             appData.put("templateOpinionRequest", opinion);
             application.setTxtApplicationData(writeJson(appData));
             application.setTxtStatus("IN_PROGRESS");
-            application.setIntCurrentApprovalLevel(returnLevel);
+            application.setIntCurrentApprovalLevel(displayLevelForIndex(returnLevel));
             application.setSerCurrentApprover(toInteger(opinion.get("requestedBy")));
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
@@ -527,7 +636,7 @@ public class TemplateDefinitionController {
                 throw new IllegalArgumentException("You are not authorized to act on this template application");
             }
 
-            appendTemplateHistory(application, currentStep, actorId, action, remarks, safeLevel(application) + 1);
+            appendTemplateHistory(application, currentStep, actorId, action, remarks, displayLevelForIndex(safeLevel(application)));
             if ("REJECTED".equals(action)) {
                 application.setTxtStatus("REJECTED");
                 application.setSerCurrentApprover(null);
@@ -539,7 +648,7 @@ public class TemplateDefinitionController {
                 } else {
                     TemplateStep nextStep = context.stepAt(nextLevel);
                     application.setTxtStatus("IN_PROGRESS");
-                    application.setIntCurrentApprovalLevel(nextLevel);
+                    application.setIntCurrentApprovalLevel(displayLevelForIndex(nextLevel));
                     application.setSerCurrentApprover(firstApproverId(nextStep));
                 }
             } else {
@@ -564,7 +673,7 @@ public class TemplateDefinitionController {
         if (application == null) {
             return false;
         }
-        int displayLevel = (level == null ? 0 : Math.max(0, level)) + 2;
+        int displayLevel = level == null || level <= 0 ? displayLevelForIndex(0) : level;
         for (Map<String, Object> entry : parseHistory(application.getTxtApprovalHistory())) {
             String action = valueAsString(entry.get("action"));
             Integer approvedBy = toInteger(firstObject(entry.get("approvedBy"), entry.get("userId")));
@@ -748,6 +857,135 @@ public class TemplateDefinitionController {
         application.setTxtPriorApprovals(writeJson(prior));
     }
 
+    private void appendSubmissionHistory(CfgTblCustomFormApplication application) {
+        Integer submittedBy = application.getSerSubmittedBy();
+        CfgTblUser user = submittedBy != null ? entityManager.find(CfgTblUser.class, submittedBy) : null;
+        Map<String, Object> entry = new HashMap<>();
+        entry.put("action", "SUBMITTED");
+        entry.put("status", "SUBMITTED");
+        entry.put("level", 1);
+        entry.put("intApprovalOrder", 1);
+        entry.put("stepId", "initiator");
+        entry.put("pipelineStepId", "initiator");
+        entry.put("signatureTargetId", "initiator");
+        entry.put("stepType", "initiator");
+        entry.put("role", "Submission");
+        entry.put("departmentName", "Submission");
+        entry.put("remarks", "Submitted application");
+        entry.put("approvedBy", submittedBy);
+        entry.put("userId", submittedBy);
+        entry.put("approverName", user != null ? user.getTxtUserName() : "Initiator");
+        entry.put("signaturePath", user != null ? user.getTxtSignaturePath() : "");
+        entry.put("txtDepartmentName", user != null ? user.getTxtDepartmentName() : "");
+        entry.put("userDepartmentName", user != null ? user.getTxtDepartmentName() : "");
+        entry.put("designation", user != null ? user.getTxtDesignation() : "");
+        entry.put("txtDesignation", user != null ? user.getTxtDesignation() : "");
+        entry.put("approvedDate", application.getDteCreatedDate() != null ? application.getDteCreatedDate().toString() : now().toString());
+
+        List<Map<String, Object>> history = parseHistory(application.getTxtApprovalHistory());
+        history.add(entry);
+        application.setTxtApprovalHistory(writeJson(history));
+        List<Map<String, Object>> prior = parseHistory(application.getTxtPriorApprovals());
+        prior.add(new HashMap<>(entry));
+        application.setTxtPriorApprovals(writeJson(prior));
+    }
+
+    private String resolveUniqueTemplateApplicationCode(TemplateDefinition definition, String requestedCode) {
+        String candidate = requestedCode != null ? requestedCode.trim().toUpperCase(Locale.ROOT) : null;
+        if (candidate == null || candidate.isEmpty()) {
+            candidate = generateNextTemplateApplicationCode(definition);
+        }
+        int attempts = 0;
+        while (templateApplicationCodeExists(candidate) && attempts < 1000) {
+            candidate = incrementTemplateCode(candidate);
+            if (candidate == null || candidate.isEmpty()) {
+                candidate = generateNextTemplateApplicationCode(definition);
+            }
+            attempts++;
+        }
+        return candidate != null && !candidate.isEmpty() ? candidate : "TMP-" + System.currentTimeMillis();
+    }
+
+    private String generateNextTemplateApplicationCode(TemplateDefinition definition) {
+        String convention = definition != null ? valueAsString(definition.getTxtCodeConvention()).trim().toUpperCase(Locale.ROOT) : "";
+        String prefix = "TMP";
+        int width = 4;
+        if (!convention.isEmpty()) {
+            int hyphen = convention.lastIndexOf("-");
+            if (hyphen > 0 && hyphen < convention.length() - 1 && convention.substring(hyphen + 1).matches("0+")) {
+                prefix = convention.substring(0, hyphen);
+                width = Math.max(1, convention.length() - hyphen - 1);
+            } else {
+                prefix = convention;
+            }
+        }
+        String pattern = prefix + "-%";
+        @SuppressWarnings("unchecked")
+        List<String> codes = entityManager.createQuery(
+                        "SELECT a.txtFormCode FROM CfgTblCustomFormApplication a " +
+                                "WHERE a.txtFormCode IS NOT NULL AND UPPER(a.txtFormCode) LIKE :pattern " +
+                                "AND (a.blIsDeleted IS NULL OR a.blIsDeleted = false)")
+                .setParameter("pattern", pattern)
+                .getResultList();
+        int max = 0;
+        for (String code : codes) {
+            Integer suffix = extractTemplateCodeSuffix(code, prefix);
+            if (suffix != null) {
+                max = Math.max(max, suffix);
+            }
+        }
+        return String.format("%s-%0" + width + "d", prefix, max + 1);
+    }
+
+    private boolean templateApplicationCodeExists(String code) {
+        if (code == null || code.trim().isEmpty()) {
+            return false;
+        }
+        Long count = (Long) entityManager.createQuery(
+                        "SELECT COUNT(a.serApplicationId) FROM CfgTblCustomFormApplication a " +
+                                "WHERE UPPER(a.txtFormCode) = :code AND (a.blIsDeleted IS NULL OR a.blIsDeleted = false)")
+                .setParameter("code", code.trim().toUpperCase(Locale.ROOT))
+                .getSingleResult();
+        return count != null && count > 0;
+    }
+
+    private String incrementTemplateCode(String code) {
+        if (code == null) {
+            return null;
+        }
+        String trimmed = code.trim().toUpperCase(Locale.ROOT);
+        int hyphen = trimmed.lastIndexOf("-");
+        if (hyphen <= 0 || hyphen >= trimmed.length() - 1) {
+            return null;
+        }
+        String numberPart = trimmed.substring(hyphen + 1);
+        if (!numberPart.matches("\\d+")) {
+            return null;
+        }
+        int next = Integer.parseInt(numberPart) + 1;
+        return String.format("%s-%0" + numberPart.length() + "d", trimmed.substring(0, hyphen), next);
+    }
+
+    private Integer extractTemplateCodeSuffix(String code, String prefix) {
+        if (code == null || prefix == null) {
+            return null;
+        }
+        String normalized = code.trim().toUpperCase(Locale.ROOT);
+        String normalizedPrefix = prefix.trim().toUpperCase(Locale.ROOT) + "-";
+        if (!normalized.startsWith(normalizedPrefix)) {
+            return null;
+        }
+        String suffix = normalized.substring(normalizedPrefix.length());
+        if (!suffix.matches("\\d+")) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(suffix);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
     private void touchTemplateApplication(CfgTblCustomFormApplication application, Integer actorId) {
         application.setDteModifiedDate(now());
         application.setSerModifiedUser(actorId);
@@ -791,7 +1029,18 @@ public class TemplateDefinitionController {
     }
 
     private int safeLevel(CfgTblCustomFormApplication application) {
-        return application.getIntCurrentApprovalLevel() == null ? 0 : Math.max(0, application.getIntCurrentApprovalLevel());
+        Integer storedLevel = application.getIntCurrentApprovalLevel();
+        if (storedLevel == null) {
+            return 0;
+        }
+        if (storedLevel <= 1) {
+            return 0;
+        }
+        return Math.max(0, storedLevel - 2);
+    }
+
+    private int displayLevelForIndex(int index) {
+        return Math.max(0, index) + 2;
     }
 
     private Timestamp now() {
