@@ -8158,7 +8158,14 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
   }
 
   getDynamicStageStatus(node: any, nodeIndex?: number): string {
-    if (node.isInitiator) return 'APPROVED';
+    if (node.isInitiator) {
+      const currentLevel = this.applicationDetails?.intCurrentApprovalLevel;
+      const overallStatus = (this.applicationDetails?.txtStatus || '').toString().toUpperCase();
+      if (overallStatus === 'PENDING' && typeof currentLevel === 'number' && currentLevel < 0) {
+        return 'PENDING';
+      }
+      return 'APPROVED';
+    }
     const userId = this.getUserId(node.user);
     if (!userId || !this.approvalHistory) {
       return 'PENDING';

@@ -20,6 +20,7 @@ import {
 type TemplateFieldType =
     'document_header' | 'document_header_qu' | 'document_header_qf' | 'document_header_qri' | 'document_header_qb'
     | 'footer' | 'individual_pipeline_footer' | 'application_code' | 'pipeline_signature' | 'dynamic_signature'
+    | 'dynamic_approver_name' | 'dynamic_approval_timestamp'
     | 'text' | 'integer' | 'decimal' | 'number' | 'date' | 'email' | 'textarea' | 'word_editor'
     | 'attachment' | 'select' | 'checkbox' | 'radio' | 'table' | 'orientation';
 type PipelineFieldRight = 'fill' | 'edit' | 'hide';
@@ -68,6 +69,33 @@ interface PipelineStep {
     users?: any[];
     fieldPermissions?: PipelineFieldPermission[];
     fieldPermissionsConfigured?: boolean;
+}
+
+interface ProgressTile {
+    key: string;
+    title: string;
+    type: string;
+    status: 'APPROVED' | 'PENDING' | 'REJECTED' | 'WAITING' | 'OPINION';
+    approver: string;
+    approvedAt: string;
+    remarks: string;
+    rawDate?: Date | null;
+}
+
+interface ProgressApproverSlot {
+    user?: any;
+    history?: any;
+    index: number;
+}
+
+interface ApprovalLogRow {
+    level: string;
+    approver: string;
+    role: string;
+    status: string;
+    date: string;
+    comments: string;
+    signatureUrl: string;
 }
 
 @Component({
@@ -120,7 +148,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 throw new Error('Template application not found');
             }
             this.savedTemplate = await firstValueFrom(this.templateWorkflowService.getTemplate(String(this.application.serFormId)));
-            this.template = this.savedTemplate?.payload || null;
+            this.template = this.buildSelectedTemplate();
             if (!this.template) {
                 throw new Error('Template definition not found');
             }
@@ -185,11 +213,91 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return option;
     }
 
+    trackByTile(_index: number, tile: ProgressTile): string {
+        return tile.key;
+    }
+
+    get progressTiles(): ProgressTile[] {
+        if (!this.application || !this.template) {
+            return [];
+        }
+        const steps = this.getPipelineSteps();
+        const applicationStatus = String(this.application?.txtStatus || '').toUpperCase();
+        const currentLevel = Number(this.application?.intCurrentApprovalLevel || 1);
+        let stepLevel = 1;
+
+        return steps.flatMap((step) => {
+            if (step.type === 'initiator') {
+                return [this.buildProgressTile(step, 1, applicationStatus, currentLevel, {
+                    history: this.getInitiatorHistoryEntry(),
+                    index: 0
+                })];
+            }
+            stepLevel += 1;
+            return this.getProgressApproverSlots(step, stepLevel)
+                .map((slot) => this.buildProgressTile(step, stepLevel, applicationStatus, currentLevel, slot));
+        });
+    }
+
+    getApprovalLogRows(): ApprovalLogRow[] {
+        return this.getApplicationApprovalHistory()
+            .map((entry, index) => {
+                const userId = Number(entry?.serUserId ?? entry?.userId ?? entry?.approvedBy ?? entry?.approverId ?? entry?.id);
+                const action = String(entry?.action || entry?.status || '--').toUpperCase();
+                const step = this.getStepForHistoryEntry(entry);
+                return {
+                    level: String(this.getDisplayLevelForHistoryEntry(entry, index)),
+                    approver: entry?.approverName || entry?.txtUserName || entry?.userName || entry?.name || (Number.isFinite(userId) ? `User ${userId}` : '--'),
+                    role: action === 'SUBMITTED' ? 'Submission' : (step?.name || entry?.role || entry?.stageName || entry?.stepName || '--'),
+                    status: action,
+                    date: this.getHistoryDate(entry),
+                    comments: entry?.remarks || entry?.comments || entry?.txtRemarks || '--',
+                    signatureUrl: Number.isFinite(userId) && userId > 0 && action === 'APPROVED'
+                        ? `${urls.API_URL}getSignature?userId=${userId}`
+                        : ''
+                };
+            });
+    }
+
+    getArrowLabel(index: number): string {
+        const previous = this.progressTiles[index - 1]?.rawDate;
+        const current = this.progressTiles[index]?.rawDate;
+        if (!previous || !current) {
+            return '--';
+        }
+        const diffMs = current.getTime() - previous.getTime();
+        if (!Number.isFinite(diffMs) || diffMs < 0) {
+            return '--';
+        }
+        const minutes = Math.round(diffMs / 60000);
+        if (minutes < 60) {
+            return `${minutes}m`;
+        }
+        const hours = Math.round(minutes / 60);
+        if (hours < 48) {
+            return `${hours}h`;
+        }
+        return `${Math.round(hours / 24)}d`;
+    }
+
+    getPipelineProgress(): number {
+        const tiles = this.progressTiles;
+        if (tiles.length === 0) {
+            return 0;
+        }
+        const approved = tiles.filter((tile) => tile.status === 'APPROVED').length;
+        return Math.round((approved / tiles.length) * 100);
+    }
+
+    getTileClass(tile: ProgressTile): string {
+        return `is-${tile.status.toLowerCase()}`;
+    }
+
     canCurrentStepEditField(field: TemplateField): boolean {
         if (this.isOpinionPending()) {
             return false;
         }
-        if (field.type === 'application_code' || this.isDynamicSignatureField(field)) {
+        if (field.type === 'application_code' || this.isDynamicApprovalDataField(field)) {
             return false;
         }
         const right = this.getCurrentStepFieldRight(field);
@@ -252,6 +360,12 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return field.type === 'dynamic_signature' || field.type === 'pipeline_signature';
     }
 
+    isDynamicApprovalDataField(field: TemplateField): boolean {
+        return this.isDynamicSignatureField(field)
+            || field.type === 'dynamic_approver_name'
+            || field.type === 'dynamic_approval_timestamp';
+    }
+
     getHeaderLogoPath(type: TemplateFieldType): string {
         return resolveDocumentHeaderLogoPath(type);
     }
@@ -287,6 +401,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     getFieldValueText(field: TemplateField, optionLabel?: string): string {
         if (field.type === 'application_code') {
             return this.application?.txtFormCode || '';
+        }
+        if (field.type === 'dynamic_approver_name' || field.type === 'dynamic_approval_timestamp') {
+            return this.getDynamicApprovalDisplayText(field);
         }
         if (field.type === 'checkbox') {
             return this.values[field.id] ? '✓' : '';
@@ -371,6 +488,25 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         } finally {
             this.isSaving = false;
         }
+    }
+
+    downloadApplicationPdf(): void {
+        if (!this.application?.serApplicationId) {
+            this.notificationService.showMessage('Invalid application ID', 'danger');
+            return;
+        }
+        this.templateWorkflowService.downloadTemplateApplicationPdf(this.application.serApplicationId).subscribe({
+            next: (blob) => {
+                const filename = `${this.application?.txtFormCode || 'template-application'}.pdf`;
+                this.downloadBlob(blob, filename);
+            },
+            error: (error) => {
+                this.notificationService.showMessage(
+                    'Application PDF could not be downloaded: ' + (error.error?.message || error.message),
+                    'danger'
+                );
+            }
+        });
     }
 
     async approve(remarksValue?: string): Promise<void> {
@@ -545,6 +681,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
         const configuredSlots = this.getConfiguredSignatureSlots(step);
         if (step.approvalMode === 'AND') {
+            if (approvedSlots.length > 0 && !this.signatureSlotsHaveConcreteUsers(configuredSlots)) {
+                return approvedSlots;
+            }
             return configuredSlots.length > 0 ? this.mergeSignatureSlots(configuredSlots, approvedSlots) : approvedSlots;
         }
 
@@ -560,6 +699,13 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
         const signaturePath = slot?.txtSignaturePath || slot?.signaturePath || slot?.signature || '';
         const userId = Number(slot?.serUserId ?? slot?.userId ?? slot?.approvedBy ?? slot?.approverId ?? slot?.id);
+        if (typeof signaturePath === 'string' && signaturePath.trim()) {
+            const query = `signaturePath=${encodeURIComponent(signaturePath.trim())}`;
+            if (Number.isFinite(userId) && userId > 0) {
+                return `${urls.API_URL}getSignature?${query}&userId=${userId}`;
+            }
+            return `${urls.API_URL}getSignature?${query}`;
+        }
         if (Number.isFinite(userId) && userId > 0) {
             return `${urls.API_URL}getSignature?userId=${userId}`;
         }
@@ -575,6 +721,29 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
     getDynamicSignatureFallbackLabel(field: TemplateField): string {
         return this.getDynamicSignatureStep(field)?.name || 'Dynamic Signatures';
+    }
+
+    getDynamicApprovalDisplayText(field: TemplateField): string {
+        const values = this.getDynamicSignatureSlots(field)
+            .map((slot) => this.getDynamicApprovalSlotValue(field, slot))
+            .filter((value) => !!value);
+        if (values.length > 0) {
+            return values.join('\n');
+        }
+        return field.type === 'dynamic_approver_name'
+            ? this.getDynamicSignatureFallbackLabel(field)
+            : '';
+    }
+
+    private getDynamicApprovalSlotValue(field: TemplateField, slot: any): string {
+        if (field.type === 'dynamic_approver_name') {
+            return this.getDynamicSignatureLabel(slot);
+        }
+        if (field.type === 'dynamic_approval_timestamp') {
+            const value = this.getHistoryDate(slot);
+            return value !== '--' ? value : '';
+        }
+        return '';
     }
 
     private async performAction(action: 'approve' | 'reject' | 'sendBack' | 'sendBackToInitiator'): Promise<void> {
@@ -638,7 +807,12 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
     private async redirectToPendingApprovals(): Promise<void> {
         this.isRedirectingAfterAction = true;
-        await this.router.navigateByUrl('/template-pending-approvals', { replaceUrl: true });
+        const navigated = await this.router.navigate(['/template-pending-approvals'], { replaceUrl: true });
+        if (navigated) {
+            return;
+        }
+
+        window.location.href = '/template-pending-approvals';
     }
 
     private async persistCurrentTemplateState(refreshPdf: boolean): Promise<void> {
@@ -769,7 +943,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     private getConfiguredSignatureSlots(step: PipelineStep): any[] {
-        const users = Array.isArray(step.users) ? step.users : [];
+        const users = this.getConfiguredStepUsers(step);
         if (users.length > 0) {
             return users;
         }
@@ -824,10 +998,42 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 .filter(([userId]) => Number.isFinite(userId) && userId > 0)
         );
 
-        return configuredSlots.map((slot) => {
+        const usedApproved = new Set<any>();
+        const mergedSlots = configuredSlots.map((slot) => {
             const userId = Number(slot?.serUserId ?? slot?.userId ?? slot?.approvedBy ?? slot?.approverId ?? slot?.id);
-            return approvedById.get(userId) || slot;
+            if (Number.isFinite(userId) && userId > 0) {
+                const approvedSlot = approvedById.get(userId);
+                if (approvedSlot) {
+                    usedApproved.add(approvedSlot);
+                    return approvedSlot;
+                }
+            }
+
+            const configuredLabel = String(slot?.txtUserName || slot?.userName || slot?.approverName || slot?.name || slot?.label || '')
+                .trim()
+                .toLowerCase();
+            if (configuredLabel) {
+                const approvedSlot = approvedSlots.find((candidate) => {
+                    if (usedApproved.has(candidate)) {
+                        return false;
+                    }
+                    const approvedLabel = String(
+                        candidate?.txtUserName || candidate?.userName || candidate?.approverName || candidate?.name
+                        || candidate?.role || candidate?.departmentName || candidate?.txtDepartmentName || candidate?.label || ''
+                    ).trim().toLowerCase();
+                    return !!approvedLabel && (approvedLabel === configuredLabel || approvedLabel.includes(configuredLabel) || configuredLabel.includes(approvedLabel));
+                });
+                if (approvedSlot) {
+                    usedApproved.add(approvedSlot);
+                    return approvedSlot;
+                }
+            }
+
+            return slot;
         });
+
+        const unmatchedApproved = approvedSlots.filter((slot) => !usedApproved.has(slot));
+        return unmatchedApproved.length > 0 ? [...mergedSlots, ...unmatchedApproved] : mergedSlots;
     }
 
     private normalizeSignatureEntry(entry: any): any {
@@ -848,11 +1054,46 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     private signatureEntryIsApproved(entry: any): boolean {
-        return String(entry?.action || '').toUpperCase() === 'APPROVED';
+        return String(entry?.action || entry?.status || '').toUpperCase() === 'APPROVED';
     }
 
     private getApplicationApprovalHistory(): any[] {
-        return this.parseApplicationData(this.application?.txtApprovalHistory);
+        const entries: any[] = [];
+        const prior = this.parseApplicationData(this.application?.txtPriorApprovals);
+        if (Array.isArray(prior) && prior.length > 0) {
+            entries.push(...prior);
+        }
+        const history = this.parseApplicationData(this.application?.txtApprovalHistory);
+        if (Array.isArray(history) && history.length > 0) {
+            entries.push(...history);
+        }
+        const data = this.parseApplicationData(this.application?.txtApplicationData);
+        const nestedHistory = data?.approvalHistory || data?.priorApprovals || data?.templateApprovalHistory;
+        if (Array.isArray(nestedHistory) && nestedHistory.length > 0) {
+            entries.push(...nestedHistory);
+        }
+
+        const submissionEntry = this.getSyntheticSubmissionEntry(entries);
+        if (submissionEntry) {
+            entries.unshift(submissionEntry);
+        }
+
+        const seen = new Set<string>();
+        return entries.filter((entry) => {
+            const key = [
+                entry?.action || entry?.status || '',
+                entry?.stepId || entry?.pipelineStepId || entry?.signatureTargetId || '',
+                entry?.intApprovalOrder ?? entry?.level ?? '',
+                this.getUserId(entry) || '',
+                entry?.approvedAt || entry?.approvedDate || entry?.date || entry?.dteCreatedDate || entry?.timestamp || '',
+                entry?.remarks || entry?.comments || entry?.txtRemarks || ''
+            ].join('|');
+            if (seen.has(key)) {
+                return false;
+            }
+            seen.add(key);
+            return true;
+        });
     }
 
     private hasLatestSendBackToInitiatorAction(application: any): boolean {
@@ -891,8 +1132,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             return entryStepId === stepId;
         }
 
-        const configuredUsers = Array.isArray(step.users) ? step.users : [];
-        const configuredUserIds = configuredUsers
+        const configuredUserIds = this.getConfiguredStepUsers(step)
             .map((user) => Number(user?.serUserId ?? user?.userId ?? user?.id))
             .filter((userId) => Number.isFinite(userId) && userId > 0);
         const entryUserId = Number(entry?.serUserId ?? entry?.userId ?? entry?.approvedBy ?? entry?.approverId ?? entry?.id);
@@ -900,6 +1140,26 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (configuredUserIds.length > 0) {
             const levelMatches = Number.isFinite(entryLevel) ? this.signatureEntryLevelMatchesStep(entryLevel, step) : true;
             return Number.isFinite(entryUserId) && configuredUserIds.includes(entryUserId) && levelMatches;
+        }
+
+        const stepDepartmentIds = this.getStepDepartmentIds(step);
+        const entryDepartmentIds = this.getEntryDepartmentIds(entry);
+        if (stepDepartmentIds.length > 0 && entryDepartmentIds.length > 0) {
+            const departmentMatches = entryDepartmentIds.some((id) => stepDepartmentIds.includes(id));
+            if (departmentMatches) {
+                return Number.isFinite(entryLevel) ? this.signatureEntryLevelMatchesStep(entryLevel, step) : true;
+            }
+        }
+
+        const stepDepartmentNames = this.getStepDepartmentNames(step);
+        const entryDepartmentNames = this.getEntryDepartmentNames(entry);
+        if (stepDepartmentNames.length > 0 && entryDepartmentNames.length > 0) {
+            const departmentNameMatches = entryDepartmentNames.some((name) =>
+                stepDepartmentNames.some((stepName) => name === stepName || name.includes(stepName) || stepName.includes(name))
+            );
+            if (departmentNameMatches) {
+                return Number.isFinite(entryLevel) ? this.signatureEntryLevelMatchesStep(entryLevel, step) : true;
+            }
         }
 
         if (Number.isFinite(entryLevel)) {
@@ -911,6 +1171,134 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return !!role && !!stepName && (role === stepName || role.includes(stepName) || stepName.includes(role));
     }
 
+    private getPipelineSteps(): PipelineStep[] {
+        const pipeline = Array.isArray(this.template?.pipeline) ? this.template.pipeline : [];
+        if (pipeline.some((step: PipelineStep) => step?.type === 'initiator')) {
+            return pipeline;
+        }
+        return [{ id: 'initiator', name: 'Initiator', type: 'initiator' }, ...pipeline];
+    }
+
+    private buildProgressTile(
+        step: PipelineStep,
+        stepLevel: number,
+        applicationStatus: string,
+        currentLevel: number,
+        slot: ProgressApproverSlot
+    ): ProgressTile {
+        const isInitiator = step.type === 'initiator';
+        const history = slot.history || null;
+        const historyAction = String(history?.action || history?.status || '').toUpperCase();
+        let tileStatus: ProgressTile['status'] = 'WAITING';
+        const currentStepLevel = currentLevel > 0 ? currentLevel : 1;
+        const isInitiatorReopened = applicationStatus === 'PENDING' && Number.isFinite(currentLevel) && currentLevel < 0;
+
+        if (isInitiator) {
+            tileStatus = isInitiatorReopened ? 'PENDING' : 'APPROVED';
+        } else if (historyAction === 'REJECTED') {
+            tileStatus = 'REJECTED';
+        } else if (historyAction === 'APPROVED') {
+            tileStatus = 'APPROVED';
+        } else if (applicationStatus === 'APPROVED') {
+            tileStatus = 'APPROVED';
+        } else if (applicationStatus === 'REJECTED' && stepLevel === currentStepLevel) {
+            tileStatus = 'REJECTED';
+        } else if (applicationStatus === 'OPINION_PENDING' && stepLevel === currentStepLevel) {
+            tileStatus = 'OPINION';
+        } else if (stepLevel === currentStepLevel) {
+            tileStatus = 'PENDING';
+        } else if (stepLevel < currentStepLevel && !this.stepRequiresIndividualTiles(step)) {
+            tileStatus = 'APPROVED';
+        }
+
+        const userId = this.getUserId(slot.user || history);
+        return {
+            key: `${step.id || step.name || 'step'}-${stepLevel}-${Number.isFinite(userId) ? userId : slot.index}`,
+            title: isInitiator ? 'Submission' : (step.name || `Step ${stepLevel}`),
+            type: isInitiator ? 'Submission' : this.formatStepType(step),
+            status: tileStatus,
+            approver: this.getStepApproverName(step, history, slot.user),
+            approvedAt: this.getHistoryDate(history),
+            remarks: history?.remarks || history?.comments || history?.txtRemarks || '--',
+            rawDate: this.getHistoryDateObject(history)
+        };
+    }
+
+    private getProgressApproverSlots(step: PipelineStep, stepLevel: number): ProgressApproverSlot[] {
+        const stepHistory = this.getApprovalEntriesForStep(step, stepLevel);
+        const users = this.getConfiguredStepUsers(step);
+        if (this.stepRequiresIndividualTiles(step) && users.length > 0) {
+            const usedHistory = new Set<any>();
+            const slots: ProgressApproverSlot[] = users.map((user, index) => {
+                const userHistory = this.getLatestHistoryForUser(stepHistory, this.getUserId(user));
+                if (userHistory) {
+                    usedHistory.add(userHistory);
+                }
+                return { user, history: userHistory, index };
+            });
+            stepHistory
+                .filter((entry) => !usedHistory.has(entry))
+                .forEach((entry, index) => slots.push({ history: entry, index: users.length + index }));
+            return slots;
+        }
+
+        if (stepHistory.length > 0) {
+            return stepHistory.map((entry, index) => ({ history: entry, index }));
+        }
+
+        if (users.length === 1) {
+            return [{ user: users[0], index: 0 }];
+        }
+
+        return [{ index: 0 }];
+    }
+
+    private stepRequiresIndividualTiles(step: PipelineStep): boolean {
+        return String(step.approvalMode || '').toUpperCase() === 'AND';
+    }
+
+    private getLatestHistoryForUser(history: any[], userId: number): any {
+        if (!Number.isFinite(userId) || userId <= 0) {
+            return null;
+        }
+        return [...history]
+            .reverse()
+            .find((entry) => this.getUserId(entry) === userId) || null;
+    }
+
+    private getApprovalEntriesForStep(step: PipelineStep, _stepLevel: number): any[] {
+        const stepId = String(step.id || '').trim();
+        return this.getWorkflowApprovalHistory().filter((entry) => {
+            const action = String(entry?.action || entry?.status || '').toUpperCase();
+            if (!['APPROVED', 'REJECTED', 'SENT_BACK', 'SENT_BACK_TO_INITIATOR', 'RESUBMITTED_BY_INITIATOR'].includes(action)) {
+                return false;
+            }
+            const entryStepId = String(entry?.stepId ?? entry?.pipelineStepId ?? entry?.signatureTargetId ?? '').trim();
+            if (entryStepId && stepId) {
+                return entryStepId === stepId;
+            }
+            const rawLevel = this.getRawHistoryLevel(entry);
+            if (rawLevel === 0) {
+                return this.isFirstApprovalStep(step);
+            }
+            const entryRole = String(entry?.role || entry?.stageName || entry?.stepName || '').trim().toLowerCase();
+            const stepName = String(step.name || '').trim().toLowerCase();
+            if (entryRole && stepName && entryRole !== stepName) {
+                return false;
+            }
+            return this.getLegacyDisplayLevelsForStep(step).includes(rawLevel);
+        });
+    }
+
+    private getInitiatorHistoryEntry(): any {
+        return [...this.getWorkflowApprovalHistory()]
+            .reverse()
+            .find((entry) => {
+                const action = String(entry?.action || entry?.status || '').toUpperCase();
+                return ['SUBMITTED', 'APPROVED', 'RESUBMITTED_BY_INITIATOR'].includes(action) && this.entryBelongsToSubmission(entry);
+            }) || null;
+    }
+
     private signatureEntryLevelMatchesStep(entryLevel: number, step: PipelineStep): boolean {
         const expectedLevel = this.getSignatureStepHistoryLevel(step);
         return Number.isFinite(expectedLevel) && [expectedLevel, expectedLevel - 1, expectedLevel - 2].includes(entryLevel);
@@ -919,12 +1307,120 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     private getSignatureStepHistoryLevel(step: PipelineStep): number {
         const steps = Array.isArray(this.template?.pipeline) ? this.template.pipeline as PipelineStep[] : [];
         const stepIndex = steps.findIndex((item) => item?.id === step.id);
+        const initiatorStep = steps.find((item) => item?.type === 'initiator');
+        const initiatorOrder = Number(initiatorStep?.order);
+        const hasExplicitInitiatorOrder = Number.isFinite(initiatorOrder) && initiatorOrder > 0;
         const hasInitiator = steps.some((item) => item?.type === 'initiator');
         const order = Number(step.order);
         if (Number.isFinite(order) && order > 0) {
-            return hasInitiator ? order + 1 : order;
+            return hasExplicitInitiatorOrder ? order : (hasInitiator ? order + 1 : order);
         }
         return hasInitiator ? stepIndex + 1 : stepIndex + 2;
+    }
+
+    private getConfiguredStepUsers(step: PipelineStep): any[] {
+        if (Array.isArray(step.users) && step.users.length > 0) {
+            return step.users;
+        }
+
+        const departmentHeadUsers = this.getDepartmentHeadUsers(step);
+        if (departmentHeadUsers.length > 0) {
+            return departmentHeadUsers;
+        }
+
+        const rawHeadIds = String((step as any)?.hrTblDepartment?.serDepartmentHeadId || '').trim();
+        if (rawHeadIds) {
+            return [];
+        }
+
+        const departmentUsers = (step as any)?.hrTblDepartment?.cfgTblUsers;
+        if (Array.isArray(departmentUsers) && departmentUsers.length > 0) {
+            return departmentUsers;
+        }
+
+        return [];
+    }
+
+    private signatureSlotsHaveConcreteUsers(slots: any[]): boolean {
+        return (slots || []).some((slot) => {
+            const userId = Number(slot?.serUserId ?? slot?.userId ?? slot?.approvedBy ?? slot?.approverId ?? slot?.id);
+            return Number.isFinite(userId) && userId > 0;
+        });
+    }
+
+    private getDepartmentHeadUsers(step: PipelineStep): any[] {
+        const department = (step as any)?.hrTblDepartment;
+        const rawHeadIds = String(department?.serDepartmentHeadId || '').trim();
+        const departmentUsers = Array.isArray(department?.cfgTblUsers) ? department.cfgTblUsers : [];
+        if (!rawHeadIds || departmentUsers.length === 0) {
+            return [];
+        }
+
+        const headIds = rawHeadIds
+            .split(',')
+            .map((value) => Number(String(value).trim()))
+            .filter((value, index, array) => Number.isFinite(value) && value > 0 && array.indexOf(value) === index);
+        if (headIds.length === 0) {
+            return [];
+        }
+
+        const userById = new Map(
+            departmentUsers
+                .map((user: any) => [Number(user?.serUserId ?? user?.userId ?? user?.id), user] as [number, any])
+                .filter(([userId]: [number, any]) => Number.isFinite(userId) && userId > 0)
+        );
+
+        return headIds
+            .map((userId) => userById.get(userId))
+            .filter((user) => !!user);
+    }
+
+    private getStepDepartmentIds(step: PipelineStep): number[] {
+        const candidates = [
+            (step as any)?.serDepartmentId,
+            (step as any)?.departmentId,
+            (step as any)?.hrTblDepartment?.serDepartmentId
+        ];
+        return candidates
+            .map((value) => Number(value))
+            .filter((value, index, array) => Number.isFinite(value) && value > 0 && array.indexOf(value) === index);
+    }
+
+    private getEntryDepartmentIds(entry: any): number[] {
+        const candidates = [
+            entry?.departmentId,
+            entry?.serDepartmentId,
+            entry?.submittedDepartmentId
+        ];
+        return candidates
+            .map((value) => Number(value))
+            .filter((value, index, array) => Number.isFinite(value) && value > 0 && array.indexOf(value) === index);
+    }
+
+    private getStepDepartmentNames(step: PipelineStep): string[] {
+        const names = [
+            String(step?.name || '').trim().toLowerCase(),
+            String((step as any)?.departmentName || '').trim().toLowerCase(),
+            String((step as any)?.txtDepartmentName || '').trim().toLowerCase(),
+            String((step as any)?.hrTblDepartment?.txtDepartmentName || '').trim().toLowerCase()
+        ].filter((value, index, array) => !!value && array.indexOf(value) === index);
+
+        if ((step as any)?.dynamicTarget === 'initiator_hod') {
+            names.push('user hod', 'user dept hod', 'user deptt. (hod)', 'user deptt. hod');
+        }
+
+        return names;
+    }
+
+    private getEntryDepartmentNames(entry: any): string[] {
+        return [
+            String(entry?.departmentName || '').trim().toLowerCase(),
+            String(entry?.txtDepartmentName || '').trim().toLowerCase(),
+            String(entry?.userDepartmentName || '').trim().toLowerCase(),
+            String(entry?.role || '').trim().toLowerCase(),
+            String(entry?.stageName || '').trim().toLowerCase(),
+            String(entry?.stepName || '').trim().toLowerCase()
+        ].filter((value, index, array) => !!value && array.indexOf(value) === index);
     }
 
     private validateRemarks(message: string): boolean {
@@ -956,6 +1452,239 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         } catch {
             return {};
         }
+    }
+
+    private downloadBlob(blob: Blob, filename: string): void {
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(objectUrl);
+    }
+
+    private getApplicationTemplatePayload(): any | null {
+        const data = this.parseApplicationData(this.application?.txtApplicationData);
+        const payload = data?.templatePayload;
+        return payload && typeof payload === 'object' ? payload : null;
+    }
+
+    private buildSelectedTemplate(): any | null {
+        const liveTemplate = this.savedTemplate?.payload;
+        const savedTemplate = this.getApplicationTemplatePayload();
+        if (!liveTemplate && !savedTemplate) {
+            return null;
+        }
+        if (!liveTemplate) {
+            return savedTemplate;
+        }
+        if (!savedTemplate) {
+            return liveTemplate;
+        }
+        return {
+            ...liveTemplate,
+            ...savedTemplate,
+            fields: Array.isArray(savedTemplate.fields) && savedTemplate.fields.length > 0 ? savedTemplate.fields : liveTemplate.fields,
+            pipeline: Array.isArray(savedTemplate.pipeline) && savedTemplate.pipeline.length > 0 ? savedTemplate.pipeline : liveTemplate.pipeline,
+            page: savedTemplate.page || liveTemplate.page,
+            html: typeof savedTemplate.html === 'string' && savedTemplate.html.length > 0 ? savedTemplate.html : liveTemplate.html
+        };
+    }
+
+    private entryBelongsToSubmission(entry: any): boolean {
+        const stepId = String(entry?.stepId ?? entry?.pipelineStepId ?? entry?.signatureTargetId ?? '').trim().toLowerCase();
+        const role = String(entry?.role || entry?.stageName || entry?.stepName || '').trim().toLowerCase();
+        const level = Number(entry?.intApprovalOrder ?? entry?.level);
+        const action = String(entry?.action || entry?.status || '').toUpperCase();
+        return stepId === 'initiator' || role === 'submission' || action === 'SUBMITTED' || level === 1 && role === 'initiator';
+    }
+
+    private getSyntheticSubmissionEntry(existingEntries: any[] = []): any | null {
+        if (!this.application?.dteCreatedDate && !this.application?.serSubmittedBy) {
+            return null;
+        }
+        if (existingEntries.some((entry) => this.entryBelongsToSubmission(entry))) {
+            return null;
+        }
+        return {
+            action: 'SUBMITTED',
+            status: 'SUBMITTED',
+            level: 1,
+            intApprovalOrder: 1,
+            stepId: 'initiator',
+            pipelineStepId: 'initiator',
+            signatureTargetId: 'initiator',
+            role: 'Submission',
+            approverName: this.application?.submittedByUserName || 'Initiator',
+            userName: this.application?.submittedByUserName || 'Initiator',
+            userId: this.application?.serSubmittedBy,
+            approvedBy: this.application?.serSubmittedBy,
+            approvedDate: this.application?.dteCreatedDate,
+            remarks: 'Submitted application'
+        };
+    }
+
+    private getDisplayLevelForHistoryEntry(entry: any, index: number): number {
+        if (this.entryBelongsToSubmission(entry)) {
+            return 1;
+        }
+        const step = this.getStepForHistoryEntry(entry);
+        if (step) {
+            return this.getDisplayLevelForStep(step);
+        }
+        const rawLevel = this.getRawHistoryLevel(entry);
+        return Number.isFinite(rawLevel) && rawLevel > 1 ? rawLevel : index + 1;
+    }
+
+    private getStepForHistoryEntry(entry: any): PipelineStep | null {
+        const steps = this.getPipelineSteps().filter((step) => step.type !== 'initiator');
+        const entryStepId = String(entry?.stepId ?? entry?.pipelineStepId ?? entry?.signatureTargetId ?? '').trim();
+        if (entryStepId) {
+            const byId = steps.find((step) => String(step.id || '').trim() === entryStepId);
+            if (byId) {
+                return byId;
+            }
+        }
+
+        const rawLevel = this.getRawHistoryLevel(entry);
+        if (rawLevel === 0) {
+            return steps[0] || null;
+        }
+
+        const entryRole = String(entry?.role || entry?.stageName || entry?.stepName || '').trim().toLowerCase();
+        if (entryRole) {
+            const byName = steps.find((step) => String(step.name || '').trim().toLowerCase() === entryRole);
+            if (byName) {
+                return byName;
+            }
+        }
+
+        const matchingByLevel = steps.find((step) => this.getLegacyDisplayLevelsForStep(step).includes(rawLevel));
+        return matchingByLevel || null;
+    }
+
+    private getDisplayLevelForStep(step: PipelineStep): number {
+        const steps = this.getPipelineSteps().filter((item) => item.type !== 'initiator');
+        const fullPipeline = this.getPipelineSteps();
+        const initiatorStep = fullPipeline.find((item) => item.type === 'initiator');
+        const initiatorOrder = Number(initiatorStep?.order);
+        const hasExplicitInitiatorOrder = Number.isFinite(initiatorOrder) && initiatorOrder > 0;
+        const index = steps.findIndex((item) => item.id === step.id);
+        const order = Number(step.order);
+        if (Number.isFinite(order) && order > 0) {
+            return hasExplicitInitiatorOrder ? order : order + 1;
+        }
+        return index >= 0 ? index + 2 : 2;
+    }
+
+    private getLegacyDisplayLevelsForStep(step: PipelineStep): number[] {
+        const displayLevel = this.getDisplayLevelForStep(step);
+        return Array.from(new Set([displayLevel - 2, displayLevel - 1, displayLevel, displayLevel + 1, displayLevel + 2]
+            .filter((level) => level >= 0)));
+    }
+
+    private getRawHistoryLevel(entry: any): number {
+        return Number(entry?.intApprovalOrder ?? entry?.level);
+    }
+
+    private isFirstApprovalStep(step: PipelineStep): boolean {
+        const steps = this.getPipelineSteps().filter((item) => item.type !== 'initiator');
+        return steps.length > 0 && steps[0]?.id === step.id;
+    }
+
+    private getUserId(value: any): number {
+        return Number(value?.serUserId ?? value?.userId ?? value?.approvedBy ?? value?.approverId ?? value?.id);
+    }
+
+    private formatStepType(step: PipelineStep): string {
+        if ((step as any).dynamicTarget === 'initiator_hod') {
+            return 'Self HOD';
+        }
+        return String(step.type || 'Step').replace(/_/g, ' ');
+    }
+
+    private getStepApproverName(step: PipelineStep, history: any, configuredUser: any = null): string {
+        if (step.type === 'initiator') {
+            return this.application?.submittedByUserName || 'Initiator';
+        }
+        if (history?.approverName || history?.txtUserName || history?.userName) {
+            return history.approverName || history.txtUserName || history.userName;
+        }
+        if (configuredUser) {
+            const userId = this.getUserId(configuredUser);
+            return configuredUser.txtUserName || configuredUser.userName || configuredUser.name || (Number.isFinite(userId) ? `User ${userId}` : '--');
+        }
+        const users = this.getConfiguredStepUsers(step);
+        if (users.length > 0) {
+            return users.map((user) => user.txtUserName || user.userName || user.name || `User ${user.serUserId || user.userId || user.id}`).join(', ');
+        }
+        if ((step as any).dynamicTarget === 'initiator_hod') {
+            return 'Current HOD';
+        }
+        return step.name || '--';
+    }
+
+    private getHistoryDate(history: any): string {
+        const value = history?.approvedAt || history?.approvedDate || history?.date || history?.dteCreatedDate || history?.timestamp;
+        return value ? new Date(value).toLocaleString() : '--';
+    }
+
+    private getHistoryDateObject(history: any): Date | null {
+        const value = history?.approvedAt || history?.approvedDate || history?.date || history?.dteCreatedDate || history?.timestamp;
+        if (!value) {
+            return null;
+        }
+        const date = new Date(value);
+        return Number.isFinite(date.getTime()) ? date : null;
+    }
+
+    private getWorkflowApprovalHistory(): any[] {
+        return this.getActiveApprovalHistory(this.getApplicationApprovalHistory());
+    }
+
+    private getActiveApprovalHistory(entries: any[]): any[] {
+        const active: any[] = [];
+        (entries || []).forEach((entry) => {
+            const action = String(entry?.action || entry?.status || '').toUpperCase();
+            if (action === 'SENT_BACK_TO_INITIATOR') {
+                for (let index = active.length - 1; index >= 0; index--) {
+                    if (!this.entryBelongsToSubmission(active[index])) {
+                        active.splice(index, 1);
+                    }
+                }
+                active.push(entry);
+                return;
+            }
+
+            if (action === 'SENT_BACK') {
+                const toLevel = Number(entry?.toLevel ?? entry?.targetLevel ?? entry?.returnLevel);
+                const resetLevel = Number.isFinite(toLevel) && toLevel > 0 ? toLevel : 1;
+                for (let index = active.length - 1; index >= 0; index--) {
+                    if (this.entryBelongsToSubmission(active[index])) {
+                        continue;
+                    }
+                    const existingLevel = Number(active[index]?.intApprovalOrder ?? active[index]?.level);
+                    if (Number.isFinite(existingLevel) && existingLevel >= resetLevel) {
+                        active.splice(index, 1);
+                    }
+                }
+                active.push(entry);
+                return;
+            }
+
+            if (action === 'RESUBMITTED_BY_INITIATOR') {
+                for (let index = active.length - 1; index >= 0; index--) {
+                    if (!this.entryBelongsToSubmission(active[index])) {
+                        active.splice(index, 1);
+                    }
+                }
+                active.push(entry);
+                return;
+            }
+
+            active.push(entry);
+        });
+        return active;
     }
 
     private doesWordEditorFieldOverflow(fieldId: string): boolean {

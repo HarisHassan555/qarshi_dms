@@ -495,6 +495,21 @@ export class SidebarComponent implements OnInit, OnDestroy {
         if (label === 'budget approval') {
             return 'Document Builder';
         }
+        if (label === 'template builder') {
+            return 'Digital Document Builder';
+        }
+        if (label === 'template list' || label === 'template forms') {
+            return 'Digital Document List';
+        }
+        if (label === 'template pending approvals') {
+            return 'Digital Pending Approvals';
+        }
+        if (label === 'my applications') {
+            return 'My Digital Applications';
+        }
+        if (label === 'department application' || label === 'department applications') {
+            return 'My Department Digital Application';
+        }
         return name || '';
     }
 

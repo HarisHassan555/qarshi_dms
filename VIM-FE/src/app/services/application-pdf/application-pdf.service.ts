@@ -705,12 +705,12 @@ export class ApplicationPdfService {
     element.querySelectorAll('.boxcheck').forEach((el) => {
       const ht = el as HTMLElement;
       boxcheckSnapshots.push({ el: ht, transform: ht.style.transform });
-      ht.style.transform = 'translateY(6px)';
+      ht.style.transform = 'translateY(0)';
     });
     element.querySelectorAll('.boxcheck > span').forEach((el) => {
       const ht = el as HTMLElement;
       boxcheckSpanSnapshots.push({ el: ht, transform: ht.style.transform });
-      ht.style.transform = 'translateY(-6px)';
+      ht.style.transform = 'translateY(0)';
     });
 
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -5330,14 +5330,23 @@ export class ApplicationPdfService {
       line-height: 1.4;
     }
 
-    /* PDF: lower checkbox box while keeping tick centered */
+    /* PDF: keep checkbox aligned exactly like the application preview */
     .abc-wrapper.pdf-fix .boxcheck {
-      transform: translateY(6px);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      transform: translateY(0);
+      vertical-align: middle;
+      overflow: visible;
     }
 
     .abc-wrapper.pdf-fix .boxcheck > span {
-      display: inline-block;
-      transform: translateY(-6px);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      transform: translateY(0);
     }
 
 
@@ -5662,7 +5671,19 @@ export class ApplicationPdfService {
       height: 22px;
       border: 1px solid var(--line);
       border-radius: 4px;
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      vertical-align: middle;
+      overflow: visible;
+    }
+
+    .boxcheck > span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
     }
 
     /* MULTILINE NOTES */
@@ -6153,6 +6174,10 @@ export class ApplicationPdfService {
     :host-context(.pdf-compact) .checks .boxcheck {
       height: 18px !important;
       width: 40px !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      line-height: 1 !important;
     }
 
     :host-context(.pdf-compact) .two-col {

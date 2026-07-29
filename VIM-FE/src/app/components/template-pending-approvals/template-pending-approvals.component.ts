@@ -113,6 +113,42 @@ export class TemplatePendingApprovalsComponent implements OnInit, OnDestroy {
         this.loadPendingApprovals();
     }
 
+    exportPendingApprovalsCsv(): void {
+        const userId = this.currentUser?.serUserId || this.currentUser?.userId || this.currentUser?.id || 0;
+        const exportSize = Math.max(this.totalPendingApprovals || 0, this.pageSize, 1000);
+        this.templateWorkflowService.getTemplatePendingApprovals(userId, false, 0, exportSize, this.search).subscribe({
+            next: (response: any) => {
+                const rows = (Array.isArray(response?.items) ? response.items : [])
+                    .map((application: any) => this.toShallowPendingApplication(application));
+                if (!rows.length) {
+                    this.notificationService.showMessage('No pending approvals available to export.', 'warning');
+                    return;
+                }
+                const headers = ['Application Code', 'Template', 'Status', 'Approval Level', 'Submitted Date'];
+                const csvRows = [
+                    headers.join(','),
+                    ...rows.map((application: TemplatePendingApplication) => ([
+                        application.txtFormCode || '',
+                        application.templateName || '',
+                        application.txtStatus || '',
+                        String(application.intCurrentApprovalLevel || 1),
+                        application.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleString() : ''
+                    ].map((value) => this.escapeCsvValue(value)).join(',')))
+                ];
+                this.downloadBlob(
+                    new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' }),
+                    `template-pending-approvals_${new Date().toISOString().split('T')[0]}.csv`
+                );
+            },
+            error: (error) => {
+                this.notificationService.showMessage(
+                    'Pending approvals CSV could not be exported: ' + (error.error?.message || error.message),
+                    'danger'
+                );
+            }
+        });
+    }
+
     get totalPages(): number {
         return Math.max(1, Math.ceil(this.totalPendingApprovals / this.pageSize));
     }
@@ -164,5 +200,19 @@ export class TemplatePendingApprovalsComponent implements OnInit, OnDestroy {
             dteCreatedDate: application?.dteCreatedDate,
             templateName: application?.templateName || 'Template'
         };
+    }
+
+    private escapeCsvValue(value: any): string {
+        const normalized = String(value ?? '');
+        return `"${normalized.replace(/"/g, '""')}"`;
+    }
+
+    private downloadBlob(blob: Blob, filename: string): void {
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(objectUrl);
     }
 }

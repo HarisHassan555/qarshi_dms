@@ -31,7 +31,7 @@ export const canActivate: CanActivateFn = (
   const path = route.url[0] ? route.url[0].path : '';
   const normalizePath = (value: string | undefined | null): string =>
       (value || '').toString().trim().replace(/^\/+/, '').toLowerCase();
-  const resolvedPath = normalizePath(path);
+  const resolvedPath = normalizePath(path) === 'template-forms' ? 'template-list' : normalizePath(path);
 
   const getRoleIdFromUser = (u: any): number | null => {
       if (!u) return null;
@@ -74,7 +74,7 @@ export const canActivate: CanActivateFn = (
     'SES', 'auditLog', 'transactions-details', 'report', 'order-details', 'application', 'applicationsview', 
     'application-details', 'formbuilder', 'CAPF', 'approveApplicationFromEmail', 'rejectApplicationFromEmail',
     'pending-approvals', 'department-application', 'approved-applications', 'assign-asset-code', 'pr-code', 'po-code', 'menu-list', 'submenu-list',
-    'roles', 'template-builder', 'template-list', 'template-forms', 'template-fill', 'template-pending-approvals', 'template-approval', 'my-application'];
+    'roles'];
 
   let user: any = localStorage.getItem('user');
   if (user && user !== null) {

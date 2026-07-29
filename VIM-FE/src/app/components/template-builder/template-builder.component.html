@@ -3,7 +3,7 @@
         <div>
             <input class="template-name-input" [(ngModel)]="templateName" aria-label="Template name" />
             <input class="code-convention-input" [(ngModel)]="codeConvention" aria-label="Code convention" placeholder="ABCD-0000" />
-            <div class="template-subtitle">Word-style template designer with embedded form fields and a local approval pipeline.</div>
+            <div class="template-subtitle">Digital document designer with embedded form fields and a local approval pipeline.</div>
         </div>
         <div class="header-actions">
             <div class="orientation-toggle" role="group" aria-label="Page orientation">
@@ -163,7 +163,7 @@
                                 </ng-container>
                             </ng-template>
                             <ng-template #normalFloatingField>
-                                <ng-container *ngIf="isDynamicSignatureField(field); else regularFloatingField">
+                                <ng-container *ngIf="isDynamicApprovalDataField(field); else regularFloatingField">
                                     <span>{{ field.label }}</span>
                                     <small>{{ getDynamicSignatureTargetLabel(field) }}</small>
                                 </ng-container>
@@ -242,7 +242,7 @@
                         <option value="right">Right</option>
                     </select>
                 </label>
-                <label *ngIf="isDynamicSignatureField(field)">
+                <label *ngIf="isDynamicApprovalDataField(field)">
                     Signature Target
                     <select
                         [ngModel]="getDynamicSignatureTargetId(field)"
@@ -362,7 +362,7 @@
                 Required
             </label>
             <label>
-                Page
+                Select Page
                 <input type="number" min="1" [max]="pageCount" [(ngModel)]="newFieldPage" />
             </label>
             <button type="button" class="btn btn-primary full-width" (click)="assignField()">Assign Selected Area</button>

@@ -1,6 +1,6 @@
 import { Component, ElementRef, OnInit } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { NotificationService } from 'src/app/NotificationService';
 import { UserService } from 'src/app/services/user/user.service';
@@ -28,6 +28,8 @@ type TemplateFieldType =
     | 'application_code'
     | 'pipeline_signature'
     | 'dynamic_signature'
+    | 'dynamic_approver_name'
+    | 'dynamic_approval_timestamp'
     | 'text'
     | 'integer'
     | 'decimal'
@@ -102,6 +104,7 @@ interface PipelineStep {
 export class TemplateFillComponent implements OnInit {
     template: any = null;
     savedTemplate: SavedTemplateDefinition | null = null;
+    editingApplication: any = null;
     safeHtml: SafeHtml = '';
     values: { [fieldId: string]: any } = {};
     allUsers: any[] = [];
@@ -110,6 +113,7 @@ export class TemplateFillComponent implements OnInit {
     generatedApplicationCode = '';
     isSendingTestEmail = false;
     testEmailMessage = '';
+    isSubmitting = false;
     readonly wordEditor = WORD_EDITOR_CKEDITOR;
     readonly wordEditorConfig = WORD_EDITOR_CKEDITOR_CONFIG;
     private initiatorSignatureApproved = false;
@@ -119,6 +123,7 @@ export class TemplateFillComponent implements OnInit {
     constructor(
         private elementRef: ElementRef<HTMLElement>,
         private route: ActivatedRoute,
+        private router: Router,
         private sanitizer: DomSanitizer,
         private notificationService: NotificationService,
         private templateWorkflowService: TemplateWorkflowService,
@@ -128,8 +133,11 @@ export class TemplateFillComponent implements OnInit {
     async ngOnInit(): Promise<void> {
         this.loadUsers();
         const templateId = this.route.snapshot.paramMap.get('id');
+        const applicationId = Number(this.route.snapshot.queryParamMap.get('applicationId'));
         try {
-            if (templateId) {
+            if (Number.isFinite(applicationId) && applicationId > 0) {
+                await this.loadEditableApplication(applicationId, templateId);
+            } else if (templateId) {
                 this.savedTemplate = await firstValueFrom(this.templateWorkflowService.getTemplate(templateId));
                 this.template = this.savedTemplate?.payload || null;
             } else {
@@ -141,9 +149,11 @@ export class TemplateFillComponent implements OnInit {
                 return;
             }
 
-            this.generatedApplicationCode = this.savedTemplate
-                ? await firstValueFrom(this.templateWorkflowService.peekNextTemplateCode(this.savedTemplate))
-                : this.getSessionTemplatePreviewCode();
+            if (!this.editingApplication) {
+                this.generatedApplicationCode = this.savedTemplate
+                    ? await firstValueFrom(this.templateWorkflowService.peekNextTemplateCode(this.savedTemplate))
+                    : this.getSessionTemplatePreviewCode();
+            }
         } catch (error) {
             console.error('Template load failed', error);
             this.template = null;
@@ -151,14 +161,21 @@ export class TemplateFillComponent implements OnInit {
         }
 
         (this.template.fields || []).forEach((field: TemplateField) => {
-            this.values[field.id] = field.type === 'application_code'
-                ? this.generatedApplicationCode
-                : (field.type === 'checkbox' ? false : '');
+            const existingValue = this.values[field.id];
+            this.values[field.id] = existingValue !== undefined
+                ? existingValue
+                : (field.type === 'application_code'
+                    ? this.generatedApplicationCode
+                    : (field.type === 'checkbox' ? false : ''));
             if (field.type === 'word_editor') {
-                this.acceptedWordEditorValues[field.id] = '';
+                this.acceptedWordEditorValues[field.id] = String(this.values[field.id] || '');
             }
         });
         this.safeHtml = this.sanitizer.bypassSecurityTrustHtml(this.getFillHtml(this.template.html || ''));
+    }
+
+    get isEditingExistingApplication(): boolean {
+        return !!this.editingApplication?.serApplicationId;
     }
 
     get pageIndexes(): number[] {
@@ -191,7 +208,7 @@ export class TemplateFillComponent implements OnInit {
     }
 
     canCurrentStepFillField(field: TemplateField): boolean {
-        if (field.type === 'application_code' || this.isDynamicSignatureField(field)) {
+        if (field.type === 'application_code' || this.isDynamicApprovalDataField(field)) {
             return false;
         }
 
@@ -228,6 +245,10 @@ export class TemplateFillComponent implements OnInit {
     getFieldValueText(field: TemplateField, optionLabel?: string): string {
         if (field.type === 'application_code') {
             return this.generatedApplicationCode;
+        }
+
+        if (field.type === 'dynamic_approver_name' || field.type === 'dynamic_approval_timestamp') {
+            return this.getDynamicApprovalDisplayText(field);
         }
 
         if (this.isDynamicSignatureField(field)) {
@@ -356,6 +377,12 @@ export class TemplateFillComponent implements OnInit {
         return field.type === 'dynamic_signature' || field.type === 'pipeline_signature';
     }
 
+    isDynamicApprovalDataField(field: TemplateField): boolean {
+        return this.isDynamicSignatureField(field)
+            || field.type === 'dynamic_approver_name'
+            || field.type === 'dynamic_approval_timestamp';
+    }
+
     getDynamicSignatureSlots(field: TemplateField): any[] {
         const step = this.getDynamicSignatureStep(field);
         if (!step) {
@@ -372,6 +399,9 @@ export class TemplateFillComponent implements OnInit {
 
         const configuredSlots = this.getConfiguredSignatureSlots(step);
         if (step.approvalMode === 'AND') {
+            if (approvedSlots.length > 0 && !this.signatureSlotsHaveConcreteUsers(configuredSlots)) {
+                return approvedSlots;
+            }
             return configuredSlots.length > 0 ? this.mergeSignatureSlots(configuredSlots, approvedSlots) : approvedSlots;
         }
 
@@ -407,10 +437,23 @@ export class TemplateFillComponent implements OnInit {
         return step?.name || 'Dynamic Signatures';
     }
 
+    getDynamicApprovalDisplayText(field: TemplateField): string {
+        const values = this.getDynamicSignatureSlots(field)
+            .map((slot) => this.getDynamicApprovalSlotValue(field, slot))
+            .filter((value) => !!value);
+        if (values.length > 0) {
+            return values.join('\n');
+        }
+        return field.type === 'dynamic_approver_name'
+            ? this.getDynamicSignatureFallbackLabel(field)
+            : '';
+    }
+
     async submitTemplate(): Promise<void> {
-        if (!this.savedTemplate) {
+        if (!this.savedTemplate || this.isSubmitting) {
             return;
         }
+        this.isSubmitting = true;
         (this.template?.fields || []).forEach((field: TemplateField) => {
             if (field.type === 'word_editor' && field.placement) {
                 this.values[field.id] = this.acceptedWordEditorValues[field.id] || '';
@@ -420,6 +463,52 @@ export class TemplateFillComponent implements OnInit {
 
         try {
             const userPipeline = this.hasIndividualPipelineFooter() ? this.getNormalizedUserPipeline() : [];
+            if (this.isEditingExistingApplication) {
+                await firstValueFrom(this.templateWorkflowService.updateTemplateApplication(
+                    this.editingApplication,
+                    allowedValues,
+                    this.savedTemplate.payload,
+                    userPipeline
+                ));
+                const resubmitResponse = await firstValueFrom(this.templateWorkflowService.resubmitTemplateApplicationFromInitiator(
+                    this.editingApplication.serApplicationId,
+                    'Resubmitted by initiator after revision',
+                    this.getCurrentUserId()
+                ));
+                if (!resubmitResponse || resubmitResponse.status !== 'Success') {
+                    throw new Error(resubmitResponse?.message || 'Application could not be resubmitted');
+                }
+
+                this.submittedCode = this.editingApplication.txtFormCode || this.generatedApplicationCode;
+                this.generatedApplicationCode = this.submittedCode;
+                this.initiatorSignatureApproved = true;
+
+                const filename = `${this.sanitizeFilename(this.template?.name || 'template-form')}_${this.submittedCode || this.editingApplication.serApplicationId}.pdf`;
+                const pdfBlob = await this.renderTemplatePreviewPdfBlob();
+                const pdfResponse: any = await firstValueFrom(this.templateWorkflowService.updateTemplateApplicationPdf(
+                    this.editingApplication.serApplicationId,
+                    pdfBlob,
+                    filename
+                ));
+                if (!pdfResponse || pdfResponse.status !== 'Success') {
+                    throw new Error(pdfResponse?.message || 'PDF could not be attached to application');
+                }
+
+                const emailResponse: any = await firstValueFrom(this.templateWorkflowService.sendTemplatePostApprovalEmails(
+                    this.editingApplication.serApplicationId,
+                    pdfBlob,
+                    pdfBlob,
+                    filename
+                ));
+                if (!emailResponse || emailResponse.status !== 'Success') {
+                    throw new Error(emailResponse?.message || 'Approval email could not be sent');
+                }
+
+                this.notificationService.showMessage('Application updated and resubmitted successfully.', 'success');
+                this.router.navigate(['/my-application', this.editingApplication.serApplicationId]);
+                return;
+            }
+
             const submission = await firstValueFrom(this.templateWorkflowService.submitTemplate(
                 this.savedTemplate,
                 allowedValues,
@@ -448,6 +537,61 @@ export class TemplateFillComponent implements OnInit {
             this.notificationService.showMessage('Template application submitted successfully.', 'success');
         } catch (error: any) {
             this.notificationService.showMessage(error?.message || 'Template application could not be submitted.', 'danger');
+        } finally {
+            this.isSubmitting = false;
+        }
+    }
+
+    private async loadEditableApplication(applicationId: number, fallbackTemplateId: string | null): Promise<void> {
+        const application = await firstValueFrom(this.templateWorkflowService.getApplication(applicationId));
+        const currentUserId = this.getCurrentUserId();
+        const submittedBy = Number(application?.serSubmittedBy || 0);
+        const currentLevel = Number(application?.intCurrentApprovalLevel);
+        const status = String(application?.txtStatus || '').toUpperCase();
+        const canEdit = currentUserId != null
+            && submittedBy === currentUserId
+            && status === 'PENDING'
+            && Number.isFinite(currentLevel)
+            && currentLevel < 0;
+
+        if (!canEdit) {
+            throw new Error('This application is not available for initiator editing.');
+        }
+
+        const formId = String(application?.serFormId || fallbackTemplateId || '');
+        this.savedTemplate = await firstValueFrom(this.templateWorkflowService.getTemplate(formId));
+        this.template = this.savedTemplate?.payload || null;
+        this.editingApplication = application;
+        this.generatedApplicationCode = String(application?.txtFormCode || '');
+
+        const applicationData = this.parseApplicationData(application?.txtApplicationData);
+        const templateValues = applicationData?.templateValues || {};
+        (this.template?.fields || []).forEach((field: TemplateField) => {
+            const nextValue = templateValues[field.id] ?? applicationData[field.id];
+            this.values[field.id] = nextValue !== undefined
+                ? nextValue
+                : (field.type === 'application_code' ? this.generatedApplicationCode : (field.type === 'checkbox' ? false : ''));
+        });
+        const footerFields = Array.isArray(applicationData?.footerFields) ? applicationData.footerFields : [];
+        this.userPipeline = footerFields.map((section: any, index: number) => ({
+            key: section?.key || `wf_${index + 1}`,
+            label: section?.label || 'New Field',
+            order: Number(section?.order || index + 1),
+            users: Array.isArray(section?.users) ? section.users : []
+        }));
+    }
+
+    private parseApplicationData(raw: any): any {
+        if (!raw) {
+            return {};
+        }
+        if (typeof raw === 'object') {
+            return raw;
+        }
+        try {
+            return JSON.parse(String(raw));
+        } catch {
+            return {};
         }
     }
 
@@ -793,8 +937,19 @@ export class TemplateFillComponent implements OnInit {
         return steps.find((step: any) => step?.id === targetId) || null;
     }
 
+    private getDynamicApprovalSlotValue(field: TemplateField, slot: any): string {
+        if (field.type === 'dynamic_approver_name') {
+            return this.getDynamicSignatureLabel(slot);
+        }
+        if (field.type === 'dynamic_approval_timestamp') {
+            const value = this.getHistoryDate(slot);
+            return value !== '--' ? value : '';
+        }
+        return '';
+    }
+
     private getConfiguredSignatureSlots(step: any): any[] {
-        const users = Array.isArray(step.users) ? step.users : [];
+        const users = this.getConfiguredStepUsers(step);
         if (users.length > 0) {
             return users;
         }
@@ -804,6 +959,64 @@ export class TemplateFillComponent implements OnInit {
         }
 
         return [{ label: step.name || this.getPipelineTargetFallbackLabel(step) }];
+    }
+
+    private getConfiguredStepUsers(step: any): any[] {
+        const users = Array.isArray(step.users) ? step.users : [];
+        if (users.length > 0) {
+            return users;
+        }
+
+        const departmentHeadUsers = this.getDepartmentHeadUsers(step);
+        if (departmentHeadUsers.length > 0) {
+            return departmentHeadUsers;
+        }
+
+        const rawHeadIds = String(step?.hrTblDepartment?.serDepartmentHeadId || '').trim();
+        if (rawHeadIds) {
+            return [];
+        }
+
+        const departmentUsers = Array.isArray(step?.hrTblDepartment?.cfgTblUsers) ? step.hrTblDepartment.cfgTblUsers : [];
+        if (departmentUsers.length > 0) {
+            return departmentUsers;
+        }
+
+        return [];
+    }
+
+    private signatureSlotsHaveConcreteUsers(slots: any[]): boolean {
+        return (slots || []).some((slot) => {
+            const userId = Number(slot?.serUserId ?? slot?.userId ?? slot?.approvedBy ?? slot?.approverId ?? slot?.id);
+            return Number.isFinite(userId) && userId > 0;
+        });
+    }
+
+    private getDepartmentHeadUsers(step: any): any[] {
+        const department = step?.hrTblDepartment;
+        const rawHeadIds = String(department?.serDepartmentHeadId || '').trim();
+        const departmentUsers = Array.isArray(department?.cfgTblUsers) ? department.cfgTblUsers : [];
+        if (!rawHeadIds || departmentUsers.length === 0) {
+            return [];
+        }
+
+        const headIds = rawHeadIds
+            .split(',')
+            .map((value: string) => Number(String(value).trim()))
+            .filter((value: number, index: number, array: number[]) => Number.isFinite(value) && value > 0 && array.indexOf(value) === index);
+        if (headIds.length === 0) {
+            return [];
+        }
+
+        const userById = new Map(
+            departmentUsers
+                .map((user: any) => [Number(user?.serUserId ?? user?.userId ?? user?.id), user] as [number, any])
+                .filter(([userId]: [number, any]) => Number.isFinite(userId) && userId > 0)
+        );
+
+        return headIds
+            .map((userId: number) => userById.get(userId))
+            .filter((user: any) => !!user);
     }
 
     private getApprovedSignatureSlots(step: any): any[] {
@@ -885,10 +1098,13 @@ export class TemplateFillComponent implements OnInit {
     private getSignatureStepHistoryLevel(step: any): number {
         const steps = Array.isArray(this.template?.pipeline) ? this.template.pipeline : [];
         const stepIndex = steps.findIndex((item: any) => item?.id === step?.id);
+        const initiatorStep = steps.find((item: any) => item?.type === 'initiator');
+        const initiatorOrder = Number(initiatorStep?.order);
+        const hasExplicitInitiatorOrder = Number.isFinite(initiatorOrder) && initiatorOrder > 0;
         const hasInitiator = steps.some((item: any) => item?.type === 'initiator');
         const order = Number(step?.order);
         if (Number.isFinite(order) && order > 0) {
-            return hasInitiator ? order + 1 : order;
+            return hasExplicitInitiatorOrder ? order : (hasInitiator ? order + 1 : order);
         }
         return hasInitiator ? stepIndex + 1 : stepIndex + 2;
     }
@@ -903,6 +1119,11 @@ export class TemplateFillComponent implements OnInit {
         }
 
         return step?.name || 'Approver';
+    }
+
+    private getHistoryDate(history: any): string {
+        const value = history?.approvedAt || history?.approvedDate || history?.date || history?.dteCreatedDate || history?.timestamp;
+        return value ? new Date(value).toLocaleString() : '--';
     }
 
     private createInlineValue(doc: Document, field: TemplateField): HTMLElement {

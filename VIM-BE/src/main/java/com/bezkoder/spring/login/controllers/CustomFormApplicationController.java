@@ -12,12 +12,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -116,6 +121,51 @@ public class CustomFormApplicationController {
             logger.error("Error fetching application by ID: " + ex.getMessage(), ex);
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return null;
+        }
+    }
+
+    @RequestMapping(value = "/downloadTemplateApplicationPdf", method = RequestMethod.GET)
+    public ResponseEntity<byte[]> downloadTemplateApplicationPdf(@RequestParam Integer applicationId,
+            HttpServletRequest request) {
+        logger.debug("downloadTemplateApplicationPdf() - applicationId: " + applicationId);
+        try {
+            if (applicationId == null) {
+                return ResponseEntity.badRequest().build();
+            }
+            CfgTblCustomFormApplication application = customFormApplicationService.getApplicationById(applicationId);
+            if (application == null || application.getBlbPdfData() == null || application.getBlbPdfData().length == 0) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+
+            String fileName = application.getTxtPdfName();
+            if (fileName == null || fileName.trim().isEmpty()) {
+                String code = application.getTxtFormCode() != null && !application.getTxtFormCode().trim().isEmpty()
+                        ? application.getTxtFormCode().trim()
+                        : "template-application-" + applicationId;
+                fileName = code + ".pdf";
+            } else if (!fileName.toLowerCase().endsWith(".pdf")) {
+                fileName = fileName + ".pdf";
+            }
+
+            String pdfMime = application.getTxtPdfMime();
+            MediaType mediaType;
+            try {
+                mediaType = (pdfMime != null && !pdfMime.trim().isEmpty())
+                        ? MediaType.parseMediaType(pdfMime)
+                        : MediaType.APPLICATION_PDF;
+            } catch (Exception ignore) {
+                mediaType = MediaType.APPLICATION_PDF;
+            }
+
+            String encodedFilename = URLEncoder.encode(fileName, StandardCharsets.UTF_8.toString()).replace("+", "%20");
+            return ResponseEntity.ok()
+                    .contentType(mediaType)
+                    .header(HttpHeaders.CONTENT_DISPOSITION,
+                            "attachment; filename=\"" + fileName.replace("\"", "") + "\"; filename*=UTF-8''" + encodedFilename)
+                    .body(application.getBlbPdfData());
+        } catch (Exception ex) {
+            logger.error("Error downloading application PDF: " + ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 

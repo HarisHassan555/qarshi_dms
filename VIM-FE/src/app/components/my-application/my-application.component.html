@@ -2,13 +2,16 @@
     <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
         <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
             <div class="flex items-center gap-2">
-                <h5 class="text-xl font-bold dark:text-white-light">My Applications</h5>
+                <h5 class="text-xl font-bold dark:text-white-light">My Digital Applications</h5>
                 <span class="badge badge-outline-primary" *ngIf="totalApplications > 0">
                     {{ totalApplications }} applications
                 </span>
             </div>
-            <div class="ltr:ml-auto rtl:mr-auto">
+            <div class="ltr:ml-auto rtl:mr-auto flex items-center gap-2">
                 <input [(ngModel)]="search" (ngModelChange)="onSearchChanged()" type="text" class="form-input" placeholder="Search my applications..." />
+                <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="isLoading || getDisplayedApplications().length === 0" (click)="exportApplicationsCsv()">
+                    Download CSV
+                </button>
             </div>
         </div>
 
@@ -43,9 +46,12 @@
                     <span>{{ value.dteCreatedDate ? (value.dteCreatedDate | date:'short') : '-' }}</span>
                 </ng-template>
                 <ng-template slot="actions" let-value="data">
-                    <div class="flex items-center justify-center">
+                    <div class="flex items-center justify-center gap-2">
+                        <button *ngIf="canEditApplication(value)" type="button" class="btn btn-sm btn-primary" (click)="editApplication(value)">
+                            Edit & Resubmit
+                        </button>
                         <button type="button" class="btn btn-sm btn-outline-primary" (click)="openApplication(value)">
-                            Open
+                            {{ canEditApplication(value) ? 'Preview' : 'Open' }}
                         </button>
                     </div>
                 </ng-template>
@@ -91,6 +97,12 @@
                 <span class="badge" [ngClass]="getStatusBadgeClass(application.txtStatus)">
                     {{ application.txtStatus || 'PENDING' }}
                 </span>
+                <button type="button" class="btn btn-outline-primary" (click)="downloadApplicationPdf(application)">
+                    Download PDF
+                </button>
+                <button *ngIf="canEditApplication(application)" type="button" class="btn btn-primary" (click)="editApplication(application)">
+                    Edit & Resubmit
+                </button>
                 <button type="button" class="btn btn-outline" (click)="backToList()">Back</button>
             </div>
         </div>
@@ -153,11 +165,18 @@
                     [style.top.px]="field.placement?.y"
                     [style.width.px]="field.placement?.width"
                     [style.height.px]="field.placement?.height">
-                    <ng-container *ngIf="isDynamicSignatureField(field); else nonSignatureField">
+                    <ng-container *ngIf="isDynamicApprovalDataField(field); else nonSignatureField">
                         <div class="pipeline-signature-field" [ngStyle]="getInputStyle(field)">
-                            <div class="pipeline-signature-slot" *ngFor="let slot of getDynamicSignatureSlots(field)">
-                                <img *ngIf="getDynamicSignatureImageUrl(slot) as signatureUrl" [src]="signatureUrl" [alt]="getDynamicSignatureLabel(slot)" />
-                            </div>
+                            <ng-container *ngIf="isDynamicSignatureField(field); else dynamicApprovalTextField">
+                                <div class="pipeline-signature-slot" *ngFor="let slot of getDynamicSignatureSlots(field)">
+                                    <img *ngIf="getDynamicSignatureImageUrl(slot) as signatureUrl" [src]="signatureUrl" [alt]="getDynamicSignatureLabel(slot)" />
+                                </div>
+                            </ng-container>
+                            <ng-template #dynamicApprovalTextField>
+                                <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                                    {{ getDynamicApprovalDisplayText(field) }}
+                                </span>
+                            </ng-template>
                         </div>
                     </ng-container>
                     <ng-template #nonSignatureField>

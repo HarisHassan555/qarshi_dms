@@ -1,13 +1,16 @@
 <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
     <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
         <div class="flex items-center gap-2">
-            <h5 class="text-xl font-bold dark:text-white-light">Template Pending Approvals</h5>
+            <h5 class="text-xl font-bold dark:text-white-light">Digital Pending Approvals</h5>
             <span class="badge badge-outline-warning" *ngIf="totalPendingApprovals > 0">
                 {{ totalPendingApprovals }} pending
             </span>
         </div>
-        <div class="ltr:ml-auto rtl:mr-auto">
+        <div class="ltr:ml-auto rtl:mr-auto flex items-center gap-2">
             <input [(ngModel)]="search" (ngModelChange)="onSearchChanged()" type="text" class="form-input" placeholder="Search template approvals..." />
+            <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="isLoading || getDisplayedPendingApprovals().length === 0" (click)="exportPendingApprovalsCsv()">
+                Download CSV
+            </button>
         </div>
     </div>
 

@@ -1,4 +1,4 @@
-import { Component, ElementRef, HostListener, OnInit, ViewChild } from '@angular/core';
+import { Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { PDFDocument } from 'pdf-lib';
 import { DepartmentService } from 'src/app/services/department/department.service';
@@ -25,6 +25,8 @@ type TemplateFieldType =
     | 'application_code'
     | 'pipeline_signature'
     | 'dynamic_signature'
+    | 'dynamic_approver_name'
+    | 'dynamic_approval_timestamp'
     | 'text'
     | 'integer'
     | 'decimal'
@@ -43,6 +45,7 @@ type PipelineStepType = 'initiator' | 'department' | 'individual' | 'role';
 type PipelineApprovalMode = 'AND' | 'OR';
 type PipelineDynamicTarget = 'initiator_hod' | 'initiator';
 type PipelineFieldRight = 'fill' | 'edit' | 'hide';
+const TEMPLATE_BUILDER_HIDE_CKEDITOR_BADGE_CLASS = 'template-builder-hide-ckeditor-badge';
 
 interface TemplateFieldPlacement {
     x: number;
@@ -121,7 +124,7 @@ interface PipelineStep {
     templateUrl: './template-builder.component.html',
     styleUrls: ['./template-builder.component.css']
 })
-export class TemplateBuilderComponent implements OnInit {
+export class TemplateBuilderComponent implements OnInit, OnDestroy {
     @ViewChild('editorFrame') editorFrame?: ElementRef<HTMLElement>;
     @ViewChild('fieldLayer') fieldLayer?: ElementRef<HTMLElement>;
 
@@ -181,6 +184,8 @@ export class TemplateBuilderComponent implements OnInit {
         { value: 'individual_pipeline_footer', label: 'Individual Pipeline (Footer)' },
         { value: 'application_code', label: 'Application Code' },
         { value: 'dynamic_signature', label: 'Dynamic Signatures' },
+        { value: 'dynamic_approver_name', label: 'Dynamic Approver Name' },
+        { value: 'dynamic_approval_timestamp', label: 'Dynamic Approval Timestamp' },
         { value: 'text', label: 'Text' },
         { value: 'integer', label: 'Integer' },
         { value: 'decimal', label: 'Decimal' },
@@ -229,6 +234,7 @@ export class TemplateBuilderComponent implements OnInit {
     ) { }
 
     ngOnInit(): void {
+        document.body.classList.add(TEMPLATE_BUILDER_HIDE_CKEDITOR_BADGE_CLASS);
         this.ensureInitiatorPipelineStep();
         this.loadDepartments();
         this.loadUsers();
@@ -237,6 +243,10 @@ export class TemplateBuilderComponent implements OnInit {
         if (templateId) {
             this.loadTemplateForEdit(templateId);
         }
+    }
+
+    ngOnDestroy(): void {
+        document.body.classList.remove(TEMPLATE_BUILDER_HIDE_CKEDITOR_BADGE_CLASS);
     }
 
     get pageWidth(): number {
@@ -678,6 +688,12 @@ export class TemplateBuilderComponent implements OnInit {
         return field.type === 'dynamic_signature' || field.type === 'pipeline_signature';
     }
 
+    isDynamicApprovalDataField(field: TemplateField): boolean {
+        return this.isDynamicSignatureField(field)
+            || field.type === 'dynamic_approver_name'
+            || field.type === 'dynamic_approval_timestamp';
+    }
+
     getDynamicSignatureTargetLabel(field: TemplateField): string {
         return this.dynamicSignatureTargetOptions.find((option) => option.id === this.getDynamicSignatureTargetId(field))?.label
             || 'Select signature target';
@@ -916,7 +932,7 @@ export class TemplateBuilderComponent implements OnInit {
         this.templateWorkflowService.saveTemplate(payload, this.editingTemplateId || undefined).subscribe({
             next: (template) => {
                 sessionStorage.setItem('templateBuilder:lastTemplate', JSON.stringify(template.payload));
-                this.router.navigate(['/template-forms']);
+                this.router.navigate(['/template-list']);
             },
             error: (error) => console.error('Template save failed', error)
         });
@@ -981,9 +997,9 @@ export class TemplateBuilderComponent implements OnInit {
             field.style.bold = true;
         }
 
-        if (this.isDynamicSignatureField(field)) {
-            field.label = label || 'Dynamic Signatures';
-            field.placeholder = '{{dynamic_signatures}}';
+        if (this.isDynamicApprovalDataField(field)) {
+            field.label = label || this.getDynamicApprovalDefaultLabel(field.type);
+            field.placeholder = this.getDynamicApprovalPlaceholder(field.type);
             field.signatureTargetId = this.dynamicSignatureTargetOptions[0]?.id || this.initiatorPipelineStepId;
             field.pipelineStepId = field.signatureTargetId;
             field.pipelineApproverIndex = 1;
@@ -1028,6 +1044,26 @@ export class TemplateBuilderComponent implements OnInit {
         this.newFieldLabel = 'New Field';
         this.newFieldRequired = false;
         this.newRadioOptions = [];
+    }
+
+    private getDynamicApprovalDefaultLabel(type: TemplateFieldType): string {
+        if (type === 'dynamic_approver_name') {
+            return 'Dynamic Approver Name';
+        }
+        if (type === 'dynamic_approval_timestamp') {
+            return 'Dynamic Approval Timestamp';
+        }
+        return 'Dynamic Signatures';
+    }
+
+    private getDynamicApprovalPlaceholder(type: TemplateFieldType): string {
+        if (type === 'dynamic_approver_name') {
+            return '{{dynamic_approver_name}}';
+        }
+        if (type === 'dynamic_approval_timestamp') {
+            return '{{dynamic_approval_timestamp}}';
+        }
+        return '{{dynamic_signatures}}';
     }
 
     private closeAndResetFieldModal(): void {

@@ -369,6 +369,21 @@
     word-break: break-word;
 }
 
+:host ::ng-deep .template-ckeditor .ck.ck-editor__main > .ck-editor__editable,
+:host ::ng-deep .template-ckeditor .ck.ck-editor__main > .ck-editor__editable.ck-focused {
+    border-color: #d1d5db !important;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12) !important;
+}
+
+:host-context(.dark) ::ng-deep .template-ckeditor .ck.ck-editor__main > .ck-editor__editable,
+:host-context(.dark) ::ng-deep .template-ckeditor .ck.ck-editor__main > .ck-editor__editable.ck-focused {
+    border-color: #1b2e4b !important;
+}
+
+::ng-deep body.template-builder-hide-ckeditor-badge .ck.ck-powered-by-balloon {
+    display: none !important;
+}
+
 :host ::ng-deep .editor-frame.has-background .template-ckeditor .ck.ck-editor__main > .ck-editor__editable {
     background: transparent;
 }

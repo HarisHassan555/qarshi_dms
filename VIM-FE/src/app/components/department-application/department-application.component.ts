@@ -136,6 +136,15 @@ export class DepartmentApplicationComponent implements OnInit {
       this.notificationService.showMessage('Invalid application ID', 'danger');
       return;
     }
+
+    const formDescription = (application.cfgTblCustomForm?.txtFormDescription || '').toString().trim().toLowerCase();
+    if (formDescription === 'template-builder') {
+      this.router.navigate(['/my-application', application.serApplicationId], {
+        queryParams: { from: 'department-application' }
+      });
+      return;
+    }
+
     this.router.navigate(['/application-details', application.serApplicationId], {
       queryParams: { from: 'department-application' }
     });

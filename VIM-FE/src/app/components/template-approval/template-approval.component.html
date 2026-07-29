@@ -19,6 +19,9 @@
         </div>
         <div class="header-actions">
             <button type="button" class="btn btn-outline" routerLink="/template-pending-approvals">Back</button>
+            <button type="button" class="btn btn-outline-primary" [disabled]="isLoading || isActing" (click)="downloadApplicationPdf()">
+                Download PDF
+            </button>
             <button type="button" class="btn btn-outline" [disabled]="isSaving || isActing" (click)="saveChanges()">
                 {{ isSaving ? 'Saving...' : 'Save' }}
             </button>
@@ -217,13 +220,20 @@
                         </ng-container>
                     </ng-template>
                     <ng-template #fieldValue>
-                        <ng-container *ngIf="isDynamicSignatureField(field); else nonSignatureField">
+                        <ng-container *ngIf="isDynamicApprovalDataField(field); else nonSignatureField">
                             <div class="pipeline-signature-field" [ngStyle]="getInputStyle(field)">
-                                <div class="pipeline-signature-slot" *ngFor="let slot of getDynamicSignatureSlots(field)">
-                                    <img *ngIf="getDynamicSignatureImageUrl(slot) as signatureUrl; else signaturePlaceholder" [src]="signatureUrl" [alt]="getDynamicSignatureLabel(slot)" />
-                                    <ng-template #signaturePlaceholder>
-                                    </ng-template>
-                                </div>
+                                <ng-container *ngIf="isDynamicSignatureField(field); else dynamicApprovalTextField">
+                                    <div class="pipeline-signature-slot" *ngFor="let slot of getDynamicSignatureSlots(field)">
+                                        <img *ngIf="getDynamicSignatureImageUrl(slot) as signatureUrl; else signaturePlaceholder" [src]="signatureUrl" [alt]="getDynamicSignatureLabel(slot)" />
+                                        <ng-template #signaturePlaceholder>
+                                        </ng-template>
+                                    </div>
+                                </ng-container>
+                                <ng-template #dynamicApprovalTextField>
+                                    <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                                        {{ getDynamicApprovalDisplayText(field) }}
+                                    </span>
+                                </ng-template>
                             </div>
                         </ng-container>
                         <ng-template #nonSignatureField>
@@ -243,5 +253,88 @@
                 </div>
             </div>
         </div>
+
+        <section class="panel progress-panel">
+            <div class="progress-heading">
+                <div>
+                    <h3>Approval Progress</h3>
+                    <p>{{ getPipelineProgress() }}% complete</p>
+                </div>
+                <div class="progress-track">
+                    <div [style.width.%]="getPipelineProgress()"></div>
+                </div>
+            </div>
+
+            <div class="approval-flow">
+                <ng-container *ngFor="let tile of progressTiles; let tileIndex = index; trackBy: trackByTile">
+                    <article class="approval-node" [ngClass]="getTileClass(tile)">
+                        <div class="approval-node-header">
+                            <div class="approval-node-title">{{ tile.title }}</div>
+                            <div class="approval-node-status">{{ tile.status === 'WAITING' ? 'PENDING' : tile.status }}</div>
+                        </div>
+                        <div class="approval-node-body">
+                            <div class="approval-node-row">
+                                <span class="label">Approved By</span>
+                                <span class="value">{{ tile.approver }}</span>
+                            </div>
+                            <div class="approval-node-row">
+                                <span class="label">Action Time</span>
+                                <span class="value">{{ tile.approvedAt }}</span>
+                            </div>
+                            <div class="approval-node-row">
+                                <span class="label">Remarks</span>
+                                <span class="value">{{ tile.remarks }}</span>
+                            </div>
+                            <div class="approval-node-row">
+                                <span class="label">Type</span>
+                                <span class="value">{{ tile.type }}</span>
+                            </div>
+                        </div>
+                    </article>
+                    <div *ngIf="tileIndex < progressTiles.length - 1" class="approval-arrow">
+                        <div class="approval-arrow-label">
+                            {{ getArrowLabel(tileIndex + 1) }}
+                        </div>
+                        <div class="approval-arrow-track">
+                            <div class="approval-arrow-line"></div>
+                            <div class="approval-arrow-head"></div>
+                        </div>
+                    </div>
+                </ng-container>
+            </div>
+
+            <div class="mt-4 prior-approvals-log" *ngIf="getApprovalLogRows().length > 0">
+                <h4 class="text-sm font-bold text-gray-800 dark:text-white mb-2">Prior Approvals</h4>
+                <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <table class="min-w-full text-xs">
+                        <thead class="bg-gray-100 dark:bg-gray-800">
+                            <tr>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Level</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Approver</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Role</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Status</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Date</th>
+                                <th class="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Comments</th>
+                                <th class="px-3 py-2 text-center font-semibold text-gray-700 dark:text-gray-200">Signature</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr *ngFor="let row of getApprovalLogRows()" class="border-t border-gray-200 dark:border-gray-700">
+                                <td class="px-3 py-2">{{ row.level }}</td>
+                                <td class="px-3 py-2">{{ row.approver }}</td>
+                                <td class="px-3 py-2">{{ row.role }}</td>
+                                <td class="px-3 py-2">{{ row.status }}</td>
+                                <td class="px-3 py-2">{{ row.date }}</td>
+                                <td class="px-3 py-2">{{ row.comments }}</td>
+                                <td class="px-3 py-2 text-center">
+                                    <img *ngIf="row.signatureUrl" [src]="row.signatureUrl" alt="Signature" class="approval-log-signature" />
+                                    <span *ngIf="!row.signatureUrl">--</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
     </div>
 </div>

@@ -17,6 +17,7 @@ export interface SavedTemplateDefinition {
     updatedAt: string;
     payload: any;
     backendForm?: any;
+    visibilityUserIds?: number[];
 }
 
 export interface TemplateSubmission {
@@ -80,17 +81,54 @@ export class TemplateWorkflowService {
         );
     }
 
-    getTemplates(): Observable<SavedTemplateDefinition[]> {
-        return this.http.get<any[]>(urls.API_URL + 'getAllTemplateDefinitions').pipe(
+    getTemplates(userId?: number | null): Observable<SavedTemplateDefinition[]> {
+        const resolvedUserId = userId ?? this.getCurrentUserId();
+        const query = resolvedUserId != null ? ('?userId=' + encodeURIComponent(String(resolvedUserId))) : '';
+        return this.http.get<any[]>(urls.API_URL + 'getAllTemplateDefinitions' + query).pipe(
             map((templates) => (Array.isArray(templates) ? templates : [])
                 .map((template) => this.mapTemplateDefinitionToSavedTemplate(template))
                 .filter((template): template is SavedTemplateDefinition => !!template))
         );
     }
 
-    getTemplate(id: string): Observable<SavedTemplateDefinition | null> {
-        return this.http.get<any>(urls.API_URL + 'getTemplateDefinitionByFormId?formId=' + encodeURIComponent(id)).pipe(
+    getTemplate(id: string, userId?: number | null): Observable<SavedTemplateDefinition | null> {
+        const resolvedUserId = userId ?? this.getCurrentUserId();
+        const query = resolvedUserId != null
+            ? '&userId=' + encodeURIComponent(String(resolvedUserId))
+            : '';
+        return this.http.get<any>(urls.API_URL + 'getTemplateDefinitionByFormId?formId=' + encodeURIComponent(id) + query).pipe(
             map((definition) => this.mapTemplateDefinitionToSavedTemplate(definition))
+        );
+    }
+
+    updateTemplateVisibility(template: SavedTemplateDefinition, userIds: number[]): Observable<SavedTemplateDefinition> {
+        const sanitizedUserIds = Array.from(new Set(
+            (Array.isArray(userIds) ? userIds : [])
+                .map((userId) => Number(userId))
+                .filter((userId) => Number.isFinite(userId) && userId > 0)
+        ));
+        const nextPayload = this.applyVisibilityToPayload(template?.payload || {}, sanitizedUserIds, template?.id);
+        const definitionPayload = {
+            serFormId: Number(template.id),
+            txtTemplateName: template.name || nextPayload.name || 'Untitled Template',
+            txtCodeConvention: template.codeConvention?.pattern || nextPayload.codeConvention || 'TPL-0000',
+            txtTemplatePayload: JSON.stringify(nextPayload),
+            serModifiedUser: this.getCurrentUserId()
+        };
+
+        return this.http.post<any>(urls.API_URL + 'saveTemplateDefinition', definitionPayload).pipe(
+            switchMap((response) => {
+                if (!response || response.status !== 'Success') {
+                    throw new Error(response?.message || 'Template visibility could not be saved');
+                }
+                return this.getTemplate(template.id, this.getCurrentUserId());
+            }),
+            map((savedTemplate) => {
+                if (!savedTemplate) {
+                    throw new Error('Updated template could not be loaded');
+                }
+                return savedTemplate;
+            })
         );
     }
 
@@ -202,6 +240,12 @@ export class TemplateWorkflowService {
 
     getApplication(applicationId: string | number): Observable<any> {
         return this.http.get<any>(urls.API_URL + 'getTemplateApplicationById?applicationId=' + encodeURIComponent(String(applicationId)));
+    }
+
+    downloadTemplateApplicationPdf(applicationId: string | number): Observable<Blob> {
+        return this.http.get(urls.API_URL + 'downloadTemplateApplicationPdf?applicationId=' + encodeURIComponent(String(applicationId)), {
+            responseType: 'blob'
+        });
     }
 
     updateTemplateApplication(application: any, values: Record<string, any>, templatePayload: any, userPipeline: any[] = []) {
@@ -326,12 +370,14 @@ export class TemplateWorkflowService {
             codePrefix: convention.prefix,
             serialLength: convention.serialLength
         };
+        const visibilityUserIds = this.normalizeVisibilityUserIds(payload.visibleUserIds ?? payload.visibilityUserIds);
+        const normalizedTemplatePayload = this.applyVisibilityToPayload(templatePayload, visibilityUserIds, formId);
 
         const definitionPayload = {
             serFormId: formId,
             txtTemplateName: payload.name || 'Untitled Template',
             txtCodeConvention: convention.pattern,
-            txtTemplatePayload: JSON.stringify(templatePayload),
+            txtTemplatePayload: JSON.stringify(normalizedTemplatePayload),
             serModifiedUser: this.getCurrentUserId()
         };
 
@@ -384,6 +430,7 @@ export class TemplateWorkflowService {
             return null;
         }
 
+        const visibilityUserIds = this.extractVisibilityUserIds(payload);
         const convention = this.parseCodeConvention(payload.codeConvention || definition.txtCodeConvention || 'TPL-0000');
         payload = {
             ...payload,
@@ -392,6 +439,8 @@ export class TemplateWorkflowService {
             codeConvention: convention.pattern,
             codePrefix: convention.prefix,
             serialLength: convention.serialLength,
+            visibleUserIds: visibilityUserIds,
+            visibilityUserIds,
             backendDefinition: definition
         };
 
@@ -402,7 +451,8 @@ export class TemplateWorkflowService {
             createdAt: definition.dteCreatedDate || new Date().toISOString(),
             updatedAt: definition.dteModifiedDate || definition.dteCreatedDate || new Date().toISOString(),
             payload,
-            backendForm: definition
+            backendForm: definition,
+            visibilityUserIds
         };
     }
 
@@ -530,5 +580,34 @@ export class TemplateWorkflowService {
 
     private formatCode(convention: TemplateCodeConvention, serial: number): string {
         return `${convention.prefix}-${String(serial).padStart(convention.serialLength, '0')}`;
+    }
+
+    private extractVisibilityUserIds(payload: any): number[] {
+        return this.normalizeVisibilityUserIds(
+            payload?.visibleUserIds ??
+            payload?.visibilityUserIds ??
+            payload?.selectedUsers
+        );
+    }
+
+    private normalizeVisibilityUserIds(value: any): number[] {
+        if (!Array.isArray(value)) {
+            return [];
+        }
+        return Array.from(new Set(
+            value
+                .map((userId) => Number(userId))
+                .filter((userId) => Number.isFinite(userId) && userId > 0)
+        ));
+    }
+
+    private applyVisibilityToPayload(payload: any, userIds: number[], formId?: string | number): any {
+        return {
+            ...payload,
+            ...(formId != null ? { id: String(formId) } : {}),
+            visibleUserIds: [...userIds],
+            visibilityUserIds: [...userIds],
+            selectedUsers: [...userIds]
+        };
     }
 }

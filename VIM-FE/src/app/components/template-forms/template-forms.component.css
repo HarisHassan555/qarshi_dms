@@ -1,92 +1,152 @@
-.template-forms-page {
-    color: #172033;
+.template-name-cell {
+    min-width: 0;
 }
 
-.forms-header {
-    align-items: center;
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 16px;
-}
-
-.forms-header h2 {
-    font-size: 24px;
+.template-name-cell strong {
+    color: #111827;
+    display: block;
+    font-size: 14px;
     font-weight: 700;
+}
+
+.template-name-cell small {
+    color: #64748b;
+    display: block;
+    font-size: 11px;
+    margin-top: 2px;
+}
+
+.visibility-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: min(70vh, 720px);
+    overflow-y: auto;
+    padding-right: 6px;
+}
+
+.visibility-modal-copy {
+    color: #475569;
+    font-size: 13px;
     margin: 0;
 }
 
-.forms-header p {
-    color: #64748b;
-    font-size: 13px;
-    margin: 4px 0 0;
-}
-
-.empty-state {
-    background: #ffffff;
-    border: 1px dashed #cbd5e1;
-    border-radius: 8px;
-    color: #64748b;
-    padding: 24px;
-    text-align: center;
-}
-
-.error-state {
-    background: #fef2f2;
-    border-color: #fecaca;
-    color: #991b1b;
-}
-
-.forms-grid {
-    display: grid;
-    gap: 12px;
-}
-
-.template-card {
-    align-items: center;
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    display: flex;
-    gap: 16px;
-    justify-content: space-between;
-    padding: 14px;
-}
-
-.template-card h3 {
+.visibility-label {
     color: #111827;
-    font-size: 16px;
+    font-size: 13px;
     font-weight: 700;
-    margin: 0 0 4px;
 }
 
-.template-card span,
-.template-card small {
-    color: #64748b;
-    display: block;
-    font-size: 12px;
+.visibility-modal-footer {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
 }
 
-.template-actions {
+.visibility-option-row {
     align-items: center;
     display: flex;
     gap: 8px;
+    justify-content: space-between;
+    width: 100%;
 }
 
-.btn {
-    border: 1px solid #2563eb;
-    border-radius: 6px;
+.visibility-ng-chip {
+    align-items: center;
+    display: inline-flex;
+    gap: 6px;
+}
+
+.visibility-ng-chip-remove {
+    background: transparent;
+    border: 0;
+    color: #475569;
     cursor: pointer;
+    font-size: 12px;
     font-weight: 700;
-    min-height: 34px;
-    padding: 8px 12px;
+    line-height: 1;
+    padding: 0;
 }
 
-.btn-primary {
-    background: #2563eb;
-    color: #ffffff;
+.visibility-ng-chip-remove:hover {
+    color: #0f172a;
 }
 
-.btn-secondary {
+.visibility-selection-panel,
+.visibility-department-summary {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 12px;
+}
+
+.visibility-selection-header {
+    align-items: center;
+    color: #0f172a;
+    display: flex;
+    font-size: 13px;
+    font-weight: 700;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.visibility-selection-header small {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.visibility-selection-empty {
+    color: #64748b;
+    font-size: 12px;
+}
+
+.visibility-selection-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.visibility-user-chip,
+.visibility-department-row {
+    align-items: center;
     background: #ffffff;
-    color: #2563eb;
+    border: 1px solid #dbe4ee;
+    border-radius: 8px;
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 12px;
+}
+
+.visibility-user-chip strong,
+.visibility-department-row span {
+    color: #0f172a;
+    display: block;
+    font-size: 13px;
+}
+
+.visibility-user-chip small,
+.visibility-department-row small {
+    color: #64748b;
+    display: block;
+    font-size: 11px;
+    margin-top: 2px;
+}
+
+.visibility-remove-btn {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    color: #334155;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 10px;
+}
+
+.visibility-remove-btn:hover {
+    border-color: #94a3b8;
+    color: #0f172a;
 }

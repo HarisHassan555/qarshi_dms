@@ -15,6 +15,7 @@ import javax.annotation.PostConstruct;
 import javax.persistence.EntityManager;
 import javax.persistence.EntityManagerFactory;
 import javax.persistence.NoResultException;
+import java.util.Arrays;
 import java.util.List;
 
 @Component
@@ -22,8 +23,15 @@ import java.util.List;
 public class TemplatePendingApprovalsMenuSeeder {
 
     private static final Logger log = LoggerFactory.getLogger(TemplatePendingApprovalsMenuSeeder.class);
-    private static final String SUBMENU_NAME = "Template Pending Approvals";
-    private static final String SUBMENU_URL = "template-pending-approvals";
+    private static final List<TemplateSubMenuConfig> TEMPLATE_SUB_MENUS = Arrays.asList(
+            new TemplateSubMenuConfig("Digital Document Builder", "template-builder", true, true, true, false, 10),
+            new TemplateSubMenuConfig("Digital Document List", "template-list", true, true, true, false, 11),
+            new TemplateSubMenuConfig("Template Fill", "template-fill", true, true, true, false, 12),
+            new TemplateSubMenuConfig("Digital Pending Approvals", "template-pending-approvals", true, false, true,
+                    true, 13),
+            new TemplateSubMenuConfig("Template Approval", "template-approval", true, false, true, true, 14),
+            new TemplateSubMenuConfig("My Digital Applications", "my-application", true, true, true, false, 15)
+    );
 
     @Autowired
     private EntityManagerFactory entityManagerFactory;
@@ -44,19 +52,21 @@ public class TemplatePendingApprovalsMenuSeeder {
                 return;
             }
 
-            CfgTblSubMenu subMenu = findTemplatePendingApprovalsSubMenu(em, velocityMenu.getSerMenuId());
-            if (subMenu == null) {
-                subMenu = createTemplatePendingApprovalsSubMenu(em, velocityMenu);
-                log.info("TemplatePendingApprovalsMenuSeeder: created '{}' submenu (id={}).", SUBMENU_NAME,
-                        subMenu.getSerSubMenuId());
-            } else {
-                normalizeTemplatePendingApprovalsSubMenu(subMenu, velocityMenu);
-                em.merge(subMenu);
-                log.info("TemplatePendingApprovalsMenuSeeder: normalized '{}' submenu (id={}).", SUBMENU_NAME,
-                        subMenu.getSerSubMenuId());
-            }
+            for (TemplateSubMenuConfig config : TEMPLATE_SUB_MENUS) {
+                CfgTblSubMenu subMenu = findTemplateSubMenu(em, velocityMenu.getSerMenuId(), config);
+                if (subMenu == null) {
+                    subMenu = createTemplateSubMenu(em, velocityMenu, config);
+                    log.info("TemplatePendingApprovalsMenuSeeder: created '{}' submenu (id={}).", config.subMenuName,
+                            subMenu.getSerSubMenuId());
+                } else {
+                    normalizeTemplateSubMenu(subMenu, velocityMenu, config);
+                    em.merge(subMenu);
+                    log.info("TemplatePendingApprovalsMenuSeeder: normalized '{}' submenu (id={}).",
+                            config.subMenuName, subMenu.getSerSubMenuId());
+                }
 
-            seedRolePermissions(em, subMenu);
+                seedRolePermissions(em, subMenu, config);
+            }
             em.getTransaction().commit();
         } catch (Exception e) {
             if (em.getTransaction().isActive()) {
@@ -88,13 +98,13 @@ public class TemplatePendingApprovalsMenuSeeder {
         }
     }
 
-    private CfgTblSubMenu findTemplatePendingApprovalsSubMenu(EntityManager em, Integer menuId) {
+    private CfgTblSubMenu findTemplateSubMenu(EntityManager em, Integer menuId, TemplateSubMenuConfig config) {
         try {
             return em.createQuery(
                     "FROM CfgTblSubMenu sm WHERE LOWER(sm.txtSubMenuName) = LOWER(:name) " +
                             "AND sm.cfgTblMenu.serMenuId = :menuId",
                     CfgTblSubMenu.class)
-                    .setParameter("name", SUBMENU_NAME)
+                    .setParameter("name", config.subMenuName)
                     .setParameter("menuId", menuId)
                     .setMaxResults(1)
                     .getSingleResult();
@@ -103,7 +113,7 @@ public class TemplatePendingApprovalsMenuSeeder {
                 return em.createQuery(
                         "FROM CfgTblSubMenu sm WHERE LOWER(sm.txtSubMenuUrl) = LOWER(:url)",
                         CfgTblSubMenu.class)
-                        .setParameter("url", SUBMENU_URL)
+                        .setParameter("url", config.subMenuUrl)
                         .setMaxResults(1)
                         .getSingleResult();
             } catch (NoResultException ex) {
@@ -112,17 +122,9 @@ public class TemplatePendingApprovalsMenuSeeder {
         }
     }
 
-    private CfgTblSubMenu createTemplatePendingApprovalsSubMenu(EntityManager em, CfgTblMenu parentMenu) {
-        Integer nextOrder = em.createQuery(
-                "SELECT COALESCE(MAX(sm.intSubMenuOrder), 0) + 1 FROM CfgTblSubMenu sm " +
-                        "WHERE sm.cfgTblMenu.serMenuId = :menuId",
-                Integer.class)
-                .setParameter("menuId", parentMenu.getSerMenuId())
-                .getSingleResult();
-
+    private CfgTblSubMenu createTemplateSubMenu(EntityManager em, CfgTblMenu parentMenu, TemplateSubMenuConfig config) {
         CfgTblSubMenu subMenu = new CfgTblSubMenu();
-        normalizeTemplatePendingApprovalsSubMenu(subMenu, parentMenu);
-        subMenu.setIntSubMenuOrder(nextOrder != null ? nextOrder : 1);
+        normalizeTemplateSubMenu(subMenu, parentMenu, config);
         subMenu.setDteCreatedDate(commonService.getCurrentTimeStamp_new());
         subMenu.setSerCreatedUser(1);
         em.persist(subMenu);
@@ -130,22 +132,23 @@ public class TemplatePendingApprovalsMenuSeeder {
         return subMenu;
     }
 
-    private void normalizeTemplatePendingApprovalsSubMenu(CfgTblSubMenu subMenu, CfgTblMenu parentMenu) {
+    private void normalizeTemplateSubMenu(CfgTblSubMenu subMenu, CfgTblMenu parentMenu, TemplateSubMenuConfig config) {
         subMenu.setCfgTblMenu(parentMenu);
-        subMenu.setTxtSubMenuName(SUBMENU_NAME);
-        subMenu.setTxtSubMenuUrl(SUBMENU_URL);
+        subMenu.setTxtSubMenuName(config.subMenuName);
+        subMenu.setTxtSubMenuUrl(config.subMenuUrl);
+        subMenu.setIntSubMenuOrder(config.subMenuOrder);
         subMenu.setBlIsActive(true);
         subMenu.setBlnStatus(true);
         subMenu.setBlIsDeleted(false);
-        subMenu.setBlIsview(true);
-        subMenu.setBlIsAdd(false);
+        subMenu.setBlIsview(config.allowView);
+        subMenu.setBlIsAdd(config.allowCreate);
         subMenu.setBlIsDelete(false);
-        subMenu.setBlIsUpdate(true);
-        subMenu.setBlIsApprove(true);
+        subMenu.setBlIsUpdate(config.allowUpdate);
+        subMenu.setBlIsApprove(config.allowApprove);
         subMenu.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
     }
 
-    private void seedRolePermissions(EntityManager em, CfgTblSubMenu subMenu) {
+    private void seedRolePermissions(EntityManager em, CfgTblSubMenu subMenu, TemplateSubMenuConfig config) {
         List<CfgTblRole> roles = em.createQuery(
                 "FROM CfgTblRole r WHERE (r.blIsDeleted = false OR r.blIsDeleted IS NULL) " +
                         "AND (r.blnStatus = true OR r.blnStatus IS NULL)",
@@ -180,16 +183,16 @@ public class TemplatePendingApprovalsMenuSeeder {
             permission.setBlIsActive(isAdminRole);
             permission.setBlnStatus(isAdminRole);
             permission.setBlIsDeleted(false);
-            permission.setBlIsview(true);
-            permission.setBlIsAdd(false);
+            permission.setBlIsview(config.allowView);
+            permission.setBlIsAdd(config.allowCreate);
             permission.setBlIsDelete(false);
-            permission.setBlIsUpdate(true);
-            permission.setBlIsApprove(true);
+            permission.setBlIsUpdate(config.allowUpdate);
+            permission.setBlIsApprove(config.allowApprove);
             permission.setBlIsEnabled(isAdminRole);
             permission.setBlIsAll(false);
-            permission.setBlIsNewView(true);
-            permission.setBlIsNewUpdate(true);
-            permission.setBlIsNewCreate(false);
+            permission.setBlIsNewView(config.allowView);
+            permission.setBlIsNewUpdate(config.allowUpdate);
+            permission.setBlIsNewCreate(config.allowCreate);
             permission.setDteCreatedDate(commonService.getCurrentTimeStamp_new());
             permission.setSerCreatedUser(1);
             em.persist(permission);
@@ -204,5 +207,27 @@ public class TemplatePendingApprovalsMenuSeeder {
         return normalized.equals("ADMIN") || normalized.equals("ROLE_ADMIN")
                 || normalized.equals("SUPER ADMIN") || normalized.equals("ROLE_SUPER ADMIN")
                 || normalized.contains("ADMIN");
+    }
+
+    private static class TemplateSubMenuConfig {
+        private final String subMenuName;
+        private final String subMenuUrl;
+        private final boolean allowView;
+        private final boolean allowCreate;
+        private final boolean allowUpdate;
+        private final boolean allowApprove;
+        private final int subMenuOrder;
+
+        private TemplateSubMenuConfig(String subMenuName, String subMenuUrl, boolean allowView,
+                                      boolean allowCreate, boolean allowUpdate, boolean allowApprove,
+                                      int subMenuOrder) {
+            this.subMenuName = subMenuName;
+            this.subMenuUrl = subMenuUrl;
+            this.allowView = allowView;
+            this.allowCreate = allowCreate;
+            this.allowUpdate = allowUpdate;
+            this.allowApprove = allowApprove;
+            this.subMenuOrder = subMenuOrder;
+        }
     }
 }

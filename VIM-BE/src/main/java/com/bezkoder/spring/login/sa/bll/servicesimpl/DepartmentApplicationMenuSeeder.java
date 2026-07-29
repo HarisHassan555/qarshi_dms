@@ -18,14 +18,14 @@ import javax.persistence.NoResultException;
 import java.util.List;
 
 /**
- * Ensures Department Application submenu exists under Velocity/VIM so it appears in /roles.
+ * Ensures department digital application submenu exists under Velocity/VIM so it appears in /roles.
  */
 @Component
 @DependsOn("departmentAdminRoleSeeder")
 public class DepartmentApplicationMenuSeeder {
 
     private static final Logger log = LoggerFactory.getLogger(DepartmentApplicationMenuSeeder.class);
-    private static final String SUBMENU_NAME = "Department Application";
+    private static final String SUBMENU_NAME = "My Department Digital Application";
     private static final String SUBMENU_URL = "department-application";
     private static final String DEPARTMENT_ADMIN_ROLE = "DEPARTMENT_ADMIN";
 

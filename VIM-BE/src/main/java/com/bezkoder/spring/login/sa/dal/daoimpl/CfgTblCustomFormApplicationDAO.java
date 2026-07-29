@@ -227,7 +227,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
         try {
             CfgTblUser user = entityManager.find(CfgTblUser.class, userId);
-            if (user == null || !userHasRole(user, DEPARTMENT_ADMIN_ROLE)) {
+            if (user == null) {
                 return null;
             }
 
@@ -253,13 +253,13 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             if (departmentIds.isEmpty() && normalizedDepartmentNames.isEmpty()) {
-                log.warn("Department admin user {} does not have an assigned department", userId);
+                log.warn("User {} does not have an assigned department", userId);
                 return null;
             }
 
             return new DepartmentAccessScope(departmentIds, departmentNamesById, normalizedDepartmentNames);
         } catch (Exception e) {
-            log.warn("Failed to resolve department admin scope for user {}: {}", userId, e.getMessage());
+            log.warn("Failed to resolve department scope for user {}: {}", userId, e.getMessage());
             return null;
         }
     }
@@ -694,21 +694,23 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         Integer formId = safeInt(row[8], null);
         String formName = row[9] != null ? String.valueOf(row[9]) : null;
         String formCode = row[10] != null ? String.valueOf(row[10]) : null;
-        if (formId != null || formName != null || formCode != null) {
+        String formDescription = row.length > 11 && row[11] != null ? String.valueOf(row[11]) : null;
+        if (formId != null || formName != null || formCode != null || formDescription != null) {
             CfgTblCustomForm form = new CfgTblCustomForm();
             form.setSerFormId(formId);
             form.setTxtFormName(formName);
             form.setTxtFormCode(formCode);
+            form.setTxtFormDescription(formDescription);
             app.setCfgTblCustomForm(form);
         }
-        if (row.length > 11) {
-            app.setSubmittedDepartmentId(safeInt(row[11], null));
-        }
         if (row.length > 12) {
-            app.setSubmittedDepartmentName(row[12] != null ? String.valueOf(row[12]) : null);
+            app.setSubmittedDepartmentId(safeInt(row[12], null));
         }
         if (row.length > 13) {
-            app.setSubmittedByUserName(row[13] != null ? String.valueOf(row[13]) : null);
+            app.setSubmittedDepartmentName(row[13] != null ? String.valueOf(row[13]) : null);
+        }
+        if (row.length > 14) {
+            app.setSubmittedByUserName(row[14] != null ? String.valueOf(row[14]) : null);
         }
         return app;
     }
@@ -895,8 +897,7 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 return new java.util.ArrayList<>();
             }
 
-            @SuppressWarnings("unchecked")
-            List<Object[]> rows = entityManager.createNativeQuery(
+            StringBuilder sql = new StringBuilder(
                     "SELECT a.ser_application_id AS app_application_id, " +
                             "a.ser_form_id AS app_form_id, " +
                             "a.txt_form_code AS app_form_code, " +
@@ -908,20 +909,74 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                             "f.ser_form_id AS form_ser_form_id, " +
                             "f.txt_form_name AS form_name, " +
                             "f.txt_form_code AS form_code, " +
-                            "CAST(NULL AS SIGNED) AS submitted_department_id, " +
-                            "CAST(NULL AS CHAR(255)) AS submitted_department_name, " +
-                            "u.txt_user_name AS submitted_by_user_name, " +
-                            "a.txt_application_data AS app_application_data " +
+                            "f.txt_form_description AS form_description, " +
+                            "u.ser_department_id AS submitted_department_id, " +
+                            "u.txt_department_name AS submitted_department_name, " +
+                            "u.txt_user_name AS submitted_by_user_name " +
                             "FROM cfg_tbl_custom_form_application a " +
                             "LEFT JOIN cfg_tbl_custom_form f ON f.ser_form_id = a.ser_form_id " +
                             "LEFT JOIN cfg_tbl_user u ON u.ser_user_id = a.ser_submitted_by " +
-                            "WHERE (a.bl_is_deleted = 0 OR a.bl_is_deleted IS NULL) " +
-                            "ORDER BY a.dte_created_date DESC")
-                    .getResultList();
+                            "WHERE (a.bl_is_deleted = 0 OR a.bl_is_deleted IS NULL) ");
+
+            java.util.List<String> departmentPredicates = new java.util.ArrayList<>();
+            int parameterIndex = 0;
+            for (Integer departmentId : accessScope.departmentIds) {
+                if (departmentId == null || departmentId <= 0) {
+                    continue;
+                }
+                departmentPredicates.add("u.ser_department_id = :departmentId" + parameterIndex);
+                parameterIndex++;
+            }
+
+            int departmentNameIndex = 0;
+            for (String departmentName : accessScope.normalizedDepartmentNames) {
+                if (departmentName == null || departmentName.trim().isEmpty()) {
+                    continue;
+                }
+                departmentPredicates.add(
+                        "UPPER(TRIM(COALESCE(u.txt_department_name, ''))) = :departmentName" + departmentNameIndex);
+                departmentNameIndex++;
+            }
+
+            if (departmentPredicates.isEmpty()) {
+                entityManager.getTransaction().commit();
+                return new java.util.ArrayList<>();
+            }
+
+            sql.append("AND (")
+                    .append(String.join(" OR ", departmentPredicates))
+                    .append(") ")
+                    .append("ORDER BY a.dte_created_date DESC");
+
+            @SuppressWarnings("unchecked")
+            javax.persistence.Query query = entityManager.createNativeQuery(sql.toString());
+
+            parameterIndex = 0;
+            for (Integer departmentId : accessScope.departmentIds) {
+                if (departmentId == null || departmentId <= 0) {
+                    continue;
+                }
+                query.setParameter("departmentId" + parameterIndex, departmentId);
+                parameterIndex++;
+            }
+
+            departmentNameIndex = 0;
+            for (String departmentName : accessScope.normalizedDepartmentNames) {
+                if (departmentName == null || departmentName.trim().isEmpty()) {
+                    continue;
+                }
+                query.setParameter("departmentName" + departmentNameIndex, departmentName);
+                departmentNameIndex++;
+            }
+
+            List<Object[]> rows = query.getResultList();
 
             entityManager.getTransaction().commit();
-            return filterDepartmentApplications(rows, accessScope.departmentIds, accessScope.departmentNamesById,
-                    accessScope.normalizedDepartmentNames);
+            List<CfgTblCustomFormApplication> applications = new java.util.ArrayList<>();
+            for (Object[] row : rows) {
+                applications.add(toApplicationSummary(row));
+            }
+            return applications;
         } catch (Exception e) {
             if (entityManager.getTransaction().isActive()) {
                 entityManager.getTransaction().rollback();
@@ -4389,9 +4444,9 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 }
             }
 
-            // Reset to stage 0 (Initiator's HOD) for send-back-to-initiator.
+            // Reset to initiator edit state for send-back-to-initiator.
             Integer originalLevel = currentLevel;
-            currentLevel = 0; 
+            currentLevel = -1;
 
             // Get or create approval history array
             List<java.util.Map<String, Object>> approvalHistory = new java.util.ArrayList<>();
@@ -4477,8 +4532,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             
             sendBackEntry.put("level", fromLevel + 1); // sender stage (1-indexed)
             sendBackEntry.put("fromLevel", fromLevel + 1); 
-            // Target stage is CAPF level 0 (Initiator's HOD / first approver)
-            sendBackEntry.put("toLevel", 0);     
+            // Target stage is the initiator edit state; resubmission restarts the first approval stage.
+            sendBackEntry.put("toLevel", -1);
             sendBackEntry.put("departmentId", currentDepartmentId);
             
             // For individual pipeline footer forms, use role as departmentName
@@ -4509,7 +4564,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 sendBackEntry.put("approverName", "");
             }
             
-            log.info("Application sent back to stage 0 (Initiator HOD) from Stage {} for appId={}", 
+            log.info("Application sent back to initiator edit state from Stage {} for appId={}",
                 fromLevel + 1, application.getSerApplicationId());
             
             updatedHistory.add(sendBackEntry);
@@ -4598,8 +4653,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 log.error("Error serializing approval history: " + e.getMessage());
             }
 
-            application.setTxtStatus("PENDING"); 
-            application.setIntCurrentApprovalLevel(0);
+            application.setTxtStatus("PENDING");
+            application.setIntCurrentApprovalLevel(-1);
             application.setSerCurrentApprover(application.getSerSubmittedBy());
             application.setTxtRemarks(remarks);
             application.setDteModifiedDate(commonService.getCurrentTimeStamp_new());
@@ -7745,6 +7800,15 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             name = applicationData.get("txtSubmittedDepartmentName");
         }
         if (name == null) {
+            name = applicationData.get("txtDepartmentName");
+        }
+        if (name == null) {
+            name = applicationData.get("departmentName");
+        }
+        if (name == null) {
+            name = applicationData.get("submittedByDepartmentName");
+        }
+        if (name == null) {
             return null;
         }
         String normalized = String.valueOf(name).trim();
@@ -10296,21 +10360,65 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     .setParameter("id", userId)
                     .getSingleResult();
             if (result == null)
-                return null;
+                return resolveUserDepartmentIdByName(em, userId, userDepartmentCache);
             if (result instanceof Number) {
                 Integer departmentId = ((Number) result).intValue();
+                if (departmentId == null || departmentId <= 0) {
+                    return resolveUserDepartmentIdByName(em, userId, userDepartmentCache);
+                }
                 if (userDepartmentCache != null) {
                     userDepartmentCache.put(userId, departmentId);
                 }
                 return departmentId;
             }
             Integer departmentId = Integer.parseInt(result.toString());
+            if (departmentId == null || departmentId <= 0) {
+                return resolveUserDepartmentIdByName(em, userId, userDepartmentCache);
+            }
             if (userDepartmentCache != null) {
                 userDepartmentCache.put(userId, departmentId);
             }
             return departmentId;
         } catch (Exception e) {
             log.warn("Error loading user department: " + e.getMessage(), e);
+            return resolveUserDepartmentIdByName(em, userId, userDepartmentCache);
+        }
+    }
+
+    private Integer resolveUserDepartmentIdByName(EntityManager em, Integer userId, Map<Integer, Integer> userDepartmentCache) {
+        if (em == null || userId == null || userId <= 0) {
+            return null;
+        }
+        try {
+            Object departmentNameResult = em.createNativeQuery(
+                    "select txt_department_name from cfg_tbl_user where ser_user_id = :id")
+                    .setParameter("id", userId)
+                    .getSingleResult();
+            if (departmentNameResult == null) {
+                return null;
+            }
+            String departmentName = String.valueOf(departmentNameResult).trim();
+            if (departmentName.isEmpty()) {
+                return null;
+            }
+            @SuppressWarnings("unchecked")
+            List<Object> departmentIds = em.createNativeQuery(
+                    "select ser_department_id from hr_tbl_department " +
+                            "where upper(trim(txt_department_name)) = :name " +
+                            "and (bl_is_deleted = 0 or bl_is_deleted is null)")
+                    .setParameter("name", departmentName.toUpperCase(Locale.ROOT))
+                    .setMaxResults(1)
+                    .getResultList();
+            if (departmentIds.isEmpty() || departmentIds.get(0) == null) {
+                return null;
+            }
+            Integer departmentId = ((Number) departmentIds.get(0)).intValue();
+            if (userDepartmentCache != null) {
+                userDepartmentCache.put(userId, departmentId);
+            }
+            return departmentId;
+        } catch (Exception e) {
+            log.warn("Error resolving user department by name for user {}: {}", userId, e.getMessage());
             return null;
         }
     }

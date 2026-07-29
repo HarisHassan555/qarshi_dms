@@ -255,10 +255,27 @@ public class SignatureController {
     @RequestMapping(value = "/getSignature", method = RequestMethod.GET)
     public ResponseEntity<byte[]> getSignature(
             @RequestParam(value = "userId", required = false) Integer userId,
+            @RequestParam(value = "signaturePath", required = false) String signaturePath,
             HttpServletRequest request,
             HttpServletResponse response) {
         
         try {
+            String rootPath = System.getProperty("user.home") + File.separator + ".vim_dms_uploads";
+
+            if (signaturePath != null && !signaturePath.trim().isEmpty()) {
+                File signatureFile = new File(rootPath + File.separator + signaturePath.trim());
+                if (signatureFile.exists()) {
+                    byte[] fileBytes = Files.readAllBytes(signatureFile.toPath());
+                    String contentType = Files.probeContentType(signatureFile.toPath());
+                    if (contentType == null) {
+                        contentType = "image/png";
+                    }
+                    return ResponseEntity.ok()
+                            .contentType(MediaType.parseMediaType(contentType))
+                            .body(fileBytes);
+                }
+            }
+
             // Get current user if userId not provided
             if (userId == null) {
                 int loggedInUserId = commonService.getCurrentLoggedInUser();
@@ -281,7 +298,6 @@ public class SignatureController {
             }
 
             // Read signature file
-            String rootPath = System.getProperty("user.home") + File.separator + ".vim_dms_uploads";
             File signatureFile = new File(rootPath + File.separator + user.getTxtSignaturePath());
 
             if (!signatureFile.exists()) {

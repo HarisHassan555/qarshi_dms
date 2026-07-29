@@ -71,6 +71,34 @@ public class TemplateDefinitionController {
             if (application.getSerCreatedUser() == null) {
                 application.setSerCreatedUser(application.getSerSubmittedBy());
             }
+            CfgTblUser submittedByUser = application.getSerSubmittedBy() != null
+                    ? entityManager.find(CfgTblUser.class, application.getSerSubmittedBy())
+                    : null;
+            if (submittedByUser != null) {
+                Integer submittedDepartmentId = submittedByUser.getHrTblDepartment() != null
+                        ? submittedByUser.getHrTblDepartment().getSerDepartmentId()
+                        : null;
+                String submittedDepartmentName = submittedByUser.getTxtDepartmentName();
+                if ((submittedDepartmentName == null || submittedDepartmentName.trim().isEmpty())
+                        && submittedByUser.getHrTblDepartment() != null) {
+                    submittedDepartmentName = submittedByUser.getHrTblDepartment().getTxtDepartmentName();
+                }
+                if (submittedDepartmentId != null && appData.get("submittedDepartmentId") == null
+                        && appData.get("serSubmittedDepartmentId") == null
+                        && appData.get("submitterDepartmentId") == null) {
+                    appData.put("submittedDepartmentId", submittedDepartmentId);
+                }
+                if (submittedDepartmentName != null && !submittedDepartmentName.trim().isEmpty()
+                        && appData.get("submittedDepartmentName") == null
+                        && appData.get("submitterDepartmentName") == null
+                        && appData.get("txtSubmittedDepartmentName") == null
+                        && appData.get("txtDepartmentName") == null
+                        && appData.get("departmentName") == null
+                        && appData.get("submittedByDepartmentName") == null) {
+                    appData.put("submittedDepartmentName", submittedDepartmentName.trim());
+                }
+                application.setTxtApplicationData(writeJson(appData));
+            }
             if (application.getTxtFormCode() == null || application.getTxtFormCode().trim().isEmpty()) {
                 application.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, null));
             } else {
@@ -183,6 +211,7 @@ public class TemplateDefinitionController {
             int targetLevel = Math.max(0, currentLevel - 1);
             TemplateStep targetStep = context.stepAt(targetLevel);
             appendTemplateHistory(application, currentStep, actorId, "SENT_BACK", remarks, displayLevelForIndex(targetLevel));
+            application.setTxtApprovalHistory(writeJson(activeTemplateHistory(parseHistory(application.getTxtApprovalHistory()))));
             application.setTxtStatus("IN_PROGRESS");
             application.setIntCurrentApprovalLevel(displayLevelForIndex(targetLevel));
             application.setSerCurrentApprover(firstApproverId(targetStep));
@@ -210,6 +239,7 @@ public class TemplateDefinitionController {
                 throw new IllegalArgumentException("You are not authorized to send back this template application");
             }
             appendTemplateHistory(application, currentStep, actorId, "SENT_BACK_TO_INITIATOR", remarks, 1);
+            application.setTxtApprovalHistory(writeJson(activeTemplateHistory(parseHistory(application.getTxtApprovalHistory()))));
             application.setTxtStatus("PENDING");
             application.setIntCurrentApprovalLevel(1);
             application.setSerCurrentApprover(application.getSerSubmittedBy());
@@ -237,6 +267,7 @@ public class TemplateDefinitionController {
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
             TemplateStep firstStep = context.stepAt(0);
             appendTemplateHistory(application, context.initiatorStep(), actorId, "RESUBMITTED_BY_INITIATOR", remarks, 1);
+            application.setTxtApprovalHistory(writeJson(activeTemplateHistory(parseHistory(application.getTxtApprovalHistory()))));
             application.setTxtStatus("IN_PROGRESS");
             application.setIntCurrentApprovalLevel(displayLevelForIndex(0));
             application.setSerCurrentApprover(firstApproverId(firstStep));
@@ -326,12 +357,14 @@ public class TemplateDefinitionController {
     }
 
     @RequestMapping(value = "/getAllTemplateDefinitions", method = RequestMethod.GET)
-    public List<TemplateDefinition> getAllTemplateDefinitions(HttpServletResponse response) {
+    public List<TemplateDefinition> getAllTemplateDefinitions(@RequestParam(required = false) Integer userId,
+                                                              HttpServletResponse response) {
         try {
-            return entityManager.createQuery(
+            List<TemplateDefinition> definitions = entityManager.createQuery(
                     "SELECT t FROM TemplateDefinition t WHERE (t.blIsDeleted IS NULL OR t.blIsDeleted = false) ORDER BY t.dteCreatedDate DESC",
                     TemplateDefinition.class)
                     .getResultList();
+            return filterVisibleTemplateDefinitions(definitions, userId);
         } catch (Exception ex) {
             logger.error("Error fetching template definitions: " + ex.getMessage(), ex);
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
@@ -340,7 +373,9 @@ public class TemplateDefinitionController {
     }
 
     @RequestMapping(value = "/getTemplateDefinitionByFormId", method = RequestMethod.GET)
-    public TemplateDefinition getTemplateDefinitionByFormId(@RequestParam Integer formId, HttpServletResponse response) {
+    public TemplateDefinition getTemplateDefinitionByFormId(@RequestParam Integer formId,
+                                                            @RequestParam(required = false) Integer userId,
+                                                            HttpServletResponse response) {
         try {
             List<TemplateDefinition> matches = entityManager.createQuery(
                     "SELECT t FROM TemplateDefinition t WHERE t.serFormId = :formId AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false)",
@@ -348,7 +383,15 @@ public class TemplateDefinitionController {
                     .setParameter("formId", formId)
                     .setMaxResults(1)
                     .getResultList();
-            return matches.isEmpty() ? null : matches.get(0);
+            if (matches.isEmpty()) {
+                return null;
+            }
+            TemplateDefinition definition = matches.get(0);
+            if (canAccessTemplateDefinition(definition, userId)) {
+                return definition;
+            }
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            return null;
         } catch (Exception ex) {
             logger.error("Error fetching template definition: " + ex.getMessage(), ex);
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
@@ -623,6 +666,82 @@ public class TemplateDefinitionController {
         return matches.isEmpty() ? null : matches.get(0);
     }
 
+    private List<TemplateDefinition> filterVisibleTemplateDefinitions(List<TemplateDefinition> definitions, Integer userId) {
+        if (definitions == null || definitions.isEmpty()) {
+            return definitions;
+        }
+        if (isAdminUser(userId)) {
+            return definitions;
+        }
+        List<TemplateDefinition> visible = new ArrayList<>();
+        for (TemplateDefinition definition : definitions) {
+            if (canAccessTemplateDefinition(definition, userId)) {
+                visible.add(definition);
+            }
+        }
+        return visible;
+    }
+
+    private boolean canAccessTemplateDefinition(TemplateDefinition definition, Integer userId) {
+        if (definition == null) {
+            return false;
+        }
+        if (isAdminUser(userId)) {
+            return true;
+        }
+        Set<Integer> visibleUserIds = extractVisibleUserIds(definition);
+        if (visibleUserIds.isEmpty()) {
+            return true;
+        }
+        return userId != null && visibleUserIds.contains(userId);
+    }
+
+    private Set<Integer> extractVisibleUserIds(TemplateDefinition definition) {
+        Set<Integer> userIds = new LinkedHashSet<>();
+        if (definition == null || definition.getTxtTemplatePayload() == null || definition.getTxtTemplatePayload().trim().isEmpty()) {
+            return userIds;
+        }
+
+        Map<String, Object> payload = parseMap(definition.getTxtTemplatePayload());
+        addVisibleUserIds(userIds, payload.get("visibleUserIds"));
+        addVisibleUserIds(userIds, payload.get("visibilityUserIds"));
+        addVisibleUserIds(userIds, payload.get("selectedUsers"));
+        return userIds;
+    }
+
+    private void addVisibleUserIds(Set<Integer> target, Object value) {
+        if (!(value instanceof List)) {
+            return;
+        }
+        for (Object item : (List<?>) value) {
+            Integer userId = toInteger(item);
+            if (userId != null && userId > 0) {
+                target.add(userId);
+            }
+        }
+    }
+
+    private boolean isAdminUser(Integer userId) {
+        if (userId == null || userId <= 0) {
+            return false;
+        }
+        CfgTblUser user = entityManager.find(CfgTblUser.class, userId);
+        if (user == null) {
+            return false;
+        }
+        CfgTblRole role = user.getCfgTblRole();
+        String roleName = role != null ? valueAsString(role.getTxtRoleName()) : null;
+        if (roleName == null) {
+            return false;
+        }
+        String normalized = roleName.trim().toUpperCase(Locale.ROOT);
+        return normalized.equals("ADMIN")
+                || normalized.equals("ROLE_ADMIN")
+                || normalized.equals("SUPER ADMIN")
+                || normalized.equals("ROLE_SUPER ADMIN")
+                || normalized.contains("ADMIN");
+    }
+
     private Map<String, Object> handleTemplateDecision(Map<String, Object> requestBody, String action,
                                                        HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
@@ -674,7 +793,7 @@ public class TemplateDefinitionController {
             return false;
         }
         int displayLevel = level == null || level <= 0 ? displayLevelForIndex(0) : level;
-        for (Map<String, Object> entry : parseHistory(application.getTxtApprovalHistory())) {
+        for (Map<String, Object> entry : activeTemplateHistory(parseHistory(application.getTxtApprovalHistory()))) {
             String action = valueAsString(entry.get("action"));
             Integer approvedBy = toInteger(firstObject(entry.get("approvedBy"), entry.get("userId")));
             Integer entryLevel = toInteger(entry.get("level"));
@@ -802,7 +921,7 @@ public class TemplateDefinitionController {
 
     private Set<Integer> approvedIdsForStep(CfgTblCustomFormApplication application, TemplateStep step) {
         Set<Integer> ids = new HashSet<>();
-        for (Map<String, Object> entry : parseHistory(application.getTxtApprovalHistory())) {
+        for (Map<String, Object> entry : activeTemplateHistory(parseHistory(application.getTxtApprovalHistory()))) {
             if (!"APPROVED".equalsIgnoreCase(valueAsString(entry.get("action")))) {
                 continue;
             }
@@ -888,6 +1007,49 @@ public class TemplateDefinitionController {
         List<Map<String, Object>> prior = parseHistory(application.getTxtPriorApprovals());
         prior.add(new HashMap<>(entry));
         application.setTxtPriorApprovals(writeJson(prior));
+    }
+
+    private List<Map<String, Object>> activeTemplateHistory(List<Map<String, Object>> history) {
+        List<Map<String, Object>> active = new ArrayList<>();
+        for (Map<String, Object> entry : history) {
+            String action = valueAsString(entry.get("action")).toUpperCase(Locale.ROOT);
+            if ("SENT_BACK_TO_INITIATOR".equals(action)) {
+                active.removeIf(existing -> !entryBelongsToTemplateSubmission(existing));
+                active.add(entry);
+                continue;
+            }
+            if ("SENT_BACK".equals(action)) {
+                Integer toLevel = toInteger(firstObject(entry.get("toLevel"), entry.get("targetLevel"), entry.get("returnLevel")));
+                int resetLevel = toLevel == null || toLevel <= 0 ? 1 : toLevel;
+                active.removeIf(existing -> {
+                    if (entryBelongsToTemplateSubmission(existing)) {
+                        return false;
+                    }
+                    Integer existingLevel = toInteger(firstObject(existing.get("intApprovalOrder"), existing.get("level")));
+                    return existingLevel != null && existingLevel >= resetLevel;
+                });
+                active.add(entry);
+                continue;
+            }
+            if ("RESUBMITTED_BY_INITIATOR".equals(action)) {
+                active.removeIf(existing -> !entryBelongsToTemplateSubmission(existing));
+                active.add(entry);
+                continue;
+            }
+            active.add(entry);
+        }
+        return active;
+    }
+
+    private boolean entryBelongsToTemplateSubmission(Map<String, Object> entry) {
+        String action = valueAsString(entry.get("action")).toUpperCase(Locale.ROOT);
+        String stepId = firstText(entry.get("stepId"), entry.get("pipelineStepId"), entry.get("signatureTargetId"));
+        String role = valueAsString(firstObject(entry.get("role"), entry.get("departmentName"))).trim().toLowerCase(Locale.ROOT);
+        Integer level = toInteger(firstObject(entry.get("intApprovalOrder"), entry.get("level")));
+        return "SUBMITTED".equals(action)
+                || "initiator".equalsIgnoreCase(stepId)
+                || "submission".equals(role)
+                || (level != null && level == 1 && "resubmitted_by_initiator".equalsIgnoreCase(action));
     }
 
     private String resolveUniqueTemplateApplicationCode(TemplateDefinition definition, String requestedCode) {

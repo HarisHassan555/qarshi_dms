@@ -11,7 +11,9 @@
             <button *ngIf="savedTemplate" type="button" class="btn btn-outline" [disabled]="isSendingTestEmail" (click)="sendTestEmailToAdmin()">
                 {{ isSendingTestEmail ? 'Sending...' : 'Test Email Admin' }}
             </button>
-            <button *ngIf="savedTemplate" type="button" class="btn btn-primary" (click)="submitTemplate()">Submit</button>
+            <button *ngIf="savedTemplate" type="button" class="btn btn-primary" [disabled]="isSubmitting" (click)="submitTemplate()">
+                {{ isSubmitting ? 'Saving...' : (isEditingExistingApplication ? 'Resubmit' : 'Submit') }}
+            </button>
         </div>
     </div>
 
@@ -226,16 +228,23 @@
                         </ng-container>
                     </ng-template>
                     <ng-template #fieldValue>
-                        <ng-container *ngIf="isDynamicSignatureField(field); else nonSignatureField">
+                        <ng-container *ngIf="isDynamicApprovalDataField(field); else nonSignatureField">
                             <div class="pipeline-signature-field" [ngStyle]="getInputStyle(field)">
-                                <div class="pipeline-signature-slot" *ngFor="let slot of getDynamicSignatureSlots(field)">
-                                    <img
-                                        *ngIf="getDynamicSignatureImageUrl(slot) as signatureUrl; else signaturePlaceholder"
-                                        [src]="signatureUrl"
-                                        [alt]="getDynamicSignatureLabel(slot)" />
-                                    <ng-template #signaturePlaceholder>
-                                    </ng-template>
-                                </div>
+                                <ng-container *ngIf="isDynamicSignatureField(field); else dynamicApprovalTextField">
+                                    <div class="pipeline-signature-slot" *ngFor="let slot of getDynamicSignatureSlots(field)">
+                                        <img
+                                            *ngIf="getDynamicSignatureImageUrl(slot) as signatureUrl; else signaturePlaceholder"
+                                            [src]="signatureUrl"
+                                            [alt]="getDynamicSignatureLabel(slot)" />
+                                        <ng-template #signaturePlaceholder>
+                                        </ng-template>
+                                    </div>
+                                </ng-container>
+                                <ng-template #dynamicApprovalTextField>
+                                    <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                                        {{ getDynamicApprovalDisplayText(field) }}
+                                    </span>
+                                </ng-template>
                             </div>
                         </ng-container>
                         <ng-template #nonSignatureField>

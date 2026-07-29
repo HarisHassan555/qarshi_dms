@@ -1,30 +1,185 @@
-<div class="template-forms-page">
-    <div class="forms-header">
-        <div>
-            <h2>Template Forms</h2>
-            <p>Fill forms created in the template builder.</p>
-        </div>
-    </div>
-
-    <div class="empty-state error-state" *ngIf="loadError">
-        {{ loadError }}
-    </div>
-
-    <div class="empty-state" *ngIf="!loadError && templates.length === 0">
-        No template forms saved yet.
-    </div>
-
-    <div class="forms-grid" *ngIf="!loadError && templates.length > 0">
-        <div class="template-card" *ngFor="let template of templates">
-            <div>
-                <h3>{{ getTemplateName(template) }}</h3>
-                <span>{{ getCodeConvention(template) }}</span>
-                <small>Updated {{ template.updatedAt | date:'medium' }}</small>
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+            <div class="flex items-center gap-2">
+                <h5 class="text-xl font-bold dark:text-white-light">Digital Document List</h5>
             </div>
-            <div class="template-actions">
-                <button type="button" class="btn btn-secondary" (click)="editTemplate(template)">Edit</button>
-                <button type="button" class="btn btn-primary" (click)="fillTemplate(template)">Fill</button>
+            <div class="ltr:ml-auto rtl:mr-auto flex gap-2 flex-wrap">
+                <div *ngIf="isAdmin">
+                    <a (click)="addTemplate()" class="btn btn-primary gap-2">
+                        <icon-plus />
+                        Add New Digital Document
+                    </a>
+                </div>
+                <div>
+                    <input [(ngModel)]="search" type="text" class="form-input" placeholder="Search digital documents..." />
+                </div>
+            </div>
+        </div>
+
+        <div class="px-5 pb-2" *ngIf="loadError">
+            <div class="rounded-md border border-danger/30 bg-danger-light p-4 text-danger">
+                {{ loadError }}
+            </div>
+        </div>
+
+        <div class="datatable invoice-table" *ngIf="!loadError && getDisplayedTemplates().length > 0">
+            <ng-datatable
+                [rows]="getDisplayedTemplates()"
+                [columns]="cols"
+                [hasCheckbox]="false"
+                [sortable]="true"
+                [search]="search"
+                skin="whitespace-nowrap bh-table-hover"
+                firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                lastArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M11 19L17 12L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M6.99976 19L12.9998 12L6.99976 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg> '
+                previousArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M15 5L9 12L15 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                nextArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M9 5L15 12L9 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'>
+                <ng-template slot="name" let-value="data">
+                    <div class="template-name-cell">
+                        <strong>{{ getTemplateName(value) }}</strong>
+                        <small *ngIf="isAdmin">ID: {{ value.id }}</small>
+                    </div>
+                </ng-template>
+                <ng-template slot="codeConvention" let-value="data">
+                    <span class="badge badge-outline-primary">
+                        {{ getCodeConvention(value) }}
+                    </span>
+                </ng-template>
+                <ng-template slot="visibility" let-value="data">
+                    <span
+                        class="badge"
+                        [ngClass]="value.visibilityUserIds?.length ? 'badge-outline-warning' : 'badge-outline-success'">
+                        {{ getVisibilitySummary(value) }}
+                    </span>
+                </ng-template>
+                <ng-template slot="updatedAt" let-value="data">
+                    <span>{{ value.updatedAt | date:'short' }}</span>
+                </ng-template>
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-4">
+                        <a *ngIf="isAdmin" (click)="openVisibilityModal(value)" class="hover:text-warning" title="Manage Visibility">
+                            <icon-settings class="h-4.5 w-4.5" />
+                        </a>
+                        <a *ngIf="isAdmin" (click)="editTemplate(value)" class="hover:text-info" title="Edit Digital Document">
+                            <icon-edit class="h-4.5 w-4.5" />
+                        </a>
+                        <a (click)="fillTemplate(value)" class="hover:text-primary" title="Open Digital Document">
+                            <icon-arrow-forward class="h-4.5 w-4.5" />
+                        </a>
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+
+        <div class="px-5 pb-5" *ngIf="!loadError && getDisplayedTemplates().length === 0">
+            <div class="rounded-md border border-[#e0e6ed] bg-white p-5 dark:border-[#1b2e4b] dark:bg-[#1b2e4b]">
+                <p class="text-center text-gray-600 dark:text-gray-400">
+                    <span *ngIf="!search && isAdmin">No digital documents saved yet. Click "Add New Digital Document" to create your first document.</span>
+                    <span *ngIf="!search && !isAdmin">No digital documents are currently visible to you.</span>
+                    <span *ngIf="search">No digital documents found matching your search.</span>
+                </p>
             </div>
         </div>
     </div>
 </div>
+
+<modal #visibilityModal [closeOnOutsideClick]="false">
+    <ng-template #modalHeader>
+        <div>Manage Form Visibility</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="visibility-modal-body" *ngIf="selectedTemplateForVisibility">
+            <p class="visibility-modal-copy">
+                Select the users who should be able to see and fill <strong>{{ getTemplateName(selectedTemplateForVisibility) }}</strong>.
+                Leave it empty to keep the form visible to all users.
+            </p>
+
+            <label class="visibility-label">Add Departments</label>
+            <ng-select
+                [items]="departments"
+                bindLabel="txtDepartmentName"
+                bindValue="serDepartmentId"
+                [(ngModel)]="selectedVisibilityDepartmentIds"
+                [multiple]="true"
+                [clearable]="true"
+                [closeOnSelect]="false"
+                appendTo="body"
+                dropdownPosition="bottom"
+                placeholder="Select departments to add all their users"
+                (change)="onVisibilityDepartmentsChanged()">
+                <ng-template ng-label-tmp let-item="item">
+                    {{ getDepartmentName(item) }}
+                </ng-template>
+                <ng-template ng-option-tmp let-item="item">
+                    <div class="visibility-option-row">
+                        <span>{{ getDepartmentName(item) }}</span>
+                        <span class="text-xs text-gray-500">
+                            {{ getDepartmentUsers(item?.serDepartmentId).length }} users
+                        </span>
+                    </div>
+                </ng-template>
+            </ng-select>
+
+            <label class="visibility-label">Allowed Users</label>
+            <ng-select
+                [items]="allUsers"
+                bindLabel="txtUserName"
+                bindValue="serUserId"
+                [(ngModel)]="selectedVisibilityUserToAdd"
+                [clearable]="true"
+                appendTo="body"
+                dropdownPosition="bottom"
+                placeholder="Search and add a user"
+                (change)="addVisibilityUser($event)">
+                <ng-template ng-option-tmp let-item="item">
+                    <div class="visibility-option-row">
+                        <span>{{ getUserDisplayName(item) }}</span>
+                        <span class="text-xs text-gray-500" *ngIf="getUserRoleName(item)">
+                            ({{ getUserRoleName(item) }})
+                        </span>
+                    </div>
+                </ng-template>
+            </ng-select>
+
+            <div class="visibility-selection-panel">
+                <div class="visibility-selection-header">
+                    <span>Selected Users</span>
+                    <small>{{ selectedVisibilityUserIds.length }} total</small>
+                </div>
+
+                <div class="visibility-selection-empty" *ngIf="selectedVisibilityUserIds.length === 0">
+                    No users selected. The form will remain visible to all users.
+                </div>
+
+                <div class="visibility-selection-list" *ngIf="selectedVisibilityUserIds.length > 0">
+                    <div class="visibility-user-chip" *ngFor="let user of getSelectedVisibilityUsers()">
+                        <div>
+                            <strong>{{ getUserDisplayName(user) }}</strong>
+                            <small *ngIf="getUserRoleName(user)">{{ getUserRoleName(user) }}</small>
+                        </div>
+                        <button type="button" class="visibility-remove-btn" (click)="removeVisibilityUser(getUserId(user))">Remove</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="visibility-department-summary" *ngIf="selectedVisibilityDepartmentIds.length > 0">
+                <div class="visibility-selection-header">
+                    <span>Department Coverage</span>
+                </div>
+                <div class="visibility-department-row" *ngFor="let departmentId of selectedVisibilityDepartmentIds">
+                    <span>{{ getDepartmentNameById(departmentId) }}</span>
+                    <small>{{ getSelectedDepartmentUserCount(departmentId) }} selected</small>
+                </div>
+            </div>
+        </div>
+    </ng-template>
+    <ng-template #modalFooter>
+        <div class="visibility-modal-footer">
+            <button type="button" class="btn btn-secondary" (click)="closeVisibilityModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" [disabled]="savingVisibility" (click)="saveVisibility()">
+                {{ savingVisibility ? 'Saving...' : 'Save Visibility' }}
+            </button>
+        </div>
+    </ng-template>
+</modal>
