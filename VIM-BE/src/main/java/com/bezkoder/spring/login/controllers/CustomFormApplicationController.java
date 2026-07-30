@@ -47,6 +47,9 @@ public class CustomFormApplicationController {
     @Autowired
     private EmailService emailService;
 
+    @Autowired
+    private TemplateDefinitionController templateDefinitionController;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @RequestMapping(value = "/getAllApplications", method = RequestMethod.GET)
@@ -536,8 +539,24 @@ public class CustomFormApplicationController {
                 return renderEmailActionErrorPage("Comments required",
                         "Please enter comments before approving. Use your browser back button to return to the form.");
             }
-            String approvedIp = resolveClientIp(request);
             String finalRemarks = remarks.trim();
+            if (isTemplateBuilderApplication(applicationId)) {
+                Map<String, Object> requestBody = buildTemplateEmailActionRequest(applicationId, userId, finalRemarks);
+                Map<String, Object> result = templateDefinitionController.approveTemplateApplication(requestBody,
+                        response);
+                if ("Success".equals(result.get("status"))) {
+                    try {
+                        customFormApplicationService.sendTemplatePostApprovalEmails(applicationId);
+                    } catch (Exception emailEx) {
+                        logger.warn("Template email approval succeeded but follow-up emails failed for applicationId="
+                                + applicationId + ": " + emailEx.getMessage(), emailEx);
+                    }
+                    return renderEmailActionResultPage("Application Approved", "The application has been approved.");
+                }
+                return renderEmailActionErrorPage("Approval Failed",
+                        String.valueOf(result.getOrDefault("message", "Failed to approve application")));
+            }
+            String approvedIp = resolveClientIp(request);
             String status = customFormApplicationService.approveApplication(applicationId, finalRemarks, userId, "EMAIL",
                     approvedIp);
             if ("Success".equals(status)) {
@@ -575,6 +594,16 @@ public class CustomFormApplicationController {
                         "Please enter comments before rejecting. Use your browser back button to return to the form.");
             }
             String finalRemarks = remarks.trim();
+            if (isTemplateBuilderApplication(applicationId)) {
+                Map<String, Object> requestBody = buildTemplateEmailActionRequest(applicationId, userId, finalRemarks);
+                Map<String, Object> result = templateDefinitionController.rejectTemplateApplication(requestBody,
+                        response);
+                if ("Success".equals(result.get("status"))) {
+                    return renderEmailActionResultPage("Application Rejected", "The application has been rejected.");
+                }
+                return renderEmailActionErrorPage("Rejection Failed",
+                        String.valueOf(result.getOrDefault("message", "Failed to reject application")));
+            }
             String status = getCustomFormApplicationDaoImpl().rejectApplication(applicationId, finalRemarks, userId);
             if ("Success".equals(status)) {
                 return renderEmailActionResultPage("Application Rejected", "The application has been rejected.");
@@ -847,6 +876,16 @@ public class CustomFormApplicationController {
                         "Please enter comments before sending back. Use your browser back button to return to the form.");
             }
             String finalRemarks = remarks.trim();
+            if (isTemplateBuilderApplication(applicationId)) {
+                Map<String, Object> requestBody = buildTemplateEmailActionRequest(applicationId, userId, finalRemarks);
+                Map<String, Object> result = templateDefinitionController.sendBackTemplateApplication(requestBody,
+                        response);
+                if ("Success".equals(result.get("status"))) {
+                    return renderEmailActionResultPage("Application Sent Back", "The application has been sent back.");
+                }
+                return renderEmailActionErrorPage("Send Back Failed",
+                        String.valueOf(result.getOrDefault("message", "Failed to send back application")));
+            }
             String status = getCustomFormApplicationDaoImpl().sendBackApplication(applicationId, finalRemarks, userId);
             if ("Success".equals(status)) {
                 return renderEmailActionResultPage("Application Sent Back", "The application has been sent back.");
@@ -884,6 +923,18 @@ public class CustomFormApplicationController {
                         "Please enter comments before sending back to initiator. Use your browser back button to return to the form.");
             }
             String finalRemarks = remarks.trim();
+            if (isTemplateBuilderApplication(applicationId)) {
+                Map<String, Object> requestBody = buildTemplateEmailActionRequest(applicationId, userId, finalRemarks);
+                Map<String, Object> result = templateDefinitionController
+                        .sendBackTemplateApplicationToInitiator(requestBody, response);
+                if ("Success".equals(result.get("status"))) {
+                    return renderEmailActionResultPage("Application Sent Back To Initiator",
+                            "The application has been sent back to the initiator.");
+                }
+                return renderEmailActionErrorPage("Send Back Failed",
+                        String.valueOf(result.getOrDefault("message",
+                                "Failed to send back application to initiator")));
+            }
             String status = getCustomFormApplicationDaoImpl().sendBackApplicationToInitiator(applicationId, finalRemarks,
                     userId);
             if ("Success".equals(status)) {
@@ -1250,6 +1301,38 @@ public class CustomFormApplicationController {
                     status, message, "APPLICATION", applicationId, payload, errorMessage);
         } catch (Exception e) {
             logger.warn("Failed to log form action: " + e.getMessage());
+        }
+    }
+
+    private Map<String, Object> buildTemplateEmailActionRequest(Integer applicationId, Integer userId, String remarks) {
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("applicationId", applicationId);
+        requestBody.put("userId", userId);
+        requestBody.put("approverUserId", userId);
+        requestBody.put("remarks", remarks != null ? remarks : "");
+        return requestBody;
+    }
+
+    private boolean isTemplateBuilderApplication(Integer applicationId) {
+        if (applicationId == null) {
+            return false;
+        }
+        try {
+            CfgTblCustomFormApplication application = customFormApplicationService.getApplicationById(applicationId);
+            if (application == null || application.getTxtApplicationData() == null) {
+                return false;
+            }
+            String rawJson = String.valueOf(application.getTxtApplicationData()).trim();
+            if (rawJson.isEmpty()) {
+                return false;
+            }
+            Map<String, Object> appData = objectMapper.readValue(rawJson, new TypeReference<Map<String, Object>>() {
+            });
+            return appData.get("templatePayload") instanceof Map;
+        } catch (Exception ex) {
+            logger.warn("Failed to detect template-builder application for email action, applicationId="
+                    + applicationId + ": " + ex.getMessage());
+            return false;
         }
     }
 
