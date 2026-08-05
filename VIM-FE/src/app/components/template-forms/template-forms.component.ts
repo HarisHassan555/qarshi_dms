@@ -21,7 +21,6 @@ export class TemplateFormsComponent implements OnInit {
     selectedTemplateForVisibility: SavedTemplateDefinition | null = null;
     selectedVisibilityUserIds: number[] = [];
     selectedVisibilityDepartmentIds: number[] = [];
-    selectedVisibilityUserToAdd: number | null = null;
     savingVisibility = false;
     isAdmin = false;
     currentUserId: number | null = null;
@@ -121,7 +120,6 @@ export class TemplateFormsComponent implements OnInit {
         this.selectedTemplateForVisibility = null;
         this.selectedVisibilityUserIds = [];
         this.selectedVisibilityDepartmentIds = [];
-        this.selectedVisibilityUserToAdd = null;
         this.savingVisibility = false;
     }
 
@@ -189,6 +187,16 @@ export class TemplateFormsComponent implements OnInit {
         });
     }
 
+    get visibilityUserOptions(): Array<{ id: number; name: string; roleName: string }> {
+        return this.allUsers
+            .map((user) => ({
+                id: this.getUserId(user),
+                name: this.getUserDisplayName(user),
+                roleName: this.getUserRoleName(user)
+            }))
+            .filter((user) => Number.isFinite(user.id) && user.id > 0);
+    }
+
     onVisibilityDepartmentsChanged(): void {
         const departmentUserIds = this.selectedVisibilityDepartmentIds.flatMap((departmentId) =>
             this.getDepartmentUsers(departmentId).map((user: any) => this.getUserId(user))
@@ -202,18 +210,6 @@ export class TemplateFormsComponent implements OnInit {
 
     removeVisibilityUser(userId: number): void {
         this.selectedVisibilityUserIds = this.selectedVisibilityUserIds.filter((id) => id !== userId);
-    }
-
-    addVisibilityUser(userId: number | null): void {
-        const numericUserId = Number(userId || 0);
-        if (!Number.isFinite(numericUserId) || numericUserId <= 0) {
-            this.selectedVisibilityUserToAdd = null;
-            return;
-        }
-        if (!this.selectedVisibilityUserIds.includes(numericUserId)) {
-            this.selectedVisibilityUserIds = [...this.selectedVisibilityUserIds, numericUserId];
-        }
-        this.selectedVisibilityUserToAdd = null;
     }
 
     getSelectedVisibilityUsers(): any[] {

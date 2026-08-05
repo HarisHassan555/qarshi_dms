@@ -5689,6 +5689,13 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
     if (candidates.length === 0) return null;
     candidates.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
 
+    const stageResetT = this.getStageResetTime(pipelineOrder);
+    if (stageResetT > 0) {
+      const afterStageReset = candidates.filter((c) => this.getApprovalEntryTime(c) > stageResetT);
+      if (afterStageReset.length === 0) return null;
+      return afterStageReset[0];
+    }
+
     if (this.isCapfForm()) {
       const resetToInitiatorT = this.getSendBackToInitiatorResetTime();
       if (resetToInitiatorT > 0) {
@@ -6957,6 +6964,41 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
     return isNaN(t) ? 0 : t;
   }
 
+  private getStageResetTime(pipelineOrder: number): number {
+    const combined = [
+      ...(Array.isArray(this.approvalHistory) ? this.approvalHistory : []),
+      ...(Array.isArray(this.priorApprovalHistory) ? this.priorApprovalHistory : [])
+    ];
+    if (combined.length === 0) return 0;
+
+    let latestReset = 0;
+    for (const entry of combined) {
+      const action = (entry?.action || entry?.status || '').toString().toUpperCase();
+      if (action === 'SENT_BACK_TO_INITIATOR') {
+        latestReset = Math.max(latestReset, this.getApprovalEntryTime(entry));
+        continue;
+      }
+      if (action !== 'SENT_BACK' && action !== 'SENTBACK') {
+        continue;
+      }
+
+      const targetLevel = Number(
+        entry?.toLevel ??
+        entry?.targetLevel ??
+        entry?.returnLevel ??
+        entry?.sentBackToLevel
+      );
+      if (!Number.isFinite(targetLevel)) {
+        continue;
+      }
+      if (targetLevel <= Number(pipelineOrder)) {
+        latestReset = Math.max(latestReset, this.getApprovalEntryTime(entry));
+      }
+    }
+
+    return latestReset;
+  }
+
   // Get history entry for a given pipeline stage (by order/level)
   // When there are multiple approvals at the same level (e.g. re-approval after send-back), return the latest one so we show the most recent signature and timestamp
   getStageHistoryEntry(pipelineOrder: number, departmentId?: number): any {
@@ -7006,6 +7048,13 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
     if (candidates.length === 0) return null;
     // Sort by approvedDate descending and return the latest approval
     candidates.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+
+    const stageResetT = this.getStageResetTime(pipelineOrder);
+    if (stageResetT > 0) {
+      const afterStageReset = candidates.filter((c) => this.getApprovalEntryTime(c) > stageResetT);
+      if (afterStageReset.length === 0) return null;
+      return afterStageReset[0];
+    }
 
     if (this.isCapfForm() && pipelineOrder >= 0) {
       const resetToInitiatorT = this.getSendBackToInitiatorResetTime();
@@ -7746,6 +7795,42 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
     return isNaN(n) ? null : n;
   }
 
+  private getLatestFooterApprovalEntry(userId: number, section: any, slotIndex: number): any {
+    if (!this.approvalHistory || this.approvalHistory.length === 0) return null;
+    const footerFields = this.getSlipPipelineFooterFields();
+    const sectionOrder = Number(section?.order) || 0;
+    const sectionKey = String(section?.key || '').trim();
+    const expectedStepId = sectionKey ? `${sectionKey}-${sectionOrder}-${userId}-${slotIndex + 1}` : '';
+    const expectedLevel = footerFields
+      .filter((field: any) => (Number(field?.order) || 0) < sectionOrder)
+      .reduce((count: number, field: any) => count + (Array.isArray(field?.users) ? field.users.length : 0), 0) + slotIndex + 2;
+    const sectionLabel = String(section?.label || '').trim().toUpperCase();
+    const candidates = this.approvalHistory.filter((e: any) => {
+      const action = (e.action || e.status || '').toString().toUpperCase();
+      if (action !== 'APPROVED') return false;
+      const entryUserId = Number(e.approvedBy ?? e.userId ?? e.serUserId);
+      if (!Number.isFinite(entryUserId) || entryUserId !== userId) return false;
+      const entryStepId = String(e.stepId ?? e.pipelineStepId ?? e.signatureTargetId ?? '').trim();
+      if (expectedStepId && entryStepId) return entryStepId === expectedStepId;
+      const entryLevel = Number(e.level ?? e.intApprovalOrder);
+      if (Number.isFinite(entryLevel)) return entryLevel === expectedLevel;
+      const entryRole = String(e.role || e.stepName || e.stageName || '').trim().toUpperCase();
+      return !!sectionLabel && entryRole === sectionLabel;
+    });
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => this.getApprovalEntryTime(b) - this.getApprovalEntryTime(a));
+    const latest = candidates[0];
+    const stageLevel = Number(latest?.level ?? latest?.intApprovalOrder);
+    if (Number.isFinite(stageLevel)) {
+      const stageResetT = this.getStageResetTime(stageLevel);
+      if (stageResetT > 0) {
+        const afterStageReset = candidates.filter((c) => this.getApprovalEntryTime(c) > stageResetT);
+        return afterStageReset.length > 0 ? afterStageReset[0] : null;
+      }
+    }
+    return latest;
+  }
+
   /** Get the latest approval entry for a user/role so re-approvals show the most recent signature and timestamp */
   private getLatestApprovalEntryForUser(userId: number, role?: string): any {
     if (!this.approvalHistory || this.approvalHistory.length === 0) return null;
@@ -7775,39 +7860,63 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
     return candidates[0];
   }
 
-  getUserSignatureUrl(user: any, role?: string): string {
+  getUserSignatureUrl(user: any, roleOrSection?: any, slotIndex?: number): string {
     const userId = this.getUserId(user);
     if (!userId) return '';
     if (!this.approvalHistory || this.approvalHistory.length === 0) return '';
-    const entry = this.getLatestApprovalEntryForUser(userId, role);
-    if (!entry || !entry.signaturePath) return '';
+    const entry = roleOrSection && typeof roleOrSection === 'object'
+      ? this.getLatestFooterApprovalEntry(userId, roleOrSection, slotIndex ?? 0)
+      : this.getLatestApprovalEntryForUser(userId, roleOrSection);
+    if (!entry) {
+      if (roleOrSection && typeof roleOrSection === 'object' && this.isFooterSlotPassed(roleOrSection, slotIndex ?? 0)) {
+        return `${urls.API_URL}getSignature?userId=${userId}`;
+      }
+      return '';
+    }
     return `${urls.API_URL}getSignature?userId=${userId}`;
   }
 
-  isUserApproved(user: any, role?: string): boolean {
+  isUserApproved(user: any, roleOrSection?: any, slotIndex?: number): boolean {
     const userId = this.getUserId(user);
     if (!userId || !this.approvalHistory || this.approvalHistory.length === 0) return false;
-    const entry = this.getLatestApprovalEntryForUser(userId, role);
-    if (!entry) return false;
-    if (!entry.signaturePath) return false;
+    const entry = roleOrSection && typeof roleOrSection === 'object'
+      ? this.getLatestFooterApprovalEntry(userId, roleOrSection, slotIndex ?? 0)
+      : this.getLatestApprovalEntryForUser(userId, roleOrSection);
+    if (!entry) return !!(roleOrSection && typeof roleOrSection === 'object' && this.isFooterSlotPassed(roleOrSection, slotIndex ?? 0));
     const action = (entry.action || entry.status || '').toString().toUpperCase();
-    if (action === 'REJECTED') return false;
-    if (action === 'APPROVED') return true;
-    return !!entry.approvedDate;
+    return action === 'APPROVED';
   }
 
-  getUserApprovalDate(user: any, role?: string): string {
+  getUserApprovalDate(user: any, roleOrSection?: any, slotIndex?: number): string {
     const userId = this.getUserId(user);
     if (!userId || !this.approvalHistory || this.approvalHistory.length === 0) return '';
-    const entry = this.getLatestApprovalEntryForUser(userId, role);
-    if (!entry || !entry.approvedDate) return '';
+    const entry = roleOrSection && typeof roleOrSection === 'object'
+      ? this.getLatestFooterApprovalEntry(userId, roleOrSection, slotIndex ?? 0)
+      : this.getLatestApprovalEntryForUser(userId, roleOrSection);
+    const dateValue = entry?.approvedDate || entry?.approvedAt || entry?.date || entry?.dteCreatedDate || entry?.timestamp;
+    if (!dateValue) return '';
     try {
-      const dt = new Date(entry.approvedDate);
-      if (isNaN(dt.getTime())) return String(entry.approvedDate);
+      const dt = new Date(dateValue);
+      if (isNaN(dt.getTime())) return String(dateValue);
       return dt.toLocaleString();
     } catch (e) {
-      return String(entry.approvedDate);
+      return String(dateValue);
     }
+  }
+
+  private isFooterSlotPassed(section: any, slotIndex = 0): boolean {
+    const footerFields = this.getSlipPipelineFooterFields();
+    const sortedSections = [...footerFields].sort((a: any, b: any) => (Number(a?.order) || 0) - (Number(b?.order) || 0));
+    const sectionPosition = sortedSections.findIndex((item: any) => item === section
+      || (!!item?.key && !!section?.key && item.key === section.key));
+    if (sectionPosition < 0) return false;
+    const expectedLevel = sortedSections
+      .slice(0, sectionPosition)
+      .reduce((count: number, item: any) => count + (Array.isArray(item?.users) ? item.users.length : 0), 0) + slotIndex + 2;
+    const status = String(this.applicationDetails?.txtStatus || '').toUpperCase();
+    if (status === 'APPROVED' || status === 'COMPLETED') return true;
+    const currentLevel = Number(this.applicationDetails?.intCurrentApprovalLevel);
+    return Number.isFinite(currentLevel) && currentLevel > expectedLevel;
   }
 
   async generatePdf(download: boolean = true): Promise<Blob | null> {

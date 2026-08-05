@@ -5,6 +5,11 @@ import { finalize } from 'rxjs';
 import { NotificationService } from 'src/app/NotificationService';
 import { SavedTemplateDefinition, TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
 import { urls } from 'src/app/utils/urls';
+import {
+    resolveDocumentHeaderAddress,
+    resolveDocumentHeaderBrandTitle,
+    resolveDocumentHeaderLogoPath,
+} from 'src/app/utils/document-header.util';
 
 type TemplateFieldType =
     'document_header' | 'document_header_qu' | 'document_header_qf' | 'document_header_qri' | 'document_header_qb'
@@ -49,6 +54,8 @@ interface PipelineStep {
     users?: any[];
     dynamicTarget?: string;
     dynamicTargets?: string[];
+    fieldPermissions?: any[];
+    fieldPermissionsConfigured?: boolean;
 }
 
 interface MyTemplateApplication {
@@ -94,12 +101,20 @@ interface ApprovalLogRow {
     signatureUrl: string;
 }
 
+interface AttachmentPayload {
+    fileName: string;
+    mimeType: string;
+    dataUrl: string;
+    base64: string;
+}
+
 @Component({
     selector: 'app-my-application',
     templateUrl: './my-application.component.html',
     styleUrls: ['./my-application.component.css', '../template-fill/template-fill.component.css']
 })
 export class MyApplicationComponent implements OnInit, OnDestroy {
+    private static readonly INDIVIDUAL_FOOTER_MIN_HEIGHT = 136;
     search = '';
     isLoading = false;
     applications: MyTemplateApplication[] = [];
@@ -533,6 +548,9 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         if (field.type === 'application_code') {
             return this.selectedApplication?.txtFormCode || '';
         }
+        if (field.type === 'attachment') {
+            return this.getAttachmentDisplayText(field);
+        }
         if (field.type === 'dynamic_approver_name' || field.type === 'dynamic_approval_timestamp') {
             return this.getDynamicApprovalDisplayText(field);
         }
@@ -552,8 +570,134 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         return this.sanitizer.bypassSecurityTrustHtml(String(this.values[field.id] || ''));
     }
 
+    getIndividualFooterSections(): any[] {
+        const data = this.parseApplicationData(this.selectedApplication?.txtApplicationData);
+        return Array.isArray(data?.footerFields) ? data.footerFields : [];
+    }
+
+    getIndividualFooterColSpan(section: any): number {
+        const users = Array.isArray(section?.users) ? section.users : [];
+        return Math.max(users.length, 1);
+    }
+
+    getIndividualFooterSlots(section: any): any[] {
+        const users = Array.isArray(section?.users) ? section.users : [];
+        return users.length > 0 ? users : [null];
+    }
+
+    getIndividualFooterUserLabel(user: any): SafeHtml {
+        const html = this.getIndividualFooterUserParts(user)
+            .map((value) => this.escapeHtml(value))
+            .join('<br>');
+        return this.sanitizer.bypassSecurityTrustHtml(html);
+    }
+
+    getIndividualFooterSignatureUrl(user: any, section?: any, slotIndex = 0): string {
+        const history = this.getIndividualFooterUserHistory(user, section, slotIndex);
+        const userId = this.getUserId(user);
+        if (!Number.isFinite(userId) || userId <= 0) {
+            return '';
+        }
+        if (!history && !this.isIndividualFooterSlotPassed(section, slotIndex)) {
+            return '';
+        }
+        return `${urls.API_URL}getSignature?userId=${userId}`;
+    }
+
+    isIndividualFooterUserApproved(user: any, section?: any, slotIndex = 0): boolean {
+        const history = this.getIndividualFooterUserHistory(user, section, slotIndex);
+        if (!history) {
+            return this.isIndividualFooterSlotPassed(section, slotIndex);
+        }
+        const action = String(history?.action || history?.status || '').toUpperCase();
+        if (action === 'REJECTED') {
+            return false;
+        }
+        return action === 'APPROVED';
+    }
+
+    getIndividualFooterUserApprovalDate(user: any, section?: any, slotIndex = 0): string {
+        const history = this.getIndividualFooterUserHistory(user, section, slotIndex);
+        return history ? this.getHistoryDate(history) : '';
+    }
+
+    isAttachmentField(field: TemplateField): boolean {
+        return field.type === 'attachment';
+    }
+
+    getAttachmentFields(): TemplateField[] {
+        return (this.selectedTemplate?.fields || []).filter((field: TemplateField) => this.isAttachmentField(field));
+    }
+
+    getAttachmentPayloads(field: TemplateField): AttachmentPayload[] {
+        return this.normalizeExistingAttachmentPayloads(this.values[field.id]);
+    }
+
+    getAttachmentDisplayText(field: TemplateField): string {
+        const attachments = this.getAttachmentPayloads(field);
+        return attachments.length > 0 ? attachments.map((attachment) => attachment.fileName).join(', ') : '';
+    }
+
+    viewAttachment(attachment: AttachmentPayload): void {
+        const dataUrl = String(attachment?.dataUrl || '').trim();
+        const base64 = String(attachment?.base64 || '').trim();
+        const mimeType = String(attachment?.mimeType || 'application/octet-stream').trim();
+        const resolvedUrl = dataUrl || (base64 ? `data:${mimeType};base64,${base64}` : '');
+        if (!resolvedUrl) {
+            this.notificationService.showMessage('Attachment content is unavailable.', 'warning');
+            return;
+        }
+        window.open(resolvedUrl, '_blank', 'noopener');
+    }
+
+    isHeaderFieldType(type: TemplateFieldType): boolean {
+        return ['document_header', 'document_header_qu', 'document_header_qf', 'document_header_qri', 'document_header_qb'].includes(type);
+    }
+
+    isFooterFieldType(type: TemplateFieldType): boolean {
+        return type === 'footer' || type === 'individual_pipeline_footer';
+    }
+
     isDocumentRegionFieldType(type: TemplateFieldType): boolean {
-        return ['document_header', 'document_header_qu', 'document_header_qf', 'document_header_qri', 'document_header_qb', 'footer', 'individual_pipeline_footer'].includes(type);
+        return this.isHeaderFieldType(type) || this.isFooterFieldType(type);
+    }
+
+    getHeaderLogoPath(type: TemplateFieldType): string {
+        return resolveDocumentHeaderLogoPath(type);
+    }
+
+    getHeaderBrandTitle(type: TemplateFieldType): string {
+        return resolveDocumentHeaderBrandTitle(type);
+    }
+
+    getHeaderAddress(type: TemplateFieldType): string {
+        return resolveDocumentHeaderAddress(type);
+    }
+
+    getRenderedFieldTop(field: TemplateField): number | null {
+        const placement = field?.placement;
+        if (!placement) {
+            return null;
+        }
+        if (field.type !== 'individual_pipeline_footer') {
+            return placement.y;
+        }
+        const height = Number(placement.height || 0);
+        const renderedHeight = this.getRenderedFieldHeight(field) ?? height;
+        const extraHeight = Math.max(0, renderedHeight - height);
+        return Math.max(0, Number(placement.y || 0) - extraHeight);
+    }
+
+    getRenderedFieldHeight(field: TemplateField): number | null {
+        const placement = field?.placement;
+        if (!placement) {
+            return null;
+        }
+        const height = Number(placement.height || 0);
+        if (field.type !== 'individual_pipeline_footer') {
+            return height;
+        }
+        return Math.max(height, MyApplicationComponent.INDIVIDUAL_FOOTER_MIN_HEIGHT);
     }
 
     isDynamicSignatureField(field: TemplateField): boolean {
@@ -618,9 +762,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         if (values.length > 0) {
             return values.join('\n');
         }
-        return field.type === 'dynamic_approver_name'
-            ? this.getDynamicSignatureStep(field)?.name || 'Dynamic Approver'
-            : '';
+        return '';
     }
 
     private loadApplicationValues(application: MyTemplateApplication): void {
@@ -682,7 +824,8 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         const historyAction = String(history?.action || '').toUpperCase();
         let tileStatus: ProgressTile['status'] = 'WAITING';
         const currentStepLevel = currentLevel > 0 ? currentLevel : 1;
-        const isInitiatorReopened = applicationStatus === 'PENDING' && Number.isFinite(currentLevel) && currentLevel < 0;
+        const isInitiatorReopened = this.hasLatestSendBackToInitiatorAction(this.selectedApplication)
+            || (applicationStatus === 'PENDING' && Number.isFinite(currentLevel) && currentLevel < 0);
 
         if (isInitiator) {
             tileStatus = isInitiatorReopened ? 'PENDING' : 'APPROVED';
@@ -757,6 +900,59 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             .find((entry) => this.getUserId(entry) === userId) || null;
     }
 
+    private getIndividualFooterUserHistory(user: any, section?: any, slotIndex = 0): any {
+        const userId = this.getUserId(user);
+        if (!Number.isFinite(userId) || userId <= 0) {
+            return null;
+        }
+        const expectedLevel = this.getIndividualFooterExpectedLevel(section, slotIndex);
+        if (expectedLevel !== null && Number.isFinite(expectedLevel) && expectedLevel > 0) {
+            const approvedEntries = this.getWorkflowApprovalHistory().filter((entry) => {
+                const action = String(entry?.action || entry?.status || '').toUpperCase();
+                if (action !== 'APPROVED' || this.getUserId(entry) !== userId) {
+                    return false;
+                }
+                const entryLevel = Number(entry?.intApprovalOrder ?? entry?.level);
+                return Number.isFinite(entryLevel) && entryLevel === expectedLevel;
+            });
+            return this.getLatestHistoryForUser(approvedEntries, userId);
+        }
+        return this.getLatestHistoryForUser(
+            this.getWorkflowApprovalHistory().filter((entry) => {
+                const action = String(entry?.action || entry?.status || '').toUpperCase();
+                return action === 'APPROVED';
+            }),
+            userId
+        );
+    }
+
+    private getIndividualFooterExpectedLevel(section: any, slotIndex = 0): number | null {
+        const sortedSections = [...this.getIndividualFooterSections()]
+            .sort((left: any, right: any) => (Number(left?.order) || 0) - (Number(right?.order) || 0));
+        const sectionPosition = sortedSections.findIndex((item: any) => item === section
+            || (!!item?.key && !!section?.key && item.key === section.key));
+        if (sectionPosition < 0) {
+            return null;
+        }
+        const stepsBeforeSection = sortedSections
+            .slice(0, sectionPosition)
+            .reduce((count, item) => count + (Array.isArray(item?.users) ? item.users.length : 0), 0);
+        return stepsBeforeSection + slotIndex + 2;
+    }
+
+    private isIndividualFooterSlotPassed(section: any, slotIndex = 0): boolean {
+        const expectedLevel = this.getIndividualFooterExpectedLevel(section, slotIndex);
+        if (expectedLevel === null || !Number.isFinite(expectedLevel) || expectedLevel <= 0) {
+            return false;
+        }
+        const status = String(this.selectedApplication?.txtStatus || '').toUpperCase();
+        if (status === 'APPROVED' || status === 'COMPLETED') {
+            return true;
+        }
+        const currentLevel = Number(this.selectedApplication?.intCurrentApprovalLevel);
+        return Number.isFinite(currentLevel) && currentLevel > expectedLevel;
+    }
+
     private getApprovalEntriesForStep(step: PipelineStep, stepLevel: number): any[] {
         const stepId = String(step.id || '').trim();
         return this.getWorkflowApprovalHistory().filter((entry) => {
@@ -782,6 +978,9 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     }
 
     private getInitiatorHistoryEntry(): any {
+        if (this.hasLatestSendBackToInitiatorAction(this.selectedApplication)) {
+            return null;
+        }
         return [...this.getWorkflowApprovalHistory()]
             .reverse()
             .find((entry) => {
@@ -935,10 +1134,12 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         }
 
         if (step.dynamicTarget === 'initiator' || (Array.isArray(step.dynamicTargets) && step.dynamicTargets.includes('initiator'))) {
-            return [{ label: 'Initiator' }];
+            const initiatorName = String(this.selectedApplication?.submittedByUserName || '').trim();
+            return [{ label: initiatorName || 'Initiator', txtUserName: initiatorName || '' }];
         }
 
-        return [{ label: step.name || 'Approver' }];
+        const resolvedName = this.getResolvedDynamicSlotLabel(step);
+        return [{ label: resolvedName || step.name || 'Approver' }];
     }
 
     private getApprovedSignatureSlots(step: PipelineStep): any[] {
@@ -966,9 +1167,54 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
 
     private getInitiatorSignatureSlots(): any[] {
         const userId = Number(this.selectedApplication?.serSubmittedBy);
+        const initiatorName = String(this.selectedApplication?.submittedByUserName || '').trim();
+        if (this.hasLatestSendBackToInitiatorAction(this.selectedApplication)) {
+            return [{ label: initiatorName || 'Initiator', txtUserName: initiatorName || '' }];
+        }
         return Number.isFinite(userId) && userId > 0
-            ? [{ serUserId: userId, txtUserName: 'Initiator', __signatureApproved: true }]
-            : [{ label: 'Initiator' }];
+            ? [{
+                serUserId: userId,
+                txtUserName: initiatorName || 'Initiator',
+                approvedDate: this.selectedApplication?.dteCreatedDate || null,
+                approvedAt: this.selectedApplication?.dteCreatedDate || null,
+                dteCreatedDate: this.selectedApplication?.dteCreatedDate || null,
+                __signatureApproved: true
+            }]
+            : [{ label: initiatorName || 'Initiator', txtUserName: initiatorName || '' }];
+    }
+
+    private hasLatestSendBackToInitiatorAction(application: any): boolean {
+        const history = this.parseApplicationData(application?.txtApprovalHistory);
+        if (!Array.isArray(history) || history.length === 0) {
+            return false;
+        }
+        for (let index = history.length - 1; index >= 0; index--) {
+            const action = String(history[index]?.action || '').toUpperCase();
+            if (!action) {
+                continue;
+            }
+            if (action === 'RESUBMITTED_BY_INITIATOR' || action === 'APPROVED' || action === 'REJECTED') {
+                return false;
+            }
+            if (action === 'SENT_BACK_TO_INITIATOR') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private getResolvedDynamicSlotLabel(step: PipelineStep): string {
+        const dynamicStep = step as any;
+        return String(
+            dynamicStep?.txtUserName
+            || dynamicStep?.userName
+            || dynamicStep?.approverName
+            || dynamicStep?.currentApproverName
+            || dynamicStep?.txtCurrentApproverName
+            || dynamicStep?.currentApproverUserName
+            || step?.name
+            || ''
+        ).trim();
     }
 
     private mergeSignatureSlots(configuredSlots: any[], approvedSlots: any[]): any[] {
@@ -1254,6 +1500,9 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     }
 
     private getDynamicApprovalSlotValue(field: TemplateField, slot: any): string {
+        if (!slot?.__signatureApproved) {
+            return '';
+        }
         if (field.type === 'dynamic_approver_name') {
             return this.getDynamicSignatureLabel(slot);
         }
@@ -1298,6 +1547,46 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         } catch {
             return {};
         }
+    }
+
+    private normalizeExistingAttachmentPayloads(value: any): AttachmentPayload[] {
+        const list = Array.isArray(value) ? value : (value ? [value] : []);
+        const normalized: AttachmentPayload[] = [];
+        for (const item of list) {
+            if (!item || typeof item !== 'object') {
+                continue;
+            }
+            const fileName = String(item.fileName || item.name || '').trim();
+            const mimeType = String(item.mimeType || item.type || '').trim() || 'application/octet-stream';
+            const dataUrl = String(item.dataUrl || '').trim();
+            const base64 = String(item.base64 || (dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : '')).trim();
+            if (!fileName) {
+                continue;
+            }
+            normalized.push({ fileName, mimeType, dataUrl, base64 });
+        }
+        return normalized;
+    }
+
+    private getIndividualFooterUserParts(user: any): string[] {
+        if (!user) {
+            return [];
+        }
+        const name = user.txtUserName || user.userName || user.name || '';
+        const designation = user.txtDesignation || user.designation || '';
+        const department = user.txtDepartmentName || user.departmentName || user.hrTblDepartment?.txtDepartmentName || '';
+        return [name, designation, department]
+            .map((value: string) => String(value || '').trim())
+            .filter((value: string) => value.length > 0);
+    }
+
+    private escapeHtml(value: any): string {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     private getWorkflowApprovalHistory(): any[] {
@@ -1371,10 +1660,73 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             ...liveTemplate,
             ...savedTemplate,
             fields: Array.isArray(savedTemplate.fields) && savedTemplate.fields.length > 0 ? savedTemplate.fields : liveTemplate.fields,
-            pipeline: Array.isArray(savedTemplate.pipeline) && savedTemplate.pipeline.length > 0 ? savedTemplate.pipeline : liveTemplate.pipeline,
+            pipeline: this.resolveWorkflowPipeline(application, savedTemplate, liveTemplate),
             page: savedTemplate.page || liveTemplate.page,
             html: typeof savedTemplate.html === 'string' && savedTemplate.html.length > 0 ? savedTemplate.html : liveTemplate.html
         };
+    }
+
+    private resolveWorkflowPipeline(application: MyTemplateApplication | null, savedTemplate: any, liveTemplate: any): PipelineStep[] {
+        const footerPipeline = this.buildFooterWorkflowPipeline(application, savedTemplate, liveTemplate);
+        if (footerPipeline.length > 0) {
+            return footerPipeline;
+        }
+        if (Array.isArray(savedTemplate?.pipeline) && savedTemplate.pipeline.length > 0) {
+            return savedTemplate.pipeline;
+        }
+        return Array.isArray(liveTemplate?.pipeline) ? liveTemplate.pipeline : [];
+    }
+
+    private buildFooterWorkflowPipeline(application: MyTemplateApplication | null, savedTemplate: any, liveTemplate: any): PipelineStep[] {
+        const data = this.parseApplicationData(application?.txtApplicationData);
+        const footerFields = Array.isArray(data?.footerFields) ? data.footerFields : [];
+        const templateFields = (savedTemplate?.fields || liveTemplate?.fields || []) as TemplateField[];
+        const hasIndividualFooter = templateFields.some((field: TemplateField) => field.type === 'individual_pipeline_footer');
+        if (!hasIndividualFooter || footerFields.length === 0) {
+            return [];
+        }
+
+        const attachmentPermissions = templateFields
+            .filter((field: TemplateField) => this.isAttachmentField(field))
+            .map((field: TemplateField) => ({
+                fieldId: field.id,
+                fieldLabel: field.label,
+                fieldType: field.type,
+                right: 'edit'
+            }));
+
+        const steps: PipelineStep[] = [{
+            id: 'initiator',
+            name: 'Initiator',
+            type: 'initiator',
+            approvalMode: 'OR',
+            order: 1,
+            users: []
+        }];
+
+        [...footerFields]
+            .sort((left: any, right: any) => (Number(left?.order) || 0) - (Number(right?.order) || 0))
+            .forEach((section: any, sectionIndex: number) => {
+                const users = Array.isArray(section?.users) ? section.users : [];
+                users.forEach((user: any, userIndex: number) => {
+                    const userId = Number(user?.serUserId ?? user?.userId ?? user?.id);
+                    if (!Number.isFinite(userId) || userId <= 0) {
+                        return;
+                    }
+                    steps.push({
+                        id: `${section?.key || 'footer'}-${sectionIndex + 1}-${userId}-${userIndex + 1}`,
+                        name: user?.txtUserName || user?.userName || user?.name || section?.label || `Approver ${steps.length}`,
+                        type: 'individual',
+                        approvalMode: 'OR',
+                        order: steps.length + 1,
+                        users: [user],
+                        fieldPermissions: attachmentPermissions as any,
+                        fieldPermissionsConfigured: true
+                    } as any);
+                });
+            });
+
+        return steps;
     }
 
     private getCurrentUserId(): number | null {

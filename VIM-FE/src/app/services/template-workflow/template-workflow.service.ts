@@ -155,6 +155,17 @@ export class TemplateWorkflowService {
         return this.http.get<any>(urls.API_URL + 'getTemplatePendingApprovals?' + params.toString());
     }
 
+    getTemplateApprovedApplications(userId: number, page = 0, pageSize = 10, search = ''): Observable<any> {
+        const params = new URLSearchParams();
+        params.set('userId', String(userId || 0));
+        params.set('page', String(Math.max(0, page)));
+        params.set('pageSize', String(Math.max(1, pageSize)));
+        if (search.trim()) {
+            params.set('search', search.trim());
+        }
+        return this.http.get<any>(urls.API_URL + 'getTemplateApprovedApplications?' + params.toString());
+    }
+
     peekNextTemplateCode(template: SavedTemplateDefinition): Observable<string> {
         return this.http.get<any>(urls.API_URL + 'getNextApplicationCode?formId=' + encodeURIComponent(template.id)).pipe(
             map((response) => String(response?.code || '').trim() || this.formatCode(template.codeConvention, 1))
@@ -167,9 +178,10 @@ export class TemplateWorkflowService {
         userPipeline: any[] = [],
         codeOverride?: string
     ): Observable<TemplateSubmission> {
+        const normalizedValues = this.normalizeApplicationValuesForStorage(values);
         const applicationData = {
-            ...values,
-            templateValues: values,
+            ...normalizedValues,
+            templateValues: normalizedValues,
             footerFields: userPipeline,
             templatePayload: template.payload
         };
@@ -197,7 +209,7 @@ export class TemplateWorkflowService {
                     templateId: template.id,
                     templateName: template.name,
                     code,
-                    values,
+                    values: normalizedValues,
                     pipeline: template.payload?.pipeline || [],
                     userPipeline,
                     submittedAt: new Date().toISOString(),
@@ -250,12 +262,13 @@ export class TemplateWorkflowService {
 
     updateTemplateApplication(application: any, values: Record<string, any>, templatePayload: any, userPipeline: any[] = []) {
         const existingData = this.parseApplicationData(application?.txtApplicationData);
+        const normalizedValues = this.normalizeApplicationValuesForStorage(values);
         const nextData = {
             ...existingData,
-            ...values,
+            ...normalizedValues,
             templateValues: {
                 ...(existingData.templateValues || {}),
-                ...values
+                ...normalizedValues
             },
             footerFields: userPipeline.length > 0 ? userPipeline : (existingData.footerFields || []),
             templatePayload
@@ -576,6 +589,49 @@ export class TemplateWorkflowService {
         } catch {
             return {};
         }
+    }
+
+    private normalizeApplicationValuesForStorage(values: Record<string, any>): Record<string, any> {
+        const normalized: Record<string, any> = {};
+        Object.keys(values || {}).forEach((key) => {
+            normalized[key] = this.normalizeValueForStorage(values[key]);
+        });
+        return normalized;
+    }
+
+    private normalizeValueForStorage(value: any): any {
+        if (Array.isArray(value)) {
+            return value.map((item) => this.normalizeValueForStorage(item));
+        }
+        if (!value || typeof value !== 'object') {
+            return value;
+        }
+        if (this.looksLikeAttachmentPayload(value)) {
+            return this.normalizeAttachmentPayloadForStorage(value);
+        }
+        const normalized: Record<string, any> = {};
+        Object.keys(value).forEach((key) => {
+            normalized[key] = this.normalizeValueForStorage(value[key]);
+        });
+        return normalized;
+    }
+
+    private looksLikeAttachmentPayload(value: any): boolean {
+        return !!value && typeof value === 'object'
+            && ('fileName' in value || 'name' in value || 'originalName' in value)
+            && ('base64' in value || 'dataUrl' in value || 'mimeType' in value || 'type' in value);
+    }
+
+    private normalizeAttachmentPayloadForStorage(value: any): any {
+        const fileName = String(value?.fileName || value?.name || value?.originalName || '').trim();
+        const mimeType = String(value?.mimeType || value?.type || 'application/octet-stream').trim();
+        const dataUrl = String(value?.dataUrl || '').trim();
+        const base64 = String(value?.base64 || (dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : '')).trim();
+        return {
+            fileName,
+            mimeType,
+            base64
+        };
     }
 
     private formatCode(convention: TemplateCodeConvention, serial: number): string {

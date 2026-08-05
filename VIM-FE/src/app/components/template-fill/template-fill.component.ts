@@ -1,4 +1,4 @@
-import { Component, ElementRef, OnInit } from '@angular/core';
+import { Component, ElementRef, HostListener, OnInit } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
@@ -88,6 +88,19 @@ interface PipelineFieldPermission {
     right: PipelineFieldRight;
 }
 
+interface AttachmentPayload {
+    fileName: string;
+    mimeType: string;
+    dataUrl: string;
+    base64: string;
+}
+
+interface AttachmentListItem {
+    fieldId: string;
+    fieldLabel: string;
+    attachment: AttachmentPayload;
+}
+
 interface PipelineStep {
     id: string;
     name: string;
@@ -102,6 +115,15 @@ interface PipelineStep {
     styleUrls: ['./template-fill.component.css']
 })
 export class TemplateFillComponent implements OnInit {
+    private static readonly MAX_ATTACHMENT_TOTAL_BYTES = 5 * 1024 * 1024;
+    private static readonly ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
+        'application/pdf',
+        'image/webp',
+        'image/png',
+        'image/jpeg'
+    ]);
+    private static readonly ALLOWED_ATTACHMENT_EXTENSIONS = new Set(['pdf', 'webp', 'png', 'jpeg', 'jpg']);
+    private static readonly INDIVIDUAL_FOOTER_MIN_HEIGHT = 136;
     template: any = null;
     savedTemplate: SavedTemplateDefinition | null = null;
     editingApplication: any = null;
@@ -114,6 +136,8 @@ export class TemplateFillComponent implements OnInit {
     isSendingTestEmail = false;
     testEmailMessage = '';
     isSubmitting = false;
+    showAttachmentsModal = false;
+    activeInlineWordEditorFieldId: string | null = null;
     readonly wordEditor = WORD_EDITOR_CKEDITOR;
     readonly wordEditorConfig = WORD_EDITOR_CKEDITOR_CONFIG;
     private initiatorSignatureApproved = false;
@@ -189,6 +213,10 @@ export class TemplateFillComponent implements OnInit {
         );
     }
 
+    get panelFields(): TemplateField[] {
+        return this.fillableFields.filter((field: TemplateField) => !this.isInlineWordEditorField(field));
+    }
+
     isHeaderFieldType(type: TemplateFieldType): boolean {
         return [
             'document_header',
@@ -203,6 +231,32 @@ export class TemplateFillComponent implements OnInit {
         return type === 'footer' || type === 'individual_pipeline_footer';
     }
 
+    getRenderedFieldTop(field: TemplateField): number | null {
+        const placement = field?.placement;
+        if (!placement) {
+            return null;
+        }
+        if (field.type !== 'individual_pipeline_footer') {
+            return placement.y;
+        }
+        const height = Number(placement.height || 0);
+        const renderedHeight = this.getRenderedFieldHeight(field) ?? height;
+        const extraHeight = Math.max(0, renderedHeight - height);
+        return Math.max(0, Number(placement.y || 0) - extraHeight);
+    }
+
+    getRenderedFieldHeight(field: TemplateField): number | null {
+        const placement = field?.placement;
+        if (!placement) {
+            return null;
+        }
+        const height = Number(placement.height || 0);
+        if (field.type !== 'individual_pipeline_footer') {
+            return height;
+        }
+        return Math.max(height, TemplateFillComponent.INDIVIDUAL_FOOTER_MIN_HEIGHT);
+    }
+
     isDocumentRegionFieldType(type: TemplateFieldType): boolean {
         return this.isHeaderFieldType(type) || this.isFooterFieldType(type);
     }
@@ -213,7 +267,13 @@ export class TemplateFillComponent implements OnInit {
         }
 
         const right = this.getCurrentStepFieldRight(field);
-        return right === 'fill' || right === 'edit';
+        if (right === 'edit') {
+            return true;
+        }
+        if (right === 'fill') {
+            return this.isFieldValueEmpty(field, this.values[field.id]);
+        }
+        return false;
     }
 
     isFieldHiddenForCurrentStep(field: TemplateField): boolean {
@@ -247,6 +307,10 @@ export class TemplateFillComponent implements OnInit {
             return this.generatedApplicationCode;
         }
 
+        if (field.type === 'attachment') {
+            return this.getAttachmentDisplayText(field);
+        }
+
         if (field.type === 'dynamic_approver_name' || field.type === 'dynamic_approval_timestamp') {
             return this.getDynamicApprovalDisplayText(field);
         }
@@ -276,6 +340,144 @@ export class TemplateFillComponent implements OnInit {
 
     getFieldValueHtml(field: TemplateField): SafeHtml {
         return this.sanitizer.bypassSecurityTrustHtml(String(this.values[field.id] || ''));
+    }
+
+    isInlineWordEditorField(field: TemplateField): boolean {
+        return field.type === 'word_editor' && !!field.placement;
+    }
+
+    isInlineWordEditorActive(field: TemplateField): boolean {
+        return this.activeInlineWordEditorFieldId === field.id;
+    }
+
+    activateInlineWordEditor(field: TemplateField): void {
+        if (!this.isInlineWordEditorField(field)) {
+            return;
+        }
+        this.activeInlineWordEditorFieldId = field.id;
+    }
+
+    onInlineWordEditorReady(field: TemplateField, editor: any): void {
+        if (!this.isInlineWordEditorField(field)) {
+            return;
+        }
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        if (editable) {
+            editable.setAttribute('data-inline-word-editor-field-id', field.id);
+        }
+    }
+
+    onInlineWordEditorFocus(field: TemplateField): void {
+        this.activateInlineWordEditor(field);
+    }
+
+    isAttachmentField(field: TemplateField): boolean {
+        return field.type === 'attachment';
+    }
+
+    getAttachmentPayloads(field: TemplateField): AttachmentPayload[] {
+        return this.normalizeExistingAttachmentPayloads(this.values[field.id]);
+    }
+
+    getAttachmentDisplayText(field: TemplateField): string {
+        const attachments = this.getAttachmentPayloads(field);
+        return attachments.length > 0 ? attachments.map((attachment) => attachment.fileName).join(', ') : '';
+    }
+
+    get hasAnyAttachments(): boolean {
+        return this.getAllAttachmentItems().length > 0;
+    }
+
+    getAllAttachmentItems(): AttachmentListItem[] {
+        return (this.template?.fields || []).reduce((items: AttachmentListItem[], field: TemplateField) => {
+            if (!this.isAttachmentField(field)) {
+                return items;
+            }
+            this.getAttachmentPayloads(field).forEach((attachment) => {
+                items.push({
+                    fieldId: field.id,
+                    fieldLabel: field.label || 'Attachment',
+                    attachment
+                });
+            });
+            return items;
+        }, []);
+    }
+
+    async onAttachmentChange(field: TemplateField, event: Event): Promise<void> {
+        const input = event.target as HTMLInputElement;
+        const files = input?.files ? Array.from(input.files) : [];
+        if (!files.length) {
+            input.value = '';
+            return;
+        }
+
+        const disallowed = files.filter((file) => !this.isAllowedAttachmentFile(file));
+        if (disallowed.length > 0) {
+            this.notificationService.showMessage('Only PDF, WEBP, PNG, and JPEG files are allowed for attachments.', 'danger');
+            input.value = '';
+            return;
+        }
+
+        const currentPayloads = this.getAttachmentPayloads(field);
+        const totalBytes = this.getAttachmentBytes(currentPayloads)
+            + files.reduce((sum, file) => sum + (Number(file.size) || 0), 0);
+        if (totalBytes > TemplateFillComponent.MAX_ATTACHMENT_TOTAL_BYTES) {
+            this.notificationService.showMessage(
+                `Combined attachment size (${(totalBytes / (1024 * 1024)).toFixed(2)} MB) exceeds 5 MB.`,
+                'danger'
+            );
+            input.value = '';
+            return;
+        }
+
+        try {
+            const payloads = await Promise.all(files.map((file) => this.buildAttachmentPayload(file)));
+            this.values[field.id] = [...currentPayloads, ...payloads];
+            this.onPanelValueChanged();
+        } catch (error) {
+            console.error('Failed generating attachment payload', error);
+            this.notificationService.showMessage('Failed to process selected files.', 'danger');
+        } finally {
+            input.value = '';
+        }
+    }
+
+    removeAttachment(field: TemplateField, indexToRemove: number): void {
+        const attachments = this.getAttachmentPayloads(field);
+        if (indexToRemove < 0 || indexToRemove >= attachments.length) {
+            return;
+        }
+        attachments.splice(indexToRemove, 1);
+        this.values[field.id] = attachments;
+        this.onPanelValueChanged();
+    }
+
+    viewAttachment(attachment: AttachmentPayload): void {
+        const base64 = String(attachment?.base64 || '').trim();
+        const mimeType = String(attachment?.mimeType || 'application/octet-stream').trim();
+        const objectUrl = base64 ? this.createAttachmentObjectUrl(base64, mimeType) : '';
+        const dataUrl = String(attachment?.dataUrl || '').trim();
+        const resolvedUrl = objectUrl || dataUrl;
+        if (!resolvedUrl) {
+            this.notificationService.showMessage('Attachment content is unavailable.', 'warning');
+            return;
+        }
+        window.open(resolvedUrl, '_blank', 'noopener');
+        if (objectUrl) {
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+        }
+    }
+
+    openAttachmentsModal(): void {
+        if (!this.hasAnyAttachments) {
+            return;
+        }
+        this.showAttachmentsModal = true;
+    }
+
+    closeAttachmentsModal(): void {
+        this.showAttachmentsModal = false;
     }
 
     getPanelInputType(field: TemplateField): string {
@@ -321,6 +523,18 @@ export class TemplateFillComponent implements OnInit {
                 this.revertingWordEditorFields.delete(field.id);
             }
         });
+    }
+
+    @HostListener('document:mousedown', ['$event'])
+    onDocumentMouseDown(event: MouseEvent): void {
+        const target = event.target as HTMLElement | null;
+        if (!target) {
+            return;
+        }
+        if (target.closest('.inline-word-editor-shell') || target.closest('.ck.ck-balloon-panel') || target.closest('.ck-body-wrapper')) {
+            return;
+        }
+        this.activeInlineWordEditorFieldId = null;
     }
 
     hasIndividualPipelineFooter(): boolean {
@@ -444,9 +658,7 @@ export class TemplateFillComponent implements OnInit {
         if (values.length > 0) {
             return values.join('\n');
         }
-        return field.type === 'dynamic_approver_name'
-            ? this.getDynamicSignatureFallbackLabel(field)
-            : '';
+        return '';
     }
 
     async submitTemplate(): Promise<void> {
@@ -530,7 +742,12 @@ export class TemplateFillComponent implements OnInit {
                 throw new Error(pdfResponse?.message || 'PDF could not be attached to application');
             }
 
-            const emailResponse: any = await firstValueFrom(this.templateWorkflowService.sendTemplateApplicationEmails(submission.id));
+            const emailResponse: any = await firstValueFrom(this.templateWorkflowService.sendTemplatePostApprovalEmails(
+                submission.id,
+                pdfBlob,
+                pdfBlob,
+                filename
+            ));
             if (!emailResponse || emailResponse.status !== 'Success') {
                 throw new Error(emailResponse?.message || 'Approval email could not be sent');
             }
@@ -595,6 +812,74 @@ export class TemplateFillComponent implements OnInit {
         }
     }
 
+    private normalizeExistingAttachmentPayloads(value: any): AttachmentPayload[] {
+        const list = Array.isArray(value) ? value : (value ? [value] : []);
+        const normalized: AttachmentPayload[] = [];
+        for (const item of list) {
+            if (!item || typeof item !== 'object') {
+                continue;
+            }
+            const fileName = String(item.fileName || item.name || '').trim();
+            const mimeType = String(item.mimeType || item.type || '').trim() || 'application/octet-stream';
+            const dataUrl = String(item.dataUrl || '').trim();
+            const base64 = String(item.base64 || (dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : '')).trim();
+            if (!fileName) {
+                continue;
+            }
+            normalized.push({ fileName, mimeType, dataUrl, base64 });
+        }
+        return normalized;
+    }
+
+    private getAttachmentBytes(attachments: AttachmentPayload[]): number {
+        return (attachments || []).reduce((sum, attachment) => {
+            const base64 = String(attachment?.base64 || '').trim();
+            return sum + (base64 ? Math.ceil((base64.length * 3) / 4) : 0);
+        }, 0);
+    }
+
+    private isAllowedAttachmentFile(file: File): boolean {
+        const mime = String(file?.type || '').trim().toLowerCase();
+        if (mime && TemplateFillComponent.ALLOWED_ATTACHMENT_MIME_TYPES.has(mime)) {
+            return true;
+        }
+        const name = String(file?.name || '').toLowerCase();
+        const dotIndex = name.lastIndexOf('.');
+        const ext = dotIndex >= 0 ? name.substring(dotIndex + 1) : '';
+        return !!ext && TemplateFillComponent.ALLOWED_ATTACHMENT_EXTENSIONS.has(ext);
+    }
+
+    private async buildAttachmentPayload(file: File): Promise<AttachmentPayload> {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const dataUrl = String(reader.result || '');
+                resolve({
+                    fileName: file.name,
+                    mimeType: file.type || 'application/octet-stream',
+                    dataUrl: '',
+                    base64: dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : ''
+                });
+            };
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+        });
+    }
+
+    private createAttachmentObjectUrl(base64: string, mimeType: string): string {
+        try {
+            const binary = window.atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return URL.createObjectURL(new Blob([bytes], { type: mimeType || 'application/octet-stream' }));
+        } catch (error) {
+            console.error('Failed to create attachment object URL', error);
+            return '';
+        }
+    }
+
     async sendTestEmailToAdmin(): Promise<void> {
         if (!this.template || this.isSendingTestEmail) {
             return;
@@ -642,7 +927,8 @@ export class TemplateFillComponent implements OnInit {
                 return acc;
             }
 
-            if (this.canCurrentStepFillField(field)) {
+            const right = this.getCurrentStepFieldRight(field);
+            if (right === 'edit' || (right === 'fill' && this.isFieldValueEmpty(field, this.values[field.id]))) {
                 acc[field.id] = this.values[field.id];
             }
             return acc;
@@ -758,6 +1044,7 @@ export class TemplateFillComponent implements OnInit {
                 clone.style.transform = 'none';
                 clone.style.width = `${pageWidth}px`;
                 this.prepareTemplatePdfFieldText(clone);
+                this.applyTemplateEmailFooterCaptureStyles(clone);
                 pageViewport.appendChild(clone);
                 captureHost.appendChild(pageViewport);
 
@@ -797,6 +1084,15 @@ export class TemplateFillComponent implements OnInit {
     }
 
     private prepareTemplatePdfFieldText(root: HTMLElement): void {
+        root.querySelectorAll('.inline-word-editor-shell[data-field-id]').forEach((node) => {
+            const shell = node as HTMLElement;
+            const fieldId = String(shell.getAttribute('data-field-id') || '').trim();
+            const staticValue = root.ownerDocument.createElement('div');
+            staticValue.className = 'filled-field-value word-editor-filled-value pdf-word-editor-value';
+            staticValue.innerHTML = normalizeWordEditorValueForCkeditor(this.values[fieldId] ?? '');
+            shell.replaceWith(staticValue);
+        });
+
         root.querySelectorAll('.filled-field-value').forEach((node) => {
             const valueEl = node as HTMLElement;
             if (!valueEl || valueEl.classList.contains('word-editor-filled-value')) {
@@ -811,6 +1107,32 @@ export class TemplateFillComponent implements OnInit {
             valueEl.style.setProperty('padding', '0', 'important');
             valueEl.style.setProperty('transform', 'translateY(1px)', 'important');
             valueEl.style.setProperty('white-space', 'pre-wrap', 'important');
+        });
+    }
+
+    private applyTemplateEmailFooterCaptureStyles(root: HTMLElement): void {
+        root.querySelectorAll('.individual-footer-preview .xyz-signatures .xyz-signatures-blank td > div').forEach((node) => {
+            const wrapper = node as HTMLElement;
+            wrapper.style.setProperty('transform', 'translateY(-2px)', 'important');
+        });
+
+        root.querySelectorAll('.individual-footer-preview .xyz-signatures .xyz-sig-time').forEach((node) => {
+            const timeEl = node as HTMLElement;
+            timeEl.style.setProperty('font-size', '8px', 'important');
+            timeEl.style.setProperty('line-height', '1', 'important');
+            timeEl.style.setProperty('margin-top', '0', 'important');
+            timeEl.style.setProperty('transform', 'translateY(-2px)', 'important');
+        });
+
+        root.querySelectorAll('.individual-footer-preview .xyz-signatures tr:last-child td').forEach((node) => {
+            const cell = node as HTMLElement;
+            cell.style.setProperty('padding-top', '3px', 'important');
+        });
+
+        root.querySelectorAll('.individual-footer-preview .xyz-signatures tr:last-child td > span').forEach((node) => {
+            const valueEl = node as HTMLElement;
+            valueEl.style.setProperty('transform', 'translateY(-2px)', 'important');
+            valueEl.style.setProperty('line-height', '1.2', 'important');
         });
     }
 
@@ -904,21 +1226,43 @@ export class TemplateFillComponent implements OnInit {
         return permission?.right || 'view';
     }
 
+    private isFieldValueEmpty(field: TemplateField, value: any): boolean {
+        if (field.type === 'checkbox') {
+            return value !== true;
+        }
+        if (field.type === 'attachment') {
+            const attachments = Array.isArray(value) ? value : (value ? [value] : []);
+            return attachments.length === 0;
+        }
+        if (Array.isArray(value)) {
+            return value.length === 0;
+        }
+        if (value === null || value === undefined) {
+            return true;
+        }
+        return String(value).trim() === '';
+    }
+
     private getCurrentPipelineStep(): PipelineStep | null {
         const steps = Array.isArray(this.template?.pipeline) ? this.template.pipeline as PipelineStep[] : [];
         return steps.find((step) => step?.type === 'initiator') || steps[0] || null;
     }
 
     private getInitiatorSignatureSlots(): any[] {
+        const initiatorName = this.getCurrentUserDisplayName();
         if (!this.initiatorSignatureApproved) {
-            return [{ label: 'Initiator' }];
+            return [{ label: initiatorName || 'Initiator', txtUserName: initiatorName || '' }];
         }
         const userId = this.getCurrentUserId();
+        const submissionTimestamp = this.editingApplication?.dteCreatedDate || new Date().toISOString();
         return userId ? [{
             serUserId: userId,
-            txtUserName: 'Initiator',
+            txtUserName: initiatorName || 'Initiator',
+            approvedDate: submissionTimestamp,
+            approvedAt: submissionTimestamp,
+            dteCreatedDate: submissionTimestamp,
             __signatureApproved: true
-        }] : [{ label: 'Initiator' }];
+        }] : [{ label: initiatorName || 'Initiator', txtUserName: initiatorName || '' }];
     }
 
     private getCurrentUserId(): number | null {
@@ -931,6 +1275,15 @@ export class TemplateFillComponent implements OnInit {
         }
     }
 
+    private getCurrentUserDisplayName(): string {
+        try {
+            const user = JSON.parse(localStorage.getItem('user') || 'null');
+            return String(user?.txtUserName || user?.userName || user?.name || '').trim();
+        } catch {
+            return '';
+        }
+    }
+
     private getDynamicSignatureStep(field: TemplateField): any | null {
         const steps = Array.isArray(this.template?.pipeline) ? this.template.pipeline : [];
         const targetId = field.signatureTargetId || field.pipelineStepId;
@@ -938,6 +1291,9 @@ export class TemplateFillComponent implements OnInit {
     }
 
     private getDynamicApprovalSlotValue(field: TemplateField, slot: any): string {
+        if (!slot?.__signatureApproved) {
+            return '';
+        }
         if (field.type === 'dynamic_approver_name') {
             return this.getDynamicSignatureLabel(slot);
         }
@@ -955,10 +1311,12 @@ export class TemplateFillComponent implements OnInit {
         }
 
         if (step.dynamicTarget === 'initiator' || (Array.isArray(step.dynamicTargets) && step.dynamicTargets.includes('initiator'))) {
-            return [{ label: 'Initiator' }];
+            const initiatorName = this.getCurrentUserDisplayName();
+            return [{ label: initiatorName || 'Initiator', txtUserName: initiatorName || '' }];
         }
 
-        return [{ label: step.name || this.getPipelineTargetFallbackLabel(step) }];
+        const resolvedName = this.getResolvedDynamicSlotLabel(step);
+        return [{ label: resolvedName || step.name || this.getPipelineTargetFallbackLabel(step) }];
     }
 
     private getConfiguredStepUsers(step: any): any[] {
@@ -1027,7 +1385,8 @@ export class TemplateFillComponent implements OnInit {
             { source: step.approvalHistory, trustedApproved: false },
             { source: step.history, trustedApproved: false },
             { source: step.signatureUsers, trustedApproved: false },
-            { source: step.signatures, trustedApproved: false }
+            { source: step.signatures, trustedApproved: false },
+            { source: this.getWorkflowApprovalHistory(), trustedApproved: false }
         ];
 
         return approvalSources
@@ -1080,6 +1439,68 @@ export class TemplateFillComponent implements OnInit {
         return action === 'APPROVED';
     }
 
+    private getApplicationApprovalHistory(): any[] {
+        const history = this.parseApplicationData(this.editingApplication?.txtApprovalHistory);
+        return Array.isArray(history) ? history : [];
+    }
+
+    private getWorkflowApprovalHistory(): any[] {
+        return this.getActiveApprovalHistory(this.getApplicationApprovalHistory());
+    }
+
+    private getActiveApprovalHistory(entries: any[]): any[] {
+        const active: any[] = [];
+        (entries || []).forEach((entry) => {
+            const action = String(entry?.action || entry?.status || '').toUpperCase();
+            if (action === 'SENT_BACK_TO_INITIATOR') {
+                for (let index = active.length - 1; index >= 0; index--) {
+                    if (!this.entryBelongsToSubmission(active[index])) {
+                        active.splice(index, 1);
+                    }
+                }
+                active.push(entry);
+                return;
+            }
+
+            if (action === 'SENT_BACK') {
+                const toLevel = Number(entry?.toLevel ?? entry?.targetLevel ?? entry?.returnLevel);
+                const resetLevel = Number.isFinite(toLevel) && toLevel > 0 ? toLevel : 1;
+                for (let index = active.length - 1; index >= 0; index--) {
+                    if (this.entryBelongsToSubmission(active[index])) {
+                        continue;
+                    }
+                    const existingLevel = Number(active[index]?.intApprovalOrder ?? active[index]?.level);
+                    if (Number.isFinite(existingLevel) && existingLevel >= resetLevel) {
+                        active.splice(index, 1);
+                    }
+                }
+                active.push(entry);
+                return;
+            }
+
+            if (action === 'RESUBMITTED_BY_INITIATOR') {
+                for (let index = active.length - 1; index >= 0; index--) {
+                    if (!this.entryBelongsToSubmission(active[index])) {
+                        active.splice(index, 1);
+                    }
+                }
+                active.push(entry);
+                return;
+            }
+
+            active.push(entry);
+        });
+        return active;
+    }
+
+    private entryBelongsToSubmission(entry: any): boolean {
+        const stepId = String(entry?.stepId ?? entry?.pipelineStepId ?? entry?.signatureTargetId ?? '').trim().toLowerCase();
+        const role = String(entry?.role || entry?.stageName || entry?.stepName || '').trim().toLowerCase();
+        const level = Number(entry?.intApprovalOrder ?? entry?.level);
+        const action = String(entry?.action || entry?.status || '').toUpperCase();
+        return stepId === 'initiator' || role === 'submission' || action === 'SUBMITTED' || level === 1 && role === 'initiator';
+    }
+
     private signatureEntryMatchesStep(entry: any, step: any): boolean {
         const entryStepId = String(entry?.stepId ?? entry?.pipelineStepId ?? entry?.signatureTargetId ?? '').trim();
         const stepId = String(step?.id ?? '').trim();
@@ -1119,6 +1540,19 @@ export class TemplateFillComponent implements OnInit {
         }
 
         return step?.name || 'Approver';
+    }
+
+    private getResolvedDynamicSlotLabel(step: any): string {
+        return String(
+            step?.txtUserName
+            || step?.userName
+            || step?.approverName
+            || step?.currentApproverName
+            || step?.txtCurrentApproverName
+            || step?.currentApproverUserName
+            || step?.name
+            || ''
+        ).trim();
     }
 
     private getHistoryDate(history: any): string {
@@ -1176,7 +1610,7 @@ export class TemplateFillComponent implements OnInit {
 
     private doesWordEditorFieldOverflow(fieldId: string): boolean {
         const fieldElement = this.elementRef.nativeElement.querySelector(
-            `.filled-field[data-field-id="${fieldId}"] .word-editor-filled-value`
+            `.filled-field[data-field-id="${fieldId}"] .inline-word-editor-shell .ck-editor__editable_inline`
         ) as HTMLElement | null;
         if (!fieldElement) {
             return false;

@@ -156,6 +156,7 @@ import { TemplateFillComponent } from './components/template-fill/template-fill.
 import { TemplateFormsComponent } from './components/template-forms/template-forms.component';
 import { TemplatePendingApprovalsComponent } from './components/template-pending-approvals/template-pending-approvals.component';
 import { TemplateApprovalComponent } from './components/template-approval/template-approval.component';
+import { TemplateApprovedApplicationsComponent } from './components/template-approved-applications/template-approved-applications.component';
 import { MyApplicationComponent } from './components/my-application/my-application.component';
 
 
@@ -289,6 +290,7 @@ import { MyApplicationComponent } from './components/my-application/my-applicati
         TemplateFillComponent,
         TemplateFormsComponent,
         TemplatePendingApprovalsComponent,
+        TemplateApprovedApplicationsComponent,
         TemplateApprovalComponent,
         MyApplicationComponent
     ],

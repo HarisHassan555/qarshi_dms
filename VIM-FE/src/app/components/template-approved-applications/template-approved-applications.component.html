@@ -1,0 +1,81 @@
+<div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+    <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
+        <div class="flex items-center gap-2">
+            <h5 class="text-xl font-bold dark:text-white-light">Approved Applications</h5>
+            <span class="badge badge-outline-success" *ngIf="totalApprovedApplications > 0">
+                {{ totalApprovedApplications }} approved
+            </span>
+        </div>
+        <div class="ltr:ml-auto rtl:mr-auto flex items-center gap-2">
+            <input [(ngModel)]="search" (ngModelChange)="onSearchChanged()" type="text" class="form-input" placeholder="Search approved template applications..." />
+            <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="isLoading || getDisplayedApprovedApplications().length === 0" (click)="exportApprovedApplicationsCsv()">
+                Download CSV
+            </button>
+        </div>
+    </div>
+
+    <div *ngIf="isLoading" class="px-5 py-10 text-center">
+        <div class="inline-flex items-center gap-3 text-primary">
+            <span class="loader-spinner" aria-hidden="true"></span>
+            <span>Loading approved applications...</span>
+        </div>
+    </div>
+
+    <div class="datatable invoice-table" *ngIf="!isLoading && getDisplayedApprovedApplications().length > 0">
+        <ng-datatable
+            [rows]="getDisplayedApprovedApplications()"
+            [columns]="cols"
+            [hasCheckbox]="false"
+            [pagination]="false"
+            [sortable]="true"
+            skin="whitespace-nowrap bh-table-hover">
+            <ng-template slot="txtFormCode" let-value="data">
+                <span class="badge badge-outline-primary" *ngIf="value.txtFormCode">{{ value.txtFormCode }}</span>
+                <span class="text-gray-400" *ngIf="!value.txtFormCode">-</span>
+            </ng-template>
+            <ng-template slot="txtStatus" let-value="data">
+                <span class="badge" [ngClass]="getStatusBadgeClass(value.txtStatus)">
+                    {{ value.txtStatus || 'APPROVED' }}
+                </span>
+            </ng-template>
+            <ng-template slot="myApprovalDate" let-value="data">
+                <span>{{ value.myApprovalDate ? (value.myApprovalDate | date:'short') : '-' }}</span>
+            </ng-template>
+            <ng-template slot="dteCreatedDate" let-value="data">
+                <span>{{ value.dteCreatedDate ? (value.dteCreatedDate | date:'short') : '-' }}</span>
+            </ng-template>
+            <ng-template slot="actions" let-value="data">
+                <div class="flex items-center justify-center">
+                    <button type="button" class="btn btn-sm btn-outline-primary" (click)="openApplication(value)">
+                        Open
+                    </button>
+                </div>
+            </ng-template>
+        </ng-datatable>
+    </div>
+
+    <div *ngIf="!isLoading && totalApprovedApplications > 0" class="template-approved-pagination px-5 py-3">
+        <div class="pagination-summary">
+            Showing {{ pageStart }}-{{ pageEnd }} of {{ totalApprovedApplications }}
+        </div>
+        <div class="pagination-controls">
+            <select class="form-select page-size-select" [ngModel]="pageSize" (ngModelChange)="changePageSize($event)">
+                <option [ngValue]="10">10</option>
+                <option [ngValue]="25">25</option>
+                <option [ngValue]="50">50</option>
+                <option [ngValue]="100">100</option>
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="page === 0" (click)="changePage(page - 1)">
+                Previous
+            </button>
+            <span class="page-indicator">Page {{ page + 1 }} of {{ totalPages }}</span>
+            <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="page + 1 >= totalPages" (click)="changePage(page + 1)">
+                Next
+            </button>
+        </div>
+    </div>
+
+    <div *ngIf="!isLoading && getDisplayedApprovedApplications().length === 0" class="px-5 py-8 text-center">
+        <p class="text-gray-600 dark:text-gray-400">No approved template applications found.</p>
+    </div>
+</div>

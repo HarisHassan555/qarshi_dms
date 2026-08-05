@@ -151,15 +151,47 @@
                             </ng-container>
                             <ng-template #nonHeaderRegion>
                                 <ng-container *ngIf="isFooterFieldType(field.type); else normalFloatingField">
-                                    <div class="document-footer-preview">
-                                        <table>
-                                            <tr>
-                                                <td>Prepared By</td>
-                                                <td>Reviewed By</td>
-                                                <td>Approved By</td>
-                                            </tr>
-                                        </table>
-                                    </div>
+                                    <ng-container *ngIf="field.type === 'individual_pipeline_footer'; else regularFooterPreview">
+                                        <div class="document-footer-preview individual-footer-preview">
+                                            <div class="individual-footer-preview-inner">
+                                                <table class="xyz-signatures" *ngIf="getBuilderIndividualFooterSections() as sections">
+                                                    <tr class="xyz-signatures-blank">
+                                                        <ng-container *ngFor="let section of sections">
+                                                            <td *ngFor="let slotUser of getBuilderIndividualFooterSlots(section)">
+                                                                <div>
+                                                                    <span class="xyz-sig-label">{{ getBuilderIndividualFooterSignatureLabel(slotUser) }}</span>
+                                                                    <span class="xyz-sig-time">{{ getBuilderIndividualFooterTimestampLabel(slotUser) }}</span>
+                                                                </div>
+                                                            </td>
+                                                        </ng-container>
+                                                    </tr>
+                                                    <tr>
+                                                        <th *ngFor="let section of sections" [attr.colspan]="getBuilderIndividualFooterColSpan(section)">
+                                                            {{ section.label || 'New Field' }}:
+                                                        </th>
+                                                    </tr>
+                                                    <tr>
+                                                        <ng-container *ngFor="let section of sections">
+                                                            <td *ngFor="let slotUser of getBuilderIndividualFooterSlots(section)">
+                                                                <span [innerHTML]="getBuilderIndividualFooterUserLabel(slotUser)"></span>
+                                                            </td>
+                                                        </ng-container>
+                                                    </tr>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </ng-container>
+                                    <ng-template #regularFooterPreview>
+                                        <div class="document-footer-preview">
+                                            <table>
+                                                <tr>
+                                                    <td>Prepared By</td>
+                                                    <td>Reviewed By</td>
+                                                    <td>Approved By</td>
+                                                </tr>
+                                            </table>
+                                        </div>
+                                    </ng-template>
                                 </ng-container>
                             </ng-template>
                             <ng-template #normalFloatingField>
@@ -308,7 +340,7 @@
                     class="pipeline-row"
                     [class.fixed-pipeline-row]="step.type === 'initiator'"
                     [title]="step.type === 'initiator' ? 'Edit field rights' : 'Edit pipeline step'"
-                    (click)="step.type === 'initiator' ? openPipelineRightsModal(step) : openPipelineModal(step)">
+                    (click)="openPipelineStep(step, $event)">
                     <div class="step-index">{{ i + 1 }}</div>
                     <div class="step-body">
                         <strong>{{ step.name }}</strong>
@@ -317,12 +349,13 @@
                         <small>{{ getPipelineFieldPermissionSummary(step) }}</small>
                     </div>
                     <div class="step-actions" *ngIf="step.type !== 'initiator'; else fixedStep">
+                        <button type="button" title="Edit step" (click)="openPipelineStep(step, $event)">Ed</button>
                         <button type="button" title="Move up" (click)="$event.stopPropagation(); movePipelineStep(i, 'up')">Up</button>
                         <button type="button" title="Move down" (click)="$event.stopPropagation(); movePipelineStep(i, 'down')">Dn</button>
                         <button type="button" title="Remove step" (click)="$event.stopPropagation(); removePipelineStep(i)">x</button>
                     </div>
                     <ng-template #fixedStep>
-                        <div class="fixed-step-badge">Default</div>
+                        <button type="button" class="fixed-step-badge" title="Edit field rights" (click)="openPipelineStep(step, $event)">Edit Rights</button>
                     </ng-template>
                 </div>
             </div>
@@ -365,9 +398,15 @@
                 Select Page
                 <input type="number" min="1" [max]="pageCount" [(ngModel)]="newFieldPage" />
             </label>
-            <button type="button" class="btn btn-primary full-width" (click)="assignField()">Assign Selected Area</button>
+            <button
+                *ngIf="!isAttachmentFieldType(newFieldType)"
+                type="button"
+                class="btn btn-primary full-width"
+                (click)="assignField()">
+                Assign Selected Area
+            </button>
             <button type="button" class="btn btn-outline full-width mt-2" (click)="addFloatingField()">
-                {{ isDocumentRegionFieldType(newFieldType) ? 'Add Page Region' : 'Place Draggable Field' }}
+                {{ getFieldAddActionLabel() }}
             </button>
         </div>
     </div>
@@ -408,14 +447,38 @@
 
             <label *ngIf="newPipelineType === 'individual'">
                 Employees
-                <select multiple class="multi-select" [(ngModel)]="selectedPipelineUsers" [compareWith]="comparePipelineUsers">
-                    <option [ngValue]="initiatorPipelineUserOption">
-                        Initiator
-                    </option>
-                    <option *ngFor="let user of allUsers" [ngValue]="user">
-                        {{ getUserName(user) }}
-                    </option>
-                </select>
+                <div class="pipeline-user-dropdown" (click)="$event.stopPropagation()">
+                    <button
+                        type="button"
+                        class="pipeline-user-dropdown-trigger"
+                        [class.open]="showPipelineUserDropdown"
+                        (click)="togglePipelineUserDropdown($event)">
+                        <span>{{ getSelectedPipelineUsersSummary() }}</span>
+                        <strong>{{ showPipelineUserDropdown ? '▲' : '▼' }}</strong>
+                    </button>
+
+                    <div class="pipeline-user-dropdown-menu" *ngIf="showPipelineUserDropdown">
+                        <div class="pipeline-user-search">
+                            <input
+                                type="text"
+                                [(ngModel)]="pipelineUserSearchTerm"
+                                placeholder="Search employees"
+                                (click)="$event.stopPropagation()" />
+                        </div>
+
+                        <div class="empty-state compact-empty-state" *ngIf="filteredPipelineUserOptions.length === 0">
+                            No employees found.
+                        </div>
+
+                        <label class="pipeline-user-option" *ngFor="let user of filteredPipelineUserOptions">
+                            <span>{{ getUserName(user) }}</span>
+                            <input
+                                type="checkbox"
+                                [checked]="isPipelineUserSelected(user)"
+                                (change)="onPipelineUserSelectionChanged(user, $any($event.target).checked)" />
+                        </label>
+                    </div>
+                </div>
             </label>
 
             <div class="approval-mode-row" *ngIf="shouldShowPipelineApprovalMode()">
@@ -445,11 +508,12 @@
                     Add fields before assigning rights.
                 </div>
 
-                <div class="field-right-row" *ngFor="let field of pipelineAssignableFields">
+                <div class="field-right-row" *ngFor="let field of pipelineAssignableFields" (click)="togglePipelineFieldSelection(field)">
                     <label class="check-row field-right-check">
                         <input
                             type="checkbox"
                             [checked]="isPipelineFieldSelected(field)"
+                            (click)="$event.stopPropagation()"
                             (change)="onPipelineFieldSelectionChanged(field, $any($event.target).checked)" />
                         <span>
                             <strong>{{ field.label }}</strong>
@@ -457,6 +521,7 @@
                         </span>
                     </label>
                     <select
+                        (click)="$event.stopPropagation()"
                         [disabled]="!isPipelineFieldSelected(field)"
                         [ngModel]="getPipelineFieldRight(field)"
                         (ngModelChange)="setPipelineFieldRight(field, $event)">
@@ -494,11 +559,12 @@
                     Add fields before assigning rights.
                 </div>
 
-                <div class="field-right-row" *ngFor="let field of pipelineAssignableFields">
+                <div class="field-right-row" *ngFor="let field of pipelineAssignableFields" (click)="toggleEditingPipelineFieldSelection(field)">
                     <label class="check-row field-right-check">
                         <input
                             type="checkbox"
                             [checked]="isEditingPipelineFieldSelected(field)"
+                            (click)="$event.stopPropagation()"
                             (change)="onEditingPipelineFieldSelectionChanged(field, $any($event.target).checked)" />
                         <span>
                             <strong>{{ field.label }}</strong>
@@ -506,6 +572,7 @@
                         </span>
                     </label>
                     <select
+                        (click)="$event.stopPropagation()"
                         [disabled]="!isEditingPipelineFieldSelected(field)"
                         [ngModel]="getEditingPipelineFieldRight(field)"
                         (ngModelChange)="setEditingPipelineFieldRight(field, $event)">

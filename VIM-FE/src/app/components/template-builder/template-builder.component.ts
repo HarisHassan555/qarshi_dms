@@ -158,6 +158,8 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     selectedPipelineDepartmentId: number | null = null;
     selectedPipelineRoleId: number | null = null;
     selectedPipelineUsers: any[] = [];
+    pipelineUserSearchTerm = '';
+    showPipelineUserDropdown = false;
     selectedPipelineFieldRights: { [fieldId: string]: PipelineFieldRight } = {};
     editingPipelineStepId = '';
     editingPipelineFieldRights: { [fieldId: string]: PipelineFieldRight } = {};
@@ -285,6 +287,18 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         };
     }
 
+    get pipelineUserOptions(): any[] {
+        return [this.initiatorPipelineUserOption, ...this.allUsers];
+    }
+
+    get filteredPipelineUserOptions(): any[] {
+        const searchTerm = this.pipelineUserSearchTerm.trim().toLowerCase();
+        if (!searchTerm) {
+            return this.pipelineUserOptions;
+        }
+        return this.pipelineUserOptions.filter((user) => this.getUserName(user).toLowerCase().includes(searchTerm));
+    }
+
     get dynamicSignatureTargetOptions(): { id: string; label: string; step: PipelineStep }[] {
         return this.pipelineSteps.map((step) => ({
             id: step.id,
@@ -329,6 +343,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (!this.editorInstance) {
             return;
         }
+        if (this.isAttachmentFieldType(this.newFieldType)) {
+            this.addInlineOnlyField();
+            return;
+        }
 
         const field = this.createField();
         if (field.type === 'radio') {
@@ -358,6 +376,11 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     }
 
     addFloatingField(): void {
+        if (this.isAttachmentFieldType(this.newFieldType)) {
+            this.addInlineOnlyField();
+            return;
+        }
+
         const field = this.createField();
         if (field.type === 'radio') {
             this.addMissingRadioOptionBoxes(field);
@@ -499,6 +522,15 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         this.showPipelineModal = true;
     }
 
+    openPipelineStep(step: PipelineStep, event?: Event): void {
+        event?.stopPropagation();
+        if (step.type === 'initiator') {
+            this.openPipelineRightsModal(step);
+            return;
+        }
+        this.openPipelineModal(step);
+    }
+
     closePipelineModal(): void {
         this.showPipelineModal = false;
         this.resetPipelineModalState();
@@ -578,6 +610,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         this.selectedPipelineDepartmentId = null;
         this.selectedPipelineRoleId = null;
         this.selectedPipelineUsers = [];
+        this.showPipelineUserDropdown = false;
         this.newPipelineApprovalMode = 'OR';
     }
 
@@ -605,6 +638,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         this.selectedPipelineFieldRights[field.id] = right;
     }
 
+    togglePipelineFieldSelection(field: TemplateField): void {
+        this.onPipelineFieldSelectionChanged(field, !this.isPipelineFieldSelected(field));
+    }
+
     isEditingPipelineFieldSelected(field: TemplateField): boolean {
         return !!this.editingPipelineFieldRights[field.id];
     }
@@ -625,11 +662,57 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         this.editingPipelineFieldRights[field.id] = right;
     }
 
+    toggleEditingPipelineFieldSelection(field: TemplateField): void {
+        this.onEditingPipelineFieldSelectionChanged(field, !this.isEditingPipelineFieldSelected(field));
+    }
+
     comparePipelineUsers(a: any, b: any): boolean {
         if (this.isInitiatorPipelineUser(a) || this.isInitiatorPipelineUser(b)) {
             return this.isInitiatorPipelineUser(a) && this.isInitiatorPipelineUser(b);
         }
         return Number(a?.serUserId ?? a?.userId ?? a?.id) === Number(b?.serUserId ?? b?.userId ?? b?.id);
+    }
+
+    togglePipelineUserDropdown(event?: Event): void {
+        event?.stopPropagation();
+        this.showPipelineUserDropdown = !this.showPipelineUserDropdown;
+        if (!this.showPipelineUserDropdown) {
+            this.pipelineUserSearchTerm = '';
+        }
+    }
+
+    isPipelineUserSelected(user: any): boolean {
+        return this.selectedPipelineUsers.some((selectedUser) => this.comparePipelineUsers(selectedUser, user));
+    }
+
+    onPipelineUserSelectionChanged(user: any, checked: boolean): void {
+        if (checked) {
+            if (!this.isPipelineUserSelected(user)) {
+                this.selectedPipelineUsers = [...this.selectedPipelineUsers, user];
+            }
+            return;
+        }
+        this.selectedPipelineUsers = this.selectedPipelineUsers.filter((selectedUser) => !this.comparePipelineUsers(selectedUser, user));
+    }
+
+    getSelectedPipelineUsersSummary(): string {
+        const count = this.selectedPipelineUsers.length;
+        if (count === 0) {
+            return 'Select employees';
+        }
+        if (count === 1) {
+            return this.getUserName(this.selectedPipelineUsers[0]);
+        }
+        return `${count} employees selected`;
+    }
+
+    @HostListener('document:click', ['$event'])
+    onDocumentClick(event: MouseEvent): void {
+        const target = event.target as HTMLElement | null;
+        if (!target?.closest('.pipeline-user-dropdown')) {
+            this.showPipelineUserDropdown = false;
+            this.pipelineUserSearchTerm = '';
+        }
     }
 
     getPipelineFieldPermissionSummary(step: PipelineStep): string {
@@ -726,6 +809,87 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     getRoleName(role: any): string {
         return role?.txtRoleName || role?.roleName || role?.name || '';
+    }
+
+    getBuilderIndividualFooterSections(): Array<{ label: string; users: any[] }> {
+        const steps = this.pipelineSteps
+            .filter((step) => step && step.type !== 'initiator')
+            .sort((left, right) => (Number(left?.order) || 0) - (Number(right?.order) || 0));
+        if (steps.length === 0) {
+            return [{ label: 'New Field', users: [this.getBuilderPlaceholderFooterUser()] }];
+        }
+        return steps.map((step) => ({
+            label: step.name || this.getPipelineTargetLabel(step) || 'New Field',
+            users: this.getBuilderIndividualFooterUsers(step)
+        }));
+    }
+
+    getBuilderIndividualFooterColSpan(section: { users: any[] } | null | undefined): number {
+        const users = Array.isArray(section?.users) ? (section?.users ?? []) : [];
+        return Math.max(users.length, 1);
+    }
+
+    getBuilderIndividualFooterSlots(section: { users: any[] } | null | undefined): any[] {
+        const users = Array.isArray(section?.users) ? (section?.users ?? []) : [];
+        return users.length > 0 ? users : [null];
+    }
+
+    getBuilderIndividualFooterUserLabel(user: any): string {
+        return this.getBuilderIndividualFooterUserParts(user)
+            .map((value) => this.escapeHtml(value))
+            .join('<br>');
+    }
+
+    getBuilderIndividualFooterSignatureLabel(user: any): string {
+        const name = String(user?.txtUserName || user?.userName || user?.name || 'User').trim();
+        return this.escapeHtml(`${name} Signature`);
+    }
+
+    getBuilderIndividualFooterTimestampLabel(user: any): string {
+        const name = String(user?.txtUserName || user?.userName || user?.name || 'User').trim();
+        return this.escapeHtml(`${name} Timestamp`);
+    }
+
+    private getBuilderIndividualFooterUsers(step: PipelineStep): any[] {
+        const configuredUsers = Array.isArray(step?.users) ? step.users.filter((user) => !!user) : [];
+        const dynamicTargets = Array.isArray(step?.dynamicTargets) ? step.dynamicTargets : [];
+        const users = [...configuredUsers];
+
+        if (step?.dynamicTarget === 'initiator_hod') {
+            users.push({ txtUserName: 'Initiator HOD' });
+        } else if (step?.dynamicTarget === 'initiator' || dynamicTargets.includes('initiator')) {
+            users.push({ txtUserName: 'Initiator' });
+        }
+
+        if (users.length > 0) {
+            return users;
+        }
+
+        if (step?.type === 'department') {
+            return [{ txtUserName: this.getDepartmentName(step.hrTblDepartment) || step.name || 'Department' }];
+        }
+        if (step?.type === 'role') {
+            return [{ txtUserName: this.getRoleName(step.cfgTblRole) || step.name || 'Role' }];
+        }
+
+        return [this.getBuilderPlaceholderFooterUser()];
+    }
+
+    private getBuilderIndividualFooterUserParts(user: any): string[] {
+        const name = user?.txtUserName || user?.userName || user?.name || 'User Name';
+        const designation = user?.txtDesignation || user?.designation || 'User Designation';
+        const department = user?.txtDepartmentName || user?.departmentName || user?.hrTblDepartment?.txtDepartmentName || 'User Department';
+        return [name, designation, department]
+            .map((value) => String(value || '').trim())
+            .filter((value) => value.length > 0);
+    }
+
+    private getBuilderPlaceholderFooterUser(): any {
+        return {
+            txtUserName: 'User Name',
+            txtDesignation: 'User Designation',
+            txtDepartmentName: 'User Department'
+        };
     }
 
     selectField(fieldId: string): void {
@@ -969,6 +1133,22 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         return resolveDocumentHeaderAddress(type);
     }
 
+    isAttachmentFieldType(type: TemplateFieldType): boolean {
+        return type === 'attachment';
+    }
+
+    getFieldAddActionLabel(): string {
+        if (this.isAttachmentFieldType(this.newFieldType)) {
+            return 'Add Attachment Field';
+        }
+        return this.isDocumentRegionFieldType(this.newFieldType) ? 'Add Page Region' : 'Place Draggable Field';
+    }
+
+    private addInlineOnlyField(): void {
+        this.createField();
+        this.closeAndResetFieldModal();
+    }
+
     private createField(): TemplateField {
         const defaultLabel = this.getFieldTypeLabel(this.newFieldType);
         const label = this.newFieldLabel.trim() && this.newFieldLabel.trim() !== 'New Field'
@@ -1203,6 +1383,8 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         this.selectedPipelineDepartmentId = null;
         this.selectedPipelineRoleId = null;
         this.selectedPipelineUsers = [];
+        this.pipelineUserSearchTerm = '';
+        this.showPipelineUserDropdown = false;
         this.selectedPipelineFieldRights = {};
     }
 

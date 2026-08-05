@@ -345,6 +345,48 @@
     overflow-wrap: anywhere;
 }
 
+.attachment-field-panel input[type="file"] {
+    background: #f8fafc;
+    cursor: pointer;
+}
+
+.attachment-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.attachment-item {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+}
+
+.attachment-link-button {
+    background: transparent;
+    border: 0;
+    color: #2563eb;
+    cursor: pointer;
+    flex: 1 1 auto;
+    font-size: 13px;
+    font-weight: 600;
+    overflow: hidden;
+    padding: 0;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.attachment-link-button:hover {
+    text-decoration: underline;
+}
+
+.btn-sm {
+    min-height: 30px;
+    padding: 5px 9px;
+}
+
 .fill-stage {
     background: #dbe3ef;
     border: 1px solid #cbd5e1;
@@ -539,6 +581,84 @@
     vertical-align: top;
 }
 
+.modal-backdrop {
+    align-items: center;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex;
+    inset: 0;
+    justify-content: center;
+    padding: 16px;
+    position: fixed;
+    z-index: 1100;
+}
+
+.attachments-modal {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
+    max-height: min(70vh, 640px);
+    max-width: 520px;
+    overflow: auto;
+    padding: 18px;
+    width: 100%;
+}
+
+.modal-header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+
+.modal-header h3 {
+    color: #0f172a;
+    font-size: 18px;
+    margin: 0;
+}
+
+.modal-header button {
+    background: transparent;
+    border: 0;
+    color: #475569;
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 1;
+    padding: 0;
+}
+
+.attachments-modal-empty {
+    color: #64748b;
+    font-size: 14px;
+    padding: 10px 0;
+}
+
+.attachments-modal-list {
+    display: grid;
+    gap: 10px;
+}
+
+.attachment-modal-item {
+    background: #f8fafc;
+    border: 1px solid #dbe3ef;
+    border-radius: 10px;
+    cursor: pointer;
+    display: grid;
+    gap: 4px;
+    padding: 12px 14px;
+    text-align: left;
+    width: 100%;
+}
+
+.attachment-modal-item strong {
+    color: #0f172a;
+    font-size: 14px;
+}
+
+.attachment-modal-item span {
+    color: #64748b;
+    font-size: 12px;
+}
+
 :host ::ng-deep .document-html .inline-filled-word-editor-value {
     display: block;
     min-height: 120px;
@@ -586,6 +706,7 @@
 
 .filled-field {
     box-sizing: border-box;
+    overflow: visible;
     position: absolute;
     z-index: 3;
 }
@@ -605,6 +726,81 @@
 .word-editor-filled-value {
     overflow: hidden;
     padding: 0;
+}
+
+.inline-word-editor-shell {
+    height: 100%;
+    position: relative;
+    width: 100%;
+    z-index: 4;
+}
+
+.inline-word-editor-shell.is-active {
+    z-index: 12;
+}
+
+:host ::ng-deep .inline-word-editor .ck.ck-editor {
+    width: 100%;
+}
+
+:host ::ng-deep .inline-word-editor .ck.ck-editor__top {
+    left: 0;
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+    right: 0;
+    top: 0;
+    transform: translateY(calc(-100% - 8px));
+    transition: opacity 120ms ease;
+    z-index: 20;
+}
+
+:host ::ng-deep .inline-word-editor-shell.is-active .inline-word-editor .ck.ck-editor__top {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+:host ::ng-deep .inline-word-editor .ck.ck-toolbar {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+}
+
+:host ::ng-deep .inline-word-editor .ck.ck-editor__main,
+:host ::ng-deep .inline-word-editor .ck.ck-editor,
+:host ::ng-deep .inline-word-editor .ck.ck-editor__main > .ck-editor__editable {
+    height: 100%;
+}
+
+:host ::ng-deep .inline-word-editor .ck.ck-editor__main > .ck-editor__editable {
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid transparent;
+    border-radius: 6px;
+    box-sizing: border-box;
+    overflow: auto;
+    padding: 6px;
+}
+
+:host ::ng-deep .inline-word-editor-shell.is-active .inline-word-editor .ck.ck-editor__main > .ck-editor__editable {
+    background: #ffffff;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+:host ::ng-deep .inline-word-editor .ck.ck-editor__main > .ck-editor__editable,
+:host ::ng-deep .inline-word-editor .ck.ck-editor__main > .ck-editor__editable * {
+    font-family: inherit;
+}
+
+:host ::ng-deep .inline-word-editor .ck.ck-editor__main > .ck-editor__editable.ck-focused {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+    outline: none;
+}
+
+.pdf-word-editor-value {
+    height: 100%;
 }
 
 .radio-option-filled-field .filled-field-value,
@@ -772,37 +968,73 @@
 }
 
 .individual-footer-preview .xyz-signatures {
-    font-size: 10px;
-    height: auto;
+    font-size: 11px;
+    height: 100%;
     margin-top: 0;
+    table-layout: fixed;
 }
 
 .individual-footer-preview .xyz-signatures th,
 .individual-footer-preview .xyz-signatures td {
-    padding-left: 4px;
-    padding-right: 4px;
+    padding: 4px 6px;
 }
 
 .individual-footer-preview .xyz-signatures-blank td {
-    height: 24px;
+    height: 40%;
     min-height: 0;
-    padding-bottom: 2px;
+    padding: 2px 4px 4px 4px;
+    vertical-align: middle;
+}
+
+.individual-footer-preview .xyz-signatures-blank td > div {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    justify-content: flex-end;
+    overflow: hidden;
+    width: 100%;
+}
+
+.individual-footer-preview .xyz-sig-img {
+    display: block;
+    height: auto;
+    margin: 0 auto 2px auto;
+    max-height: 24px;
+    max-width: calc(100% - 8px);
+    object-fit: contain;
+    width: auto;
+}
+
+.individual-footer-preview .xyz-sig-time {
+    color: #6b7280;
+    font-size: 9px;
+    line-height: 1.1;
+    max-width: 100%;
+    text-align: center;
+    white-space: normal;
+    word-break: break-word;
 }
 
 .individual-footer-preview .xyz-signatures tr:nth-child(2) th {
-    font-size: 10px;
+    font-size: 14px;
     line-height: 1.2;
-    padding-bottom: 3px;
-    padding-top: 3px;
+    padding-bottom: 6px;
+    padding-top: 6px;
 }
 
 .individual-footer-preview .xyz-signatures tr:last-child td {
-    font-size: 9px;
-    line-height: 1.18;
+    font-size: 12px;
+    line-height: 1.25;
+    min-height: 0;
     padding-bottom: 2px;
-    padding-top: 3px;
+    padding-top: 6px;
+    vertical-align: top;
 }
 
 .individual-footer-preview .xyz-signatures tr:last-child td > span {
-    line-height: 1.18;
+    display: block;
+    line-height: 1.25;
+    white-space: normal;
+    word-break: break-word;
 }

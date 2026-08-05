@@ -24,6 +24,7 @@ import javax.servlet.http.HttpServletResponse;
 import javax.transaction.Transactional;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -388,7 +389,7 @@ public class TemplateDefinitionController {
             }
             TemplateDefinition definition = matches.get(0);
             if (canAccessTemplateDefinition(definition, userId)) {
-                return definition;
+                return sanitizeTemplateDefinitionResponse(definition);
             }
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             return null;
@@ -580,6 +581,79 @@ public class TemplateDefinitionController {
         }
     }
 
+    @RequestMapping(value = "/getTemplateApprovedApplications", method = RequestMethod.GET)
+    public Map<String, Object> getTemplateApprovedApplications(@RequestParam Integer userId,
+                                                               @RequestParam(defaultValue = "0") Integer page,
+                                                               @RequestParam(defaultValue = "10") Integer pageSize,
+                                                               @RequestParam(required = false) String search,
+                                                               HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            int safePage = page == null || page < 0 ? 0 : page;
+            int safePageSize = pageSize == null ? 10 : Math.max(1, Math.min(pageSize, 100));
+            String searchText = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+
+            @SuppressWarnings("unchecked")
+            List<Object[]> rows = entityManager.createQuery(
+                    "SELECT a.serApplicationId, a.serFormId, a.txtFormCode, a.txtStatus, " +
+                            "a.intCurrentApprovalLevel, a.serSubmittedBy, a.dteCreatedDate, a.txtApprovalHistory, " +
+                            "t.txtTemplateName " +
+                            "FROM CfgTblCustomFormApplication a, TemplateDefinition t " +
+                            "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
+                            "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) " +
+                            "AND t.serFormId = a.serFormId " +
+                            "ORDER BY a.dteCreatedDate DESC")
+                    .getResultList();
+
+            List<Map<String, Object>> matchedItems = new ArrayList<>();
+            for (Object[] row : rows) {
+                String txtFormCode = row[2] == null ? "" : String.valueOf(row[2]);
+                String txtStatus = row[3] == null ? "" : String.valueOf(row[3]);
+                String templateName = row[8] == null ? "" : String.valueOf(row[8]);
+
+                if (!hasUserApprovedTemplateHistory(row[7], userId)) {
+                    continue;
+                }
+
+                if (!searchText.isEmpty()) {
+                    String haystack = (txtFormCode + " " + txtStatus + " " + templateName).toLowerCase(Locale.ROOT);
+                    if (!haystack.contains(searchText)) {
+                        continue;
+                    }
+                }
+
+                Map<String, Object> item = new HashMap<>();
+                item.put("serApplicationId", row[0]);
+                item.put("serFormId", row[1]);
+                item.put("txtFormCode", row[2]);
+                item.put("txtStatus", row[3]);
+                item.put("intCurrentApprovalLevel", row[4]);
+                item.put("serSubmittedBy", row[5]);
+                item.put("dteCreatedDate", row[6]);
+                item.put("myApprovalDate", getLatestTemplateApprovalDate(row[7], userId));
+                item.put("templateName", row[8]);
+                matchedItems.add(item);
+            }
+
+            int total = matchedItems.size();
+            int fromIndex = Math.min(safePage * safePageSize, total);
+            int toIndex = Math.min(fromIndex + safePageSize, total);
+
+            result.put("items", matchedItems.subList(fromIndex, toIndex));
+            result.put("total", total);
+            result.put("page", safePage);
+            result.put("pageSize", safePageSize);
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error fetching template approved applications: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("items", java.util.Collections.emptyList());
+            result.put("total", 0);
+            result.put("message", ex.getMessage());
+            return result;
+        }
+    }
+
     private Map<Integer, String> loadTemplateNamesByFormId() {
         @SuppressWarnings("unchecked")
         List<Object[]> rows = entityManager.createQuery(
@@ -664,6 +738,94 @@ public class TemplateDefinitionController {
                 .setMaxResults(1)
                 .getResultList();
         return matches.isEmpty() ? null : matches.get(0);
+    }
+
+    private TemplateDefinition sanitizeTemplateDefinitionResponse(TemplateDefinition definition) {
+        if (definition == null) {
+            return null;
+        }
+        TemplateDefinition copy = new TemplateDefinition();
+        copy.setSerTemplateId(definition.getSerTemplateId());
+        copy.setSerFormId(definition.getSerFormId());
+        copy.setTxtTemplateName(definition.getTxtTemplateName());
+        copy.setTxtCodeConvention(definition.getTxtCodeConvention());
+        copy.setTxtTemplatePayload(sanitizeTemplatePayloadJson(definition.getTxtTemplatePayload()));
+        copy.setBlIsActive(definition.getBlIsActive());
+        copy.setBlIsDeleted(definition.getBlIsDeleted());
+        copy.setBlnStatus(definition.getBlnStatus());
+        copy.setDteCreatedDate(definition.getDteCreatedDate());
+        copy.setDteModifiedDate(definition.getDteModifiedDate());
+        copy.setSerCreatedUser(definition.getSerCreatedUser());
+        copy.setSerModifiedUser(definition.getSerModifiedUser());
+        return copy;
+    }
+
+    private String sanitizeTemplatePayloadJson(String rawPayload) {
+        if (rawPayload == null || rawPayload.trim().isEmpty()) {
+            return rawPayload;
+        }
+        try {
+            Map<String, Object> payload = parseMap(rawPayload);
+            return writeJson(stripAttachmentPayloads(payload, new ArrayList<>()));
+        } catch (Exception ex) {
+            logger.warn("Failed to sanitize template payload response: " + ex.getMessage());
+            return rawPayload;
+        }
+    }
+
+    private Object stripAttachmentPayloads(Object value, List<String> path) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Map<?, ?>) {
+            Map<?, ?> source = (Map<?, ?>) value;
+            if (isBackgroundPayloadPath(path)) {
+                return value;
+            }
+            Map<String, Object> sanitized = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : source.entrySet()) {
+                String key = entry.getKey() != null ? String.valueOf(entry.getKey()) : null;
+                Object child = entry.getValue();
+                if (isAttachmentPayloadKey(key)) {
+                    continue;
+                }
+                List<String> childPath = new ArrayList<>(path);
+                if (key != null && !key.trim().isEmpty()) {
+                    childPath.add(key.trim());
+                }
+                sanitized.put(key, stripAttachmentPayloads(child, childPath));
+            }
+            return sanitized;
+        }
+        if (value instanceof List<?>) {
+            List<Object> sanitized = new ArrayList<>();
+            for (Object item : (List<?>) value) {
+                sanitized.add(stripAttachmentPayloads(item, path));
+            }
+            return sanitized;
+        }
+        return value;
+    }
+
+    private boolean isBackgroundPayloadPath(List<String> path) {
+        if (path == null || path.isEmpty()) {
+            return false;
+        }
+        String lastSegment = path.get(path.size() - 1);
+        return "background".equalsIgnoreCase(lastSegment);
+    }
+
+    private boolean isAttachmentPayloadKey(String key) {
+        if (key == null) {
+            return false;
+        }
+        String normalized = key.trim().toLowerCase(Locale.ROOT);
+        return normalized.equals("base64")
+                || normalized.equals("dataurl")
+                || normalized.equals("filebase64")
+                || normalized.equals("filedata")
+                || normalized.equals("content")
+                || normalized.equals("data");
     }
 
     private List<TemplateDefinition> filterVisibleTemplateDefinitions(List<TemplateDefinition> definitions, Integer userId) {
@@ -807,6 +969,44 @@ public class TemplateDefinitionController {
         return false;
     }
 
+    private boolean hasUserApprovedTemplateHistory(Object rawHistory, Integer userId) {
+        if (userId == null || userId <= 0) {
+            return false;
+        }
+        for (Map<String, Object> entry : activeTemplateHistory(parseHistory(valueAsString(rawHistory)))) {
+            Integer approvedBy = toInteger(firstObject(entry.get("approvedBy"), entry.get("approverUserId"), entry.get("userId")));
+            String action = valueAsString(firstObject(entry.get("action"), entry.get("status")));
+            if (approvedBy != null
+                    && approvedBy.equals(userId)
+                    && "APPROVED".equalsIgnoreCase(action)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Object getLatestTemplateApprovalDate(Object rawHistory, Integer userId) {
+        if (userId == null || userId <= 0) {
+            return null;
+        }
+        Object approvedDate = null;
+        for (Map<String, Object> entry : activeTemplateHistory(parseHistory(valueAsString(rawHistory)))) {
+            Integer approvedBy = toInteger(firstObject(entry.get("approvedBy"), entry.get("approverUserId"), entry.get("userId")));
+            String action = valueAsString(firstObject(entry.get("action"), entry.get("status")));
+            if (approvedBy != null
+                    && approvedBy.equals(userId)
+                    && "APPROVED".equalsIgnoreCase(action)) {
+                approvedDate = firstObject(
+                        entry.get("approvedDate"),
+                        entry.get("approvedAt"),
+                        entry.get("date"),
+                        entry.get("timestamp"),
+                        entry.get("dteCreatedDate"));
+            }
+        }
+        return approvedDate;
+    }
+
     private CfgTblCustomFormApplication loadTemplateApplication(Integer applicationId) {
         if (applicationId == null) {
             throw new IllegalArgumentException("Application ID is required");
@@ -824,6 +1024,22 @@ public class TemplateDefinitionController {
 
     private TemplateWorkflowContext buildTemplateWorkflowContext(CfgTblCustomFormApplication application) {
         Map<String, Object> appData = parseMap(application.getTxtApplicationData());
+        List<TemplateStep> footerSteps = buildFooterWorkflowSteps(appData, application);
+        if (!footerSteps.isEmpty()) {
+            TemplateWorkflowContext footerContext = new TemplateWorkflowContext();
+            for (TemplateStep step : footerSteps) {
+                step.level = footerContext.steps.size();
+                footerContext.steps.add(step);
+            }
+            footerContext.initiator = new TemplateStep();
+            footerContext.initiator.id = "initiator";
+            footerContext.initiator.name = "Initiator";
+            footerContext.initiator.type = "initiator";
+            if (application.getSerSubmittedBy() != null) {
+                footerContext.initiator.approverIds.add(application.getSerSubmittedBy());
+            }
+            return footerContext;
+        }
         TemplateDefinition definition = findByFormId(application.getSerFormId());
         Map<String, Object> templatePayload = asMap(appData.get("templatePayload"));
         if (templatePayload.isEmpty() && definition != null) {
@@ -850,6 +1066,58 @@ public class TemplateDefinitionController {
             }
         }
         return context;
+    }
+
+    private List<TemplateStep> buildFooterWorkflowSteps(Map<String, Object> appData,
+                                                        CfgTblCustomFormApplication application) {
+        List<TemplateStep> steps = new ArrayList<>();
+        List<Map<String, Object>> footerFields = extractFooterFields(appData);
+        int stepIndex = 0;
+        for (Map<String, Object> field : footerFields) {
+            String label = firstText(field.get("label"), field.get("key"), "Approver");
+            String key = firstText(field.get("key"), "footer_" + (stepIndex + 1));
+            int userIndex = 0;
+            for (Map<String, Object> user : asListOfMaps(field.get("users"))) {
+                Integer approverId = toInteger(firstObject(user.get("serUserId"), user.get("userId"), user.get("id")));
+                if (approverId == null) {
+                    continue;
+                }
+                TemplateStep step = new TemplateStep();
+                step.id = key + "_" + approverId + "_" + userIndex;
+                step.name = firstText(user.get("txtUserName"), user.get("userName"), user.get("name"), label);
+                step.type = "individual";
+                step.approvalMode = "OR";
+                step.approverIds.add(approverId);
+                steps.add(step);
+                userIndex++;
+                stepIndex++;
+            }
+        }
+        return steps;
+    }
+
+    private List<Map<String, Object>> extractFooterFields(Map<String, Object> appData) {
+        if (appData == null || appData.isEmpty()) {
+            return new ArrayList<>();
+        }
+        Object obj = appData.get("footerFields");
+        if (!(obj instanceof List)) {
+            obj = appData.get("individual_pipeline_footer");
+        }
+        if (!(obj instanceof List)) {
+            obj = appData.get("field_footer");
+        }
+        if (!(obj instanceof List)) {
+            obj = appData.get("dynamicFooter");
+        }
+        if (!(obj instanceof List)) {
+            obj = appData.get("footer");
+        }
+        List<Map<String, Object>> fields = asListOfMaps(obj);
+        fields.sort((left, right) -> Integer.compare(
+                toInteger(left != null ? left.get("order") : null) != null ? toInteger(left.get("order")) : Integer.MAX_VALUE,
+                toInteger(right != null ? right.get("order") : null) != null ? toInteger(right.get("order")) : Integer.MAX_VALUE));
+        return fields;
     }
 
     private TemplateStep buildTemplateStep(Map<String, Object> rawStep, CfgTblCustomFormApplication application) {

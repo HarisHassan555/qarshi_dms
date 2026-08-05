@@ -295,13 +295,13 @@
                             <table class="xyz-signatures" *ngIf="getSlipPipelineFooterFields().length > 0">
                                 <tr class="xyz-signatures-blank">
                                     <ng-container *ngFor="let section of getSlipPipelineFooterFields()">
-                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                            <div *ngIf="slotUser && isUserApproved(slotUser, section.label)">
-                                                <img *ngIf="getUserSignatureUrl(slotUser, section.label)"
-                                                    [src]="getUserSignatureUrl(slotUser, section.label)" class="xyz-sig-img"
+                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section); let slotIndex = index">
+                                            <div *ngIf="slotUser && isUserApproved(slotUser, section, slotIndex)">
+                                                <img *ngIf="getUserSignatureUrl(slotUser, section, slotIndex)"
+                                                    [src]="getUserSignatureUrl(slotUser, section, slotIndex)" class="xyz-sig-img"
                                                     alt="Signature" crossorigin="anonymous">
-                                                <div class="xyz-sig-time" *ngIf="getUserApprovalDate(slotUser, section.label)">
-                                                    {{ getUserApprovalDate(slotUser, section.label) }}
+                                                <div class="xyz-sig-time" *ngIf="getUserApprovalDate(slotUser, section, slotIndex)">
+                                                    {{ getUserApprovalDate(slotUser, section, slotIndex) }}
                                                 </div>
                                             </div>
                                         </td>
@@ -422,13 +422,13 @@
                                 <table class="xyz-signatures" *ngIf="getSlipPipelineFooterFields().length > 0">
                                     <tr class="xyz-signatures-blank">
                                         <ng-container *ngFor="let section of getSlipPipelineFooterFields()">
-                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                                <div *ngIf="slotUser && isUserApproved(slotUser, section.label)">
-                                                    <img *ngIf="getUserSignatureUrl(slotUser, section.label)"
-                                                        [src]="getUserSignatureUrl(slotUser, section.label)" class="xyz-sig-img"
+                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section); let slotIndex = index">
+                                                <div *ngIf="slotUser && isUserApproved(slotUser, section, slotIndex)">
+                                                    <img *ngIf="getUserSignatureUrl(slotUser, section, slotIndex)"
+                                                        [src]="getUserSignatureUrl(slotUser, section, slotIndex)" class="xyz-sig-img"
                                                         alt="Signature" crossorigin="anonymous">
-                                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(slotUser, section.label)">
-                                                        {{ getUserApprovalDate(slotUser, section.label) }}
+                                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(slotUser, section, slotIndex)">
+                                                        {{ getUserApprovalDate(slotUser, section, slotIndex) }}
                                                     </div>
                                                 </div>
                                             </td>

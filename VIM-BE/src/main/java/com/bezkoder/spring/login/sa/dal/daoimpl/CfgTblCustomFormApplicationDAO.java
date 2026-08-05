@@ -4923,7 +4923,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             boolean isCapf = !isTemplateBuilderApplication && isCapfForm(form);
             boolean isBudgetApproval = !isTemplateBuilderApplication && isBudgetApprovalForm(form);
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
-            boolean useIndividualPipelineFlow = !isTemplateBuilderApplication && !isCapf && (isBudgetApproval || hasDynamicFooterFlow);
+            boolean useIndividualPipelineFlow = !isCapf
+                    && (hasDynamicFooterFlow || (!isTemplateBuilderApplication && isBudgetApproval));
             int currentLevel = currentLevelSafe(application);
             if (isTemplateBuilderApplication) {
                 currentLevel = Math.max(0, currentLevel - 2);
@@ -5003,7 +5004,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             boolean isCapf = !isTemplateBuilderApplication && isCapfForm(form);
             boolean isBudgetApproval = !isTemplateBuilderApplication && isBudgetApprovalForm(form);
             boolean hasDynamicFooterFlow = hasDynamicFooterFlow(application);
-            boolean useIndividualPipelineFlow = !isTemplateBuilderApplication && !isCapf && (isBudgetApproval || hasDynamicFooterFlow);
+            boolean useIndividualPipelineFlow = !isCapf
+                    && (hasDynamicFooterFlow || (!isTemplateBuilderApplication && isBudgetApproval));
             int currentLevel = currentLevelSafe(application);
             if (isTemplateBuilderApplication) {
                 currentLevel = Math.max(0, currentLevel - 2);
@@ -5212,6 +5214,10 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             String formName = getResolvedFormName(form);
             boolean isTemplateBuilderApplication = isTemplateBuilderApplication(parseApplicationData(application));
             int displayLevel = isTemplateBuilderApplication ? currentLevel + 2 : currentLevel + 1;
+            if (isTemplateBuilderApplication) {
+                recipients.removeIf(recipient -> recipient == null
+                        || templateApproverAlreadyActedForCurrentStep(application, pipeline, currentLevel, recipient));
+            }
             String subject = formName + " Pending Approval - Level " + displayLevel + " - "
                     + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
             for (CfgTblUser recipient : recipients) {
@@ -5256,6 +5262,166 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         }
     }
 
+    public String refreshTemplateApplicationPdfFromStage0(Integer applicationId) {
+        EntityManager entityManager = getEntityManager();
+        try {
+            if (applicationId == null) {
+                return "Failure: Application ID is required";
+            }
+
+            entityManager.getTransaction().begin();
+            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+            if (application == null) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Application not found";
+            }
+
+            Map<String, Object> appData = parseApplicationData(application);
+            if (!isTemplateBuilderApplication(appData)) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Application is not a template-builder workflow";
+            }
+
+            byte[] basePdf = application.getBlbPdfForStage(0);
+            if (basePdf == null || basePdf.length == 0) {
+                basePdf = application.getBlbPdfData();
+            }
+            if (basePdf == null || basePdf.length == 0) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Base PDF snapshot is not available";
+            }
+
+            byte[] refreshedPdf = applyTemplateApprovalSignaturesToPdf(basePdf, application, appData);
+            if (refreshedPdf == null || refreshedPdf.length == 0) {
+                entityManager.getTransaction().rollback();
+                return "Failure: Template PDF could not be refreshed";
+            }
+
+            application.setBlbPdfData(refreshedPdf);
+            int stageIndex = Math.max(0, currentLevelSafe(application) - 1);
+            application.setBlbPdfForStage(stageIndex, refreshedPdf);
+            if (application.getTxtPdfName() == null || application.getTxtPdfName().trim().isEmpty()) {
+                String code = application.getTxtFormCode() != null ? application.getTxtFormCode().trim()
+                        : "template-application-" + applicationId;
+                application.setTxtPdfName(code + ".pdf");
+            }
+            if (application.getTxtPdfMime() == null || application.getTxtPdfMime().trim().isEmpty()) {
+                application.setTxtPdfMime("application/pdf");
+            }
+            entityManager.merge(application);
+            entityManager.getTransaction().commit();
+            return "Success";
+        } catch (Exception e) {
+            if (entityManager.getTransaction().isActive()) {
+                entityManager.getTransaction().rollback();
+            }
+            log.error("Error refreshing template application PDF from stage 0: " + e.getMessage(), e);
+            return "Failure: " + (e.getMessage() != null ? e.getMessage() : "Unknown error");
+        } finally {
+            if (entityManager.isOpen()) {
+                entityManager.close();
+            }
+        }
+    }
+
+    private boolean templateApproverAlreadyActedForCurrentStep(CfgTblCustomFormApplication application,
+            Map<String, Object> pipeline, int currentLevel, CfgTblUser recipient) {
+        if (application == null || pipeline == null || recipient == null || recipient.getSerUserId() == null) {
+            return false;
+        }
+        Integer recipientUserId = recipient.getSerUserId();
+        int displayLevel = currentLevel + 2;
+        String pipelineStepId = pipeline.get("id") != null ? String.valueOf(pipeline.get("id")).trim() : "";
+        List<Map<String, Object>> history = parseApprovalHistory(application.getTxtApprovalHistory());
+        if (history == null || history.isEmpty()) {
+            return false;
+        }
+        List<Map<String, Object>> activeHistory = filterActiveTemplateHistoryEntries(history);
+        for (Map<String, Object> entry : activeHistory) {
+            if (entry == null) {
+                continue;
+            }
+            String action = entry.get("action") != null ? String.valueOf(entry.get("action")).trim() : "";
+            if (!"APPROVED".equalsIgnoreCase(action)) {
+                continue;
+            }
+            Integer approvedBy = safeInt(entry.get("approvedBy"), safeInt(entry.get("userId"), null));
+            if (approvedBy == null || !approvedBy.equals(recipientUserId)) {
+                continue;
+            }
+            Integer level = safeInt(entry.get("intApprovalOrder"), safeInt(entry.get("level"), null));
+            String entryStepId = entry.get("stepId") != null ? String.valueOf(entry.get("stepId")).trim() : "";
+            if (!pipelineStepId.isEmpty() && pipelineStepId.equalsIgnoreCase(entryStepId)) {
+                return true;
+            }
+            if (level != null && level == displayLevel) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<Map<String, Object>> filterActiveTemplateHistoryEntries(List<Map<String, Object>> history) {
+        List<Map<String, Object>> active = new java.util.ArrayList<>();
+        if (history == null) {
+            return active;
+        }
+        for (Map<String, Object> entry : history) {
+            if (entry == null) {
+                continue;
+            }
+            String action = entry.get("action") != null
+                    ? String.valueOf(entry.get("action")).trim().toUpperCase(Locale.ROOT)
+                    : "";
+            if ("SENT_BACK_TO_INITIATOR".equals(action)) {
+                active.removeIf(existing -> !templateEntryBelongsToSubmission(existing));
+                active.add(entry);
+                continue;
+            }
+            if ("SENT_BACK".equals(action)) {
+                Integer toLevel = safeInt(entry.get("toLevel"),
+                        safeInt(entry.get("targetLevel"), safeInt(entry.get("returnLevel"), null)));
+                int resetLevel = toLevel == null || toLevel <= 0 ? 1 : toLevel;
+                active.removeIf(existing -> {
+                    if (templateEntryBelongsToSubmission(existing)) {
+                        return false;
+                    }
+                    Integer existingLevel = safeInt(existing.get("intApprovalOrder"),
+                            safeInt(existing.get("level"), null));
+                    return existingLevel != null && existingLevel >= resetLevel;
+                });
+                active.add(entry);
+                continue;
+            }
+            if ("RESUBMITTED_BY_INITIATOR".equals(action)) {
+                active.removeIf(existing -> !templateEntryBelongsToSubmission(existing));
+                active.add(entry);
+                continue;
+            }
+            active.add(entry);
+        }
+        return active;
+    }
+
+    private boolean templateEntryBelongsToSubmission(Map<String, Object> entry) {
+        if (entry == null) {
+            return false;
+        }
+        String action = entry.get("action") != null
+                ? String.valueOf(entry.get("action")).trim().toUpperCase(Locale.ROOT)
+                : "";
+        String stepId = entry.get("stepId") != null ? String.valueOf(entry.get("stepId")).trim() : "";
+        String role = entry.get("role") != null ? String.valueOf(entry.get("role")).trim().toLowerCase(Locale.ROOT)
+                : (entry.get("departmentName") != null
+                        ? String.valueOf(entry.get("departmentName")).trim().toLowerCase(Locale.ROOT)
+                        : "");
+        Integer level = safeInt(entry.get("intApprovalOrder"), safeInt(entry.get("level"), null));
+        return "SUBMITTED".equals(action)
+                || "INITIATOR".equalsIgnoreCase(stepId)
+                || "submission".equals(role)
+                || (level != null && level == 1 && "RESUBMITTED_BY_INITIATOR".equals(action));
+    }
+
     private void sendEmailWithSpecificPdf(List<String> recipients, String subject, String html,
             CfgTblCustomFormApplication application, CfgTblCustomForm form, boolean isCapf, byte[] pdfBytes,
             String pdfName, String pdfMime) {
@@ -5277,6 +5443,418 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 application.setTxtPdfName(oldPdfName);
                 application.setTxtPdfMime(oldPdfMime);
             }
+        }
+    }
+
+    private byte[] applyTemplateApprovalSignaturesToPdf(byte[] basePdf,
+            CfgTblCustomFormApplication application,
+            Map<String, Object> appData) {
+        if (basePdf == null || basePdf.length == 0 || application == null || appData == null) {
+            return basePdf;
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> templatePayload = appData.get("templatePayload") instanceof Map
+                ? (Map<String, Object>) appData.get("templatePayload")
+                : new java.util.HashMap<>();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> fields = templatePayload.get("fields") instanceof List
+                ? (List<Map<String, Object>>) templatePayload.get("fields")
+                : java.util.Collections.emptyList();
+        if (fields.isEmpty()) {
+            return basePdf;
+        }
+
+        List<Map<String, Object>> activeHistory = filterActiveTemplateHistoryEntries(
+                parseApprovalHistory(application.getTxtApprovalHistory()));
+        if (activeHistory.isEmpty()) {
+            return basePdf;
+        }
+
+        try (PDDocument document = PDDocument.load(basePdf)) {
+            overlayTemplateApprovalSignaturesOnPdf(document, application, templatePayload, fields, activeHistory);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            document.save(baos);
+            return baos.toByteArray();
+        } catch (Exception e) {
+            log.warn("Error applying template approval signatures to PDF for appId={}: {}",
+                    application.getSerApplicationId(), e.getMessage(), e);
+            return basePdf;
+        }
+    }
+
+    private void overlayTemplateApprovalSignaturesOnPdf(PDDocument document,
+            CfgTblCustomFormApplication application,
+            Map<String, Object> templatePayload,
+            List<Map<String, Object>> fields,
+            List<Map<String, Object>> activeHistory) throws java.io.IOException {
+        if (document == null || application == null || fields == null || fields.isEmpty()) {
+            return;
+        }
+
+        Map<String, Object> page = templatePayload != null && templatePayload.get("page") instanceof Map
+                ? castMap(templatePayload.get("page"))
+                : java.util.Collections.emptyMap();
+        float templatePageWidth = safeFloat(page.get("width"), 794f);
+        float templatePageHeight = safeFloat(page.get("height"), 1123f);
+        float templatePageGap = safeFloat(page.get("gap"), 32f);
+
+        List<Map<String, Object>> signatureFields = new java.util.ArrayList<>();
+        List<Map<String, Object>> dynamicApprovalFields = new java.util.ArrayList<>();
+        for (Map<String, Object> field : fields) {
+            if (field == null) {
+                continue;
+            }
+            String type = field.get("type") != null ? String.valueOf(field.get("type")).trim().toLowerCase(Locale.ROOT)
+                    : "";
+            if ("dynamic_signature".equals(type) || "pipeline_signature".equals(type)) {
+                signatureFields.add(field);
+            } else if ("dynamic_approver_name".equals(type) || "dynamic_approval_timestamp".equals(type)) {
+                dynamicApprovalFields.add(field);
+            }
+        }
+        if (signatureFields.isEmpty() && dynamicApprovalFields.isEmpty()) {
+            return;
+        }
+
+        java.util.Set<Integer> userIds = new java.util.LinkedHashSet<>();
+        for (Map<String, Object> entry : activeHistory) {
+            if (entry == null) {
+                continue;
+            }
+            String action = entry.get("action") != null ? String.valueOf(entry.get("action")).trim().toUpperCase(Locale.ROOT)
+                    : "";
+            if (!"APPROVED".equals(action) && !"SUBMITTED".equals(action) && !"RESUBMITTED_BY_INITIATOR".equals(action)) {
+                continue;
+            }
+            Integer userId = safeInt(entry.get("approvedBy"), safeInt(entry.get("userId"), null));
+            if (userId != null && userId > 0) {
+                userIds.add(userId);
+            }
+        }
+        Map<Integer, String> signatureFromDb = loadUserSignaturePaths(userIds.toArray(new Integer[0]));
+
+        for (Map<String, Object> field : signatureFields) {
+            Map<String, Object> placement = field.get("placement") instanceof Map
+                    ? castMap(field.get("placement"))
+                    : null;
+            if (placement == null) {
+                continue;
+            }
+            List<Map<String, Object>> matchingEntries = resolveTemplateSignatureEntriesForField(field, activeHistory,
+                    application.getSerSubmittedBy());
+            if (matchingEntries.isEmpty()) {
+                continue;
+            }
+
+            float x = safeFloat(placement.get("x"), 0f);
+            float y = safeFloat(placement.get("y"), 0f);
+            float width = Math.max(8f, safeFloat(placement.get("width"), 120f));
+            float height = Math.max(8f, safeFloat(placement.get("height"), 40f));
+
+            int pageIndex = (int) Math.floor(y / Math.max(1f, templatePageHeight + templatePageGap));
+            if (pageIndex < 0 || pageIndex >= document.getNumberOfPages()) {
+                pageIndex = Math.min(Math.max(0, pageIndex), Math.max(0, document.getNumberOfPages() - 1));
+            }
+            float pageYOffset = pageIndex * (templatePageHeight + templatePageGap);
+            float pageLocalY = y - pageYOffset;
+
+            PDPage pdfPage = document.getPage(pageIndex);
+            float pdfPageWidth = pdfPage.getMediaBox().getWidth();
+            float pdfPageHeight = pdfPage.getMediaBox().getHeight();
+            float scaleX = pdfPageWidth / Math.max(1f, templatePageWidth);
+            float scaleY = pdfPageHeight / Math.max(1f, templatePageHeight);
+
+            float pdfX = x * scaleX;
+            float pdfYTop = pageLocalY * scaleY;
+            float pdfWidth = width * scaleX;
+            float pdfHeight = height * scaleY;
+            float pdfYBottom = pdfPageHeight - pdfYTop - pdfHeight;
+
+            try (PDPageContentStream content = new PDPageContentStream(document, pdfPage,
+                    PDPageContentStream.AppendMode.APPEND, true, true)) {
+                drawTemplateSignatureGroup(document, content, matchingEntries, signatureFromDb, pdfX, pdfYBottom,
+                        pdfWidth, pdfHeight);
+            }
+        }
+
+        for (Map<String, Object> field : dynamicApprovalFields) {
+            Map<String, Object> placement = field.get("placement") instanceof Map
+                    ? castMap(field.get("placement"))
+                    : null;
+            if (placement == null) {
+                continue;
+            }
+            List<Map<String, Object>> matchingEntries = resolveTemplateSignatureEntriesForField(field, activeHistory,
+                    application.getSerSubmittedBy());
+            if (matchingEntries.isEmpty()) {
+                continue;
+            }
+
+            float x = safeFloat(placement.get("x"), 0f);
+            float y = safeFloat(placement.get("y"), 0f);
+            float width = Math.max(8f, safeFloat(placement.get("width"), 120f));
+            float height = Math.max(8f, safeFloat(placement.get("height"), 24f));
+
+            int pageIndex = (int) Math.floor(y / Math.max(1f, templatePageHeight + templatePageGap));
+            if (pageIndex < 0 || pageIndex >= document.getNumberOfPages()) {
+                pageIndex = Math.min(Math.max(0, pageIndex), Math.max(0, document.getNumberOfPages() - 1));
+            }
+            float pageYOffset = pageIndex * (templatePageHeight + templatePageGap);
+            float pageLocalY = y - pageYOffset;
+
+            PDPage pdfPage = document.getPage(pageIndex);
+            float pdfPageWidth = pdfPage.getMediaBox().getWidth();
+            float pdfPageHeight = pdfPage.getMediaBox().getHeight();
+            float scaleX = pdfPageWidth / Math.max(1f, templatePageWidth);
+            float scaleY = pdfPageHeight / Math.max(1f, templatePageHeight);
+
+            float pdfX = x * scaleX;
+            float pdfYTop = pageLocalY * scaleY;
+            float pdfWidth = width * scaleX;
+            float pdfHeight = height * scaleY;
+            float pdfYBottom = pdfPageHeight - pdfYTop - pdfHeight;
+
+            try (PDPageContentStream content = new PDPageContentStream(document, pdfPage,
+                    PDPageContentStream.AppendMode.APPEND, true, true)) {
+                drawTemplateDynamicApprovalTextGroup(content, field, matchingEntries, pdfX, pdfYBottom, pdfWidth,
+                        pdfHeight);
+            }
+        }
+    }
+
+    private void drawTemplateSignatureGroup(PDDocument document,
+            PDPageContentStream content,
+            List<Map<String, Object>> entries,
+            Map<Integer, String> signatureFromDb,
+            float x,
+            float y,
+            float width,
+            float height) throws java.io.IOException {
+        if (entries == null || entries.isEmpty()) {
+            return;
+        }
+        int count = Math.max(1, entries.size());
+        float gap = Math.min(8f, width * 0.04f);
+        float usableWidth = Math.max(width, 1f);
+        float slotWidth = count > 1 ? Math.max(12f, (usableWidth - (gap * (count - 1))) / count) : usableWidth;
+
+        for (int i = 0; i < entries.size(); i++) {
+            Map<String, Object> entry = entries.get(i);
+            if (entry == null) {
+                continue;
+            }
+            Integer approvedBy = safeInt(entry.get("approvedBy"), safeInt(entry.get("userId"), null));
+            String sigPath = entry.get("signaturePath") != null ? String.valueOf(entry.get("signaturePath")) : "";
+            if ((sigPath == null || sigPath.trim().isEmpty()) && approvedBy != null && signatureFromDb != null) {
+                sigPath = signatureFromDb.getOrDefault(approvedBy, sigPath);
+            }
+            if (sigPath == null || sigPath.trim().isEmpty()) {
+                continue;
+            }
+            float slotX = x + (i * (slotWidth + gap));
+            drawSignatureImage(document, content, sigPath, slotX, y, slotWidth, height, false, height);
+        }
+    }
+
+    private List<Map<String, Object>> resolveTemplateSignatureEntriesForField(Map<String, Object> field,
+            List<Map<String, Object>> activeHistory,
+            Integer submittedByUserId) {
+        List<Map<String, Object>> matches = new java.util.ArrayList<>();
+        if (field == null || activeHistory == null || activeHistory.isEmpty()) {
+            return matches;
+        }
+
+        String targetId = firstNonBlank(
+                field.get("signatureTargetId") != null ? String.valueOf(field.get("signatureTargetId")) : null,
+                field.get("pipelineStepId") != null ? String.valueOf(field.get("pipelineStepId")) : null);
+        for (Map<String, Object> entry : activeHistory) {
+            if (entry == null) {
+                continue;
+            }
+            String action = entry.get("action") != null ? String.valueOf(entry.get("action")).trim().toUpperCase(Locale.ROOT)
+                    : "";
+            if ("APPROVED".equals(action)) {
+                if (templateSignatureEntryMatchesTarget(entry, field, targetId)) {
+                    matches.add(entry);
+                }
+                continue;
+            }
+            if (targetId != null && "initiator".equalsIgnoreCase(targetId)
+                    && ("SUBMITTED".equals(action) || "RESUBMITTED_BY_INITIATOR".equals(action))) {
+                Integer approvedBy = safeInt(entry.get("approvedBy"), safeInt(entry.get("userId"), null));
+                if (submittedByUserId == null || approvedBy == null || submittedByUserId.equals(approvedBy)) {
+                    matches.add(entry);
+                }
+            }
+        }
+        return matches;
+    }
+
+    private boolean templateSignatureEntryMatchesTarget(Map<String, Object> entry,
+            Map<String, Object> field,
+            String targetId) {
+        String entryStepId = firstNonBlank(
+                entry.get("stepId") != null ? String.valueOf(entry.get("stepId")) : null,
+                entry.get("pipelineStepId") != null ? String.valueOf(entry.get("pipelineStepId")) : null,
+                entry.get("signatureTargetId") != null ? String.valueOf(entry.get("signatureTargetId")) : null);
+        if (targetId != null && entryStepId != null) {
+            return targetId.equalsIgnoreCase(entryStepId);
+        }
+
+        Integer entryLevel = safeInt(entry.get("intApprovalOrder"), safeInt(entry.get("level"), null));
+        if (entryLevel != null) {
+            Integer expectedLevel = resolveTemplateSignatureFieldLevel(field);
+            if (expectedLevel != null && (entryLevel.equals(expectedLevel)
+                    || entryLevel.equals(expectedLevel - 1)
+                    || entryLevel.equals(expectedLevel - 2))) {
+                return true;
+            }
+        }
+
+        String fieldLabel = field.get("label") != null ? String.valueOf(field.get("label")).trim().toLowerCase(Locale.ROOT) : "";
+        String role = entry.get("role") != null ? String.valueOf(entry.get("role")).trim().toLowerCase(Locale.ROOT) : "";
+        return !fieldLabel.isEmpty() && !role.isEmpty()
+                && (fieldLabel.equals(role) || fieldLabel.contains(role) || role.contains(fieldLabel));
+    }
+
+    private Integer resolveTemplateSignatureFieldLevel(Map<String, Object> field) {
+        if (field == null) {
+            return null;
+        }
+        return safeInt(field.get("order"), safeInt(field.get("intApprovalOrder"), null));
+    }
+
+    private void drawTemplateDynamicApprovalTextGroup(PDPageContentStream content,
+            Map<String, Object> field,
+            List<Map<String, Object>> entries,
+            float x,
+            float y,
+            float width,
+            float height) throws java.io.IOException {
+        if (field == null || entries == null || entries.isEmpty() || width <= 0f || height <= 0f) {
+            return;
+        }
+
+        String type = field.get("type") != null ? String.valueOf(field.get("type")).trim().toLowerCase(Locale.ROOT)
+                : "";
+        List<String> values = new java.util.ArrayList<>();
+        for (Map<String, Object> entry : entries) {
+            String value = resolveTemplateDynamicApprovalTextValue(type, entry);
+            if (value != null && !value.trim().isEmpty()) {
+                values.add(value.trim());
+            }
+        }
+        if (values.isEmpty()) {
+            return;
+        }
+
+        List<String> lines = new java.util.ArrayList<>();
+        PDType1Font font = PDType1Font.HELVETICA;
+        float fontSize = Math.max(6f, Math.min(10f, height / Math.max(1f, values.size() + 0.8f)));
+        float maxWidth = Math.max(8f, width - 4f);
+        for (String value : values) {
+            List<String> wrapped = wrapText(value, font, fontSize, maxWidth);
+            if (wrapped == null || wrapped.isEmpty()) {
+                lines.add(value);
+            } else {
+                lines.addAll(wrapped);
+            }
+        }
+        if (lines.isEmpty()) {
+            return;
+        }
+
+        float lineHeight = fontSize + 1.5f;
+        while (lines.size() * lineHeight > Math.max(6f, height - 2f) && fontSize > 6f) {
+            fontSize -= 0.5f;
+            lineHeight = fontSize + 1.5f;
+            lines = new java.util.ArrayList<>();
+            for (String value : values) {
+                List<String> wrapped = wrapText(value, font, fontSize, maxWidth);
+                if (wrapped == null || wrapped.isEmpty()) {
+                    lines.add(value);
+                } else {
+                    lines.addAll(wrapped);
+                }
+            }
+        }
+
+        if (lines.isEmpty()) {
+            return;
+        }
+
+        content.setFont(font, fontSize);
+        float totalTextHeight = lines.size() * lineHeight;
+        float currentY = y + Math.max(0f, (height - totalTextHeight) / 2f) + height - fontSize - 1f;
+        for (String line : lines) {
+            String safeLine = line != null ? line : "";
+            float textWidth = font.getStringWidth(safeLine) / 1000f * fontSize;
+            float textX = x + Math.max(2f, (width - textWidth) / 2f);
+            content.beginText();
+            content.newLineAtOffset(textX, currentY);
+            content.showText(safeLine);
+            content.endText();
+            currentY -= lineHeight;
+            if (currentY < y - 1f) {
+                break;
+            }
+        }
+    }
+
+    private String resolveTemplateDynamicApprovalTextValue(String fieldType, Map<String, Object> entry) {
+        if (entry == null) {
+            return "";
+        }
+        if ("dynamic_approver_name".equals(fieldType)) {
+            return firstNonBlank(
+                    entry.get("txtUserName") != null ? String.valueOf(entry.get("txtUserName")) : null,
+                    entry.get("userName") != null ? String.valueOf(entry.get("userName")) : null,
+                    entry.get("approverName") != null ? String.valueOf(entry.get("approverName")) : null,
+                    extractUserName(entry.get("user")),
+                    extractUserName(entry.get("approver")),
+                    extractUserName(entry.get("employee")),
+                    entry.get("role") != null ? String.valueOf(entry.get("role")) : null);
+        }
+        if ("dynamic_approval_timestamp".equals(fieldType)) {
+            return firstNonBlank(
+                    formatApprovalDateTime(entry.get("approvedAt")),
+                    formatApprovalDateTime(entry.get("approvedDate")),
+                    formatApprovalDateTime(entry.get("date")),
+                    formatApprovalDateTime(entry.get("dteCreatedDate")),
+                    formatApprovalDateTime(entry.get("timestamp")));
+        }
+        return "";
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> castMap(Object value) {
+        return value instanceof Map ? (Map<String, Object>) value : java.util.Collections.emptyMap();
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) {
+                return value.trim();
+            }
+        }
+        return null;
+    }
+
+    private float safeFloat(Object value, float fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).floatValue();
+        }
+        try {
+            return Float.parseFloat(String.valueOf(value).trim());
+        } catch (Exception ignore) {
+            return fallback;
         }
     }
 

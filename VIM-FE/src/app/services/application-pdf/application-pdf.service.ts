@@ -1006,19 +1006,19 @@ export class ApplicationPdfService {
 
       const userRow = table.querySelector('tr:last-child') as HTMLElement | null;
       if (userRow) {
-        setStyle(userRow, 'height', '58px');
+        setStyle(userRow, 'height', '54px');
       }
 
       const userCells = Array.from(table.querySelectorAll('tr:last-child td')) as HTMLElement[];
       userCells.forEach((cell) => {
         setStyle(cell, 'vertical-align', 'top');
-        setStyle(cell, 'padding-top', '10px');
+        setStyle(cell, 'padding-top', '4px');
         setStyle(cell, 'padding-bottom', '0');
         setStyle(cell, 'padding-left', '6px');
         setStyle(cell, 'padding-right', '6px');
-        setStyle(cell, 'min-height', '58px');
-        setStyle(cell, 'height', '58px');
-        setStyle(cell, 'line-height', '1.45');
+        setStyle(cell, 'min-height', '54px');
+        setStyle(cell, 'height', '54px');
+        setStyle(cell, 'line-height', '1.3');
         setStyle(cell, 'box-sizing', 'border-box');
 
         let inner: HTMLElement | null = null;
@@ -1060,8 +1060,8 @@ export class ApplicationPdfService {
         }
         setStyle(pad, 'display', 'block');
         setStyle(pad, 'width', '100%');
-        setStyle(pad, 'height', '16px');
-        setStyle(pad, 'min-height', '16px');
+        setStyle(pad, 'height', '8px');
+        setStyle(pad, 'min-height', '8px');
         setStyle(pad, 'margin', '0');
         setStyle(pad, 'padding', '0');
         setStyle(pad, 'border', '0');
@@ -1146,16 +1146,16 @@ export class ApplicationPdfService {
       }
       [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr:last-child,
       [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr:last-child {
-        height: 58px !important;
+        height: 54px !important;
       }
       [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr:last-child td,
       [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr:last-child td {
         vertical-align: top !important;
-        padding-top: 10px !important;
+        padding-top: 4px !important;
         padding-bottom: 0 !important;
-        min-height: 58px !important;
-        height: 58px !important;
-        line-height: 1.45 !important;
+        min-height: 54px !important;
+        height: 54px !important;
+        line-height: 1.3 !important;
         box-sizing: border-box !important;
       }
       [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures tr:last-child td > span,
@@ -1164,15 +1164,15 @@ export class ApplicationPdfService {
       [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures tr:last-child td > div:not(.pdf-footer-cell-pad) {
         display: block !important;
         margin: 0 !important;
-        line-height: 1.45 !important;
+        line-height: 1.3 !important;
         box-sizing: border-box !important;
       }
       [data-pdf-capture-scope="${captureScopeId}"] .xyz-footer .xyz-signatures .pdf-footer-cell-pad,
       [data-pdf-capture-scope="${captureScopeId}"] .ec-slip-pipeline-footer .xyz-signatures .pdf-footer-cell-pad {
         display: block !important;
         width: 100% !important;
-        height: 16px !important;
-        min-height: 16px !important;
+        height: 8px !important;
+        min-height: 8px !important;
         margin: 0 !important;
         padding: 0 !important;
         border: 0 !important;
@@ -1705,95 +1705,88 @@ export class ApplicationPdfService {
       }
       return user.serUserId || user.userId || user.id || null;
     };
-    const getUserSignatureUrl = (user: any, sectionLabel?: string): string => {
+    const getFooterApprovalEntry = (user: any, section: any, slotIndex: number): any | null => {
+      const userId = getUserId(user);
+      if (!userId || !approvalHistory.length) {
+        return null;
+      }
+      const sectionOrder = Number(section?.order) || 0;
+      const sectionKey = String(section?.key || '').trim();
+      const expectedStepId = sectionKey ? `${sectionKey}-${sectionOrder}-${userId}-${slotIndex + 1}` : '';
+      const expectedLevel = footerFields
+        .filter((field: any) => (Number(field?.order) || 0) < sectionOrder)
+        .reduce((count: number, field: any) => count + (Array.isArray(field?.users) ? field.users.length : 0), 0) + slotIndex + 2;
+      const sectionLabel = String(section?.label || '').trim().toUpperCase();
+      return approvalHistory.find((e: any) => {
+        const action = String(e?.action || e?.status || '').toUpperCase();
+        if (action !== 'APPROVED') {
+          return false;
+        }
+        const entryUserId = Number(e?.approvedBy ?? e?.userId ?? e?.serUserId);
+        if (!Number.isFinite(entryUserId) || entryUserId !== userId) {
+          return false;
+        }
+        const entryStepId = String(e?.stepId ?? e?.pipelineStepId ?? e?.signatureTargetId ?? '').trim();
+        if (expectedStepId && entryStepId) {
+          return entryStepId === expectedStepId;
+        }
+        const entryLevel = Number(e?.intApprovalOrder ?? e?.level);
+        if (Number.isFinite(entryLevel) && entryLevel === expectedLevel) {
+          return true;
+        }
+        const entryRole = String(e?.role || e?.stepName || e?.stageName || '').trim().toUpperCase();
+        return !!sectionLabel && !!entryRole && entryRole === sectionLabel;
+      });
+    };
+    const getUserSignatureUrl = (user: any, section: any, slotIndex: number): string => {
       const userId = getUserId(user);
       if (!userId) {
         return '';
       }
-      const entry = approvalHistory.find((e: any) => {
-        const entryUserId = e.approvedBy || e.userId;
-        if (entryUserId !== userId) {
-          return false;
-        }
-        if (sectionLabel) {
-          const entryRole = (e.role || '').toString().trim();
-          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
-        }
-        return true;
-      });
-      if (!entry || !entry.signaturePath) {
+      const entry = getFooterApprovalEntry(user, section, slotIndex);
+      if (!entry) {
         return '';
       }
       return `${urls.API_URL}getSignature?userId=${userId}`;
     };
-    const isUserApproved = (user: any, sectionLabel?: string): boolean => {
-      const userId = getUserId(user);
-      if (!userId || !approvalHistory.length) {
-        return false;
-      }
-      const entry = approvalHistory.find((e: any) => {
-        const entryUserId = e.approvedBy || e.userId;
-        if (entryUserId !== userId) {
-          return false;
-        }
-        if (sectionLabel) {
-          const entryRole = (e.role || '').toString().trim();
-          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
-        }
-        return true;
-      });
-      if (!entry || !entry.signaturePath) {
+    const isUserApproved = (user: any, section: any, slotIndex: number): boolean => {
+      const entry = getFooterApprovalEntry(user, section, slotIndex);
+      if (!entry) {
         return false;
       }
       const action = (entry.action || entry.status || '').toString().toUpperCase();
-      if (action === 'REJECTED') {
-        return false;
-      }
-      if (action === 'APPROVED') {
-        return true;
-      }
-      return !!entry.approvedDate;
+      return action === 'APPROVED';
     };
-    const getUserApprovalDate = (user: any, sectionLabel?: string): string => {
-      const userId = getUserId(user);
-      if (!userId || !approvalHistory.length) {
+    const getUserApprovalDate = (user: any, section: any, slotIndex: number): string => {
+      const entry = getFooterApprovalEntry(user, section, slotIndex);
+      if (!entry) {
         return '';
       }
-      const entry = approvalHistory.find((e: any) => {
-        const entryUserId = e.approvedBy || e.userId;
-        if (entryUserId !== userId) {
-          return false;
-        }
-        if (sectionLabel) {
-          const entryRole = (e.role || '').toString().trim();
-          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
-        }
-        return true;
-      });
-      if (!entry || !entry.approvedDate) {
+      const dateValue = entry?.approvedDate || entry?.approvedAt || entry?.date || entry?.dteCreatedDate || entry?.timestamp;
+      if (!dateValue) {
         return '';
       }
       try {
-        const dt = new Date(entry.approvedDate);
+        const dt = new Date(dateValue);
         if (isNaN(dt.getTime())) {
-          return String(entry.approvedDate);
+          return String(dateValue);
         }
         return dt.toLocaleString();
       } catch {
-        return String(entry.approvedDate);
+        return String(dateValue);
       }
     };
     const getFooterSlots = (section: any): any[] => {
       const users = Array.isArray(section?.users) ? section.users : [];
       return users.length > 0 ? users : [null];
     };
-    const renderUserCell = (user: any, sectionLabel?: string): string => {
+    const renderUserCell = (user: any, section: any, slotIndex: number): string => {
       if (omitApprovalSignatures || !user) {
         return '';
       }
-      const sigUrl = getUserSignatureUrl(user, sectionLabel);
-      const sigDate = getUserApprovalDate(user, sectionLabel);
-      const approved = isUserApproved(user, sectionLabel);
+      const sigUrl = getUserSignatureUrl(user, section, slotIndex);
+      const sigDate = getUserApprovalDate(user, section, slotIndex);
+      const approved = isUserApproved(user, section, slotIndex);
       const content = `
         ${approved && sigUrl ? `<img class="xyz-sig-img" src="${sigUrl}" alt="" crossorigin="anonymous" />` : ''}
         ${approved && sigDate ? `<div class="xyz-sig-time">${escapeHtml(sigDate)}</div>` : ''}
@@ -1840,8 +1833,8 @@ export class ApplicationPdfService {
               .map((section: any) =>
                 getFooterSlots(section)
                   .map(
-                    (slotUser: any) =>
-                      `<td>${slotUser && isUserApproved(slotUser, section.label) ? renderUserCell(slotUser, section.label) : ''}</td>`
+                    (slotUser: any, slotIndex: number) =>
+                      `<td>${slotUser && isUserApproved(slotUser, section, slotIndex) ? renderUserCell(slotUser, section, slotIndex) : ''}</td>`
                   )
                   .join('')
               )
@@ -2072,65 +2065,68 @@ export class ApplicationPdfService {
       }
       return user.serUserId || user.userId || user.id || null;
     };
-    const getUserSignatureUrl = (user: any, sectionLabel?: string): string => {
+    const getFooterApprovalEntry = (user: any, section: any, slotIndex: number): any | null => {
+      const userId = getUserId(user);
+      if (!userId || !approvalHistory.length) {
+        return null;
+      }
+      const sectionOrder = Number(section?.order) || 0;
+      const sectionKey = String(section?.key || '').trim();
+      const expectedStepId = sectionKey ? `${sectionKey}-${sectionOrder}-${userId}-${slotIndex + 1}` : '';
+      const expectedLevel = footerFields
+        .filter((field: any) => (Number(field?.order) || 0) < sectionOrder)
+        .reduce((count: number, field: any) => count + (Array.isArray(field?.users) ? field.users.length : 0), 0) + slotIndex + 2;
+      const sectionLabel = String(section?.label || '').trim().toUpperCase();
+      return approvalHistory.find((e: any) => {
+        const action = String(e?.action || e?.status || '').toUpperCase();
+        if (action !== 'APPROVED') {
+          return false;
+        }
+        const entryUserId = Number(e?.approvedBy ?? e?.userId ?? e?.serUserId);
+        if (!Number.isFinite(entryUserId) || entryUserId !== userId) {
+          return false;
+        }
+        const entryStepId = String(e?.stepId ?? e?.pipelineStepId ?? e?.signatureTargetId ?? '').trim();
+        if (expectedStepId && entryStepId) {
+          return entryStepId === expectedStepId;
+        }
+        const entryLevel = Number(e?.intApprovalOrder ?? e?.level);
+        if (Number.isFinite(entryLevel) && entryLevel === expectedLevel) {
+          return true;
+        }
+        const entryRole = String(e?.role || e?.stepName || e?.stageName || '').trim().toUpperCase();
+        return !!sectionLabel && !!entryRole && entryRole === sectionLabel;
+      });
+    };
+    const getUserSignatureUrl = (user: any, section: any, slotIndex: number): string => {
       const userId = getUserId(user);
       if (!userId) {
         return '';
       }
-      const entry = approvalHistory.find((e: any) => {
-        const entryUserId = e.approvedBy || e.userId;
-        if (entryUserId !== userId) {
-          return false;
-        }
-        if (sectionLabel) {
-          const entryRole = (e.role || '').toString().trim();
-          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
-        }
-        return true;
-      });
-      if (!entry || !entry.signaturePath) {
+      const entry = getFooterApprovalEntry(user, section, slotIndex);
+      if (!entry) {
         return '';
       }
       return `${urls.API_URL}getSignature?userId=${userId}`;
     };
-    const isUserApproved = (user: any, sectionLabel?: string): boolean => {
-      const userId = getUserId(user);
-      if (!userId || !approvalHistory.length) {
-        return false;
-      }
-      const entry = approvalHistory.find((e: any) => {
-        const entryUserId = e.approvedBy || e.userId;
-        if (entryUserId !== userId) {
-          return false;
-        }
-        if (sectionLabel) {
-          const entryRole = (e.role || '').toString().trim();
-          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
-        }
-        return true;
-      });
-      if (!entry || !entry.signaturePath) {
+    const isUserApproved = (user: any, section: any, slotIndex: number): boolean => {
+      const entry = getFooterApprovalEntry(user, section, slotIndex);
+      if (!entry) {
         return false;
       }
       const action = (entry.action || entry.status || '').toString().toUpperCase();
-      if (action === 'REJECTED') {
-        return false;
-      }
-      if (action === 'APPROVED') {
-        return true;
-      }
-      return !!entry.approvedDate;
+      return action === 'APPROVED';
     };
     const getFooterSlots = (section: any): any[] => {
       const users = Array.isArray(section?.users) ? section.users : [];
       return users.length > 0 ? users : [null];
     };
-    const renderUserCell = (user: any, sectionLabel?: string): string => {
+    const renderUserCell = (user: any, section: any, slotIndex: number): string => {
       if (omitApprovalSignatures || !user) {
         return '';
       }
-      const sigUrl = getUserSignatureUrl(user, sectionLabel);
-      const approved = isUserApproved(user, sectionLabel);
+      const sigUrl = getUserSignatureUrl(user, section, slotIndex);
+      const approved = isUserApproved(user, section, slotIndex);
       const content = approved && sigUrl ? `<img class="xyz-sig-img" src="${sigUrl}" alt="" crossorigin="anonymous" />` : '';
       return approved ? `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;">${content}</div>` : '';
     };
@@ -2160,8 +2156,8 @@ export class ApplicationPdfService {
               .map((section: any) =>
                 getFooterSlots(section)
                   .map(
-                    (slotUser: any) =>
-                      `<td>${slotUser && isUserApproved(slotUser, section.label) ? renderUserCell(slotUser, section.label) : ''}</td>`
+                    (slotUser: any, slotIndex: number) =>
+                      `<td>${slotUser && isUserApproved(slotUser, section, slotIndex) ? renderUserCell(slotUser, section, slotIndex) : ''}</td>`
                   )
                   .join('')
               )
@@ -4140,86 +4136,121 @@ export class ApplicationPdfService {
         approvalHistory = [];
       }
     }
+    approvalHistory = Array.isArray(approvalHistory)
+      ? [...approvalHistory].sort((a: any, b: any) => {
+          const aTime = new Date(a?.approvedDate ?? a?.actionDate ?? a?.createdAt ?? a?.updatedAt ?? 0).getTime();
+          const bTime = new Date(b?.approvedDate ?? b?.actionDate ?? b?.createdAt ?? b?.updatedAt ?? 0).getTime();
+          return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+        })
+      : [];
 
     const getUserId = (user: any): number | null => {
       if (!user) return null;
       return user.serUserId || user.userId || user.id || null;
     };
 
-    const getUserSignatureUrl = (user: any, sectionLabel?: string): string => {
+    const getFooterApprovalEntry = (user: any, section: any, slotIndex: number): any | null => {
+      const userId = getUserId(user);
+      if (!userId || !Array.isArray(approvalHistory) || approvalHistory.length === 0) return null;
+      const sectionOrder = Number(section?.order) || 0;
+      const sectionKey = String(section?.key || '').trim();
+      const expectedStepId = sectionKey ? `${sectionKey}-${sectionOrder}-${userId}-${slotIndex + 1}` : '';
+      const expectedLevel = (footerFields || [])
+        .filter((field: any) => (Number(field?.order) || 0) < sectionOrder)
+        .reduce((count: number, field: any) => count + (Array.isArray(field?.users) ? field.users.length : 0), 0) + slotIndex + 2;
+      const requestedRole = String(section?.label || '').trim().toUpperCase();
+      for (const entry of approvalHistory) {
+        const action = String(entry?.action || entry?.status || '').toUpperCase();
+        if (action !== 'APPROVED') continue;
+        const entryUserId = Number(entry?.approvedBy ?? entry?.userId ?? entry?.serUserId);
+        if (!Number.isFinite(entryUserId) || entryUserId !== userId) continue;
+        const entryStepId = String(entry?.stepId ?? entry?.pipelineStepId ?? entry?.signatureTargetId ?? '').trim();
+        if (expectedStepId && entryStepId) {
+          if (entryStepId === expectedStepId) {
+            return entry;
+          }
+          continue;
+        }
+        const entryLevel = Number(entry?.intApprovalOrder ?? entry?.level);
+        if (Number.isFinite(entryLevel)) {
+          if (entryLevel === expectedLevel) {
+            return entry;
+          }
+          continue;
+        }
+        if (requestedRole) {
+          const entryRole = String(entry?.role || entry?.stepName || entry?.stageName || '').trim().toUpperCase();
+          if (entryRole === requestedRole) {
+            return entry;
+          }
+        }
+      }
+      return null;
+    };
+
+    const getLatestApprovalEntryForUser = (user: any, section?: any, slotIndex?: number): any | null => {
+      if (section && slotIndex !== undefined) {
+        return getFooterApprovalEntry(user, section, slotIndex);
+      }
+      const userId = getUserId(user);
+      if (!userId || !Array.isArray(approvalHistory) || approvalHistory.length === 0) return null;
+      for (const entry of approvalHistory) {
+        const action = String(entry?.action || entry?.status || '').toUpperCase();
+        if (action !== 'APPROVED') continue;
+        const entryUserId = Number(entry?.approvedBy ?? entry?.userId ?? entry?.serUserId);
+        if (Number.isFinite(entryUserId) && entryUserId === userId) {
+          return entry;
+        }
+      }
+      return null;
+    };
+
+    const getUserSignatureUrl = (user: any, section?: any, slotIndex?: number): string => {
       const userId = getUserId(user);
       if (!userId) return '';
-      const entry = approvalHistory.find((e: any) => {
-        const entryUserId = e.approvedBy || e.userId;
-        if (entryUserId !== userId) return false;
-        // If section label is provided, match by role (section label)
-        if (sectionLabel) {
-          const entryRole = (e.role || '').toString().trim();
-          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
-        }
-        return true;
-      });
-      if (!entry || !entry.signaturePath) return '';
+      const entry = getLatestApprovalEntryForUser(user, section, slotIndex);
+      if (!entry) return '';
       return `${urls.API_URL}getSignature?userId=${userId}`;
     };
 
-    const isUserApproved = (user: any, sectionLabel?: string): boolean => {
+    const isUserApproved = (user: any, section?: any, slotIndex?: number): boolean => {
       const userId = getUserId(user);
       if (!userId || !approvalHistory || approvalHistory.length === 0) return false;
-      const entry = approvalHistory.find((e: any) => {
-        const entryUserId = e.approvedBy || e.userId;
-        if (entryUserId !== userId) return false;
-        // If section label is provided, match by role (section label)
-        if (sectionLabel) {
-          const entryRole = (e.role || '').toString().trim();
-          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
-        }
-        return true;
-      });
+      const entry = getLatestApprovalEntryForUser(user, section, slotIndex);
       if (!entry) return false;
-      if (!entry.signaturePath) return false;
+      if (!entry) return false;
       const action = (entry.action || entry.status || '').toString().toUpperCase();
-      if (action === 'REJECTED') return false;
-      if (action === 'APPROVED') return true;
-      return !!entry.approvedDate;
+      return action === 'APPROVED';
     };
 
-    const getUserApprovalDate = (user: any, sectionLabel?: string): string => {
+    const getUserApprovalDate = (user: any, section?: any, slotIndex?: number): string => {
       const userId = getUserId(user);
       if (!userId || !approvalHistory || approvalHistory.length === 0) return '';
-      const entry = approvalHistory.find((e: any) => {
-        const entryUserId = e.approvedBy || e.userId;
-        if (entryUserId !== userId) return false;
-        // If section label is provided, match by role (section label)
-        if (sectionLabel) {
-          const entryRole = (e.role || '').toString().trim();
-          return entryRole.toUpperCase() === sectionLabel.toUpperCase();
-        }
-        return true;
-      });
-      if (!entry || !entry.approvedDate) return '';
+      const entry = getLatestApprovalEntryForUser(user, section, slotIndex);
+      const dateValue = entry?.approvedDate || entry?.approvedAt || entry?.date || entry?.dteCreatedDate || entry?.timestamp;
+      if (!dateValue) return '';
       try {
-        const dt = new Date(entry.approvedDate);
-        if (isNaN(dt.getTime())) return String(entry.approvedDate);
+        const dt = new Date(dateValue);
+        if (isNaN(dt.getTime())) return String(dateValue);
         return dt.toLocaleString();
       } catch (e) {
-        return String(entry.approvedDate);
+        return String(dateValue);
       }
     };
 
-    const renderUserCell = (user: any, sectionLabel?: string): string => {
+    const renderUserCell = (user: any, section?: any, slotIndex?: number): string => {
       if (omitApprovalSignatures) {
         return '';
       }
       if (!user) return '';
-      const sigUrl = getUserSignatureUrl(user, sectionLabel);
-      const sigDate = getUserApprovalDate(user, sectionLabel);
-      const approved = isUserApproved(user, sectionLabel);
-      const content = `
-        ${approved && sigUrl ? `<img class="xyz-sig-img" src="${sigUrl}" alt="Signature" crossorigin="anonymous" />` : ''}
-        ${approved && sigDate ? `<div class="xyz-sig-time">${sigDate}</div>` : ''}
-      `;
-      return approved ? `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%;">${content}</div>` : '';
+      const sigUrl = getUserSignatureUrl(user, section, slotIndex);
+      const sigDate = getUserApprovalDate(user, section, slotIndex);
+      const approved = isUserApproved(user, section, slotIndex);
+      return approved ? `
+        <div class="xyz-sig-slot">
+          ${approved && sigUrl ? `<img class="xyz-sig-img" src="${sigUrl}" alt="Signature" crossorigin="anonymous" />` : ''}
+          ${approved && sigDate ? `<div class="xyz-sig-time">${sigDate}</div>` : ''}
+        </div>` : '';
     };
 
     const renderUserNameCell = (user: any, fallbackName?: string, fallbackRole?: string): string => {
@@ -4238,10 +4269,6 @@ export class ApplicationPdfService {
       const users = Array.isArray(section?.users) ? section.users : [];
       return users.length > 0 ? users : [null];
     };
-    const renderFooterSignatureSlot = (user: any, sectionLabel?: string): string => {
-      if (!user || !isUserApproved(user, sectionLabel)) return '';
-      return renderUserCell(user, sectionLabel);
-    };
     const renderFooterUserSlot = (user: any): string => {
       if (!user) {
         return isIndividualPipelineEmail
@@ -4253,7 +4280,7 @@ export class ApplicationPdfService {
       let dept = user?.hrTblDepartment?.txtDepartmentName || user?.departmentName || user?.txtDepartmentName || '';
       if (!dept) {
         const userId = getUserId(user);
-        const entry = userId ? approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId) : null;
+        const entry = userId ? getLatestApprovalEntryForUser(user) : null;
         dept = entry?.departmentName || '';
       }
       const parts = [name, designation, dept].filter((p: string) => !!p);
@@ -4542,6 +4569,7 @@ export class ApplicationPdfService {
     .xyz-sig-img { max-height: 14px; max-width: 85%; width: auto; height: auto; object-fit: contain; display:block; margin:0 auto 1px auto; box-sizing:border-box; vertical-align:bottom; }
     .xyz-signatures-blank td .xyz-sig-img { max-height: 14px !important; max-width: calc(85% - 8px) !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 0 auto 1px auto !important; vertical-align: bottom !important; }
     .xyz-signatures-blank td > div { text-align:center; vertical-align:middle; display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; min-height:52px; padding:0; margin:0; box-sizing:border-box; transform:none; }
+    .xyz-sig-slot { width:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; }
     .xyz-paper.xyz-paper--landscape.xyz-individual-pipeline-email .xyz-signatures-blank td { position:relative !important; padding-top:0 !important; padding-bottom:0 !important; vertical-align:top !important; }
     .xyz-paper.xyz-paper--landscape.xyz-individual-pipeline-email .xyz-signatures-blank td > div { position:absolute !important; top:4px !important; left:0 !important; right:0 !important; justify-content:flex-start !important; align-items:center !important; height:auto !important; min-height:0 !important; padding:0 !important; margin:0 !important; transform:none !important; }
     .xyz-paper.xyz-paper--landscape.xyz-individual-pipeline-email .xyz-signatures-blank .xyz-sig-img { max-height:12px !important; margin:0 auto 1px auto !important; }
@@ -4550,7 +4578,7 @@ export class ApplicationPdfService {
     .xyz-paper.xyz-paper--portrait.xyz-individual-pipeline-email .xyz-signatures-blank td > div { position:absolute !important; top:4px !important; left:0 !important; right:0 !important; justify-content:flex-start !important; align-items:center !important; height:auto !important; min-height:0 !important; padding:0 !important; margin:0 !important; transform:none !important; }
     .xyz-paper.xyz-paper--portrait.xyz-individual-pipeline-email .xyz-signatures-blank .xyz-sig-img { max-height:12px !important; margin:0 auto 1px auto !important; }
     .xyz-paper.xyz-paper--portrait.xyz-individual-pipeline-email .xyz-signatures-blank .xyz-sig-time { display:block !important; margin:0 auto !important; line-height:1 !important; font-size:6px !important; }
-    .xyz-sig-time { font-size:7px; color:#6b7280; margin-top:0; line-height:1.1; }
+    .xyz-sig-time { font-size:7px; color:#6b7280; margin-top:0; line-height:1.1; text-align:center; }
     .xyz-signatures-blank td .xyz-sig-time { font-size: 7px !important; margin-top: 0 !important; }
     .xyz-generic-field { margin-bottom:10px; }
     .xyz-generic-label { font-size:12px; font-weight:700; margin-bottom:3px; text-transform:uppercase; letter-spacing:.2px; }
@@ -4653,12 +4681,14 @@ export class ApplicationPdfService {
     }
     .xyz-paper.xyz-individual-pipeline-email .xyz-footer-user-text {
       display: block;
+      text-align: center;
       line-height: 1.45;
     }
     .xyz-paper.xyz-individual-pipeline-email .xyz-footer-user-inner {
       display: block;
       margin: 0;
       padding: 0;
+      text-align: center;
       line-height: 1.45;
     }
     .xyz-paper.xyz-individual-pipeline-email .xyz-footer-cell-pad {
@@ -4696,7 +4726,7 @@ export class ApplicationPdfService {
       ? `
         <tr class="xyz-signatures-blank">
           ${(footerFields || []).map((f: any) =>
-            getFooterSlots(f).map((slot: any) => `<td>${renderFooterSignatureSlot(slot, f?.label)}</td>`).join('')
+            getFooterSlots(f).map((slot: any, slotIndex: number) => `<td>${slot && isUserApproved(slot, f, slotIndex) ? renderUserCell(slot, f, slotIndex) : ''}</td>`).join('')
           ).join('')}
         </tr>
         <tr>

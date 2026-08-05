@@ -545,6 +545,12 @@ public class CustomFormApplicationController {
                 Map<String, Object> result = templateDefinitionController.approveTemplateApplication(requestBody,
                         response);
                 if ("Success".equals(result.get("status"))) {
+                    String pdfRefreshStatus = getCustomFormApplicationDaoImpl()
+                            .refreshTemplateApplicationPdfFromStage0(applicationId);
+                    if (!"Success".equals(pdfRefreshStatus)) {
+                        logger.warn("Template email approval succeeded but PDF refresh failed for applicationId="
+                                + applicationId + ": " + pdfRefreshStatus);
+                    }
                     try {
                         customFormApplicationService.sendTemplatePostApprovalEmails(applicationId);
                     } catch (Exception emailEx) {

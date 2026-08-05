@@ -162,39 +162,103 @@
                     [class.check-mark-filled-field]="field.type === 'checkbox'"
                     [hidden]="field.type === 'radio' || !field.placement"
                     [style.left.px]="field.placement?.x"
-                    [style.top.px]="field.placement?.y"
+                    [style.top.px]="getRenderedFieldTop(field)"
                     [style.width.px]="field.placement?.width"
-                    [style.height.px]="field.placement?.height">
-                    <ng-container *ngIf="isDynamicApprovalDataField(field); else nonSignatureField">
-                        <div class="pipeline-signature-field" [ngStyle]="getInputStyle(field)">
-                            <ng-container *ngIf="isDynamicSignatureField(field); else dynamicApprovalTextField">
-                                <div class="pipeline-signature-slot" *ngFor="let slot of getDynamicSignatureSlots(field)">
-                                    <img *ngIf="getDynamicSignatureImageUrl(slot) as signatureUrl" [src]="signatureUrl" [alt]="getDynamicSignatureLabel(slot)" />
+                    [style.height.px]="getRenderedFieldHeight(field)">
+                    <ng-container *ngIf="isHeaderFieldType(field.type); else nonHeader">
+                        <div class="document-header-preview">
+                            <div class="header-date">Date: __________</div>
+                            <div class="header-main">
+                                <img [src]="getHeaderLogoPath(field.type)" [alt]="getHeaderBrandTitle(field.type)" />
+                                <div>
+                                    <strong>{{ getHeaderBrandTitle(field.type) }}</strong>
+                                    <span>{{ getHeaderAddress(field.type) }}</span>
                                 </div>
-                            </ng-container>
-                            <ng-template #dynamicApprovalTextField>
-                                <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
-                                    {{ getDynamicApprovalDisplayText(field) }}
-                                </span>
-                            </ng-template>
+                            </div>
+                            <div class="header-rule"></div>
                         </div>
                     </ng-container>
-                    <ng-template #nonSignatureField>
-                        <span
-                            *ngIf="field.type === 'word_editor'; else plainFieldValue"
-                            class="filled-field-value word-editor-filled-value"
-                            [ngStyle]="getInputStyle(field)"
-                            [innerHTML]="getFieldValueHtml(field)">
-                        </span>
-                        <ng-template #plainFieldValue>
-                            <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
-                                {{ getFieldValueText(field) }}
+                    <ng-template #nonHeader>
+                    <ng-container *ngIf="field.type === 'individual_pipeline_footer'; else nonFooterField">
+                        <div class="document-footer-preview individual-footer-preview">
+                            <div class="individual-footer-preview-inner">
+                                <table class="xyz-signatures" *ngIf="getIndividualFooterSections().length > 0">
+                                    <tr class="xyz-signatures-blank">
+                                        <ng-container *ngFor="let section of getIndividualFooterSections()">
+                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section); let slotIndex = index">
+                                                <div *ngIf="slotUser && isIndividualFooterUserApproved(slotUser, section, slotIndex)">
+                                                    <img *ngIf="getIndividualFooterSignatureUrl(slotUser, section, slotIndex)"
+                                                        [src]="getIndividualFooterSignatureUrl(slotUser, section, slotIndex)"
+                                                        class="xyz-sig-img"
+                                                        [alt]="(slotUser.txtUserName || slotUser.userName || slotUser.name || 'Approved user') + ' signature'">
+                                                    <div class="xyz-sig-time" *ngIf="getIndividualFooterUserApprovalDate(slotUser, section, slotIndex)">
+                                                        {{ getIndividualFooterUserApprovalDate(slotUser, section, slotIndex) }}
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </ng-container>
+                                    </tr>
+                                    <tr>
+                                        <th *ngFor="let section of getIndividualFooterSections()" [attr.colspan]="getIndividualFooterColSpan(section)">
+                                            {{ section.label || 'New Field' }}:
+                                        </th>
+                                    </tr>
+                                    <tr>
+                                        <ng-container *ngFor="let section of getIndividualFooterSections()">
+                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                                <span [innerHTML]="getIndividualFooterUserLabel(slotUser)"></span>
+                                            </td>
+                                        </ng-container>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+                    </ng-container>
+                    <ng-template #nonFooterField>
+                        <ng-container *ngIf="isDynamicApprovalDataField(field); else nonSignatureField">
+                            <div class="pipeline-signature-field" [ngStyle]="getInputStyle(field)">
+                                <ng-container *ngIf="isDynamicSignatureField(field); else dynamicApprovalTextField">
+                                    <div class="pipeline-signature-slot" *ngFor="let slot of getDynamicSignatureSlots(field)">
+                                        <img *ngIf="getDynamicSignatureImageUrl(slot) as signatureUrl" [src]="signatureUrl" [alt]="getDynamicSignatureLabel(slot)" />
+                                    </div>
+                                </ng-container>
+                                <ng-template #dynamicApprovalTextField>
+                                    <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                                        {{ getDynamicApprovalDisplayText(field) }}
+                                    </span>
+                                </ng-template>
+                            </div>
+                        </ng-container>
+                        <ng-template #nonSignatureField>
+                            <span
+                                *ngIf="field.type === 'word_editor'; else plainFieldValue"
+                                class="filled-field-value word-editor-filled-value"
+                                [ngStyle]="getInputStyle(field)"
+                                [innerHTML]="getFieldValueHtml(field)">
                             </span>
+                            <ng-template #plainFieldValue>
+                                <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                                    {{ getFieldValueText(field) }}
+                                </span>
+                            </ng-template>
                         </ng-template>
+                    </ng-template>
                     </ng-template>
                 </div>
             </div>
         </div>
+
+        <section class="panel" *ngIf="getAttachmentFields().length > 0">
+            <h3>Attachments</h3>
+            <div class="attachment-list" *ngFor="let field of getAttachmentFields(); trackBy: trackByFieldId">
+                <div class="attachment-item" *ngFor="let attachment of getAttachmentPayloads(field)">
+                    <span>{{ field.label }}: {{ attachment.fileName }}</span>
+                    <button type="button" class="btn btn-outline btn-sm" (click)="viewAttachment(attachment)">
+                        View
+                    </button>
+                </div>
+            </div>
+        </section>
 
         <section class="panel progress-panel">
             <div class="progress-heading">

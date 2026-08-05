@@ -89,6 +89,7 @@ import { TemplateFillComponent } from './components/template-fill/template-fill.
 import { TemplateFormsComponent } from './components/template-forms/template-forms.component';
 import { TemplatePendingApprovalsComponent } from './components/template-pending-approvals/template-pending-approvals.component';
 import { TemplateApprovalComponent } from './components/template-approval/template-approval.component';
+import { TemplateApprovedApplicationsComponent } from './components/template-approved-applications/template-approved-applications.component';
 import { MyApplicationComponent } from './components/my-application/my-application.component';
 
 
@@ -190,6 +191,7 @@ export const routes: Routes = [
             { path: 'template-fill/:id', canActivate: [canActivate], component: TemplateFillComponent, title: 'Template Fill' },
             { path: 'template-fill', canActivate: [canActivate], component: TemplateFillComponent, title: 'Template Fill' },
             { path: 'template-pending-approvals', canActivate: [canActivate], component: TemplatePendingApprovalsComponent, title: 'Digital Pending Approvals' },
+            { path: 'template-approved-applications', canActivate: [canActivate], component: TemplateApprovedApplicationsComponent, title: 'Approved Applications' },
             { path: 'template-approval/:id', canActivate: [canActivate], component: TemplateApprovalComponent, title: 'Template Approval' },
             { path: 'my-application/:id', canActivate: [canActivate], component: MyApplicationComponent, title: 'My Application Details' },
             { path: 'my-application', canActivate: [canActivate], component: MyApplicationComponent, title: 'My Digital Applications' },

@@ -2320,24 +2320,49 @@ export class ApplicationsViewComponent implements OnInit {
         approvalHistory = [];
       }
     }
+    approvalHistory = Array.isArray(approvalHistory)
+      ? [...approvalHistory].sort((a: any, b: any) => {
+          const aTime = new Date(a?.approvedDate ?? a?.actionDate ?? a?.createdAt ?? a?.updatedAt ?? 0).getTime();
+          const bTime = new Date(b?.approvedDate ?? b?.actionDate ?? b?.createdAt ?? b?.updatedAt ?? 0).getTime();
+          return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+        })
+      : [];
 
     const getUserId = (user: any): number | null => {
       if (!user) return null;
       return user.serUserId || user.userId || user.id || null;
     };
 
-    const getUserSignatureUrl = (user: any): string => {
+    const getLatestApprovalEntryForUser = (user: any, role?: string): any | null => {
+      const userId = getUserId(user);
+      if (!userId || !Array.isArray(approvalHistory) || approvalHistory.length === 0) return null;
+      const requestedRole = String(role || '').trim().toUpperCase();
+      for (const entry of approvalHistory) {
+        const action = String(entry?.action || entry?.status || '').toUpperCase();
+        if (action === 'REJECTED' || action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') continue;
+        const entryUserId = Number(entry?.approvedBy ?? entry?.userId ?? entry?.serUserId);
+        if (!Number.isFinite(entryUserId) || entryUserId !== userId) continue;
+        if (requestedRole) {
+          const entryRole = String(entry?.role || entry?.stepName || entry?.stageName || '').trim().toUpperCase();
+          if (entryRole && entryRole !== requestedRole) continue;
+        }
+        return entry;
+      }
+      return null;
+    };
+
+    const getUserSignatureUrl = (user: any, role?: string): string => {
       const userId = getUserId(user);
       if (!userId) return '';
-      const entry = approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+      const entry = getLatestApprovalEntryForUser(user, role);
       if (!entry || !entry.signaturePath) return '';
       return `${urls.API_URL}getSignature?userId=${userId}`;
     };
 
-    const isUserApproved = (user: any): boolean => {
+    const isUserApproved = (user: any, role?: string): boolean => {
       const userId = getUserId(user);
       if (!userId || !approvalHistory || approvalHistory.length === 0) return false;
-      const entry = approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+      const entry = getLatestApprovalEntryForUser(user, role);
       if (!entry) return false;
       if (!entry.signaturePath) return false;
       const action = (entry.action || entry.status || '').toString().toUpperCase();
@@ -2346,10 +2371,10 @@ export class ApplicationsViewComponent implements OnInit {
       return !!entry.approvedDate;
     };
 
-    const getUserApprovalDate = (user: any): string => {
+    const getUserApprovalDate = (user: any, role?: string): string => {
       const userId = getUserId(user);
       if (!userId || !approvalHistory || approvalHistory.length === 0) return '';
-      const entry = approvalHistory.find((e: any) => e.approvedBy === userId || e.userId === userId);
+      const entry = getLatestApprovalEntryForUser(user, role);
       if (!entry || !entry.approvedDate) return '';
       try {
         const dt = new Date(entry.approvedDate);
@@ -2360,14 +2385,16 @@ export class ApplicationsViewComponent implements OnInit {
       }
     };
 
-    const renderUserCell = (user: any): string => {
+    const renderUserCell = (user: any, role?: string): string => {
       if (!user) return '';
-      const sigUrl = getUserSignatureUrl(user);
-      const sigDate = getUserApprovalDate(user);
-      const approved = isUserApproved(user);
+      const sigUrl = getUserSignatureUrl(user, role);
+      const sigDate = getUserApprovalDate(user, role);
+      const approved = isUserApproved(user, role);
       return `
-        ${approved && sigUrl ? `<img class="xyz-sig-img" src="${sigUrl}" alt="Signature" crossorigin="anonymous" />` : ''}
-        ${approved && sigDate ? `<div class="xyz-sig-time">${sigDate}</div>` : ''}
+        <div class="xyz-sig-slot">
+          ${approved && sigUrl ? `<img class="xyz-sig-img" src="${sigUrl}" alt="Signature" crossorigin="anonymous" />` : ''}
+          ${approved && sigDate ? `<div class="xyz-sig-time">${sigDate}</div>` : ''}
+        </div>
       `;
     };
 
@@ -2382,17 +2409,19 @@ export class ApplicationsViewComponent implements OnInit {
       return users
         .map((u: any) => {
           const name = u?.txtUserName || u?.userName || u?.name || '';
-          const role = u?.cfgTblRole?.txtRoleName || u?.roleName || u?.designation || '';
-          return role ? `${name} (${role})` : name;
+          const designation = u?.txtDesignation || u?.designation || u?.cfgTblRole?.txtRoleName || u?.roleName || '';
+          const department = u?.txtDepartmentName || u?.departmentName || u?.hrTblDepartment?.txtDepartmentName || '';
+          const parts = [name, designation, department].filter((v: string) => !!String(v || '').trim());
+          return `<div class="xyz-user-block">${parts.join('<br>')}</div>`;
         })
         .filter((v: string) => !!v)
-        .join(', ');
+        .join('');
     };
-    const renderFooterSignatureCell = (users: any[]): string => {
+    const renderFooterSignatureCell = (users: any[], role?: string): string => {
       if (!Array.isArray(users) || users.length === 0) return '';
-      const approvedUsers = users.filter((u: any) => isUserApproved(u));
+      const approvedUsers = users.filter((u: any) => isUserApproved(u, role));
       if (approvedUsers.length === 0) return '';
-      return approvedUsers.slice(0, 2).map((u: any) => renderUserCell(u)).join('');
+      return approvedUsers.map((u: any) => renderUserCell(u, role)).join('');
     };
     const hasDynamicFooter = Array.isArray(footerFields) && footerFields.length > 0;
     const css = `
@@ -2430,13 +2459,14 @@ export class ApplicationsViewComponent implements OnInit {
     .xyz-col-amount { width:18%; text-align:center; }
     .xyz-note { margin-top:6px; font-size:11.5px; color:var(--muted); }
     .xyz-signatures { width:100%; border-collapse:collapse; margin-top:14px; font-family: "Calibri", "Arial", sans-serif; font-size:12px; }
-    .xyz-signatures th, .xyz-signatures td { border:1px solid var(--line); padding:6px 8px; vertical-align:top; text-align:left; }
+    .xyz-signatures th, .xyz-signatures td { border:1px solid var(--line); padding:6px 8px; vertical-align:top; text-align:center; }
     .xyz-signatures-blank td { height:56px; padding:2px 4px; background:#fff; overflow:hidden; position:relative; box-sizing:border-box; vertical-align:middle; }
-    .xyz-signatures th { font-size:12.5px; font-weight:700; background:#e5e7eb; text-transform:uppercase; letter-spacing:0.3px; }
-    .xyz-signatures th[colspan="2"] { text-align:center; }
+    .xyz-signatures th { font-size:12.5px; font-weight:700; background:#e5e7eb; letter-spacing:0.3px; text-align:center; }
     .xyz-sig-img { max-height: 24px; max-width: 100%; width: auto; height: auto; object-fit: contain; display:block; margin:0 auto 4px auto; box-sizing:border-box; }
     .xyz-signatures-blank td .xyz-sig-img { max-height: 24px !important; max-width: calc(100% - 8px) !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 0 auto 4px auto !important; }
-    .xyz-sig-time { font-size:10px; color:var(--muted); margin-bottom:4px; }
+    .xyz-sig-slot { width:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+    .xyz-sig-time { font-size:10px; color:var(--muted); margin-bottom:4px; text-align:center; line-height:1.15; }
+    .xyz-user-block { text-align:center; line-height:1.25; }
     .xyz-footer { margin-top:auto; }
     `;
 
@@ -2467,7 +2497,7 @@ export class ApplicationsViewComponent implements OnInit {
       <table class="xyz-signatures">
         ${hasDynamicFooter ? `
         <tr class="xyz-signatures-blank">
-          ${(footerFields || []).map((f: any) => `<td>${renderFooterSignatureCell(Array.isArray(f?.users) ? f.users : [])}</td>`).join('')}
+          ${(footerFields || []).map((f: any) => `<td>${renderFooterSignatureCell(Array.isArray(f?.users) ? f.users : [], f?.label || '')}</td>`).join('')}
         </tr>
         <tr>
           ${(footerFields || []).map((f: any) => `<th>${f?.label || 'New Field'}</th>`).join('')}

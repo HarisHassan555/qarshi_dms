@@ -776,7 +776,17 @@
                                                 <table class="xyz-signatures" *ngIf="getPreviewIndividualFooterField() as footerField">
                                                     <tr class="xyz-signatures-blank">
                                                         <ng-container *ngFor="let section of getIndividualPipelineFooterFields(footerField)">
-                                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
+                                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                                                <div *ngIf="slotUser && isPreviewUserApproved(slotUser, section.label)">
+                                                                    <img *ngIf="getPreviewUserSignatureUrl(slotUser, section.label)"
+                                                                        class="xyz-sig-img"
+                                                                        [src]="getPreviewUserSignatureUrl(slotUser, section.label)"
+                                                                        [alt]="(slotUser.txtUserName || slotUser.userName || slotUser.name || 'Approved user') + ' signature'">
+                                                                    <span class="xyz-sig-time" *ngIf="getPreviewUserApprovalDate(slotUser, section.label)">
+                                                                        {{ getPreviewUserApprovalDate(slotUser, section.label) }}
+                                                                    </span>
+                                                                </div>
+                                                            </td>
                                                         </ng-container>
                                                     </tr>
                                                     <tr>
@@ -876,7 +886,17 @@
                                                     <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields(footerField) as sections">
                                                         <tr class="xyz-signatures-blank">
                                                             <ng-container *ngFor="let section of sections">
-                                                                <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
+                                                                <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
+                                                                    <div *ngIf="slotUser && isPreviewUserApproved(slotUser, section.label)">
+                                                                        <img *ngIf="getPreviewUserSignatureUrl(slotUser, section.label)"
+                                                                            class="xyz-sig-img"
+                                                                            [src]="getPreviewUserSignatureUrl(slotUser, section.label)"
+                                                                            [alt]="(slotUser.txtUserName || slotUser.userName || slotUser.name || 'Approved user') + ' signature'">
+                                                                        <span class="xyz-sig-time" *ngIf="getPreviewUserApprovalDate(slotUser, section.label)">
+                                                                            {{ getPreviewUserApprovalDate(slotUser, section.label) }}
+                                                                        </span>
+                                                                    </div>
+                                                                </td>
                                                             </ng-container>
                                                         </tr>
                                                         <tr>

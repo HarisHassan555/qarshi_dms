@@ -38,6 +38,7 @@ import {
   DOCUMENT_RENDER_TABLE_SPLIT_SAFETY_PX,
   getDocumentRenderPreviewMaxCharsPerLine,
 } from 'src/app/utils/document-render.util';
+import { urls } from 'src/app/utils/urls';
 
 const Quill: any = QuillNamespace;
 const Q_TABLE_PASTE_GUARD = '__qTablePasteGuard';
@@ -4236,6 +4237,120 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
 
   getIndividualFooterUserLabelPlain(user: any, section: IndividualPipelineFooterField): string {
     return this.getIndividualFooterUserParts(user).join(' | ');
+  }
+
+  private getPreviewApprovalHistory(): any[] {
+    const raw =
+      this.editData?.approvalHistory ??
+      this.editData?.approvalLog ??
+      this.editData?.txtApprovalHistory;
+    if (Array.isArray(raw)) {
+      return raw;
+    }
+    if (typeof raw === 'string' && raw.trim()) {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  private getPreviewCurrentApprovalLevel(): number {
+    const level = Number(this.editData?.intCurrentApprovalLevel ?? 0);
+    return Number.isFinite(level) ? level : 0;
+  }
+
+  private getPreviewApprovalEntryTime(entry: any): number {
+    const value =
+      entry?.approvedDate ??
+      entry?.sentBackDate ??
+      entry?.actionDate ??
+      entry?.createdAt ??
+      entry?.updatedAt;
+    if (!value) return 0;
+    if (typeof value === 'number') return value;
+    const time = new Date(value).getTime();
+    return Number.isNaN(time) ? 0 : time;
+  }
+
+  private getPreviewUserId(user: any): number | null {
+    if (!user) return null;
+    const value = user.serUserId ?? user.userId ?? user.id ?? user.approvedBy;
+    if (value == null) return null;
+    const id = Number(value);
+    return Number.isNaN(id) ? null : id;
+  }
+
+  private getLatestPreviewApprovalEntryForUser(userId: number, role?: string): any {
+    const history = this.getPreviewApprovalHistory();
+    if (history.length === 0) return null;
+
+    const currentLevel = this.getPreviewCurrentApprovalLevel();
+    const candidates = history.filter((entry: any) => {
+      const action = (entry?.action || entry?.status || '').toString().toUpperCase();
+      if (action === 'SENT_BACK' || action === 'SENT_BACK_TO_INITIATOR') return false;
+
+      if (this.hasGenericPreviewFooter()) {
+        const entryLevel = entry?.level ?? entry?.intApprovalOrder;
+        if (entryLevel != null && Number(entryLevel) > currentLevel) return false;
+      }
+
+      const entryUserId = Number(entry?.approvedBy ?? entry?.userId ?? entry?.serUserId);
+      if (Number.isNaN(entryUserId) || entryUserId !== userId) return false;
+
+      const entryRole = (entry?.role || '').toString().trim().toUpperCase();
+      if (role) {
+        const requestedRole = role.toString().trim().toUpperCase();
+        if (entryRole === 'PREPARED' && requestedRole !== 'PREPARED') return false;
+        if (entryRole && entryRole !== requestedRole) return false;
+      } else if (entryRole === 'PREPARED') {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => this.getPreviewApprovalEntryTime(b) - this.getPreviewApprovalEntryTime(a));
+    return candidates[0];
+  }
+
+  getPreviewUserSignatureUrl(user: any, role?: string): string {
+    const userId = this.getPreviewUserId(user);
+    if (!userId) return '';
+    const entry = this.getLatestPreviewApprovalEntryForUser(userId, role);
+    if (!entry || !entry.signaturePath) return '';
+    return `${urls.API_URL}getSignature?userId=${userId}`;
+  }
+
+  isPreviewUserApproved(user: any, role?: string): boolean {
+    const userId = this.getPreviewUserId(user);
+    if (!userId) return false;
+    const entry = this.getLatestPreviewApprovalEntryForUser(userId, role);
+    if (!entry || !entry.signaturePath) return false;
+    const action = (entry.action || entry.status || '').toString().toUpperCase();
+    if (action === 'REJECTED') return false;
+    if (action === 'APPROVED') return true;
+    return !!entry.approvedDate;
+  }
+
+  getPreviewUserApprovalDate(user: any, role?: string): string {
+    const userId = this.getPreviewUserId(user);
+    if (!userId) return '';
+    const entry = this.getLatestPreviewApprovalEntryForUser(userId, role);
+    if (!entry?.approvedDate) return '';
+    try {
+      const approvedAt = new Date(entry.approvedDate);
+      if (Number.isNaN(approvedAt.getTime())) {
+        return String(entry.approvedDate);
+      }
+      return approvedAt.toLocaleString();
+    } catch {
+      return String(entry.approvedDate);
+    }
   }
 
   private richTextRequiredValidator(control: AbstractControl): ValidationErrors | null {

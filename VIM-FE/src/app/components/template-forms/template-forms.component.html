@@ -123,20 +123,26 @@
 
             <label class="visibility-label">Allowed Users</label>
             <ng-select
-                [items]="allUsers"
-                bindLabel="txtUserName"
-                bindValue="serUserId"
-                [(ngModel)]="selectedVisibilityUserToAdd"
+                [items]="visibilityUserOptions"
+                bindLabel="name"
+                bindValue="id"
+                [(ngModel)]="selectedVisibilityUserIds"
+                [multiple]="true"
                 [clearable]="true"
-                appendTo="body"
+                [closeOnSelect]="false"
                 dropdownPosition="bottom"
-                placeholder="Search and add a user"
-                (change)="addVisibilityUser($event)">
+                placeholder="Search and select individual users">
+                <ng-template ng-label-tmp let-item="item" let-clear="clear">
+                    <div class="visibility-ng-chip">
+                        <span>{{ item.name }}</span>
+                        <button type="button" class="visibility-ng-chip-remove" (click)="clear(item)" aria-label="Remove user">x</button>
+                    </div>
+                </ng-template>
                 <ng-template ng-option-tmp let-item="item">
                     <div class="visibility-option-row">
-                        <span>{{ getUserDisplayName(item) }}</span>
-                        <span class="text-xs text-gray-500" *ngIf="getUserRoleName(item)">
-                            ({{ getUserRoleName(item) }})
+                        <span>{{ item.name }}</span>
+                        <span class="text-xs text-gray-500" *ngIf="item.roleName">
+                            ({{ item.roleName }})
                         </span>
                     </div>
                 </ng-template>

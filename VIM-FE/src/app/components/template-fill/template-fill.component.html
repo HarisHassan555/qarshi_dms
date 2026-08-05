@@ -8,6 +8,9 @@
             </p>
         </div>
         <div class="header-actions">
+            <button *ngIf="hasAnyAttachments" type="button" class="btn btn-outline" (click)="openAttachmentsModal()">
+                View Attachments
+            </button>
             <button *ngIf="savedTemplate" type="button" class="btn btn-outline" [disabled]="isSendingTestEmail" (click)="sendTestEmailToAdmin()">
                 {{ isSendingTestEmail ? 'Sending...' : 'Test Email Admin' }}
             </button>
@@ -33,7 +36,7 @@
         <aside class="fill-values-panel">
             <h3>Fields</h3>
             <div class="empty-template" *ngIf="fillableFields.length === 0">No fillable fields found.</div>
-            <div class="value-field" *ngFor="let field of fillableFields">
+            <div class="value-field" *ngFor="let field of panelFields">
                 <label [attr.for]="field.id">{{ field.label }}{{ field.required ? ' *' : '' }}</label>
                 <textarea
                     *ngIf="field.type === 'textarea'"
@@ -68,12 +71,32 @@
                         <span>{{ option }}</span>
                     </label>
                 </div>
+                <div *ngIf="isAttachmentField(field)" class="attachment-field-panel">
+                    <input
+                        [id]="field.id"
+                        type="file"
+                        multiple
+                        accept=".pdf,.webp,.png,.jpeg,.jpg,application/pdf,image/webp,image/png,image/jpeg"
+                        [disabled]="!canCurrentStepFillField(field)"
+                        (change)="onAttachmentChange(field, $event)" />
+                    <div class="attachment-list" *ngIf="getAttachmentPayloads(field).length > 0">
+                        <div class="attachment-item" *ngFor="let attachment of getAttachmentPayloads(field); let index = index">
+                            <button type="button" class="attachment-link-button" (click)="viewAttachment(attachment)">
+                                {{ attachment.fileName }}
+                            </button>
+                            <button type="button" class="btn btn-danger btn-sm" (click)="removeAttachment(field, index)">
+                                Remove
+                            </button>
+                        </div>
+                    </div>
+                </div>
                 <input
-                    *ngIf="field.type !== 'textarea' && field.type !== 'word_editor' && field.type !== 'checkbox' && field.type !== 'radio'"
+                    *ngIf="field.type !== 'textarea' && field.type !== 'word_editor' && field.type !== 'checkbox' && field.type !== 'radio' && !isAttachmentField(field)"
                     [id]="field.id"
                     [type]="getPanelInputType(field)"
                     [(ngModel)]="values[field.id]"
                     [required]="field.required"
+                    [disabled]="!canCurrentStepFillField(field)"
                     (ngModelChange)="onPanelValueChanged()" />
             </div>
 
@@ -171,9 +194,9 @@
                     [class.check-mark-filled-field]="field.type === 'checkbox'"
                     [hidden]="field.type === 'radio' || !field.placement || isFieldHiddenForCurrentStep(field)"
                     [style.left.px]="field.placement?.x"
-                    [style.top.px]="field.placement?.y"
+                    [style.top.px]="getRenderedFieldTop(field)"
                     [style.width.px]="field.placement?.width"
-                    [style.height.px]="field.placement?.height">
+                    [style.height.px]="getRenderedFieldHeight(field)">
                     <ng-container *ngIf="isHeaderFieldType(field.type); else nonHeader">
                         <div class="document-header-preview">
                             <div class="header-date">Date: __________</div>
@@ -248,12 +271,24 @@
                             </div>
                         </ng-container>
                         <ng-template #nonSignatureField>
-                            <span
-                                *ngIf="field.type === 'word_editor'; else plainFieldValue"
-                                class="filled-field-value word-editor-filled-value"
-                                [ngStyle]="getInputStyle(field)"
-                                [innerHTML]="getFieldValueHtml(field)">
-                            </span>
+                            <ng-container *ngIf="field.type === 'word_editor'; else plainFieldValue">
+                                <div
+                                    class="inline-word-editor-shell"
+                                    [class.is-active]="isInlineWordEditorActive(field)"
+                                    [attr.data-field-id]="field.id"
+                                    [ngStyle]="getInputStyle(field)"
+                                    (mousedown)="activateInlineWordEditor(field)">
+                                    <ckeditor
+                                        class="inline-word-editor"
+                                        [editor]="wordEditor"
+                                        [config]="wordEditorConfig"
+                                        [(ngModel)]="values[field.id]"
+                                        (ready)="onInlineWordEditorReady(field, $event)"
+                                        (focus)="onInlineWordEditorFocus(field)"
+                                        (change)="onWordEditorChanged(field, $event)">
+                                    </ckeditor>
+                                </div>
+                            </ng-container>
                             <ng-template #plainFieldValue>
                                 <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
                                 {{ getFieldValueText(field) }}
@@ -263,6 +298,26 @@
                     </ng-template>
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-backdrop" *ngIf="showAttachmentsModal" (click)="closeAttachmentsModal()">
+    <div class="attachments-modal" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+            <h3>Attachments</h3>
+            <button type="button" title="Close" (click)="closeAttachmentsModal()">x</button>
+        </div>
+        <div class="attachments-modal-empty" *ngIf="!hasAnyAttachments">No attachments available.</div>
+        <div class="attachments-modal-list" *ngIf="hasAnyAttachments">
+            <button
+                type="button"
+                class="attachment-modal-item"
+                *ngFor="let item of getAllAttachmentItems()"
+                (click)="viewAttachment(item.attachment)">
+                <strong>{{ item.attachment.fileName }}</strong>
+                <span>{{ item.fieldLabel }}</span>
+            </button>
         </div>
     </div>
 </div>

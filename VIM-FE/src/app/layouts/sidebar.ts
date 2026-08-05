@@ -504,6 +504,9 @@ export class SidebarComponent implements OnInit, OnDestroy {
         if (label === 'template pending approvals') {
             return 'Digital Pending Approvals';
         }
+        if (label === 'template approved applications') {
+            return 'Approved Applications';
+        }
         if (label === 'my applications') {
             return 'My Digital Applications';
         }
