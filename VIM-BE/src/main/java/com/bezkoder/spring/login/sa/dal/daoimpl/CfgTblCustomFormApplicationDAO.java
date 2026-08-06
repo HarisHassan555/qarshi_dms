@@ -5173,10 +5173,60 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             em.getTransaction().begin();
             List<CfgTblUser> recipients = new java.util.ArrayList<>();
             if (isIndividualPipelineStage(pipeline)) {
-                Integer userId = safeInt(pipeline.get("serUserId"), safeInt(pipeline.get("userId"), null));
-                CfgTblUser user = userId != null ? em.find(CfgTblUser.class, userId) : null;
-                if (user != null) {
-                    recipients.add(user);
+                java.util.Set<Integer> recipientIds = new java.util.LinkedHashSet<>();
+
+                Integer directUserId = safeInt(pipeline.get("serUserId"), safeInt(pipeline.get("userId"), null));
+                if (directUserId != null && directUserId > 0) {
+                    recipientIds.add(directUserId);
+                }
+
+                Object userIdsObj = pipeline.get("userIds");
+                if (userIdsObj instanceof java.util.List) {
+                    for (Object userIdValue : (java.util.List<?>) userIdsObj) {
+                        Integer userId = safeInt(userIdValue, null);
+                        if (userId != null && userId > 0) {
+                            recipientIds.add(userId);
+                        }
+                    }
+                }
+
+                Object usersObj = pipeline.get("users");
+                if (usersObj instanceof java.util.List) {
+                    for (Object userObj : (java.util.List<?>) usersObj) {
+                        if (!(userObj instanceof java.util.Map)) {
+                            continue;
+                        }
+                        @SuppressWarnings("unchecked")
+                        java.util.Map<String, Object> userMap = (java.util.Map<String, Object>) userObj;
+                        Integer userId = safeInt(
+                                userMap.get("serUserId"),
+                                safeInt(userMap.get("userId"), safeInt(userMap.get("id"), null)));
+                        if (userId != null && userId > 0) {
+                            recipientIds.add(userId);
+                        }
+                    }
+                }
+
+                Object dynamicTarget = pipeline.get("dynamicTarget");
+                Object dynamicTargets = pipeline.get("dynamicTargets");
+                boolean includesInitiator = "initiator".equalsIgnoreCase(dynamicTarget != null ? String.valueOf(dynamicTarget) : "");
+                if (!includesInitiator && dynamicTargets instanceof java.util.List) {
+                    for (Object value : (java.util.List<?>) dynamicTargets) {
+                        if ("initiator".equalsIgnoreCase(value != null ? String.valueOf(value) : "")) {
+                            includesInitiator = true;
+                            break;
+                        }
+                    }
+                }
+                if (includesInitiator && application.getSerSubmittedBy() != null) {
+                    recipientIds.add(application.getSerSubmittedBy());
+                }
+
+                for (Integer recipientId : recipientIds) {
+                    CfgTblUser user = recipientId != null ? em.find(CfgTblUser.class, recipientId) : null;
+                    if (user != null) {
+                        recipients.add(user);
+                    }
                 }
             } else {
                 Integer departmentId = safeInt(pipeline.get("serDepartmentId"), safeInt(pipeline.get("departmentId"), null));
