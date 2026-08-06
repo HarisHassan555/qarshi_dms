@@ -129,6 +129,7 @@ export class TemplateFillComponent implements OnInit {
     editingApplication: any = null;
     safeHtml: SafeHtml = '';
     values: { [fieldId: string]: any } = {};
+    persistedValues: { [fieldId: string]: any } = {};
     allUsers: any[] = [];
     userPipeline: IndividualPipelineFooterSection[] = [];
     submittedCode = '';
@@ -191,6 +192,7 @@ export class TemplateFillComponent implements OnInit {
                 : (field.type === 'application_code'
                     ? this.generatedApplicationCode
                     : (field.type === 'checkbox' ? false : ''));
+            this.persistedValues[field.id] = this.values[field.id];
             if (field.type === 'word_editor') {
                 this.acceptedWordEditorValues[field.id] = String(this.values[field.id] || '');
             }
@@ -271,7 +273,7 @@ export class TemplateFillComponent implements OnInit {
             return true;
         }
         if (right === 'fill') {
-            return this.isFieldValueEmpty(field, this.values[field.id]);
+            return this.isFieldFillAvailable(field);
         }
         return false;
     }
@@ -788,6 +790,7 @@ export class TemplateFillComponent implements OnInit {
             this.values[field.id] = nextValue !== undefined
                 ? nextValue
                 : (field.type === 'application_code' ? this.generatedApplicationCode : (field.type === 'checkbox' ? false : ''));
+            this.persistedValues[field.id] = this.values[field.id];
         });
         const footerFields = Array.isArray(applicationData?.footerFields) ? applicationData.footerFields : [];
         this.userPipeline = footerFields.map((section: any, index: number) => ({
@@ -928,7 +931,7 @@ export class TemplateFillComponent implements OnInit {
             }
 
             const right = this.getCurrentStepFieldRight(field);
-            if (right === 'edit' || (right === 'fill' && this.isFieldValueEmpty(field, this.values[field.id]))) {
+            if (right === 'edit' || (right === 'fill' && this.isFieldFillAvailable(field))) {
                 acc[field.id] = this.values[field.id];
             }
             return acc;
@@ -1241,6 +1244,10 @@ export class TemplateFillComponent implements OnInit {
             return true;
         }
         return String(value).trim() === '';
+    }
+
+    private isFieldFillAvailable(field: TemplateField): boolean {
+        return this.isFieldValueEmpty(field, this.persistedValues[field.id]);
     }
 
     private getCurrentPipelineStep(): PipelineStep | null {

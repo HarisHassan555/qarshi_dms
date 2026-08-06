@@ -160,6 +160,7 @@ public class TemplateDefinitionController {
             result.put("txtRemarks", application.getTxtRemarks());
             result.put("txtApprovalHistory", application.getTxtApprovalHistory());
             result.put("txtPriorApprovals", application.getTxtPriorApprovals());
+            result.put("currentApproverIds", new ArrayList<>(pendingApproverIdsForCurrentStep(application)));
             result.put("txtPdfName", application.getTxtPdfName());
             result.put("txtPdfMime", application.getTxtPdfMime());
             result.put("dteCreatedDate", application.getDteCreatedDate());
@@ -508,27 +509,11 @@ public class TemplateDefinitionController {
                     "AND (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
                     "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) " +
                     "AND t.serFormId = a.serFormId ";
-            if (!Boolean.TRUE.equals(all)) {
-                whereClause += "AND a.serCurrentApprover = :userId ";
-            }
             if (hasSearch) {
                 whereClause += "AND (LOWER(COALESCE(a.txtFormCode, '')) LIKE :search " +
                         "OR LOWER(COALESCE(a.txtStatus, '')) LIKE :search " +
                         "OR LOWER(COALESCE(t.txtTemplateName, '')) LIKE :search) ";
             }
-
-            javax.persistence.Query countQuery = entityManager.createQuery(
-                    "SELECT COUNT(a.serApplicationId) " +
-                            "FROM CfgTblCustomFormApplication a, TemplateDefinition t " +
-                            whereClause);
-            countQuery.setParameter("pendingStatuses", pendingStatuses);
-            if (!Boolean.TRUE.equals(all)) {
-                countQuery.setParameter("userId", userId);
-            }
-            if (hasSearch) {
-                countQuery.setParameter("search", "%" + searchText + "%");
-            }
-            Long total = (Long) countQuery.getSingleResult();
 
             javax.persistence.Query rowQuery = entityManager.createQuery(
                     "SELECT a.serApplicationId, a.serFormId, a.txtFormCode, a.txtStatus, " +
@@ -537,23 +522,21 @@ public class TemplateDefinitionController {
                             whereClause +
                             "ORDER BY a.dteCreatedDate DESC");
             rowQuery.setParameter("pendingStatuses", pendingStatuses);
-            if (!Boolean.TRUE.equals(all)) {
-                rowQuery.setParameter("userId", userId);
-            }
             if (hasSearch) {
                 rowQuery.setParameter("search", "%" + searchText + "%");
             }
 
             @SuppressWarnings("unchecked")
-            List<Object[]> rows = rowQuery
-                    .setFirstResult(safePage * safePageSize)
-                    .setMaxResults(safePageSize)
-                    .getResultList();
+            List<Object[]> rows = rowQuery.getResultList();
 
-            java.util.List<Map<String, Object>> items = new java.util.ArrayList<>();
+            java.util.List<Map<String, Object>> filteredItems = new java.util.ArrayList<>();
             for (Object[] row : rows) {
+                Integer applicationId = toInteger(row[0]);
+                if (!Boolean.TRUE.equals(all) && !isUserPendingForCurrentTemplateStep(applicationId, userId)) {
+                    continue;
+                }
                 Map<String, Object> item = new HashMap<>();
-                item.put("serApplicationId", row[0]);
+                item.put("serApplicationId", applicationId);
                 item.put("serFormId", row[1]);
                 item.put("txtFormCode", row[2]);
                 item.put("txtStatus", row[3]);
@@ -561,13 +544,16 @@ public class TemplateDefinitionController {
                 item.put("serSubmittedBy", row[5]);
                 item.put("dteCreatedDate", row[6]);
                 item.put("templateName", row[7]);
-                if (Boolean.TRUE.equals(all) || !hasUserApprovedTemplateLevel(toInteger(row[0]), userId, toInteger(row[4]))) {
-                    items.add(item);
-                }
+                filteredItems.add(item);
             }
 
+            int total = filteredItems.size();
+            int fromIndex = Math.min(safePage * safePageSize, total);
+            int toIndex = Math.min(fromIndex + safePageSize, total);
+            java.util.List<Map<String, Object>> items = new java.util.ArrayList<>(filteredItems.subList(fromIndex, toIndex));
+
             result.put("items", items);
-            result.put("total", total == null ? 0 : total);
+            result.put("total", total);
             result.put("page", safePage);
             result.put("pageSize", safePageSize);
             return result;
@@ -969,6 +955,56 @@ public class TemplateDefinitionController {
         return false;
     }
 
+    private boolean isUserPendingForCurrentTemplateStep(Integer applicationId, Integer userId) {
+        if (applicationId == null || userId == null || userId <= 0) {
+            return false;
+        }
+        CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+        if (application == null) {
+            return false;
+        }
+        return pendingApproverIdsForCurrentStep(application).contains(userId);
+    }
+
+    private Set<Integer> pendingApproverIdsForCurrentStep(CfgTblCustomFormApplication application) {
+        Set<Integer> pendingIds = new LinkedHashSet<>();
+        if (application == null) {
+            return pendingIds;
+        }
+
+        String status = valueAsString(application.getTxtStatus()).toUpperCase(Locale.ROOT);
+        if ("REJECTED".equals(status) || "APPROVED".equals(status) || "COMPLETED".equals(status)) {
+            return pendingIds;
+        }
+
+        Integer storedLevel = application.getIntCurrentApprovalLevel();
+        if (storedLevel != null && storedLevel <= 1) {
+            addIfPresent(pendingIds, application.getSerCurrentApprover() != null
+                    ? application.getSerCurrentApprover()
+                    : application.getSerSubmittedBy());
+            return pendingIds;
+        }
+
+        TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
+        TemplateStep currentStep = context.stepAt(safeLevel(application));
+        if (currentStep == null || currentStep.approverIds.isEmpty()) {
+            return pendingIds;
+        }
+
+        Set<Integer> approvedIds = approvedIdsForStep(application, currentStep);
+        if ("AND".equalsIgnoreCase(currentStep.approvalMode)) {
+            currentStep.approverIds.stream()
+                    .filter((approverId) -> !approvedIds.contains(approverId))
+                    .forEach(pendingIds::add);
+            return pendingIds;
+        }
+
+        if (approvedIds.isEmpty()) {
+            pendingIds.addAll(currentStep.approverIds);
+        }
+        return pendingIds;
+    }
+
     private boolean hasUserApprovedTemplateHistory(Object rawHistory, Integer userId) {
         if (userId == null || userId <= 0) {
             return false;
@@ -1131,6 +1167,10 @@ public class TemplateDefinitionController {
             for (Map<String, Object> user : asListOfMaps(rawStep.get("users"))) {
                 addIfPresent(step.approverIds, toInteger(firstObject(user.get("serUserId"), user.get("userId"), user.get("id"))));
             }
+            for (Object userIdValue : asList(rawStep.get("userIds"))) {
+                addIfPresent(step.approverIds, toInteger(userIdValue));
+            }
+            addIfPresent(step.approverIds, toInteger(firstObject(rawStep.get("serUserId"), rawStep.get("userId"))));
             if ("initiator".equalsIgnoreCase(valueAsString(rawStep.get("dynamicTarget")))
                     || asList(rawStep.get("dynamicTargets")).contains("initiator")) {
                 addIfPresent(step.approverIds, application.getSerSubmittedBy());
@@ -1197,8 +1237,10 @@ public class TemplateDefinitionController {
             Integer userId = toInteger(firstObject(entry.get("approvedBy"), entry.get("userId")));
             String entryStepId = firstText(entry.get("stepId"), entry.get("pipelineStepId"), entry.get("signatureTargetId"));
             int displayLevel = step.level + 2;
-            boolean stepMatches = step.id != null && !step.id.isBlank()
-                    ? step.id.equals(entryStepId) || (level != null && (level == displayLevel || level == step.level + 1 || level == step.level))
+            boolean hasConcreteStepId = step.id != null && !step.id.isBlank();
+            boolean hasConcreteEntryStepId = entryStepId != null && !entryStepId.isBlank();
+            boolean stepMatches = hasConcreteStepId && hasConcreteEntryStepId
+                    ? step.id.equals(entryStepId)
                     : level != null && (level == displayLevel || level == step.level + 1 || level == step.level);
             if (stepMatches && userId != null) {
                 ids.add(userId);

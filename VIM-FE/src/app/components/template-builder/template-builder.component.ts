@@ -302,7 +302,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     get dynamicSignatureTargetOptions(): { id: string; label: string; step: PipelineStep }[] {
         return this.pipelineSteps.map((step) => ({
             id: step.id,
-            label: `${this.getPipelineStepOptionLabel(step)} - ${this.getPipelineTargetLabel(step)}`,
+            label: this.getDynamicSignatureTargetOptionLabel(step),
             step
         }));
     }
@@ -765,6 +765,19 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     getPipelineStepOptionLabel(step: PipelineStep): string {
         const order = step.order || this.pipelineSteps.indexOf(step) + 1;
         return `${order}. ${step.name || this.getPipelineTargetLabel(step)}`;
+    }
+
+    getDynamicSignatureTargetOptionLabel(step: PipelineStep): string {
+        const stepLabel = this.getPipelineStepOptionLabel(step);
+        const targetLabel = this.getPipelineTargetLabel(step);
+        const normalizedStepLabel = stepLabel.replace(/^\d+\.\s*/, '').trim().toLowerCase();
+        const normalizedTargetLabel = String(targetLabel || '').trim().toLowerCase();
+
+        if (!normalizedTargetLabel || normalizedStepLabel === normalizedTargetLabel) {
+            return stepLabel;
+        }
+
+        return `${stepLabel} - ${targetLabel}`;
     }
 
     isDynamicSignatureField(field: TemplateField): boolean {

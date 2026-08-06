@@ -67,6 +67,7 @@ interface PipelineStep {
     approvalMode?: string;
     order?: number;
     users?: any[];
+    userIds?: number[];
     fieldPermissions?: PipelineFieldPermission[];
     fieldPermissionsConfigured?: boolean;
 }
@@ -131,6 +132,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     application: any = null;
     safeHtml: SafeHtml = '';
     values: { [fieldId: string]: any } = {};
+    persistedValues: { [fieldId: string]: any } = {};
     userPipeline: any[] = [];
     remarks = '';
     isLoading = true;
@@ -299,7 +301,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             return true;
         }
         if (right === 'fill') {
-            return this.isFieldValueEmpty(field, this.values[field.id]);
+            return this.isFieldFillAvailable(field);
         }
         return false;
     }
@@ -1072,7 +1074,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 return acc;
             }
             const right = this.getCurrentStepFieldRight(field);
-            if (right === 'edit' || (right === 'fill' && this.isFieldValueEmpty(field, this.values[field.id]))) {
+            if (right === 'edit' || (right === 'fill' && this.isFieldFillAvailable(field))) {
                 acc[field.id] = this.values[field.id];
             }
             return acc;
@@ -1096,6 +1098,10 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return String(value).trim() === '';
     }
 
+    private isFieldFillAvailable(field: TemplateField): boolean {
+        return this.isFieldValueEmpty(field, this.persistedValues[field.id]);
+    }
+
     private loadApplicationValues(): void {
         const data = this.applicationDataCache && Object.keys(this.applicationDataCache).length > 0
             ? this.applicationDataCache
@@ -1105,6 +1111,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         (this.template?.fields || []).forEach((field: TemplateField) => {
             const value = templateValues[field.id] ?? data[field.id] ?? (field.type === 'application_code' ? this.application?.txtFormCode : (field.type === 'checkbox' ? false : ''));
             this.values[field.id] = value;
+            this.persistedValues[field.id] = value;
             if (field.type === 'word_editor') {
                 this.acceptedWordEditorValues[field.id] = String(value || '');
             }
@@ -1813,6 +1820,12 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             return step.users;
         }
 
+        if (Array.isArray(step.userIds) && step.userIds.length > 0) {
+            return step.userIds
+                .map((userId) => this.allUsers.find((user) => this.getUserId(user) === Number(userId)) || { serUserId: userId })
+                .filter((user) => !!user);
+        }
+
         const departmentHeadUsers = this.getDepartmentHeadUsers(step);
         if (departmentHeadUsers.length > 0) {
             return departmentHeadUsers;
@@ -1935,7 +1948,6 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             return false;
         }
         const currentUserId = Number(this.getCurrentUserId() || 0);
-        const currentApproverId = Number(application?.serCurrentApprover || 0);
         const status = String(application?.txtStatus || '').toUpperCase();
         if (!Number.isFinite(currentUserId) || currentUserId <= 0) {
             return false;
@@ -1943,7 +1955,56 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (['REJECTED', 'APPROVED', 'COMPLETED'].includes(status)) {
             return false;
         }
+
+        const currentApproverIds = Array.isArray(application?.currentApproverIds)
+            ? application.currentApproverIds
+                .map((value: any) => Number(value))
+                .filter((value: number) => Number.isFinite(value) && value > 0)
+            : [];
+        if (currentApproverIds.length > 0) {
+            return currentApproverIds.includes(currentUserId);
+        }
+
+        const currentStep = this.getPipelineStepForApplication(application);
+        if (currentStep && String(currentStep?.approvalMode || 'OR').toUpperCase() !== 'AND') {
+            const configuredApproverIds = this.getConfiguredStepApproverIds(currentStep);
+            if (configuredApproverIds.includes(currentUserId)) {
+                return true;
+            }
+        }
+
+        const currentApproverId = Number(application?.serCurrentApprover || 0);
         return Number.isFinite(currentApproverId) && currentApproverId > 0 && currentApproverId === currentUserId;
+    }
+
+    private getConfiguredStepApproverIds(step: PipelineStep | null): number[] {
+        if (!step) {
+            return [];
+        }
+
+        const approverIds = new Set<number>();
+        this.getConfiguredStepUsers(step).forEach((user) => {
+            const userId = this.getUserId(user);
+            if (Number.isFinite(userId) && userId > 0) {
+                approverIds.add(userId);
+            }
+        });
+
+        (Array.isArray(step.userIds) ? step.userIds : []).forEach((userId) => {
+            const numericUserId = Number(userId);
+            if (Number.isFinite(numericUserId) && numericUserId > 0) {
+                approverIds.add(numericUserId);
+            }
+        });
+
+        if ((step as any)?.dynamicTarget === 'initiator' || (Array.isArray((step as any)?.dynamicTargets) && (step as any).dynamicTargets.includes('initiator'))) {
+            const initiatorUserId = Number(this.application?.serSubmittedBy || 0);
+            if (Number.isFinite(initiatorUserId) && initiatorUserId > 0) {
+                approverIds.add(initiatorUserId);
+            }
+        }
+
+        return Array.from(approverIds);
     }
 
     private isCurrentOpinionUser(application: any = this.application): boolean {
