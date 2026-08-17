@@ -91,6 +91,9 @@
             <div>
                 <h3>{{ application.templateName || selectedTemplate?.name || 'Template Application' }}</h3>
                 <p>{{ application.dteCreatedDate ? (application.dteCreatedDate | date:'medium') : 'Submitted application' }}</p>
+                <p *ngIf="isOpinionPendingApplication()" class="mt-2 text-sm text-info">
+                    Opinion requested by {{ getOpinionRequesterName() }} and is currently pending with {{ getOpinionPendingWithName() }}.
+                </p>
             </div>
             <div class="summary-badges">
                 <span class="code-badge">{{ application.txtFormCode || '-' }}</span>
@@ -230,12 +233,12 @@
                             </div>
                         </ng-container>
                         <ng-template #nonSignatureField>
-                            <span
+                            <div
                                 *ngIf="field.type === 'word_editor'; else plainFieldValue"
                                 class="filled-field-value word-editor-filled-value"
                                 [ngStyle]="getInputStyle(field)"
                                 [innerHTML]="getFieldValueHtml(field)">
-                            </span>
+                            </div>
                             <ng-template #plainFieldValue>
                                 <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
                                     {{ getFieldValueText(field) }}
@@ -265,6 +268,9 @@
                 <div>
                     <h3>Approval Progress</h3>
                     <p>{{ getPipelineProgress() }}% complete</p>
+                    <p *ngIf="isOpinionPendingApplication()" class="mt-1 text-sm text-info">
+                        Pending opinion: {{ getOpinionPendingWithName() }}
+                    </p>
                 </div>
                 <div class="progress-track">
                     <div [style.width.%]="getPipelineProgress()"></div>

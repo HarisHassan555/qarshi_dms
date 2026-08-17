@@ -112,14 +112,6 @@
                         <p class="mt-1 text-danger">Role is required</p>
                     </ng-container>
                 </div>
-                <div>
-                    <label for="contactNumber">Contact Number</label>
-                    <input formControlName="txtContactNo" id="contactNumber" type="text" placeholder="Enter Contact Number" class="form-input" />
-                    <ng-container *ngIf="isSubmit && form.controls['txtContactNo'].invalid">
-                        <p class="mt-1 text-danger" *ngIf="form.controls['txtContactNo'].errors?.['required']">Contact Number is required</p>
-                        <p class="mt-1 text-danger" *ngIf="form.controls['txtContactNo'].errors?.['pattern']">Invalid Contact Number format. Must be 10 digits.</p>
-                    </ng-container>
-                </div>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -139,18 +131,6 @@
                 </div>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div *ngIf="!isRoleVendor" [formGroup]="cfgTblManager">
-                    <label for="manager">Manager*</label>
-                    <select id="manager" class="form-select text-white-dark" formControlName="serUserId">
-                        <option value="">Select Manager</option>
-                        <option *ngFor="let user of users" value="{{user.serUserId}}">
-                            {{user.txtUserName}}
-                        </option>
-                    </select>
-                    <!--<ng-container *ngIf="isSubmit && cfgTblManager.controls['serUserId'].invalid">
-                        <p class="mt-1 text-danger">Manager is required</p>
-                    </ng-container>-->
-                </div>
                 <div *ngIf="isRoleVendor" [formGroup]="cfgTblCustomer">
                     <label for="role">Vendor*</label>
                     <!--<select id="customer" class="form-select text-white-dark" formControlName="serCustomerId">
@@ -165,7 +145,7 @@
                         <p class="mt-1 text-danger">Vendor is required</p>
                     </ng-container>
                 </div>
-                <div>
+                <div [ngClass]="{ 'sm:col-span-2': !isRoleVendor }">
                     <label for="blnStatus">Status*</label>
                     <div class="flex items-center mt-2">
                         <input formControlName="blnStatus" id="blnStatus" type="checkbox" class="form-checkbox" />

@@ -11,6 +11,50 @@ function stripResizeChromeFromTable(table: HTMLTableElement): HTMLTableElement {
   return clone;
 }
 
+function preserveWrapperAlignmentOnTable(wrapper: HTMLElement, table: HTMLTableElement): HTMLTableElement {
+  const clone = stripResizeChromeFromTable(table);
+  const wrapperAlign = (wrapper.getAttribute('align') || '').trim().toLowerCase();
+  const styleAlign = (wrapper.style.textAlign || '').trim().toLowerCase();
+  const align = styleAlign || wrapperAlign;
+
+  if (wrapper.style.width && !clone.style.width) {
+    clone.style.width = wrapper.style.width;
+  }
+  if (wrapper.style.maxWidth && !clone.style.maxWidth) {
+    clone.style.maxWidth = wrapper.style.maxWidth;
+  }
+  if (wrapper.style.margin && !clone.style.margin) {
+    clone.style.margin = wrapper.style.margin;
+  }
+  if (wrapper.style.marginLeft && !clone.style.marginLeft) {
+    clone.style.marginLeft = wrapper.style.marginLeft;
+  }
+  if (wrapper.style.marginRight && !clone.style.marginRight) {
+    clone.style.marginRight = wrapper.style.marginRight;
+  }
+  if (wrapper.style.marginTop && !clone.style.marginTop) {
+    clone.style.marginTop = wrapper.style.marginTop;
+  }
+  if (wrapper.style.marginBottom && !clone.style.marginBottom) {
+    clone.style.marginBottom = wrapper.style.marginBottom;
+  }
+
+  if (!clone.style.marginLeft && !clone.style.marginRight) {
+    if (align === 'center') {
+      clone.style.marginLeft = 'auto';
+      clone.style.marginRight = 'auto';
+    } else if (align === 'right') {
+      clone.style.marginLeft = 'auto';
+      clone.style.marginRight = '0';
+    } else if (align === 'left') {
+      clone.style.marginLeft = '0';
+      clone.style.marginRight = 'auto';
+    }
+  }
+
+  return clone;
+}
+
 export function getTableBlotInnerHtml(node: HTMLElement): string {
   const table = node.querySelector('table');
   if (table) {
@@ -56,7 +100,7 @@ export function stripEditorTableChromeFromHtml(html: string): string {
   wrapper.querySelectorAll('.q-table-wrapper').forEach((wrap) => {
     const table = wrap.querySelector('table');
     if (table) {
-      wrap.replaceWith(stripResizeChromeFromTable(table));
+      wrap.replaceWith(preserveWrapperAlignmentOnTable(wrap as HTMLElement, table));
     } else {
       wrap.remove();
     }

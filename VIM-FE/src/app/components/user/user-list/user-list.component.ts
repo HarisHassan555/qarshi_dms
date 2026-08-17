@@ -62,7 +62,7 @@ export class UserListComponent implements OnInit {
       cfgTblRole: this.fb.group({
         serRoleId: ['', Validators.required]
       }),
-      txtContactNo: ['', [Validators.required, Validators.pattern(/^\d{10}$/)]],
+      txtContactNo: [''],
       serDepartmentId: ['', Validators.required],
       txtDesignation: ['', Validators.required],
       cfgTblManager: this.fb.group({
@@ -284,17 +284,14 @@ export class UserListComponent implements OnInit {
     if (role === 'vendor') {
       this.isRoleVendor = true;
       this.isRoleAdmin = false;
-      this.form.get('cfgTblManager.serUserId')?.clearValidators();
       this.form.get('cfgTblCustomer.serCustomerId')?.setValidators([Validators.required]);
     } else if (role === 'admin') {
       this.isRoleVendor = false;
       this.isRoleAdmin = true;
-      this.form.get('cfgTblManager.serUserId')?.clearValidators();
       this.form.get('cfgTblCustomer.serCustomerId')?.clearValidators();
     } else {
       this.isRoleVendor = false;
       this.isRoleAdmin = false;
-      this.form.get('cfgTblManager.serUserId')?.setValidators([Validators.required]);
       this.form.get('cfgTblCustomer.serCustomerId')?.clearValidators();
     }
     this.form.get('cfgTblManager.serUserId')?.updateValueAndValidity();

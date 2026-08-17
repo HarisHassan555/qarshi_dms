@@ -16,6 +16,12 @@ public interface UserRepository extends JpaRepository<CfgTblUser, Long> {
       "OR ((u.txtLoginName IS NULL OR TRIM(u.txtLoginName) = '') AND LOWER(u.txtUserName) = LOWER(:loginName))")
   Optional<CfgTblUser> findByLoginNameForAuthentication(@Param("loginName") String loginName);
 
+  @Query("SELECT u FROM CfgTblUser u " +
+      "WHERE (LOWER(u.txtLoginName) = LOWER(:loginName) " +
+      "OR ((u.txtLoginName IS NULL OR TRIM(u.txtLoginName) = '') AND LOWER(u.txtUserName) = LOWER(:loginName))) " +
+      "AND (u.blIsDeleted IS NULL OR u.blIsDeleted = false)")
+  Optional<CfgTblUser> findActiveOrInactiveByLoginName(@Param("loginName") String loginName);
+
   /*Boolean existsByUsername(String username);
 
   Boolean existsByEmail(String email);*/

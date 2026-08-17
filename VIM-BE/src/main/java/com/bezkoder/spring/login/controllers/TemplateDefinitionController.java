@@ -12,6 +12,8 @@ import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -202,6 +204,7 @@ public class TemplateDefinitionController {
         Map<String, Object> result = new HashMap<>();
         try {
             CfgTblCustomFormApplication application = loadTemplateApplication(toInteger(requestBody.get("applicationId")));
+            ensureTemplateApplicationActionable(application);
             Integer actorId = toInteger(requestBody.get("userId"));
             String remarks = valueAsString(requestBody.get("remarks"));
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
@@ -220,6 +223,8 @@ public class TemplateDefinitionController {
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
             entityManager.merge(application);
+            entityManager.flush();
+            queueTemplatePostApprovalEmails(application.getSerApplicationId(), "template send-back notification", true);
             return success("Application sent back successfully");
         } catch (Exception ex) {
             return failure(result, response, "Error sending back template application", ex);
@@ -233,6 +238,7 @@ public class TemplateDefinitionController {
         Map<String, Object> result = new HashMap<>();
         try {
             CfgTblCustomFormApplication application = loadTemplateApplication(toInteger(requestBody.get("applicationId")));
+            ensureTemplateApplicationActionable(application);
             Integer actorId = toInteger(requestBody.get("userId"));
             String remarks = valueAsString(requestBody.get("remarks"));
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
@@ -248,6 +254,9 @@ public class TemplateDefinitionController {
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
             entityManager.merge(application);
+            entityManager.flush();
+            queueTemplatePostApprovalEmails(application.getSerApplicationId(),
+                    "template send-back-to-initiator notification", true);
             return success("Application sent back to initiator successfully");
         } catch (Exception ex) {
             return failure(result, response, "Error sending back template application to initiator", ex);
@@ -261,6 +270,7 @@ public class TemplateDefinitionController {
         Map<String, Object> result = new HashMap<>();
         try {
             CfgTblCustomFormApplication application = loadTemplateApplication(toInteger(requestBody.get("applicationId")));
+            ensureTemplateApplicationActionable(application);
             Integer actorId = toInteger(requestBody.get("userId"));
             String remarks = valueAsString(requestBody.get("remarks"));
             if (application.getSerSubmittedBy() == null || !application.getSerSubmittedBy().equals(actorId)) {
@@ -289,6 +299,7 @@ public class TemplateDefinitionController {
         Map<String, Object> result = new HashMap<>();
         try {
             CfgTblCustomFormApplication application = loadTemplateApplication(toInteger(requestBody.get("applicationId")));
+            ensureTemplateApplicationActionable(application);
             Integer actorId = toInteger(requestBody.get("userId"));
             Integer opinionUserId = toInteger(requestBody.get("opinionUserId"));
             String remarks = valueAsString(requestBody.get("remarks"));
@@ -300,11 +311,15 @@ public class TemplateDefinitionController {
             if (opinionUserId == null || opinionUserId <= 0) {
                 throw new IllegalArgumentException("Opinion user is required");
             }
+            CfgTblUser requester = actorId != null ? entityManager.find(CfgTblUser.class, actorId) : null;
+            CfgTblUser opinionUser = entityManager.find(CfgTblUser.class, opinionUserId);
             Map<String, Object> appData = parseMap(application.getTxtApplicationData());
             Map<String, Object> opinion = new HashMap<>();
             opinion.put("active", true);
             opinion.put("requestedBy", actorId);
+            opinion.put("requestedByName", requester != null ? requester.getTxtUserName() : "");
             opinion.put("requestedFrom", opinionUserId);
+            opinion.put("requestedFromName", opinionUser != null ? opinionUser.getTxtUserName() : "");
             opinion.put("returnLevel", safeLevel(application));
             opinion.put("remarks", remarks);
             opinion.put("requestedDate", now().toString());
@@ -316,6 +331,8 @@ public class TemplateDefinitionController {
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
             entityManager.merge(application);
+            queueTemplatePostApprovalEmails(application.getSerApplicationId(),
+                    "template opinion request notification");
             return success("Application sent for opinion successfully");
         } catch (Exception ex) {
             return failure(result, response, "Error requesting template opinion", ex);
@@ -329,6 +346,7 @@ public class TemplateDefinitionController {
         Map<String, Object> result = new HashMap<>();
         try {
             CfgTblCustomFormApplication application = loadTemplateApplication(toInteger(requestBody.get("applicationId")));
+            ensureTemplateApplicationActionable(application);
             Integer actorId = toInteger(requestBody.get("userId"));
             String remarks = valueAsString(requestBody.get("remarks"));
             String action = valueAsString(requestBody.get("action"));
@@ -352,6 +370,8 @@ public class TemplateDefinitionController {
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
             entityManager.merge(application);
+            queueTemplatePostApprovalEmails(application.getSerApplicationId(),
+                    "template opinion submission notification");
             return success("Opinion submitted successfully");
         } catch (Exception ex) {
             return failure(result, response, "Error submitting template opinion", ex);
@@ -371,6 +391,53 @@ public class TemplateDefinitionController {
             logger.error("Error fetching template definitions: " + ex.getMessage(), ex);
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return null;
+        }
+    }
+
+    @RequestMapping(value = "/getTemplateDefinitionSummaries", method = RequestMethod.GET)
+    public Map<String, Object> getTemplateDefinitionSummaries(@RequestParam(required = false) Integer userId,
+                                                              @RequestParam(defaultValue = "0") Integer page,
+                                                              @RequestParam(defaultValue = "10") Integer pageSize,
+                                                              @RequestParam(required = false) String search,
+                                                              HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            int safePage = page == null || page < 0 ? 0 : page;
+            int safePageSize = pageSize == null ? 10 : Math.max(1, Math.min(pageSize, 100));
+            String searchText = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+
+            List<TemplateDefinition> definitions = entityManager.createQuery(
+                    "SELECT t FROM TemplateDefinition t WHERE (t.blIsDeleted IS NULL OR t.blIsDeleted = false) ORDER BY t.dteCreatedDate DESC",
+                    TemplateDefinition.class)
+                    .getResultList();
+
+            List<Map<String, Object>> summaries = new ArrayList<>();
+            for (TemplateDefinition definition : filterVisibleTemplateDefinitions(definitions, userId)) {
+                Map<String, Object> summary = toTemplateDefinitionSummary(definition);
+                if (matchesTemplateSummarySearch(summary, searchText)) {
+                    summaries.add(summary);
+                }
+            }
+
+            int total = summaries.size();
+            int fromIndex = Math.min(safePage * safePageSize, total);
+            int toIndex = Math.min(fromIndex + safePageSize, total);
+
+            result.put("items", summaries.subList(fromIndex, toIndex));
+            result.put("total", total);
+            result.put("page", safePage);
+            result.put("pageSize", safePageSize);
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error fetching template definition summaries: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            result.put("items", new ArrayList<>());
+            result.put("total", 0);
+            result.put("page", 0);
+            result.put("pageSize", 10);
+            return result;
         }
     }
 
@@ -516,8 +583,7 @@ public class TemplateDefinitionController {
             }
 
             javax.persistence.Query rowQuery = entityManager.createQuery(
-                    "SELECT a.serApplicationId, a.serFormId, a.txtFormCode, a.txtStatus, " +
-                            "a.intCurrentApprovalLevel, a.serSubmittedBy, a.dteCreatedDate, t.txtTemplateName " +
+                    "SELECT a, t.txtTemplateName " +
                             "FROM CfgTblCustomFormApplication a, TemplateDefinition t " +
                             whereClause +
                             "ORDER BY a.dteCreatedDate DESC");
@@ -531,19 +597,25 @@ public class TemplateDefinitionController {
 
             java.util.List<Map<String, Object>> filteredItems = new java.util.ArrayList<>();
             for (Object[] row : rows) {
-                Integer applicationId = toInteger(row[0]);
-                if (!Boolean.TRUE.equals(all) && !isUserPendingForCurrentTemplateStep(applicationId, userId)) {
+                CfgTblCustomFormApplication application = row[0] instanceof CfgTblCustomFormApplication
+                        ? (CfgTblCustomFormApplication) row[0]
+                        : null;
+                if (application == null) {
+                    continue;
+                }
+                Integer applicationId = application.getSerApplicationId();
+                if (!Boolean.TRUE.equals(all) && !isUserPendingForCurrentTemplateStep(application, userId)) {
                     continue;
                 }
                 Map<String, Object> item = new HashMap<>();
                 item.put("serApplicationId", applicationId);
-                item.put("serFormId", row[1]);
-                item.put("txtFormCode", row[2]);
-                item.put("txtStatus", row[3]);
-                item.put("intCurrentApprovalLevel", row[4]);
-                item.put("serSubmittedBy", row[5]);
-                item.put("dteCreatedDate", row[6]);
-                item.put("templateName", row[7]);
+                item.put("serFormId", application.getSerFormId());
+                item.put("txtFormCode", application.getTxtFormCode());
+                item.put("txtStatus", application.getTxtStatus());
+                item.put("intCurrentApprovalLevel", application.getIntCurrentApprovalLevel());
+                item.put("serSubmittedBy", application.getSerSubmittedBy());
+                item.put("dteCreatedDate", application.getDteCreatedDate());
+                item.put("templateName", row[1]);
                 filteredItems.add(item);
             }
 
@@ -690,12 +762,15 @@ public class TemplateDefinitionController {
                 definition.setSerCreatedUser(userId);
             }
 
+            Map<String, Object> payloadMap = parseMap(payload);
+            boolean isActive = isTemplatePayloadMarkedActive(payloadMap);
+
             definition.setTxtTemplateName(valueAsString(requestBody.get("txtTemplateName")));
             definition.setTxtCodeConvention(valueAsString(requestBody.get("txtCodeConvention")));
             definition.setTxtTemplatePayload(payload);
-            definition.setBlIsActive(true);
+            definition.setBlIsActive(isActive);
             definition.setBlIsDeleted(false);
-            definition.setBlnStatus(true);
+            definition.setBlnStatus(isActive);
             definition.setDteModifiedDate(now);
             definition.setSerModifiedUser(userId);
 
@@ -744,6 +819,42 @@ public class TemplateDefinitionController {
         copy.setSerCreatedUser(definition.getSerCreatedUser());
         copy.setSerModifiedUser(definition.getSerModifiedUser());
         return copy;
+    }
+
+    private Map<String, Object> toTemplateDefinitionSummary(TemplateDefinition definition) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        Set<Integer> visibleUserIds = extractVisibleUserIds(definition);
+        boolean isActive = isTemplateDefinitionActive(definition);
+
+        summary.put("serTemplateId", definition.getSerTemplateId());
+        summary.put("serFormId", definition.getSerFormId());
+        summary.put("txtTemplateName", definition.getTxtTemplateName());
+        summary.put("txtCodeConvention", definition.getTxtCodeConvention());
+        summary.put("blIsActive", definition.getBlIsActive());
+        summary.put("blIsDeleted", definition.getBlIsDeleted());
+        summary.put("blnStatus", definition.getBlnStatus());
+        summary.put("dteCreatedDate", definition.getDteCreatedDate());
+        summary.put("dteModifiedDate", definition.getDteModifiedDate());
+        summary.put("serCreatedUser", definition.getSerCreatedUser());
+        summary.put("serModifiedUser", definition.getSerModifiedUser());
+        summary.put("visibilityUserIds", new ArrayList<>(visibleUserIds));
+        summary.put("visibleUserIds", new ArrayList<>(visibleUserIds));
+        summary.put("selectedUsers", new ArrayList<>(visibleUserIds));
+        summary.put("isActive", isActive);
+        return summary;
+    }
+
+    private boolean matchesTemplateSummarySearch(Map<String, Object> summary, String searchText) {
+        if (searchText == null || searchText.isEmpty()) {
+            return true;
+        }
+        String haystack = String.join(" ",
+                String.valueOf(summary.get("serFormId")),
+                String.valueOf(summary.get("txtTemplateName")),
+                String.valueOf(summary.get("txtCodeConvention")),
+                Boolean.FALSE.equals(summary.get("isActive")) ? "inactive" : "active")
+                .toLowerCase(Locale.ROOT);
+        return haystack.contains(searchText);
     }
 
     private String sanitizeTemplatePayloadJson(String rawPayload) {
@@ -837,6 +948,9 @@ public class TemplateDefinitionController {
         if (isAdminUser(userId)) {
             return true;
         }
+        if (!isTemplateDefinitionActive(definition)) {
+            return false;
+        }
         Set<Integer> visibleUserIds = extractVisibleUserIds(definition);
         if (visibleUserIds.isEmpty()) {
             return true;
@@ -867,6 +981,47 @@ public class TemplateDefinitionController {
                 target.add(userId);
             }
         }
+    }
+
+    private boolean isTemplateDefinitionActive(TemplateDefinition definition) {
+        if (definition == null) {
+            return false;
+        }
+        if (Boolean.FALSE.equals(definition.getBlIsActive()) || Boolean.FALSE.equals(definition.getBlnStatus())) {
+            return false;
+        }
+        Map<String, Object> payload = parseMap(definition.getTxtTemplatePayload());
+        return isTemplatePayloadMarkedActive(payload);
+    }
+
+    private boolean isTemplatePayloadMarkedActive(Map<String, Object> payload) {
+        if (payload == null || payload.isEmpty()) {
+            return true;
+        }
+        Object explicitIsActive = payload.get("isActive");
+        if (explicitIsActive != null) {
+            return !isFalseValue(explicitIsActive);
+        }
+        Object explicitStatus = payload.get("blnStatus");
+        if (explicitStatus != null) {
+            return !isFalseValue(explicitStatus);
+        }
+        Object explicitActiveFlag = payload.get("blIsActive");
+        if (explicitActiveFlag != null) {
+            return !isFalseValue(explicitActiveFlag);
+        }
+        return true;
+    }
+
+    private boolean isFalseValue(Object value) {
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof Boolean) {
+            return !((Boolean) value);
+        }
+        String normalized = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
+        return "false".equals(normalized) || "0".equals(normalized) || "no".equals(normalized);
     }
 
     private boolean isAdminUser(Integer userId) {
@@ -926,10 +1081,50 @@ public class TemplateDefinitionController {
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
             entityManager.merge(application);
+            entityManager.flush();
+            if ("REJECTED".equals(action)) {
+                queueTemplatePostApprovalEmails(application.getSerApplicationId(),
+                        "template rejection notification", true);
+            }
             return success("REJECTED".equals(action) ? "Application rejected successfully" : "Application approved successfully");
         } catch (Exception ex) {
             return failure(result, response, "Error completing template action", ex);
         }
+    }
+
+    private void queueTemplatePostApprovalEmails(Integer applicationId, String contextLabel) {
+        queueTemplatePostApprovalEmails(applicationId, contextLabel, false);
+    }
+
+    private void queueTemplatePostApprovalEmails(Integer applicationId, String contextLabel, boolean refreshPdfBeforeEmail) {
+        if (applicationId == null) {
+            return;
+        }
+        Runnable sendEmails = () -> {
+            try {
+                if (refreshPdfBeforeEmail) {
+                    String refreshStatus = customFormApplicationService.refreshTemplateApplicationPdfFromStage0(applicationId);
+                    if (!"Success".equalsIgnoreCase(refreshStatus)) {
+                        logger.warn("Failed to refresh template PDF before " + contextLabel + " for applicationId="
+                                + applicationId + ": " + refreshStatus);
+                    }
+                }
+                customFormApplicationService.sendTemplatePostApprovalEmails(applicationId);
+            } catch (Exception emailEx) {
+                logger.warn("Failed to send " + contextLabel + " for applicationId="
+                        + applicationId + ": " + emailEx.getMessage(), emailEx);
+            }
+        };
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    sendEmails.run();
+                }
+            });
+            return;
+        }
+        sendEmails.run();
     }
 
     private boolean hasUserApprovedTemplateLevel(Integer applicationId, Integer userId, Integer level) {
@@ -960,9 +1155,19 @@ public class TemplateDefinitionController {
             return false;
         }
         CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+        return isUserPendingForCurrentTemplateStep(application, userId);
+    }
+
+    private boolean isUserPendingForCurrentTemplateStep(CfgTblCustomFormApplication application, Integer userId) {
         if (application == null) {
             return false;
         }
+
+        Integer currentApprover = application.getSerCurrentApprover();
+        if (currentApprover != null && currentApprover.equals(userId)) {
+            return true;
+        }
+
         return pendingApproverIdsForCurrentStep(application).contains(userId);
     }
 
@@ -975,6 +1180,18 @@ public class TemplateDefinitionController {
         String status = valueAsString(application.getTxtStatus()).toUpperCase(Locale.ROOT);
         if ("REJECTED".equals(status) || "APPROVED".equals(status) || "COMPLETED".equals(status)) {
             return pendingIds;
+        }
+
+        if ("OPINION_PENDING".equals(status)) {
+            Map<String, Object> appData = parseMap(application.getTxtApplicationData());
+            Map<String, Object> opinionRequest = asMap(appData.get("templateOpinionRequest"));
+            if (Boolean.TRUE.equals(opinionRequest.get("active"))
+                    || "true".equalsIgnoreCase(valueAsString(opinionRequest.get("active")))) {
+                addIfPresent(pendingIds, toInteger(opinionRequest.get("requestedFrom")));
+                if (!pendingIds.isEmpty()) {
+                    return pendingIds;
+                }
+            }
         }
 
         Integer storedLevel = application.getIntCurrentApprovalLevel();
@@ -1058,6 +1275,19 @@ public class TemplateDefinitionController {
         return application;
     }
 
+    private void ensureTemplateApplicationActionable(CfgTblCustomFormApplication application) {
+        if (application == null) {
+            throw new IllegalArgumentException("Template application not found");
+        }
+        String status = valueAsString(application.getTxtStatus()).trim().toUpperCase(Locale.ROOT);
+        if ("REJECTED".equals(status)) {
+            throw new IllegalStateException("Application is already rejected. No further actions are allowed.");
+        }
+        if ("APPROVED".equals(status) || "COMPLETED".equals(status)) {
+            throw new IllegalStateException("Application is already completed. No further actions are allowed.");
+        }
+    }
+
     private TemplateWorkflowContext buildTemplateWorkflowContext(CfgTblCustomFormApplication application) {
         Map<String, Object> appData = parseMap(application.getTxtApplicationData());
         List<TemplateStep> footerSteps = buildFooterWorkflowSteps(appData, application);
@@ -1108,25 +1338,28 @@ public class TemplateDefinitionController {
                                                         CfgTblCustomFormApplication application) {
         List<TemplateStep> steps = new ArrayList<>();
         List<Map<String, Object>> footerFields = extractFooterFields(appData);
-        int stepIndex = 0;
         for (Map<String, Object> field : footerFields) {
             String label = firstText(field.get("label"), field.get("key"), "Approver");
-            String key = firstText(field.get("key"), "footer_" + (stepIndex + 1));
-            int userIndex = 0;
+            String key = firstText(field.get("key"), "footer_" + (steps.size() + 1));
+            if ("prepared_by".equalsIgnoreCase(key)) {
+                continue;
+            }
+            TemplateStep step = new TemplateStep();
+            step.id = key;
+            step.name = label;
+            step.type = "individual";
+            step.approvalMode = "AND".equalsIgnoreCase(firstText(field.get("approvalMode"), field.get("condition")))
+                    ? "AND"
+                    : "OR";
             for (Map<String, Object> user : asListOfMaps(field.get("users"))) {
                 Integer approverId = toInteger(firstObject(user.get("serUserId"), user.get("userId"), user.get("id")));
                 if (approverId == null) {
                     continue;
                 }
-                TemplateStep step = new TemplateStep();
-                step.id = key + "_" + approverId + "_" + userIndex;
-                step.name = firstText(user.get("txtUserName"), user.get("userName"), user.get("name"), label);
-                step.type = "individual";
-                step.approvalMode = "OR";
-                step.approverIds.add(approverId);
+                addIfPresent(step.approverIds, approverId);
+            }
+            if (!step.approverIds.isEmpty()) {
                 steps.add(step);
-                userIndex++;
-                stepIndex++;
             }
         }
         return steps;

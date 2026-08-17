@@ -26,14 +26,18 @@ public class UserDetailsImpl implements UserDetails {
   @JsonIgnore
   private String password;
 
+  private boolean active;
+
   private Collection<? extends GrantedAuthority> authorities;
 
   public UserDetailsImpl(Long id, String username, String email, String password,
+      boolean active,
       Collection<? extends GrantedAuthority> authorities) {
     this.id = id;
     this.username = username;
     this.email = email;
     this.password = password;
+    this.active = active;
     this.authorities = authorities;
   }
 
@@ -47,7 +51,24 @@ public class UserDetailsImpl implements UserDetails {
         user.getEffectiveLoginName(),
         user.getTxtAddress(),
         user.getTxtPassword(),
+        isUserActive(user),
         new ArrayList<>());
+  }
+
+  private static boolean isUserActive(CfgTblUser user) {
+    if (Boolean.TRUE.equals(user.getBlIsDeleted())) {
+      return false;
+    }
+
+    if (user.getBlIsActive() != null) {
+      return Boolean.TRUE.equals(user.getBlIsActive());
+    }
+
+    if (user.getBlnStatus() != null) {
+      return Boolean.TRUE.equals(user.getBlnStatus());
+    }
+
+    return true;
   }
 
   @Override
@@ -90,7 +111,7 @@ public class UserDetailsImpl implements UserDetails {
 
   @Override
   public boolean isEnabled() {
-    return true;
+    return active;
   }
 
   @Override

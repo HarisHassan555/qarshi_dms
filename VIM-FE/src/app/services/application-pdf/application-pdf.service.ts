@@ -2540,15 +2540,24 @@ export class ApplicationPdfService {
       margin: 0 0 6px 18px;
       padding: 0;
     }
+    .word-editor-value figure.table {
+      display: table;
+      width: auto;
+      max-width: 100%;
+      margin: 6px auto;
+    }
     .word-editor-value table {
-      width: 100%;
+      width: auto;
+      max-width: 100%;
       border-collapse: collapse;
-      margin: 6px 0;
+      margin: 6px auto;
+      table-layout: auto;
     }
     .word-editor-value td,
     .word-editor-value th {
-      border: 1px solid #d9d9d9;
-      padding: 4px 6px;
+      border: 1px solid #334155;
+      padding: 6px;
+      vertical-align: top;
     }
     .word-editor-value .ql-align-center { text-align: center; }
     .word-editor-value .ql-align-right { text-align: right; }
@@ -4610,7 +4619,8 @@ export class ApplicationPdfService {
     .xyz-generic-word .ql-editor ul,
     .xyz-generic-word .ql-editor ol { margin:6px 0 6px 22px; padding:0; list-style-position:outside; break-inside:avoid; page-break-inside:avoid; }
     .xyz-generic-word .ql-editor li { margin:2px 0; break-inside:avoid; page-break-inside:avoid; }
-    .xyz-generic-word .ql-editor table { width:100%; border-collapse:collapse; border-spacing:0; border:none; table-layout:fixed; margin:4px 0; break-inside:avoid; page-break-inside:avoid; }
+    .xyz-generic-word .ql-editor figure.table { display:table; width:auto; max-width:100%; margin:4px auto; break-inside:avoid; page-break-inside:avoid; }
+    .xyz-generic-word .ql-editor table { width:auto; max-width:100%; border-collapse:collapse; border-spacing:0; border:none; table-layout:fixed; margin:4px auto; break-inside:avoid; page-break-inside:avoid; }
     .xyz-generic-word .ql-editor table tbody tr, .xyz-generic-word .ql-editor table thead tr { border:none; background:transparent; }
     .xyz-generic-word .ql-editor table tr { height:auto !important; break-inside:avoid; page-break-inside:avoid; }
     .xyz-generic-word .ql-editor th, .xyz-generic-word .ql-editor td {
@@ -5456,6 +5466,36 @@ export class ApplicationPdfService {
       box-sizing: border-box;
       white-space: normal !important;
       min-height: 32px;
+    }
+
+    .word-editor-value figure.table,
+    .xyz-generic-word .ql-editor figure.table {
+      display: table !important;
+      width: auto !important;
+      max-width: 100% !important;
+      margin: 6px auto !important;
+    }
+
+    .word-editor-value table,
+    .word-editor-value figure.table table,
+    .xyz-generic-word .ql-editor table,
+    .xyz-generic-word .ql-editor figure.table table {
+      width: auto !important;
+      max-width: 100% !important;
+      margin-left: auto !important;
+      margin-right: auto !important;
+      border-collapse: collapse !important;
+      table-layout: auto !important;
+      border: none !important;
+    }
+
+    .word-editor-value td,
+    .word-editor-value th,
+    .xyz-generic-word .ql-editor td,
+    .xyz-generic-word .ql-editor th {
+      border: 1px solid #000 !important;
+      padding: 6px !important;
+      vertical-align: top !important;
     }
 
     .grid {

@@ -54,7 +54,7 @@
                 </div>
                 <div class="empty-state" *ngIf="fields.length === 0">No fields assigned yet.</div>
                 <div
-                    *ngFor="let field of fields"
+                    *ngFor="let field of fields; let i = index"
                     class="field-row"
                     [class.active]="field.id === selectedFieldId"
                     (click)="selectField(field.id)"
@@ -63,7 +63,11 @@
                         <strong>{{ field.label }}</strong>
                         <span>{{ field.type }}{{ field.required ? ' - required' : '' }}{{ field.placement ? ' - positioned' : '' }}{{ isDocumentRegionFieldType(field.type) ? ' - pinned' : '' }}</span>
                     </div>
-                    <button type="button" title="Remove field" (click)="removeField(field.id); $event.stopPropagation()">x</button>
+                    <div class="field-row-actions">
+                        <button type="button" title="Move field up" [disabled]="i === 0" (click)="moveField(i, 'up'); $event.stopPropagation()">Up</button>
+                        <button type="button" title="Move field down" [disabled]="i === fields.length - 1" (click)="moveField(i, 'down'); $event.stopPropagation()">Dn</button>
+                        <button type="button" title="Remove field" (click)="removeField(field.id); $event.stopPropagation()">x</button>
+                    </div>
                 </div>
             </div>
         </aside>
@@ -243,89 +247,117 @@
 
         <aside class="builder-panel right-panel">
             <div class="panel-section" *ngIf="selectedField as field">
-                <h3>Field Properties</h3>
-                <label>
-                    Label
-                    <input type="text" [(ngModel)]="field.label" />
-                </label>
-                <label *ngIf="!isDocumentRegionFieldType(field.type)">
-                    Font Size
-                    <input type="number" min="8" max="48" [(ngModel)]="field.style.fontSize" />
-                </label>
-                <div class="style-toggle-row" *ngIf="!isDocumentRegionFieldType(field.type)">
-                    <label class="check-row">
-                        <input type="checkbox" [(ngModel)]="field.style.bold" />
-                        Bold
-                    </label>
-                    <label class="check-row">
-                        <input type="checkbox" [(ngModel)]="field.style.italic" />
-                        Italic
-                    </label>
-                    <label class="check-row">
-                        <input type="checkbox" [(ngModel)]="field.style.underline" />
-                        Underline
-                    </label>
+                <div class="panel-title-row panel-title-row-collapsible">
+                    <h3>Field Properties</h3>
+                    <button
+                        type="button"
+                        class="panel-collapse-btn"
+                        [attr.aria-expanded]="!fieldPropertiesCollapsed"
+                        [title]="fieldPropertiesCollapsed ? 'Expand field properties' : 'Collapse field properties'"
+                        (click)="toggleFieldPropertiesCollapsed()">
+                        <span class="panel-collapse-icon" [class.is-collapsed]="fieldPropertiesCollapsed" aria-hidden="true"></span>
+                    </button>
                 </div>
-                <label *ngIf="!isDocumentRegionFieldType(field.type)">
-                    Text Align
-                    <select [(ngModel)]="field.style.textAlign">
-                        <option value="left">Left</option>
-                        <option value="center">Center</option>
-                        <option value="right">Right</option>
-                    </select>
-                </label>
-                <label *ngIf="isDynamicApprovalDataField(field)">
-                    Signature Target
-                    <select
-                        [ngModel]="getDynamicSignatureTargetId(field)"
-                        (ngModelChange)="setDynamicSignatureTarget(field, $event)">
-                        <option *ngFor="let target of dynamicSignatureTargetOptions" [ngValue]="target.id">
-                            {{ target.label }}
-                        </option>
-                    </select>
-                </label>
-                <label *ngIf="field.placement && !isDocumentRegionFieldType(field.type)">
-                    Page
-                    <input type="number" min="1" [max]="pageCount" [ngModel]="field.page" (ngModelChange)="moveFieldToPage(field, $event)" />
-                </label>
-                <label *ngIf="field.placement && !isDocumentRegionFieldType(field.type)">
-                    Width
-                    <input type="number" min="1" [max]="pageWidth" [(ngModel)]="field.placement.width" />
-                </label>
-                <label *ngIf="field.placement && !isDocumentRegionFieldType(field.type)">
-                    Height
-                    <input type="number" min="1" [(ngModel)]="field.placement.height" />
-                </label>
-                <div class="radio-option-properties" *ngIf="field.type === 'radio'">
-                    <div class="radio-option-properties-header">
-                        <strong>Option Boxes</strong>
-                        <span>Drag each box to the matching checkbox on the form.</span>
+                <div *ngIf="!fieldPropertiesCollapsed">
+                    <label>
+                        Label
+                        <input type="text" [(ngModel)]="field.label" />
+                    </label>
+                    <label>
+                        Field Type
+                        <select [ngModel]="field.type" (ngModelChange)="onSelectedFieldTypeChanged(field, $event)">
+                            <option *ngFor="let type of fieldTypes" [value]="type.value">{{ type.label }}</option>
+                        </select>
+                    </label>
+                    <label class="check-row">
+                        <input type="checkbox" [(ngModel)]="field.required" />
+                        Required
+                    </label>
+                    <label *ngIf="!isDocumentRegionFieldType(field.type) && !isWordEditorFieldType(field.type)">
+                        Font Size
+                        <input type="number" min="8" max="48" [(ngModel)]="field.style.fontSize" />
+                    </label>
+                    <label *ngIf="!isDocumentRegionFieldType(field.type) && !isWordEditorFieldType(field.type)">
+                        Font Style
+                        <select [(ngModel)]="field.style.fontFamily">
+                            <option *ngFor="let option of fontFamilyOptions" [value]="option.value">{{ option.label }}</option>
+                        </select>
+                    </label>
+                    <div class="style-toggle-row" *ngIf="!isDocumentRegionFieldType(field.type) && !isWordEditorFieldType(field.type)">
+                        <label class="check-row">
+                            <input type="checkbox" [(ngModel)]="field.style.bold" />
+                            Bold
+                        </label>
+                        <label class="check-row">
+                            <input type="checkbox" [(ngModel)]="field.style.italic" />
+                            Italic
+                        </label>
+                        <label class="check-row">
+                            <input type="checkbox" [(ngModel)]="field.style.underline" />
+                            Underline
+                        </label>
                     </div>
-                    <div class="empty-state compact-empty-state" *ngIf="getRadioOptions(field).length === 0">
-                        No radio options configured.
-                    </div>
-                    <div class="radio-option-property" *ngFor="let option of getRadioOptions(field)">
-                        <div>
-                            <strong>{{ option }}</strong>
-                            <span>{{ getRadioOptionPlacements(field).length }} mapped</span>
+                    <label *ngIf="!isDocumentRegionFieldType(field.type) && !isWordEditorFieldType(field.type)">
+                        Text Align
+                        <select [(ngModel)]="field.style.textAlign">
+                            <option value="left">Left</option>
+                            <option value="center">Center</option>
+                            <option value="right">Right</option>
+                        </select>
+                    </label>
+                    <label *ngIf="isDynamicApprovalDataField(field)">
+                        Signature Target
+                        <select
+                            [ngModel]="getDynamicSignatureTargetId(field)"
+                            (ngModelChange)="setDynamicSignatureTarget(field, $event)">
+                            <option *ngFor="let target of dynamicSignatureTargetOptions" [ngValue]="target.id">
+                                {{ target.label }}
+                            </option>
+                        </select>
+                    </label>
+                    <label *ngIf="field.placement && !isDocumentRegionFieldType(field.type) && !isWordEditorFieldType(field.type)">
+                        Page
+                        <input type="number" min="1" [max]="pageCount" [ngModel]="field.page" (ngModelChange)="moveFieldToPage(field, $event)" />
+                    </label>
+                    <label *ngIf="field.placement && !isDocumentRegionFieldType(field.type) && !isWordEditorFieldType(field.type)">
+                        Width
+                        <input type="number" min="1" [max]="pageWidth" [(ngModel)]="field.placement.width" />
+                    </label>
+                    <label *ngIf="field.placement && !isDocumentRegionFieldType(field.type) && !isWordEditorFieldType(field.type)">
+                        Height
+                        <input type="number" min="1" [(ngModel)]="field.placement.height" />
+                    </label>
+                    <div class="radio-option-properties" *ngIf="field.type === 'radio'">
+                        <div class="radio-option-properties-header">
+                            <strong>Option Boxes</strong>
+                            <span>Drag each box to the matching checkbox on the form.</span>
                         </div>
-                        <button type="button" (click)="addRadioOptionBox(field, option)">Add Box</button>
-                    </div>
-                    <div class="radio-option-placement-row" *ngFor="let optionBox of getRadioOptionPlacements(field); trackBy: trackByRadioOptionId">
-                        <strong>{{ optionBox.label }}</strong>
-                        <label>
-                            Page
-                            <input type="number" min="1" [max]="pageCount" [ngModel]="optionBox.page" (ngModelChange)="moveRadioOptionToPage(optionBox, $event)" />
-                        </label>
-                        <label>
-                            W
-                            <input type="number" min="1" [max]="pageWidth" [(ngModel)]="optionBox.placement.width" />
-                        </label>
-                        <label>
-                            H
-                            <input type="number" min="1" [(ngModel)]="optionBox.placement.height" />
-                        </label>
-                        <button type="button" title="Remove option box" (click)="removeRadioOptionBox(field, optionBox.id)">x</button>
+                        <div class="empty-state compact-empty-state" *ngIf="getRadioOptions(field).length === 0">
+                            No radio options configured.
+                        </div>
+                        <div class="radio-option-property" *ngFor="let option of getRadioOptions(field)">
+                            <div>
+                                <strong>{{ option }}</strong>
+                                <span>{{ getRadioOptionPlacements(field).length }} mapped</span>
+                            </div>
+                            <button type="button" (click)="addRadioOptionBox(field, option)">Add Box</button>
+                        </div>
+                        <div class="radio-option-placement-row" *ngFor="let optionBox of getRadioOptionPlacements(field); trackBy: trackByRadioOptionId">
+                            <strong>{{ optionBox.label }}</strong>
+                            <label>
+                                Page
+                                <input type="number" min="1" [max]="pageCount" [ngModel]="optionBox.page" (ngModelChange)="moveRadioOptionToPage(optionBox, $event)" />
+                            </label>
+                            <label>
+                                W
+                                <input type="number" min="1" [max]="pageWidth" [(ngModel)]="optionBox.placement.width" />
+                            </label>
+                            <label>
+                                H
+                                <input type="number" min="1" [(ngModel)]="optionBox.placement.height" />
+                            </label>
+                            <button type="button" title="Remove option box" (click)="removeRadioOptionBox(field, optionBox.id)">x</button>
+                        </div>
                     </div>
                 </div>
             </div>

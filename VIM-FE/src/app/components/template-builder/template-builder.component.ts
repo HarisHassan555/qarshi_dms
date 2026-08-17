@@ -27,6 +27,9 @@ type TemplateFieldType =
     | 'dynamic_signature'
     | 'dynamic_approver_name'
     | 'dynamic_approval_timestamp'
+    | 'dynamic_approver_department'
+    | 'dynamic_approver_designation'
+    | 'dynamic_user_details'
     | 'text'
     | 'integer'
     | 'decimal'
@@ -66,6 +69,7 @@ interface TemplateFieldStyle {
     bold: boolean;
     italic: boolean;
     underline: boolean;
+    fontFamily: string;
     textAlign: 'left' | 'center' | 'right';
 }
 
@@ -145,6 +149,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     templateName = 'Untitled Template';
     codeConvention = 'TPL-0000';
     editingTemplateId = '';
+    templateIsActive = true;
     editorContent = '<h2>Template Title</h2><p>Select any text or table cell content, then assign it as a field from the side panel.</p><p>Example: Vendor Name, Amount, Delivery Date, Approval Notes.</p>';
     selectedFieldId = '';
     newFieldLabel = 'New Field';
@@ -175,6 +180,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     showFieldModal = false;
     showPipelineModal = false;
     showPipelineRightsModal = false;
+    fieldPropertiesCollapsed = false;
 
     fieldTypes: { value: TemplateFieldType; label: string }[] = [
         { value: 'document_header', label: 'Document Header QI' },
@@ -188,6 +194,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         { value: 'dynamic_signature', label: 'Dynamic Signatures' },
         { value: 'dynamic_approver_name', label: 'Dynamic Approver Name' },
         { value: 'dynamic_approval_timestamp', label: 'Dynamic Approval Timestamp' },
+        { value: 'dynamic_approver_department', label: 'Dynamic Approver Department' },
+        { value: 'dynamic_approver_designation', label: 'Dynamic Approver Designation' },
+        { value: 'dynamic_user_details', label: 'User Dynamic Details' },
         { value: 'text', label: 'Text' },
         { value: 'integer', label: 'Integer' },
         { value: 'decimal', label: 'Decimal' },
@@ -211,6 +220,15 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         { value: 'fill', label: 'Fill' },
         { value: 'edit', label: 'Edit' },
         { value: 'hide', label: 'Hide' }
+    ];
+    fontFamilyOptions: { value: string; label: string }[] = [
+        { value: 'Arial, sans-serif', label: 'Arial' },
+        { value: 'Calibri, Arial, sans-serif', label: 'Calibri' },
+        { value: 'Georgia, \"Times New Roman\", serif', label: 'Georgia' },
+        { value: '\"Times New Roman\", Times, serif', label: 'Times New Roman' },
+        { value: 'Verdana, Arial, sans-serif', label: 'Verdana' },
+        { value: 'Tahoma, Geneva, sans-serif', label: 'Tahoma' },
+        { value: '\"Courier New\", Courier, monospace', label: 'Courier New' }
     ];
 
     private editorInstance: any = null;
@@ -460,6 +478,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     closeFieldModal(): void {
         this.showFieldModal = false;
+    }
+
+    toggleFieldPropertiesCollapsed(): void {
+        this.fieldPropertiesCollapsed = !this.fieldPropertiesCollapsed;
     }
 
     onNewFieldTypeChanged(): void {
@@ -787,7 +809,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     isDynamicApprovalDataField(field: TemplateField): boolean {
         return this.isDynamicSignatureField(field)
             || field.type === 'dynamic_approver_name'
-            || field.type === 'dynamic_approval_timestamp';
+            || field.type === 'dynamic_approval_timestamp'
+            || field.type === 'dynamic_approver_department'
+            || field.type === 'dynamic_approver_designation'
+            || field.type === 'dynamic_user_details';
     }
 
     getDynamicSignatureTargetLabel(field: TemplateField): string {
@@ -920,6 +945,109 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         }
     }
 
+    moveField(index: number, direction: 'up' | 'down'): void {
+        const targetIndex = direction === 'up' ? index - 1 : index + 1;
+        if (index < 0 || index >= this.fields.length || targetIndex < 0 || targetIndex >= this.fields.length) {
+            return;
+        }
+
+        const reordered = [...this.fields];
+        const [movedField] = reordered.splice(index, 1);
+        reordered.splice(targetIndex, 0, movedField);
+        this.fields = reordered;
+    }
+
+    onSelectedFieldTypeChanged(field: TemplateField, nextType: TemplateFieldType): void {
+        if (!field || field.type === nextType) {
+            return;
+        }
+
+        const previousType = field.type;
+        const previousLabel = field.label;
+        const previousPlaceholder = field.placeholder;
+        const previousPlacement = field.placement ? { ...field.placement } : undefined;
+        const previousRadioPlacement = field.optionPlacements?.[0]
+            ? {
+                page: field.optionPlacements[0].page,
+                placement: { ...field.optionPlacements[0].placement }
+            }
+            : undefined;
+        const previousDefaultLabel = this.getDynamicApprovalDefaultLabel(previousType);
+        const previousDefaultPlaceholder = this.getDynamicApprovalPlaceholder(previousType);
+
+        field.type = nextType;
+
+        if (nextType === 'radio') {
+            field.options = this.getExistingOrDefaultRadioOptions(field.options);
+            field.optionPlacements = [];
+            const page = this.clamp(Math.round(Number(field.page) || 1), 1, this.pageCount);
+            this.getRadioOptions(field).forEach((option, index) => {
+                field.optionPlacements?.push({
+                    id: this.createId('radio_option'),
+                    label: option,
+                    page,
+                    placement: this.buildRadioOptionPlacement(
+                        previousPlacement?.x,
+                        previousPlacement?.y,
+                        page,
+                        index,
+                        previousPlacement
+                    )
+                });
+            });
+            delete field.placement;
+            field.style.fontSize = Math.max(field.style.fontSize || 14, 18);
+            field.style.bold = true;
+        } else {
+            delete field.options;
+            delete field.optionPlacements;
+
+            if (this.isAttachmentFieldType(nextType)) {
+                delete field.placement;
+            } else if (this.isDocumentRegionFieldType(nextType)) {
+                field.placement = this.buildDocumentRegionPlacement(nextType, field.page);
+            } else if (previousType === 'radio' && previousRadioPlacement) {
+                field.page = previousRadioPlacement.page;
+                field.placement = {
+                    x: previousRadioPlacement.placement.x,
+                    y: previousRadioPlacement.placement.y,
+                    width: Math.max(160, previousRadioPlacement.placement.width * 4),
+                    height: Math.max(38, previousRadioPlacement.placement.height)
+                };
+            } else if (previousPlacement && !this.isDocumentRegionFieldType(previousType)) {
+                field.placement = previousPlacement;
+            } else {
+                field.placement = this.buildDefaultFloatingPlacement(field.page, this.fields.indexOf(field));
+            }
+        }
+
+        if (this.isDynamicApprovalDataField(field)) {
+            if (!previousLabel || previousLabel === previousDefaultLabel) {
+                field.label = this.getDynamicApprovalDefaultLabel(nextType);
+            }
+            if (!previousPlaceholder || previousPlaceholder === previousDefaultPlaceholder) {
+                field.placeholder = this.getDynamicApprovalPlaceholder(nextType);
+            }
+            field.signatureTargetId = field.signatureTargetId || this.dynamicSignatureTargetOptions[0]?.id || this.initiatorPipelineStepId;
+            field.pipelineStepId = field.signatureTargetId;
+            field.pipelineApproverIndex = 1;
+        } else {
+            delete field.signatureTargetId;
+            delete field.pipelineStepId;
+            delete field.pipelineApproverIndex;
+            if (previousPlaceholder === previousDefaultPlaceholder || !previousPlaceholder) {
+                field.placeholder = `{{${this.slugify(field.label || 'field')}}}`;
+            }
+        }
+
+        if (!this.isDocumentRegionFieldType(nextType) && !this.isAttachmentFieldType(nextType) && !field.placement) {
+            field.placement = this.buildDefaultFloatingPlacement(field.page, this.fields.indexOf(field));
+        }
+
+        this.syncFieldMarkers(field);
+        this.selectedFieldId = field.id;
+    }
+
     getRadioOptions(field: TemplateField): string[] {
         return (field.options || []).filter((option) => !!String(option || '').trim());
     }
@@ -1038,6 +1166,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     getFieldStyle(field: TemplateField): { [key: string]: string | number } {
         return {
             'font-size.px': this.getFieldPreviewFontSize(field),
+            'font-family': field.style.fontFamily || 'Arial, sans-serif',
             'font-weight': field.style.bold ? '700' : '400',
             'font-style': field.style.italic ? 'italic' : 'normal',
             'text-decoration': field.style.underline ? 'underline' : 'none',
@@ -1055,6 +1184,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
                 this.editingTemplateId = String(template?.id || payload.id || templateId);
                 this.templateName = payload.name || template?.name || 'Untitled Template';
                 this.codeConvention = this.resolveCodeConvention(payload.codeConvention || template?.codeConvention);
+                this.templateIsActive = payload.isActive !== false && template?.isActive !== false;
                 this.editorContent = this.removeRadioFieldMarkers(payload.html || '');
                 this.backgroundFile = payload.background || null;
                 this.fields = Array.isArray(payload.fields) ? payload.fields : [];
@@ -1084,6 +1214,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         return JSON.stringify({
             name: this.templateName,
             codeConvention: this.codeConvention,
+            isActive: this.templateIsActive,
             html: this.editorContent || '',
             page: {
                 width: this.pageWidth,
@@ -1134,6 +1265,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         return this.isHeaderFieldType(type) || this.isFooterFieldType(type);
     }
 
+    isWordEditorFieldType(type: TemplateFieldType): boolean {
+        return type === 'word_editor';
+    }
+
     getHeaderLogoPath(type: TemplateFieldType): string {
         return resolveDocumentHeaderLogoPath(type);
     }
@@ -1178,6 +1313,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
                 bold: false,
                 italic: false,
                 underline: false,
+                fontFamily: 'Arial, sans-serif',
                 textAlign: 'center'
             },
             page: this.getClampedTargetPage()
@@ -1246,6 +1382,15 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (type === 'dynamic_approval_timestamp') {
             return 'Dynamic Approval Timestamp';
         }
+        if (type === 'dynamic_approver_department') {
+            return 'Dynamic Approver Department';
+        }
+        if (type === 'dynamic_approver_designation') {
+            return 'Dynamic Approver Designation';
+        }
+        if (type === 'dynamic_user_details') {
+            return 'User Dynamic Details';
+        }
         return 'Dynamic Signatures';
     }
 
@@ -1256,7 +1401,83 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (type === 'dynamic_approval_timestamp') {
             return '{{dynamic_approval_timestamp}}';
         }
+        if (type === 'dynamic_approver_department') {
+            return '{{dynamic_approver_department}}';
+        }
+        if (type === 'dynamic_approver_designation') {
+            return '{{dynamic_approver_designation}}';
+        }
+        if (type === 'dynamic_user_details') {
+            return '{{dynamic_user_details}}';
+        }
         return '{{dynamic_signatures}}';
+    }
+
+    private getExistingOrDefaultRadioOptions(options?: string[]): string[] {
+        const cleaned = (options || [])
+            .map((option) => String(option || '').trim())
+            .filter((option) => !!option);
+        return cleaned.length > 0 ? cleaned : ['Option 1', 'Option 2'];
+    }
+
+    private buildDefaultFloatingPlacement(page: number, index: number): TemplateFieldPlacement {
+        const normalizedPage = this.clamp(Math.round(Number(page) || 1), 1, this.pageCount);
+        const pageTop = (normalizedPage - 1) * (this.pageHeight + this.pageGap);
+        return {
+            x: 32 + (Math.max(index, 0) % 4) * 18,
+            y: pageTop + 120 + (Math.max(index, 0) % 5) * 18,
+            width: 160,
+            height: 38
+        };
+    }
+
+    private buildDocumentRegionPlacement(type: TemplateFieldType, page: number): TemplateFieldPlacement {
+        const normalizedPage = this.clamp(Math.round(Number(page) || 1), 1, this.pageCount);
+        const pageTop = (normalizedPage - 1) * (this.pageHeight + this.pageGap);
+        const isHeader = this.isHeaderFieldType(type);
+        return {
+            x: 0,
+            y: isHeader ? pageTop : pageTop + this.pageHeight - 86,
+            width: this.pageWidth,
+            height: isHeader ? 116 : 86
+        };
+    }
+
+    private buildRadioOptionPlacement(
+        baseX: number | undefined,
+        baseY: number | undefined,
+        page: number,
+        index: number,
+        fallbackPlacement?: TemplateFieldPlacement
+    ): TemplateFieldPlacement {
+        const pageTop = (page - 1) * (this.pageHeight + this.pageGap);
+        const offsetX = baseX ?? fallbackPlacement?.x ?? 32;
+        const offsetY = baseY ?? fallbackPlacement?.y ?? pageTop + 120;
+        return {
+            x: offsetX + ((index % 3) * 36),
+            y: offsetY + (Math.floor(index / 3) * 36),
+            width: 30,
+            height: 30
+        };
+    }
+
+    private syncFieldMarkers(field: TemplateField): void {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(this.editorContent || '', 'text/html');
+        const markers = Array.from(doc.querySelectorAll(`[data-field-id="${field.id}"]`));
+
+        if (field.type === 'radio') {
+            markers.forEach((node) => node.remove());
+        } else {
+            markers.forEach((node) => {
+                node.setAttribute('data-field-type', field.type);
+                node.setAttribute('data-required', String(field.required));
+                node.setAttribute('title', `${field.label} (${field.type})`);
+            });
+        }
+
+        this.editorContent = this.removeRadioFieldMarkers(doc.body.innerHTML);
+        this.editorInstance?.setData(this.editorContent);
     }
 
     private closeAndResetFieldModal(): void {
@@ -1425,13 +1646,18 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         });
     }
 
+    private hasIndividualFooterPipeline(): boolean {
+        return this.fields.some((field) => field.type === 'individual_pipeline_footer');
+    }
+
     private getEffectivePipelineFieldPermissions(step: PipelineStep): PipelineFieldPermission[] {
         if (step.type === 'initiator' && !step.fieldPermissionsConfigured) {
+            const defaultRight: PipelineFieldRight = this.hasIndividualFooterPipeline() ? 'edit' : 'fill';
             return this.pipelineAssignableFields.map((field) => ({
                 fieldId: field.id,
                 fieldLabel: field.label,
                 fieldType: field.type,
-                right: 'fill'
+                right: defaultRight
             }));
         }
         return Array.isArray(step.fieldPermissions) ? step.fieldPermissions : [];

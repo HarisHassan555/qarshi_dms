@@ -136,7 +136,15 @@ public class CustomFormApplicationController {
                 return ResponseEntity.badRequest().build();
             }
             CfgTblCustomFormApplication application = customFormApplicationService.getApplicationById(applicationId);
-            if (application == null || application.getBlbPdfData() == null || application.getBlbPdfData().length == 0) {
+            if (application == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+
+            byte[] pdfBytes = application.getBlbPdfData();
+            if (pdfBytes == null || pdfBytes.length == 0) {
+                pdfBytes = customFormApplicationService.resolveDownloadablePdf(applicationId);
+            }
+            if (pdfBytes == null || pdfBytes.length == 0) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
             }
 
@@ -165,7 +173,7 @@ public class CustomFormApplicationController {
                     .contentType(mediaType)
                     .header(HttpHeaders.CONTENT_DISPOSITION,
                             "attachment; filename=\"" + fileName.replace("\"", "") + "\"; filename*=UTF-8''" + encodedFilename)
-                    .body(application.getBlbPdfData());
+                    .body(pdfBytes);
         } catch (Exception ex) {
             logger.error("Error downloading application PDF: " + ex.getMessage(), ex);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -1221,6 +1229,10 @@ public class CustomFormApplicationController {
 
     private String renderEmailActionCommentForm(String title, String subtitle, String actionPath, Integer applicationId,
             Integer userId, HttpServletRequest request) {
+        String terminalStateMessage = getEmailActionTerminalStateMessage(applicationId);
+        if (terminalStateMessage != null) {
+            return renderEmailActionErrorPage("Action Not Available", terminalStateMessage);
+        }
         String contextPath = request != null ? request.getContextPath() : "";
         String actionUrl = contextPath + actionPath;
         return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>" + escapeHtml(title) + "</title>"
@@ -1259,6 +1271,30 @@ public class CustomFormApplicationController {
                 + ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}.message{color:#333;font-size:16px;line-height:1.6}</style></head><body>"
                 + "<div class='container'><div class='error'>" + escapeHtml(title) + "</div>"
                 + "<div class='message'>" + escapeHtml(message) + "</div></div></body></html>";
+    }
+
+    private String getEmailActionTerminalStateMessage(Integer applicationId) {
+        if (applicationId == null) {
+            return "Application ID is required.";
+        }
+        try {
+            CfgTblCustomFormApplication application = customFormApplicationService.getApplicationById(applicationId);
+            if (application == null) {
+                return "Application not found.";
+            }
+            String status = application.getTxtStatus() != null ? application.getTxtStatus().trim() : "";
+            if ("REJECTED".equalsIgnoreCase(status)) {
+                return "This application has already been rejected. No further actions are allowed.";
+            }
+            if ("APPROVED".equalsIgnoreCase(status) || "COMPLETED".equalsIgnoreCase(status)) {
+                return "This application has already been completed. No further actions are allowed.";
+            }
+            return null;
+        } catch (Exception ex) {
+            logger.warn("Unable to validate email action state for applicationId=" + applicationId + ": "
+                    + ex.getMessage());
+            return null;
+        }
     }
 
     private String escapeHtml(String value) {

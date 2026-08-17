@@ -72,6 +72,12 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     }
 
     @Override
+    public byte[] resolveDownloadablePdf(Integer applicationId) {
+        logger.debug("resolveDownloadablePdf() - applicationId: " + applicationId);
+        return customFormApplicationDAO.resolveDownloadablePdf(applicationId);
+    }
+
+    @Override
     public String deleteApplication(Integer applicationId) {
         logger.debug("deleteApplication() - applicationId: " + applicationId);
         return customFormApplicationDAO.deleteApplication(applicationId);
@@ -183,6 +189,12 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
         logger.debug("sendTemplatePostApprovalEmails() - applicationId: " + applicationId + ", custom PDFs");
         return customFormApplicationDAO.sendTemplatePostApprovalEmails(applicationId, initiatorPdf, approverPdf,
                 pdfName, pdfMime);
+    }
+
+    @Override
+    public String refreshTemplateApplicationPdfFromStage0(Integer applicationId) {
+        logger.debug("refreshTemplateApplicationPdfFromStage0() - applicationId: " + applicationId);
+        return customFormApplicationDAO.refreshTemplateApplicationPdfFromStage0(applicationId);
     }
 
     @Override

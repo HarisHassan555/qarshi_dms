@@ -35,6 +35,13 @@
     <div *ngIf="template" class="fill-workspace">
         <aside class="fill-values-panel">
             <h3>Fields</h3>
+            <div class="inline-word-editor-toolbar-panel" *ngIf="getActiveInlineWordEditorField() as activeWordEditorField">
+                <div class="inline-word-editor-toolbar-panel-header">
+                    <strong>{{ activeWordEditorField.label }}</strong>
+                    <span>Formatting toolbar for the selected editor on the form.</span>
+                </div>
+                <div class="inline-word-editor-toolbar-host"></div>
+            </div>
             <div class="empty-template" *ngIf="fillableFields.length === 0">No fillable fields found.</div>
             <div class="value-field" *ngFor="let field of panelFields">
                 <label [attr.for]="field.id">{{ field.label }}{{ field.required ? ' *' : '' }}</label>
@@ -84,7 +91,7 @@
                             <button type="button" class="attachment-link-button" (click)="viewAttachment(attachment)">
                                 {{ attachment.fileName }}
                             </button>
-                            <button type="button" class="btn btn-danger btn-sm" (click)="removeAttachment(field, index)">
+                            <button type="button" class="btn btn-danger btn-sm" (click)="removeAttachment(field, index, $event)">
                                 Remove
                             </button>
                         </div>
@@ -310,14 +317,21 @@
         </div>
         <div class="attachments-modal-empty" *ngIf="!hasAnyAttachments">No attachments available.</div>
         <div class="attachments-modal-list" *ngIf="hasAnyAttachments">
-            <button
-                type="button"
-                class="attachment-modal-item"
-                *ngFor="let item of getAllAttachmentItems()"
-                (click)="viewAttachment(item.attachment)">
-                <strong>{{ item.attachment.fileName }}</strong>
-                <span>{{ item.fieldLabel }}</span>
-            </button>
+            <div class="attachment-modal-item" *ngFor="let item of getAllAttachmentItems()">
+                <button
+                    type="button"
+                    class="attachment-link-button"
+                    (click)="viewAttachment(item.attachment)">
+                    <strong>{{ item.attachment.fileName }}</strong>
+                    <span>{{ item.fieldLabel }}</span>
+                </button>
+                <button
+                    type="button"
+                    class="btn btn-danger btn-sm"
+                    (click)="removeAttachmentByFieldId(item.fieldId, item.attachmentIndex, $event)">
+                    Remove
+                </button>
+            </div>
         </div>
     </div>
 </div>

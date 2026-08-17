@@ -6,13 +6,19 @@
             </div>
             <div class="ltr:ml-auto rtl:mr-auto flex gap-2 flex-wrap">
                 <div *ngIf="isAdmin">
+                    <a (click)="openDuplicateModal()" class="btn btn-outline-primary gap-2">
+                        <icon-copy />
+                        Duplicate Form
+                    </a>
+                </div>
+                <div *ngIf="isAdmin">
                     <a (click)="addTemplate()" class="btn btn-primary gap-2">
                         <icon-plus />
                         Add New Digital Document
                     </a>
                 </div>
                 <div>
-                    <input [(ngModel)]="search" type="text" class="form-input" placeholder="Search digital documents..." />
+                    <input [(ngModel)]="search" (ngModelChange)="onSearchChanged()" type="text" class="form-input" placeholder="Search digital documents..." />
                 </div>
             </div>
         </div>
@@ -23,13 +29,20 @@
             </div>
         </div>
 
-        <div class="datatable invoice-table" *ngIf="!loadError && getDisplayedTemplates().length > 0">
+        <div *ngIf="isLoading" class="px-5 py-10 text-center">
+            <div class="inline-flex items-center gap-3 text-primary">
+                <span class="loader-spinner" aria-hidden="true"></span>
+                <span>Loading digital documents...</span>
+            </div>
+        </div>
+
+        <div class="datatable invoice-table" *ngIf="!loadError && !isLoading && getDisplayedTemplates().length > 0">
             <ng-datatable
                 [rows]="getDisplayedTemplates()"
                 [columns]="cols"
                 [hasCheckbox]="false"
+                [pagination]="false"
                 [sortable]="true"
-                [search]="search"
                 skin="whitespace-nowrap bh-table-hover"
                 firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
                 lastArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M11 19L17 12L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M6.99976 19L12.9998 12L6.99976 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg> '
@@ -46,6 +59,13 @@
                         {{ getCodeConvention(value) }}
                     </span>
                 </ng-template>
+                <ng-template slot="status" let-value="data">
+                    <span
+                        class="badge"
+                        [ngClass]="value.isActive === false ? 'badge-outline-danger' : 'badge-outline-success'">
+                        {{ getStatusSummary(value) }}
+                    </span>
+                </ng-template>
                 <ng-template slot="visibility" let-value="data">
                     <span
                         class="badge"
@@ -58,6 +78,15 @@
                 </ng-template>
                 <ng-template slot="actions" let-value="data">
                     <div class="flex items-center justify-center gap-4">
+                        <a
+                            *ngIf="isAdmin"
+                            (click)="toggleTemplateStatus(value)"
+                            [class.pointer-events-none]="togglingTemplateStatusId === value.id"
+                            [class.opacity-50]="togglingTemplateStatusId === value.id"
+                            [title]="value.isActive === false ? 'Activate Digital Document' : 'Mark Digital Document Inactive'">
+                            <icon-eye class="h-4.5 w-4.5" *ngIf="value.isActive === false"></icon-eye>
+                            <icon-x-circle class="h-4.5 w-4.5" *ngIf="value.isActive !== false"></icon-x-circle>
+                        </a>
                         <a *ngIf="isAdmin" (click)="openVisibilityModal(value)" class="hover:text-warning" title="Manage Visibility">
                             <icon-settings class="h-4.5 w-4.5" />
                         </a>
@@ -72,7 +101,28 @@
             </ng-datatable>
         </div>
 
-        <div class="px-5 pb-5" *ngIf="!loadError && getDisplayedTemplates().length === 0">
+        <div *ngIf="!loadError && !isLoading && totalTemplates > 0" class="template-pending-pagination px-5 py-3">
+            <div class="pagination-summary">
+                Showing {{ pageStart }}-{{ pageEnd }} of {{ totalTemplates }}
+            </div>
+            <div class="pagination-controls">
+                <select class="form-select page-size-select" [ngModel]="pageSize" (ngModelChange)="changePageSize($event)">
+                    <option [ngValue]="10">10</option>
+                    <option [ngValue]="25">25</option>
+                    <option [ngValue]="50">50</option>
+                    <option [ngValue]="100">100</option>
+                </select>
+                <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="page === 0" (click)="changePage(page - 1)">
+                    Previous
+                </button>
+                <span class="page-indicator">Page {{ page + 1 }} of {{ totalPages }}</span>
+                <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="page + 1 >= totalPages" (click)="changePage(page + 1)">
+                    Next
+                </button>
+            </div>
+        </div>
+
+        <div class="px-5 pb-5" *ngIf="!loadError && !isLoading && getDisplayedTemplates().length === 0">
             <div class="rounded-md border border-[#e0e6ed] bg-white p-5 dark:border-[#1b2e4b] dark:bg-[#1b2e4b]">
                 <p class="text-center text-gray-600 dark:text-gray-400">
                     <span *ngIf="!search && isAdmin">No digital documents saved yet. Click "Add New Digital Document" to create your first document.</span>
@@ -185,6 +235,45 @@
             <button type="button" class="btn btn-secondary" (click)="closeVisibilityModal()">Cancel</button>
             <button type="button" class="btn btn-primary" [disabled]="savingVisibility" (click)="saveVisibility()">
                 {{ savingVisibility ? 'Saving...' : 'Save Visibility' }}
+            </button>
+        </div>
+    </ng-template>
+</modal>
+
+<modal #duplicateModal [closeOnOutsideClick]="false">
+    <ng-template #modalHeader>
+        <div>Duplicate Form</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="duplicate-modal-body">
+            <p class="duplicate-modal-copy">
+                Enter the existing form ID you want to copy and the name for the new form. A new form ID will be assigned automatically.
+            </p>
+
+            <label class="visibility-label">
+                Existing Form ID
+                <input
+                    [(ngModel)]="duplicateSourceTemplateId"
+                    type="text"
+                    class="form-input"
+                    placeholder="e.g. 602" />
+            </label>
+
+            <label class="visibility-label">
+                New Form Name
+                <input
+                    [(ngModel)]="duplicateTemplateName"
+                    type="text"
+                    class="form-input"
+                    placeholder="Enter the new form name" />
+            </label>
+        </div>
+    </ng-template>
+    <ng-template #modalFooter>
+        <div class="visibility-modal-footer">
+            <button type="button" class="btn btn-secondary" (click)="closeDuplicateModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" [disabled]="duplicatingTemplate" (click)="duplicateTemplate()">
+                {{ duplicatingTemplate ? 'Duplicating...' : 'Duplicate Form' }}
             </button>
         </div>
     </ng-template>

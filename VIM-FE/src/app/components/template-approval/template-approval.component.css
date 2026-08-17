@@ -343,6 +343,121 @@
     margin: 0 auto;
 }
 
+:host ::ng-deep .word-editor-filled-value .word-editor-value {
+    color: #111827;
+    display: block;
+    font-size: inherit;
+    line-height: 1.45;
+    width: 100%;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor {
+    padding: 0;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor p,
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor div {
+    margin: 0 0 6px 0;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor p:last-child,
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor div:last-child {
+    margin-bottom: 0;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor ul,
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor ol {
+    margin: 6px 0 6px 22px;
+    padding: 0;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor figure.table {
+    display: table;
+    width: auto;
+    max-width: 100%;
+    margin: 0.9em auto;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor li {
+    margin: 2px 0;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor table {
+    width: auto;
+    max-width: 100%;
+    border-collapse: collapse;
+    margin: 6px auto;
+    table-layout: auto;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor td,
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor th {
+    border: 1px solid #000000;
+    padding: 6px;
+    vertical-align: top;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-align-center {
+    text-align: center;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-align-right {
+    text-align: right;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-align-justify {
+    text-align: justify;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-direction-rtl {
+    direction: rtl;
+    text-align: inherit;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-size-small {
+    font-size: 0.75em;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-size-large {
+    font-size: 1.5em;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-size-huge {
+    font-size: 2.5em;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-indent-1 {
+    padding-left: 3em;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-indent-2 {
+    padding-left: 6em;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-indent-3 {
+    padding-left: 9em;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-indent-4 {
+    padding-left: 12em;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-indent-5 {
+    padding-left: 15em;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-indent-6 {
+    padding-left: 18em;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-indent-7 {
+    padding-left: 21em;
+}
+
+:host ::ng-deep .word-editor-filled-value .word-editor-value .ql-editor .ql-indent-8 {
+    padding-left: 24em;
+}
+
 @media (max-width: 1180px) {
     .template-approval-page .approval-workspace {
         grid-template-columns: 1fr;

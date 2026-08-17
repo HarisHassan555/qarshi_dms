@@ -18,6 +18,14 @@ export interface SavedTemplateDefinition {
     payload: any;
     backendForm?: any;
     visibilityUserIds?: number[];
+    isActive?: boolean;
+}
+
+export interface TemplateDefinitionSummaryResponse {
+    items: SavedTemplateDefinition[];
+    total: number;
+    page: number;
+    pageSize: number;
 }
 
 export interface TemplateSubmission {
@@ -91,6 +99,30 @@ export class TemplateWorkflowService {
         );
     }
 
+    getTemplateSummaries(page = 0, pageSize = 10, search = '', userId?: number | null): Observable<TemplateDefinitionSummaryResponse> {
+        const resolvedUserId = userId ?? this.getCurrentUserId();
+        const params = new URLSearchParams();
+        params.set('page', String(Math.max(0, page)));
+        params.set('pageSize', String(Math.max(1, pageSize)));
+        if (resolvedUserId != null) {
+            params.set('userId', String(resolvedUserId));
+        }
+        if (search.trim()) {
+            params.set('search', search.trim());
+        }
+
+        return this.http.get<any>(urls.API_URL + 'getTemplateDefinitionSummaries?' + params.toString()).pipe(
+            map((response) => ({
+                items: (Array.isArray(response?.items) ? response.items : [])
+                    .map((template: any) => this.mapTemplateSummaryToSavedTemplate(template))
+                    .filter((template: SavedTemplateDefinition | null): template is SavedTemplateDefinition => !!template),
+                total: Number(response?.total || 0),
+                page: Number(response?.page || 0),
+                pageSize: Number(response?.pageSize || pageSize || 10)
+            }))
+        );
+    }
+
     getTemplate(id: string, userId?: number | null): Observable<SavedTemplateDefinition | null> {
         const resolvedUserId = userId ?? this.getCurrentUserId();
         const query = resolvedUserId != null
@@ -101,13 +133,48 @@ export class TemplateWorkflowService {
         );
     }
 
+    duplicateTemplate(sourceTemplateId: string | number, newTemplateName: string): Observable<SavedTemplateDefinition> {
+        const normalizedSourceId = String(sourceTemplateId || '').trim();
+        const normalizedName = String(newTemplateName || '').trim();
+        if (!normalizedSourceId) {
+            throw new Error('Source form ID is required.');
+        }
+        if (!normalizedName) {
+            throw new Error('New form name is required.');
+        }
+
+        return this.getTemplate(normalizedSourceId, this.getCurrentUserId()).pipe(
+            switchMap((template) => {
+                if (!template) {
+                    throw new Error('Source form could not be found.');
+                }
+                const duplicatedPayload = this.buildDuplicatedTemplatePayload(template, normalizedName);
+                return this.saveTemplate(duplicatedPayload);
+            })
+        );
+    }
+
     updateTemplateVisibility(template: SavedTemplateDefinition, userIds: number[]): Observable<SavedTemplateDefinition> {
+        if (!template?.payload) {
+            return this.getTemplate(template.id, this.getCurrentUserId()).pipe(
+                switchMap((fullTemplate) => {
+                    if (!fullTemplate) {
+                        throw new Error('Template could not be loaded');
+                    }
+                    return this.updateTemplateVisibility(fullTemplate, userIds);
+                })
+            );
+        }
         const sanitizedUserIds = Array.from(new Set(
             (Array.isArray(userIds) ? userIds : [])
                 .map((userId) => Number(userId))
                 .filter((userId) => Number.isFinite(userId) && userId > 0)
         ));
-        const nextPayload = this.applyVisibilityToPayload(template?.payload || {}, sanitizedUserIds, template?.id);
+        const nextPayload = this.applyTemplateMetadata(template?.payload || {}, {
+            userIds: sanitizedUserIds,
+            formId: template?.id,
+            isActive: template?.isActive !== false
+        });
         const definitionPayload = {
             serFormId: Number(template.id),
             txtTemplateName: template.name || nextPayload.name || 'Untitled Template',
@@ -120,6 +187,46 @@ export class TemplateWorkflowService {
             switchMap((response) => {
                 if (!response || response.status !== 'Success') {
                     throw new Error(response?.message || 'Template visibility could not be saved');
+                }
+                return this.getTemplate(template.id, this.getCurrentUserId());
+            }),
+            map((savedTemplate) => {
+                if (!savedTemplate) {
+                    throw new Error('Updated template could not be loaded');
+                }
+                return savedTemplate;
+            })
+        );
+    }
+
+    updateTemplateStatus(template: SavedTemplateDefinition, isActive: boolean): Observable<SavedTemplateDefinition> {
+        if (!template?.payload) {
+            return this.getTemplate(template.id, this.getCurrentUserId()).pipe(
+                switchMap((fullTemplate) => {
+                    if (!fullTemplate) {
+                        throw new Error('Template could not be loaded');
+                    }
+                    return this.updateTemplateStatus(fullTemplate, isActive);
+                })
+            );
+        }
+        const nextPayload = this.applyTemplateMetadata(template?.payload || {}, {
+            userIds: Array.isArray(template?.visibilityUserIds) ? template.visibilityUserIds : [],
+            formId: template?.id,
+            isActive
+        });
+        const definitionPayload = {
+            serFormId: Number(template.id),
+            txtTemplateName: template.name || nextPayload.name || 'Untitled Template',
+            txtCodeConvention: template.codeConvention?.pattern || nextPayload.codeConvention || 'TPL-0000',
+            txtTemplatePayload: JSON.stringify(nextPayload),
+            serModifiedUser: this.getCurrentUserId()
+        };
+
+        return this.http.post<any>(urls.API_URL + 'saveTemplateDefinition', definitionPayload).pipe(
+            switchMap((response) => {
+                if (!response || response.status !== 'Success') {
+                    throw new Error(response?.message || 'Template status could not be updated');
                 }
                 return this.getTemplate(template.id, this.getCurrentUserId());
             }),
@@ -384,7 +491,11 @@ export class TemplateWorkflowService {
             serialLength: convention.serialLength
         };
         const visibilityUserIds = this.normalizeVisibilityUserIds(payload.visibleUserIds ?? payload.visibilityUserIds);
-        const normalizedTemplatePayload = this.applyVisibilityToPayload(templatePayload, visibilityUserIds, formId);
+        const normalizedTemplatePayload = this.applyTemplateMetadata(templatePayload, {
+            userIds: visibilityUserIds,
+            formId,
+            isActive: this.extractTemplateIsActive(payload)
+        });
 
         const definitionPayload = {
             serFormId: formId,
@@ -444,6 +555,7 @@ export class TemplateWorkflowService {
         }
 
         const visibilityUserIds = this.extractVisibilityUserIds(payload);
+        const isActive = this.extractTemplateIsActive(payload, definition);
         const convention = this.parseCodeConvention(payload.codeConvention || definition.txtCodeConvention || 'TPL-0000');
         payload = {
             ...payload,
@@ -454,6 +566,7 @@ export class TemplateWorkflowService {
             serialLength: convention.serialLength,
             visibleUserIds: visibilityUserIds,
             visibilityUserIds,
+            isActive,
             backendDefinition: definition
         };
 
@@ -465,8 +578,56 @@ export class TemplateWorkflowService {
             updatedAt: definition.dteModifiedDate || definition.dteCreatedDate || new Date().toISOString(),
             payload,
             backendForm: definition,
-            visibilityUserIds
+            visibilityUserIds,
+            isActive
         };
+    }
+
+    private mapTemplateSummaryToSavedTemplate(summary: any): SavedTemplateDefinition | null {
+        if (!summary?.serFormId) {
+            return null;
+        }
+
+        const convention = this.parseCodeConvention(summary?.txtCodeConvention || 'TPL-0000');
+        const visibilityUserIds = this.normalizeVisibilityUserIds(
+            summary?.visibilityUserIds ?? summary?.visibleUserIds ?? summary?.selectedUsers
+        );
+        const isActive = summary?.isActive === false ? false : this.extractTemplateIsActive(summary);
+
+        return {
+            id: String(summary.serFormId),
+            name: summary?.txtTemplateName || 'Untitled Template',
+            codeConvention: convention,
+            createdAt: summary?.dteCreatedDate || new Date().toISOString(),
+            updatedAt: summary?.dteModifiedDate || summary?.dteCreatedDate || new Date().toISOString(),
+            payload: null,
+            backendForm: summary,
+            visibilityUserIds,
+            isActive
+        };
+    }
+
+    private buildDuplicatedTemplatePayload(template: SavedTemplateDefinition, newTemplateName: string): any {
+        const payload = this.cloneTemplatePayload(template?.payload || {});
+        delete payload.id;
+        delete payload.createdAt;
+        delete payload.updatedAt;
+
+        return {
+            ...payload,
+            name: newTemplateName,
+            isActive: template?.isActive !== false,
+            visibleUserIds: Array.isArray(template?.visibilityUserIds) ? [...template.visibilityUserIds] : [],
+            visibilityUserIds: Array.isArray(template?.visibilityUserIds) ? [...template.visibilityUserIds] : []
+        };
+    }
+
+    private cloneTemplatePayload<T>(value: T): T {
+        try {
+            return JSON.parse(JSON.stringify(value));
+        } catch {
+            return value;
+        }
     }
 
     private normalizeBackendId(value: any): string | undefined {
@@ -657,10 +818,33 @@ export class TemplateWorkflowService {
         ));
     }
 
-    private applyVisibilityToPayload(payload: any, userIds: number[], formId?: string | number): any {
+    private extractTemplateIsActive(payload: any, definition?: any): boolean {
+        if (payload?.isActive === false || String(payload?.isActive).toLowerCase() === 'false') {
+            return false;
+        }
+        if (payload?.blnStatus === false || String(payload?.blnStatus).toLowerCase() === 'false') {
+            return false;
+        }
+        if (payload?.blIsActive === false || String(payload?.blIsActive).toLowerCase() === 'false') {
+            return false;
+        }
+        if (definition?.getBlnStatus === false || definition?.blnStatus === false) {
+            return false;
+        }
+        if (definition?.getBlIsActive === false || definition?.blIsActive === false) {
+            return false;
+        }
+        return true;
+    }
+
+    private applyTemplateMetadata(payload: any, options: { userIds: number[]; formId?: string | number; isActive: boolean }): any {
+        const { userIds, formId, isActive } = options;
         return {
             ...payload,
             ...(formId != null ? { id: String(formId) } : {}),
+            isActive,
+            blIsActive: isActive,
+            blnStatus: isActive,
             visibleUserIds: [...userIds],
             visibilityUserIds: [...userIds],
             selectedUsers: [...userIds]

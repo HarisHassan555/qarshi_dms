@@ -22,6 +22,8 @@ public interface ICfgTblCustomFormApplicationDAO {
     String updateApplicationPdf(Integer applicationId, byte[] pdfData, String pdfName, String pdfMime,
             boolean refreshCapfSignatures, boolean suppressEditNotification);
 
+    byte[] resolveDownloadablePdf(Integer applicationId);
+
     String deleteApplication(Integer applicationId);
 
     List<CfgTblCustomFormApplication> getApplicationsByStatus(String status);
@@ -57,6 +59,8 @@ public interface ICfgTblCustomFormApplicationDAO {
 
     String sendTemplatePostApprovalEmails(Integer applicationId, byte[] initiatorPdf, byte[] approverPdf,
             String pdfName, String pdfMime);
+
+    String refreshTemplateApplicationPdfFromStage0(Integer applicationId);
 
     String assignAssetCode(Integer applicationId, String assetCode, Integer userId, String approvedIp);
 

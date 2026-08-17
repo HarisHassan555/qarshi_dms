@@ -30,7 +30,9 @@ public class TemplatePendingApprovalsMenuSeeder {
             new TemplateSubMenuConfig("Digital Pending Approvals", "template-pending-approvals", true, false, true,
                     true, 13),
             new TemplateSubMenuConfig("Template Approval", "template-approval", true, false, true, true, 14),
-            new TemplateSubMenuConfig("My Digital Applications", "my-application", true, true, true, false, 15)
+            new TemplateSubMenuConfig("My Digital Applications", "my-application", true, true, true, false, 15),
+            new TemplateSubMenuConfig("Template Approved Applications", "template-approved-applications", true, false,
+                    true, false, 16)
     );
 
     @Autowired

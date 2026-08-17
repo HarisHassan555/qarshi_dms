@@ -37,11 +37,18 @@
     <div *ngIf="!isLoading && template" class="fill-workspace approval-workspace">
         <aside class="fill-values-panel approval-values-panel">
             <h3>Fields For This Step</h3>
+            <div class="inline-word-editor-toolbar-panel" *ngIf="getActiveInlineWordEditorField() as activeWordEditorField">
+                <div class="inline-word-editor-toolbar-panel-header">
+                    <strong>{{ activeWordEditorField.label }}</strong>
+                    <span>Formatting toolbar for the selected editor on the form.</span>
+                </div>
+                <div class="inline-word-editor-toolbar-host"></div>
+            </div>
             <div class="step-rights-note" *ngIf="currentStep && !opinionPending">
                 {{ currentStep.name }} can fill/edit only the fields listed here. Hidden fields are removed from the preview.
             </div>
             <div class="step-rights-note opinion-note" *ngIf="opinionPending">
-                Opinion requested by {{ getOpinionRequesterName() }}. Submit your opinion with remarks; the application will return to that same step.
+                Opinion requested by {{ getOpinionRequesterName() }} and is currently pending with {{ getOpinionPendingWithName() }}. Submit your opinion with remarks; the application will return to that same step.
             </div>
             <div class="step-rights-note opinion-note" *ngIf="readOnlyStepMessage">
                 {{ readOnlyStepMessage }}
@@ -52,7 +59,7 @@
                     : (canEditCurrentStep ? 'No fill/edit fields assigned for this step.' : 'This step is read-only for you.') }}
             </div>
 
-            <div class="value-field" *ngFor="let field of editableFields; trackBy: trackByFieldId">
+            <div class="value-field" *ngFor="let field of panelFields; trackBy: trackByFieldId">
                 <label [attr.for]="field.id">{{ field.label }}{{ field.required ? ' *' : '' }}</label>
                 <textarea
                     *ngIf="field.type === 'textarea'"
@@ -61,14 +68,6 @@
                     [required]="field.required"
                     (ngModelChange)="onPanelValueChanged(field)">
                 </textarea>
-                <ckeditor
-                    *ngIf="field.type === 'word_editor'"
-                    class="panel-word-editor"
-                    [editor]="wordEditor"
-                    [config]="wordEditorConfig"
-                    [(ngModel)]="values[field.id]"
-                    (change)="onWordEditorChanged(field, $event)">
-                </ckeditor>
                 <label *ngIf="field.type === 'checkbox'" class="panel-checkbox">
                     <input type="checkbox" [(ngModel)]="values[field.id]" (ngModelChange)="onPanelValueChanged(field)" />
                     Checked
@@ -310,16 +309,37 @@
                             </div>
                         </ng-container>
                         <ng-template #nonSignatureField>
-                            <span
-                                *ngIf="field.type === 'word_editor'; else plainFieldValue"
-                                class="filled-field-value word-editor-filled-value"
-                                [ngStyle]="getInputStyle(field)"
-                                [innerHTML]="getFieldValueHtml(field)">
-                            </span>
+                            <ng-container *ngIf="field.type === 'word_editor' && canCurrentStepEditField(field); else plainFieldValue">
+                                <div
+                                    class="inline-word-editor-shell"
+                                    [class.is-active]="isInlineWordEditorActive(field)"
+                                    [attr.data-field-id]="field.id"
+                                    [ngStyle]="getInputStyle(field)"
+                                    (mousedown)="activateInlineWordEditor(field)">
+                                    <ckeditor
+                                        class="inline-word-editor"
+                                        [editor]="wordEditor"
+                                        [config]="wordEditorConfig"
+                                        [(ngModel)]="values[field.id]"
+                                        (ready)="onInlineWordEditorReady(field, $event)"
+                                        (focus)="onInlineWordEditorFocus(field)"
+                                        (change)="onWordEditorChanged(field, $event)">
+                                    </ckeditor>
+                                </div>
+                            </ng-container>
                             <ng-template #plainFieldValue>
-                                <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
-                                    {{ getFieldValueText(field) }}
-                                </span>
+                                <ng-container *ngIf="field.type === 'word_editor'; else plainTextFieldValue">
+                                    <div
+                                        class="filled-field-value word-editor-filled-value"
+                                        [ngStyle]="getInputStyle(field)"
+                                        [innerHTML]="getFieldValueHtml(field)">
+                                    </div>
+                                </ng-container>
+                                <ng-template #plainTextFieldValue>
+                                    <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                                        {{ getFieldValueText(field) }}
+                                    </span>
+                                </ng-template>
                             </ng-template>
                         </ng-template>
                     </ng-template>

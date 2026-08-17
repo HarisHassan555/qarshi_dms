@@ -665,7 +665,7 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 				CfgTblUserObject.setTxtPassword(passwordEncoder.encode(NewPassword));
 				entityManager.merge(CfgTblUserObject);
 				entityManager.getTransaction().commit();
-				emailService.sendPassordinMail(CfgTblUserObject.getTxtAddress(), CfgTblUserObject.getTxtUserName(),
+				emailService.sendPassordinMail(CfgTblUserObject.getTxtAddress(), CfgTblUserObject.getEffectiveLoginName(),
 						NewPassword);
 				return "Success";
 			} catch (Exception ex) {

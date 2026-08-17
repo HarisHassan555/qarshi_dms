@@ -69,10 +69,18 @@
     background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
+    max-height: calc(100vh - 104px);
+    overflow-y: auto;
+    overflow-x: hidden;
     padding: 14px;
     position: sticky;
     top: 84px;
     z-index: 6;
+}
+
+.left-panel,
+.right-panel {
+    scrollbar-gutter: stable;
 }
 
 .panel-section + .panel-section {
@@ -98,6 +106,48 @@
 
 .panel-title-row h3 {
     margin: 0;
+}
+
+.panel-title-row-collapsible {
+    align-items: center;
+}
+
+.panel-collapse-btn {
+    align-items: center;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    color: #1d4ed8;
+    cursor: pointer;
+    display: inline-flex;
+    flex: 0 0 28px;
+    font-size: 18px;
+    font-weight: 700;
+    height: 28px;
+    justify-content: center;
+    line-height: 1;
+    width: 28px;
+}
+
+.panel-collapse-btn:hover {
+    background: #dbeafe;
+    border-color: #93c5fd;
+}
+
+.panel-collapse-icon {
+    border-bottom: 2px solid currentColor;
+    border-right: 2px solid currentColor;
+    display: inline-block;
+    height: 8px;
+    margin-top: -2px;
+    transform: rotate(-135deg);
+    transition: transform 0.18s ease, margin-top 0.18s ease;
+    width: 8px;
+}
+
+.panel-collapse-icon.is-collapsed {
+    margin-top: -1px;
+    transform: rotate(45deg);
 }
 
 .icon-add-btn {
@@ -559,7 +609,7 @@
     color: #000000;
     font-family: "Times New Roman", Times, serif;
     height: 100%;
-    overflow: hidden;
+    overflow: visible;
     padding: 8px 12px;
     width: 100%;
 }
@@ -571,7 +621,7 @@
 }
 
 .header-main {
-    align-items: center;
+    align-items: start;
     display: grid;
     gap: 10px;
     grid-template-columns: 54px minmax(0, 1fr);
@@ -587,10 +637,10 @@
 .header-main strong {
     display: block;
     font-family: "Book Antiqua", "Palatino Linotype", Palatino, "Times New Roman", serif;
-    font-size: 22px;
-    line-height: 1.1;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-size: 21px;
+    line-height: 1.2;
+    overflow: visible;
+    padding-top: 2px;
     white-space: nowrap;
 }
 
@@ -599,8 +649,8 @@
     font-family: Verdana, Arial, sans-serif;
     font-size: 10px;
     margin-top: 2px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    line-height: 1.25;
+    overflow: visible;
     white-space: nowrap;
 }
 
@@ -949,6 +999,23 @@
     width: 28px;
 }
 
+.field-row-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 4px;
+}
+
+.field-row-actions button {
+    min-width: 32px;
+    padding: 0 6px;
+    width: auto;
+}
+
+.field-row-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
 .step-index {
     align-items: center;
     background: #f1f5f9;
@@ -1287,6 +1354,8 @@
     }
 
     .builder-panel {
+        max-height: none;
+        overflow: visible;
         position: static;
     }
 }

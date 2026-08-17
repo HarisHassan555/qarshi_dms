@@ -5,6 +5,7 @@ import { finalize } from 'rxjs';
 import { NotificationService } from 'src/app/NotificationService';
 import { SavedTemplateDefinition, TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
 import { urls } from 'src/app/utils/urls';
+import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
 import {
     resolveDocumentHeaderAddress,
     resolveDocumentHeaderBrandTitle,
@@ -15,6 +16,7 @@ type TemplateFieldType =
     'document_header' | 'document_header_qu' | 'document_header_qf' | 'document_header_qri' | 'document_header_qb'
     | 'footer' | 'individual_pipeline_footer' | 'application_code' | 'pipeline_signature' | 'dynamic_signature'
     | 'dynamic_approver_name' | 'dynamic_approval_timestamp'
+    | 'dynamic_approver_department' | 'dynamic_approver_designation'
     | 'text' | 'integer' | 'decimal' | 'number' | 'date' | 'email' | 'textarea' | 'word_editor'
     | 'attachment' | 'select' | 'checkbox' | 'radio' | 'table' | 'orientation';
 
@@ -30,6 +32,7 @@ interface TemplateField {
         bold: boolean;
         italic: boolean;
         underline: boolean;
+        fontFamily: string;
         textAlign: 'left' | 'center' | 'right';
     };
     pipelineStepId?: string;
@@ -509,6 +512,75 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         }
     }
 
+    isOpinionPendingApplication(): boolean {
+        return String(this.selectedApplication?.txtStatus || '').toUpperCase() === 'OPINION_PENDING';
+    }
+
+    getOpinionRequesterName(): string {
+        const request = this.getTemplateOpinionRequest();
+        const explicitName = String(
+            request?.requestedByName
+            || request?.approverName
+            || request?.requestedByUserName
+            || ''
+        ).trim();
+        if (explicitName) {
+            return explicitName;
+        }
+
+        const currentStep = this.getCurrentWorkflowStep();
+        if (currentStep) {
+            const stepApproverName = this.getStepApproverName(currentStep, null);
+            if (stepApproverName && stepApproverName !== '--') {
+                return stepApproverName;
+            }
+        }
+
+        return 'Current approver';
+    }
+
+    getOpinionPendingWithName(): string {
+        const request = this.getTemplateOpinionRequest();
+        const explicitName = String(
+            request?.requestedFromName
+            || request?.opinionUserName
+            || request?.requestedUserName
+            || ''
+        ).trim();
+        if (explicitName) {
+            return explicitName;
+        }
+
+        const requestedFrom = Number(request?.requestedFrom || 0);
+        if (Number.isFinite(requestedFrom) && requestedFrom > 0) {
+            const currentStep = this.getCurrentWorkflowStep();
+            const matchedUser = this.getConfiguredStepUsers(currentStep || {} as PipelineStep)
+                .find((user) => this.getUserId(user) === requestedFrom);
+            const matchedName = String(
+                matchedUser?.txtUserName
+                || matchedUser?.userName
+                || matchedUser?.name
+                || ''
+            ).trim();
+            if (matchedName) {
+                return matchedName;
+            }
+            return `User ${requestedFrom}`;
+        }
+
+        const currentStep = this.getCurrentWorkflowStep();
+        if (currentStep) {
+            const configuredUsers = this.getConfiguredStepUsers(currentStep)
+                .map((user) => String(user?.txtUserName || user?.userName || user?.name || '').trim())
+                .filter((name, index, list) => !!name && list.indexOf(name) === index);
+            if (configuredUsers.length > 0) {
+                return configuredUsers.join(', ');
+            }
+        }
+
+        return 'Selected user';
+    }
+
     getTileClass(tile: ProgressTile): string {
         return `is-${tile.status.toLowerCase()}`;
     }
@@ -537,6 +609,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     getInputStyle(field: TemplateField): { [key: string]: string | number } {
         return {
             'font-size.px': field.style?.fontSize || 14,
+            'font-family': field.style?.fontFamily || 'Arial, sans-serif',
             'font-weight': field.style?.bold ? '700' : '400',
             'font-style': field.style?.italic ? 'italic' : 'normal',
             'text-decoration': field.style?.underline ? 'underline' : 'none',
@@ -551,7 +624,10 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         if (field.type === 'attachment') {
             return this.getAttachmentDisplayText(field);
         }
-        if (field.type === 'dynamic_approver_name' || field.type === 'dynamic_approval_timestamp') {
+        if (field.type === 'dynamic_approver_name'
+            || field.type === 'dynamic_approval_timestamp'
+            || field.type === 'dynamic_approver_department'
+            || field.type === 'dynamic_approver_designation') {
             return this.getDynamicApprovalDisplayText(field);
         }
         if (field.type === 'checkbox') {
@@ -567,7 +643,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     }
 
     getFieldValueHtml(field: TemplateField): SafeHtml {
-        return this.sanitizer.bypassSecurityTrustHtml(String(this.values[field.id] || ''));
+        return this.sanitizer.bypassSecurityTrustHtml(this.normalizeWordEditorHtmlForDisplay(String(this.values[field.id] || '')));
     }
 
     getIndividualFooterSections(): any[] {
@@ -707,7 +783,9 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     isDynamicApprovalDataField(field: TemplateField): boolean {
         return this.isDynamicSignatureField(field)
             || field.type === 'dynamic_approver_name'
-            || field.type === 'dynamic_approval_timestamp';
+            || field.type === 'dynamic_approval_timestamp'
+            || field.type === 'dynamic_approver_department'
+            || field.type === 'dynamic_approver_designation';
     }
 
     getDynamicSignatureSlots(field: TemplateField): any[] {
@@ -788,20 +866,59 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     }
 
     private createInlineValue(doc: Document, field: TemplateField): HTMLElement {
-        const span = doc.createElement('span');
-        span.className = `inline-filled-value${field.type === 'textarea' ? ' inline-filled-textarea-value' : ''}${field.type === 'word_editor' ? ' inline-filled-word-editor-value' : ''}`;
-        span.dataset['fieldId'] = field.id;
+        const tagName = field.type === 'word_editor' ? 'div' : 'span';
+        const element = doc.createElement(tagName);
+        element.className = `inline-filled-value${field.type === 'textarea' ? ' inline-filled-textarea-value' : ''}${field.type === 'word_editor' ? ' inline-filled-word-editor-value' : ''}`;
+        element.dataset['fieldId'] = field.id;
         if (field.type === 'word_editor') {
-            span.innerHTML = String(this.values[field.id] || '');
+            element.innerHTML = this.normalizeWordEditorHtmlForDisplay(String(this.values[field.id] || ''));
         } else {
-            span.textContent = this.getFieldValueText(field);
+            element.textContent = this.getFieldValueText(field);
         }
-        span.style.fontSize = `${field.style?.fontSize || 14}px`;
-        span.style.fontWeight = field.style?.bold ? '700' : '400';
-        span.style.fontStyle = field.style?.italic ? 'italic' : 'normal';
-        span.style.textDecoration = field.style?.underline ? 'underline' : 'none';
-        span.style.textAlign = field.style?.textAlign || 'left';
-        return span;
+        element.style.fontSize = `${field.style?.fontSize || 14}px`;
+        element.style.fontFamily = field.style?.fontFamily || 'Arial, sans-serif';
+        element.style.fontWeight = field.style?.bold ? '700' : '400';
+        element.style.fontStyle = field.style?.italic ? 'italic' : 'normal';
+        element.style.textDecoration = field.style?.underline ? 'underline' : 'none';
+        if (field.type !== 'word_editor') {
+            element.style.textAlign = field.style?.textAlign || 'left';
+        }
+        return element;
+    }
+
+    private normalizeWordEditorHtmlForDisplay(html: string): string {
+        if (!html) {
+            return '';
+        }
+
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = stripEditorTableChromeFromHtml(html);
+
+        const qlEditor = document.createElement('div');
+        qlEditor.className = 'ql-editor';
+        qlEditor.innerHTML = wrapper.innerHTML;
+
+        qlEditor.querySelectorAll('figure.table').forEach((figure) => {
+            const el = figure as HTMLElement;
+            el.style.maxWidth = '100%';
+            el.style.width = el.style.width || 'auto';
+        });
+
+        qlEditor.querySelectorAll('table').forEach((tableNode) => {
+            const table = tableNode as HTMLTableElement;
+            table.style.borderCollapse = 'collapse';
+            table.style.maxWidth = '100%';
+            table.style.width = table.style.width || 'auto';
+        });
+
+        qlEditor.querySelectorAll('td, th').forEach((cellNode) => {
+            const cell = cellNode as HTMLElement;
+            cell.style.border = cell.style.border || '1px solid #000000';
+            cell.style.padding = cell.style.padding || '6px';
+            cell.style.verticalAlign = cell.style.verticalAlign || 'top';
+        });
+
+        return `<div class="word-editor-value">${qlEditor.outerHTML}</div>`;
     }
 
     private getPipelineSteps(): PipelineStep[] {
@@ -810,6 +927,16 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             return pipeline;
         }
         return [{ id: 'initiator', name: 'Initiator', type: 'initiator' }, ...pipeline];
+    }
+
+    private getCurrentWorkflowStep(): PipelineStep | null {
+        const currentLevel = Number(this.selectedApplication?.intCurrentApprovalLevel || 1);
+        if (!Number.isFinite(currentLevel) || currentLevel <= 1) {
+            return null;
+        }
+        return this.getPipelineSteps()
+            .filter((step) => step.type !== 'initiator')
+            .find((step) => this.getDisplayLevelForStep(step) === currentLevel) || null;
     }
 
     private buildProgressTile(
@@ -1049,6 +1176,8 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             userId: this.selectedApplication?.serSubmittedBy,
             approvedBy: this.selectedApplication?.serSubmittedBy,
             approvedDate: this.selectedApplication?.dteCreatedDate,
+            txtDepartmentName: this.resolveDepartmentName(this.parseApplicationData(this.selectedApplication?.txtApplicationData)),
+            txtDesignation: this.resolveDesignation(this.parseApplicationData(this.selectedApplication?.txtApplicationData)),
             remarks: 'Submitted application'
         };
     }
@@ -1168,19 +1297,32 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     private getInitiatorSignatureSlots(): any[] {
         const userId = Number(this.selectedApplication?.serSubmittedBy);
         const initiatorName = String(this.selectedApplication?.submittedByUserName || '').trim();
+        const initiatorHistory = this.getInitiatorHistoryEntry();
         if (this.hasLatestSendBackToInitiatorAction(this.selectedApplication)) {
-            return [{ label: initiatorName || 'Initiator', txtUserName: initiatorName || '' }];
+            return [{
+                label: initiatorName || 'Initiator',
+                txtUserName: initiatorName || '',
+                txtDepartmentName: this.resolveDepartmentName(initiatorHistory),
+                txtDesignation: this.resolveDesignation(initiatorHistory)
+            }];
         }
         return Number.isFinite(userId) && userId > 0
             ? [{
                 serUserId: userId,
                 txtUserName: initiatorName || 'Initiator',
+                txtDepartmentName: this.resolveDepartmentName(initiatorHistory),
+                txtDesignation: this.resolveDesignation(initiatorHistory),
                 approvedDate: this.selectedApplication?.dteCreatedDate || null,
                 approvedAt: this.selectedApplication?.dteCreatedDate || null,
                 dteCreatedDate: this.selectedApplication?.dteCreatedDate || null,
                 __signatureApproved: true
             }]
-            : [{ label: initiatorName || 'Initiator', txtUserName: initiatorName || '' }];
+            : [{
+                label: initiatorName || 'Initiator',
+                txtUserName: initiatorName || '',
+                txtDepartmentName: this.resolveDepartmentName(initiatorHistory),
+                txtDesignation: this.resolveDesignation(initiatorHistory)
+            }];
     }
 
     private hasLatestSendBackToInitiatorAction(application: any): boolean {
@@ -1510,7 +1652,43 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             const value = this.getHistoryDate(slot);
             return value !== '--' ? value : '';
         }
+        if (field.type === 'dynamic_approver_department') {
+            return this.getDynamicSignatureDepartment(slot);
+        }
+        if (field.type === 'dynamic_approver_designation') {
+            return this.getDynamicSignatureDesignation(slot);
+        }
         return '';
+    }
+
+    private getDynamicSignatureDepartment(slot: any): string {
+        return this.resolveDepartmentName(slot);
+    }
+
+    private getDynamicSignatureDesignation(slot: any): string {
+        return this.resolveDesignation(slot);
+    }
+
+    private resolveDepartmentName(value: any): string {
+        return String(
+            value?.txtDepartmentName
+            || value?.departmentName
+            || value?.userDepartmentName
+            || value?.submittedByDepartmentName
+            || value?.hrTblDepartment?.txtDepartmentName
+            || value?.hrTblDepartment?.departmentName
+            || ''
+        ).trim();
+    }
+
+    private resolveDesignation(value: any): string {
+        return String(
+            value?.txtDesignation
+            || value?.designation
+            || value?.cfgTblRole?.txtRoleName
+            || value?.roleName
+            || ''
+        ).trim();
     }
 
     private getUserId(value: any): number {
@@ -1547,6 +1725,11 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         } catch {
             return {};
         }
+    }
+
+    private getTemplateOpinionRequest(): any {
+        const data = this.parseApplicationData(this.selectedApplication?.txtApplicationData);
+        return data?.templateOpinionRequest || {};
     }
 
     private normalizeExistingAttachmentPayloads(value: any): AttachmentPayload[] {

@@ -1,4 +1,4 @@
-import { Component, ElementRef, OnDestroy, OnInit } from '@angular/core';
+import { Component, ElementRef, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
@@ -11,6 +11,7 @@ import {
     WORD_EDITOR_CKEDITOR_CONFIG,
     normalizeWordEditorValueForCkeditor,
 } from 'src/app/utils/word-editor-ckeditor.util';
+import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
 import {
     resolveDocumentHeaderAddress,
     resolveDocumentHeaderBrandTitle,
@@ -21,6 +22,7 @@ type TemplateFieldType =
     'document_header' | 'document_header_qu' | 'document_header_qf' | 'document_header_qri' | 'document_header_qb'
     | 'footer' | 'individual_pipeline_footer' | 'application_code' | 'pipeline_signature' | 'dynamic_signature'
     | 'dynamic_approver_name' | 'dynamic_approval_timestamp'
+    | 'dynamic_approver_department' | 'dynamic_approver_designation'
     | 'text' | 'integer' | 'decimal' | 'number' | 'date' | 'email' | 'textarea' | 'word_editor'
     | 'attachment' | 'select' | 'checkbox' | 'radio' | 'table' | 'orientation';
 type PipelineFieldRight = 'fill' | 'edit' | 'hide';
@@ -37,6 +39,7 @@ interface TemplateField {
         bold: boolean;
         italic: boolean;
         underline: boolean;
+        fontFamily: string;
         textAlign: 'left' | 'center' | 'right';
     };
     pipelineStepId?: string;
@@ -112,6 +115,8 @@ interface AttachmentListItem {
     attachment: AttachmentPayload;
 }
 
+const TEMPLATE_APPROVAL_HIDE_CKEDITOR_BADGE_CLASS = 'template-fill-hide-ckeditor-badge';
+
 @Component({
     selector: 'app-template-approval',
     templateUrl: './template-approval.component.html',
@@ -144,8 +149,13 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     showAttachmentsModal = false;
     readonly wordEditor = WORD_EDITOR_CKEDITOR;
     readonly wordEditorConfig = WORD_EDITOR_CKEDITOR_CONFIG;
+    activeInlineWordEditorFieldId: string | null = null;
     private acceptedWordEditorValues: { [fieldId: string]: string } = {};
     private revertingWordEditorFields = new Set<string>();
+    private inlineWordEditors = new Map<string, any>();
+    private activeToolbarElement: HTMLElement | null = null;
+    private activeToolbarOriginParent: HTMLElement | null = null;
+    private activeToolbarOriginNextSibling: ChildNode | null = null;
     private previewStepOverride: PipelineStep | null | undefined = undefined;
     private inlineFieldIds = new Set<string>();
     private previewRebuildTimer: ReturnType<typeof setTimeout> | null = null;
@@ -165,6 +175,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     canTakeWorkflowActions = false;
     opinionPending = false;
     opinionRequesterName = 'Current approver';
+    opinionPendingWithName = 'Selected user';
     individualFooterSectionsCache: any[] = [];
 
     constructor(
@@ -178,6 +189,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     ) { }
 
     async ngOnInit(): Promise<void> {
+        document.body.classList.add(TEMPLATE_APPROVAL_HIDE_CKEDITOR_BADGE_CLASS);
         const applicationId = this.route.snapshot.paramMap.get('id');
         if (!applicationId) {
             this.isLoading = false;
@@ -207,6 +219,8 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     ngOnDestroy(): void {
+        document.body.classList.remove(TEMPLATE_APPROVAL_HIDE_CKEDITOR_BADGE_CLASS);
+        this.restoreDetachedInlineWordEditorToolbar();
         if (this.previewRebuildTimer) {
             clearTimeout(this.previewRebuildTimer);
             this.previewRebuildTimer = null;
@@ -238,6 +252,18 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
     get editableFields(): TemplateField[] {
         return this.editableFieldsCache;
+    }
+
+    get panelFields(): TemplateField[] {
+        return this.editableFields.filter((field: TemplateField) => !this.isInlineWordEditorField(field));
+    }
+
+    getActiveInlineWordEditorField(): TemplateField | null {
+        const activeFieldId = this.activeInlineWordEditorFieldId;
+        if (!activeFieldId) {
+            return null;
+        }
+        return (this.template?.fields || []).find((field: TemplateField) => field.id === activeFieldId) || null;
     }
 
     trackByFieldId(_index: number, field: TemplateField): string {
@@ -304,6 +330,40 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             return this.isFieldFillAvailable(field);
         }
         return false;
+    }
+
+    isInlineWordEditorField(field: TemplateField): boolean {
+        return field.type === 'word_editor' && !!field.placement;
+    }
+
+    isInlineWordEditorActive(field: TemplateField): boolean {
+        return this.activeInlineWordEditorFieldId === field.id;
+    }
+
+    activateInlineWordEditor(field: TemplateField): void {
+        if (!this.isInlineWordEditorField(field) || !this.canCurrentStepEditField(field)) {
+            return;
+        }
+        this.activeInlineWordEditorFieldId = field.id;
+        this.attachInlineWordEditorToolbar(field.id);
+    }
+
+    onInlineWordEditorReady(field: TemplateField, editor: any): void {
+        if (!this.isInlineWordEditorField(field)) {
+            return;
+        }
+        this.inlineWordEditors.set(field.id, editor);
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        if (editable) {
+            editable.setAttribute('data-inline-word-editor-field-id', field.id);
+        }
+        if (this.activeInlineWordEditorFieldId === field.id) {
+            this.attachInlineWordEditorToolbar(field.id);
+        }
+    }
+
+    onInlineWordEditorFocus(field: TemplateField): void {
+        this.activateInlineWordEditor(field);
     }
 
     isFieldHiddenForCurrentStep(field: TemplateField): boolean {
@@ -381,6 +441,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (!step) {
             return 'view';
         }
+        if (step.type === 'initiator' && !step.fieldPermissionsConfigured) {
+            return this.hasIndividualFooterPipeline() ? 'edit' : 'fill';
+        }
         const permission = (step.fieldPermissions || []).find((item) => item.fieldId === field.id);
         return permission?.right || 'view';
     }
@@ -430,7 +493,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     isDynamicApprovalDataField(field: TemplateField): boolean {
         return this.isDynamicSignatureField(field)
             || field.type === 'dynamic_approver_name'
-            || field.type === 'dynamic_approval_timestamp';
+            || field.type === 'dynamic_approval_timestamp'
+            || field.type === 'dynamic_approver_department'
+            || field.type === 'dynamic_approver_designation';
     }
 
     getHeaderLogoPath(type: TemplateFieldType): string {
@@ -448,6 +513,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     getInputStyle(field: TemplateField): { [key: string]: string | number } {
         return {
             'font-size.px': field.style?.fontSize || 14,
+            'font-family': field.style?.fontFamily || 'Arial, sans-serif',
             'font-weight': field.style?.bold ? '700' : '400',
             'font-style': field.style?.italic ? 'italic' : 'normal',
             'text-decoration': field.style?.underline ? 'underline' : 'none',
@@ -472,7 +538,10 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (field.type === 'attachment') {
             return this.getAttachmentDisplayText(field);
         }
-        if (field.type === 'dynamic_approver_name' || field.type === 'dynamic_approval_timestamp') {
+        if (field.type === 'dynamic_approver_name'
+            || field.type === 'dynamic_approval_timestamp'
+            || field.type === 'dynamic_approver_department'
+            || field.type === 'dynamic_approver_designation') {
             return this.getDynamicApprovalDisplayText(field);
         }
         if (field.type === 'checkbox') {
@@ -496,7 +565,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     getFieldValueHtml(field: TemplateField): SafeHtml {
-        return this.sanitizer.bypassSecurityTrustHtml(String(this.values[field.id] || ''));
+        return this.sanitizer.bypassSecurityTrustHtml(this.normalizeWordEditorHtmlForDisplay(String(this.values[field.id] || '')));
     }
 
     getIndividualFooterSections(): any[] {
@@ -654,6 +723,22 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
     closeAttachmentsModal(): void {
         this.showAttachmentsModal = false;
+    }
+
+    @HostListener('document:mousedown', ['$event'])
+    onDocumentMouseDown(event: MouseEvent): void {
+        const target = event.target as HTMLElement | null;
+        if (!target) {
+            return;
+        }
+        if (
+            target.closest('.inline-word-editor-shell')
+            || target.closest('.inline-word-editor-toolbar-panel')
+            || target.closest('.ck.ck-balloon-panel')
+            || target.closest('.ck-body-wrapper')
+        ) {
+            return;
+        }
     }
 
     onPanelValueChanged(field?: TemplateField): void {
@@ -880,6 +965,10 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return this.opinionRequesterName;
     }
 
+    getOpinionPendingWithName(): string {
+        return this.opinionPendingWithName;
+    }
+
     getOpinionUsers(): any[] {
         const currentUserId = Number(this.getCurrentUserId() || 0);
         return (this.allUsers || []).filter((user) => {
@@ -967,7 +1056,43 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             const value = this.getHistoryDate(slot);
             return value !== '--' ? value : '';
         }
+        if (field.type === 'dynamic_approver_department') {
+            return this.getDynamicSignatureDepartment(slot);
+        }
+        if (field.type === 'dynamic_approver_designation') {
+            return this.getDynamicSignatureDesignation(slot);
+        }
         return '';
+    }
+
+    private getDynamicSignatureDepartment(slot: any): string {
+        return this.resolveDepartmentName(slot);
+    }
+
+    private getDynamicSignatureDesignation(slot: any): string {
+        return this.resolveDesignation(slot);
+    }
+
+    private resolveDepartmentName(value: any): string {
+        return String(
+            value?.txtDepartmentName
+            || value?.departmentName
+            || value?.userDepartmentName
+            || value?.submittedByDepartmentName
+            || value?.hrTblDepartment?.txtDepartmentName
+            || value?.hrTblDepartment?.departmentName
+            || ''
+        ).trim();
+    }
+
+    private resolveDesignation(value: any): string {
+        return String(
+            value?.txtDesignation
+            || value?.designation
+            || value?.cfgTblRole?.txtRoleName
+            || value?.roleName
+            || ''
+        ).trim();
     }
 
     private async performAction(action: 'approve' | 'reject' | 'sendBack' | 'sendBackToInitiator'): Promise<void> {
@@ -1145,6 +1270,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         this.applicationDataCache = this.parseApplicationData(this.application?.txtApplicationData);
         this.opinionPending = this.computeIsOpinionPending();
         this.opinionRequesterName = this.applicationDataCache?.templateOpinionRequest?.requestedByName || 'Current approver';
+        this.opinionPendingWithName = this.resolveOpinionPendingWithName();
         this.currentStep = this.previewStepOverride !== undefined
             ? this.previewStepOverride
             : this.getPipelineStepForApplication(this.application);
@@ -1167,6 +1293,35 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         const request = this.applicationDataCache?.templateOpinionRequest;
         return String(this.application?.txtStatus || '').toUpperCase() === 'OPINION_PENDING'
             && (request?.active === true || String(request?.active).toLowerCase() === 'true');
+    }
+
+    private resolveOpinionPendingWithName(): string {
+        const request = this.applicationDataCache?.templateOpinionRequest;
+        const explicitName = String(
+            request?.requestedFromName
+            || request?.opinionUserName
+            || request?.requestedUserName
+            || ''
+        ).trim();
+        if (explicitName) {
+            return explicitName;
+        }
+
+        const requestedFrom = Number(request?.requestedFrom || 0);
+        if (Number.isFinite(requestedFrom) && requestedFrom > 0) {
+            const matchedUser = this.allUsers.find((user) => this.getUserId(user) === requestedFrom);
+            const matchedName = String(
+                matchedUser?.txtUserName
+                || matchedUser?.userName
+                || matchedUser?.name
+                || ''
+            ).trim();
+            if (matchedName) {
+                return matchedName;
+            }
+        }
+
+        return 'Selected user';
     }
 
     private computeCanCurrentUserEditCurrentStep(application: any = this.application): boolean {
@@ -1377,20 +1532,59 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     private createInlineValue(doc: Document, field: TemplateField): HTMLElement {
-        const span = doc.createElement('span');
-        span.className = `inline-filled-value${field.type === 'textarea' ? ' inline-filled-textarea-value' : ''}${field.type === 'word_editor' ? ' inline-filled-word-editor-value' : ''}`;
-        span.dataset['fieldId'] = field.id;
+        const tagName = field.type === 'word_editor' ? 'div' : 'span';
+        const element = doc.createElement(tagName);
+        element.className = `inline-filled-value${field.type === 'textarea' ? ' inline-filled-textarea-value' : ''}${field.type === 'word_editor' ? ' inline-filled-word-editor-value' : ''}`;
+        element.dataset['fieldId'] = field.id;
         if (field.type === 'word_editor') {
-            span.innerHTML = String(this.values[field.id] || '');
+            element.innerHTML = this.normalizeWordEditorHtmlForDisplay(String(this.values[field.id] || ''));
         } else {
-            span.textContent = this.getFieldValueText(field);
+            element.textContent = this.getFieldValueText(field);
         }
-        span.style.fontSize = `${field.style?.fontSize || 14}px`;
-        span.style.fontWeight = field.style?.bold ? '700' : '400';
-        span.style.fontStyle = field.style?.italic ? 'italic' : 'normal';
-        span.style.textDecoration = field.style?.underline ? 'underline' : 'none';
-        span.style.textAlign = field.style?.textAlign || 'left';
-        return span;
+        element.style.fontSize = `${field.style?.fontSize || 14}px`;
+        element.style.fontFamily = field.style?.fontFamily || 'Arial, sans-serif';
+        element.style.fontWeight = field.style?.bold ? '700' : '400';
+        element.style.fontStyle = field.style?.italic ? 'italic' : 'normal';
+        element.style.textDecoration = field.style?.underline ? 'underline' : 'none';
+        if (field.type !== 'word_editor') {
+            element.style.textAlign = field.style?.textAlign || 'left';
+        }
+        return element;
+    }
+
+    private normalizeWordEditorHtmlForDisplay(html: string): string {
+        if (!html) {
+            return '';
+        }
+
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = stripEditorTableChromeFromHtml(html);
+
+        const qlEditor = document.createElement('div');
+        qlEditor.className = 'ql-editor';
+        qlEditor.innerHTML = wrapper.innerHTML;
+
+        qlEditor.querySelectorAll('figure.table').forEach((figure) => {
+            const el = figure as HTMLElement;
+            el.style.maxWidth = '100%';
+            el.style.width = el.style.width || 'auto';
+        });
+
+        qlEditor.querySelectorAll('table').forEach((tableNode) => {
+            const table = tableNode as HTMLTableElement;
+            table.style.borderCollapse = 'collapse';
+            table.style.maxWidth = '100%';
+            table.style.width = table.style.width || 'auto';
+        });
+
+        qlEditor.querySelectorAll('td, th').forEach((cellNode) => {
+            const cell = cellNode as HTMLElement;
+            cell.style.border = cell.style.border || '1px solid #000000';
+            cell.style.padding = cell.style.padding || '6px';
+            cell.style.verticalAlign = cell.style.verticalAlign || 'top';
+        });
+
+        return `<div class="word-editor-value">${qlEditor.outerHTML}</div>`;
     }
 
     private getDynamicSignatureStep(field: TemplateField): PipelineStep | null {
@@ -1417,17 +1611,30 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     private getInitiatorSignatureSlots(): any[] {
         const userId = Number(this.application?.serSubmittedBy ?? this.application?.submittedBy ?? this.application?.initiatorUserId);
         const initiatorName = String(this.application?.submittedByUserName || '').trim();
+        const initiatorHistory = this.getInitiatorHistoryEntry();
         if (this.hasLatestSendBackToInitiatorAction(this.application)) {
-            return [{ label: initiatorName || 'Initiator', txtUserName: initiatorName || '' }];
+            return [{
+                label: initiatorName || 'Initiator',
+                txtUserName: initiatorName || '',
+                txtDepartmentName: this.resolveDepartmentName(initiatorHistory),
+                txtDesignation: this.resolveDesignation(initiatorHistory)
+            }];
         }
         return Number.isFinite(userId) && userId > 0 ? [{
             serUserId: userId,
             txtUserName: initiatorName || 'Initiator',
+            txtDepartmentName: this.resolveDepartmentName(initiatorHistory),
+            txtDesignation: this.resolveDesignation(initiatorHistory),
             approvedDate: this.application?.dteCreatedDate || null,
             approvedAt: this.application?.dteCreatedDate || null,
             dteCreatedDate: this.application?.dteCreatedDate || null,
             __signatureApproved: true
-        }] : [{ label: initiatorName || 'Initiator', txtUserName: initiatorName || '' }];
+        }] : [{
+            label: initiatorName || 'Initiator',
+            txtUserName: initiatorName || '',
+            txtDepartmentName: this.resolveDepartmentName(initiatorHistory),
+            txtDesignation: this.resolveDesignation(initiatorHistory)
+        }];
     }
 
     private getResolvedDynamicSlotLabel(step: PipelineStep): string {
@@ -2081,6 +2288,41 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         }, 0);
     }
 
+    private attachInlineWordEditorToolbar(fieldId: string): void {
+        const toolbarHost = this.elementRef.nativeElement.querySelector('.inline-word-editor-toolbar-host') as HTMLElement | null;
+        const editor = this.inlineWordEditors.get(fieldId);
+        const toolbarElement = editor?.ui?.view?.toolbar?.element as HTMLElement | undefined;
+        if (!toolbarHost || !toolbarElement) {
+            return;
+        }
+        if (this.activeToolbarElement === toolbarElement && toolbarElement.parentElement === toolbarHost) {
+            return;
+        }
+
+        this.restoreDetachedInlineWordEditorToolbar();
+
+        this.activeToolbarElement = toolbarElement;
+        this.activeToolbarOriginParent = toolbarElement.parentElement;
+        this.activeToolbarOriginNextSibling = toolbarElement.nextSibling;
+        toolbarHost.appendChild(toolbarElement);
+    }
+
+    private restoreDetachedInlineWordEditorToolbar(): void {
+        if (!this.activeToolbarElement || !this.activeToolbarOriginParent) {
+            return;
+        }
+
+        if (this.activeToolbarOriginNextSibling && this.activeToolbarOriginNextSibling.parentNode === this.activeToolbarOriginParent) {
+            this.activeToolbarOriginParent.insertBefore(this.activeToolbarElement, this.activeToolbarOriginNextSibling);
+        } else {
+            this.activeToolbarOriginParent.appendChild(this.activeToolbarElement);
+        }
+
+        this.activeToolbarElement = null;
+        this.activeToolbarOriginParent = null;
+        this.activeToolbarOriginNextSibling = null;
+    }
+
     private isAllowedAttachmentFile(file: File): boolean {
         const mime = String(file?.type || '').trim().toLowerCase();
         if (mime && TemplateApprovalComponent.ALLOWED_ATTACHMENT_MIME_TYPES.has(mime)) {
@@ -2194,7 +2436,18 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             name: 'Initiator',
             type: 'initiator',
             approvalMode: 'OR',
-            fieldPermissions: [],
+            fieldPermissions: templateFields
+                .filter((field: TemplateField) =>
+                    !this.isDocumentRegionFieldType(field.type)
+                    && field.type !== 'application_code'
+                    && !this.isDynamicApprovalDataField(field)
+                )
+                .map((field: TemplateField) => ({
+                    fieldId: field.id,
+                    fieldLabel: field.label,
+                    fieldType: field.type,
+                    right: 'edit' as PipelineFieldRight
+                })),
             fieldPermissionsConfigured: true
         }];
 
@@ -2221,6 +2474,10 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             });
 
         return steps;
+    }
+
+    private hasIndividualFooterPipeline(): boolean {
+        return (this.template?.fields || []).some((field: TemplateField) => field.type === 'individual_pipeline_footer');
     }
 
     private entryBelongsToSubmission(entry: any): boolean {
@@ -2252,6 +2509,8 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             userId: this.application?.serSubmittedBy,
             approvedBy: this.application?.serSubmittedBy,
             approvedDate: this.application?.dteCreatedDate,
+            txtDepartmentName: this.resolveDepartmentName(this.parseApplicationData(this.application?.txtApplicationData)),
+            txtDesignation: this.resolveDesignation(this.parseApplicationData(this.application?.txtApplicationData)),
             remarks: 'Submitted application'
         };
     }
@@ -2494,7 +2753,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 if (pageIndex > 0) {
                     pdf.addPage('a4', orientation);
                 }
-                pdf.addImage(canvas.toDataURL('image/jpeg', 1), 'JPEG', 0, 0, pdfWidthMm, pdfHeightMm);
+                pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pdfWidthMm, pdfHeightMm);
                 captureHost.removeChild(pageViewport);
             }
             return pdf.output('blob');
@@ -2569,6 +2828,33 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     private prepareTemplatePdfFieldText(root: HTMLElement): void {
+        root.querySelectorAll('.word-editor-filled-value').forEach((node) => {
+            const valueEl = node as HTMLElement;
+            valueEl.style.setProperty('box-sizing', 'border-box', 'important');
+            valueEl.style.setProperty('display', 'block', 'important');
+            valueEl.style.setProperty('width', '100%', 'important');
+            valueEl.style.setProperty('height', '100%', 'important');
+            valueEl.style.setProperty('max-width', '100%', 'important');
+            valueEl.style.setProperty('overflow', 'hidden', 'important');
+            valueEl.style.setProperty('padding', '0', 'important');
+        });
+
+        root.querySelectorAll('.word-editor-filled-value .word-editor-value, .word-editor-filled-value .word-editor-value .ql-editor').forEach((node) => {
+            const hostEl = node as HTMLElement;
+            hostEl.style.setProperty('display', 'block', 'important');
+            hostEl.style.setProperty('width', '100%', 'important');
+            hostEl.style.setProperty('max-width', '100%', 'important');
+        });
+
+        root.querySelectorAll('.word-editor-filled-value figure.table, .document-html .inline-filled-word-editor-value figure.table').forEach((node) => {
+            const figureEl = node as HTMLElement;
+            figureEl.style.setProperty('display', 'table', 'important');
+            figureEl.style.setProperty('width', 'auto', 'important');
+            figureEl.style.setProperty('max-width', '100%', 'important');
+            figureEl.style.setProperty('margin-left', 'auto', 'important');
+            figureEl.style.setProperty('margin-right', 'auto', 'important');
+        });
+
         root.querySelectorAll('.filled-field-value').forEach((node) => {
             const valueEl = node as HTMLElement;
             if (valueEl.classList.contains('word-editor-filled-value')) {
@@ -2582,6 +2868,47 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             valueEl.style.setProperty('padding', '0', 'important');
             valueEl.style.setProperty('transform', 'translateY(1px)', 'important');
             valueEl.style.setProperty('white-space', 'pre-wrap', 'important');
+        });
+
+        root.querySelectorAll('.word-editor-filled-value table, .document-html .inline-filled-word-editor-value table').forEach((node) => {
+            const tableEl = node as HTMLElement;
+            tableEl.style.setProperty('border-collapse', 'separate', 'important');
+            tableEl.style.setProperty('border-spacing', '0', 'important');
+            tableEl.style.setProperty('table-layout', 'auto', 'important');
+            tableEl.style.setProperty('width', 'auto', 'important');
+            tableEl.style.setProperty('max-width', '100%', 'important');
+            tableEl.style.setProperty('margin-left', 'auto', 'important');
+            tableEl.style.setProperty('margin-right', 'auto', 'important');
+            tableEl.style.setProperty('border', 'none', 'important');
+        });
+
+        root.querySelectorAll('.word-editor-filled-value table, .document-html .inline-filled-word-editor-value table').forEach((node) => {
+            const tableEl = node as HTMLTableElement;
+            const rows = Array.from(tableEl.querySelectorAll('tr'));
+            rows.forEach((rowNode, rowIndex) => {
+                const cells = Array.from(rowNode.children).filter((child) => {
+                    const tagName = child.tagName.toLowerCase();
+                    return tagName === 'td' || tagName === 'th';
+                }) as HTMLElement[];
+
+                cells.forEach((cellEl, cellIndex) => {
+                    cellEl.style.setProperty('border', 'none', 'important');
+                    cellEl.style.setProperty('border-top', '1px solid #000000', 'important');
+                    cellEl.style.setProperty('border-left', '1px solid #000000', 'important');
+                    if (cellIndex === cells.length - 1) {
+                        cellEl.style.setProperty('border-right', '1px solid #000000', 'important');
+                    } else {
+                        cellEl.style.removeProperty('border-right');
+                    }
+                    if (rowIndex === rows.length - 1) {
+                        cellEl.style.setProperty('border-bottom', '1px solid #000000', 'important');
+                    } else {
+                        cellEl.style.removeProperty('border-bottom');
+                    }
+                    cellEl.style.setProperty('padding', '6px', 'important');
+                    cellEl.style.setProperty('vertical-align', 'top', 'important');
+                });
+            });
         });
     }
 
