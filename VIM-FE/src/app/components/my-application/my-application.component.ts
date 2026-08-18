@@ -16,7 +16,7 @@ type TemplateFieldType =
     'document_header' | 'document_header_qu' | 'document_header_qf' | 'document_header_qri' | 'document_header_qb'
     | 'footer' | 'individual_pipeline_footer' | 'application_code' | 'pipeline_signature' | 'dynamic_signature'
     | 'dynamic_approver_name' | 'dynamic_approval_timestamp'
-    | 'dynamic_approver_department' | 'dynamic_approver_designation'
+    | 'dynamic_approver_department' | 'dynamic_approver_designation' | 'dynamic_user_details'
     | 'text' | 'integer' | 'decimal' | 'number' | 'date' | 'email' | 'textarea' | 'word_editor'
     | 'attachment' | 'select' | 'checkbox' | 'radio' | 'table' | 'orientation';
 
@@ -627,7 +627,8 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         if (field.type === 'dynamic_approver_name'
             || field.type === 'dynamic_approval_timestamp'
             || field.type === 'dynamic_approver_department'
-            || field.type === 'dynamic_approver_designation') {
+            || field.type === 'dynamic_approver_designation'
+            || field.type === 'dynamic_user_details') {
             return this.getDynamicApprovalDisplayText(field);
         }
         if (field.type === 'checkbox') {
@@ -785,7 +786,8 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             || field.type === 'dynamic_approver_name'
             || field.type === 'dynamic_approval_timestamp'
             || field.type === 'dynamic_approver_department'
-            || field.type === 'dynamic_approver_designation';
+            || field.type === 'dynamic_approver_designation'
+            || field.type === 'dynamic_user_details';
     }
 
     getDynamicSignatureSlots(field: TemplateField): any[] {
@@ -1187,7 +1189,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         const role = String(entry?.role || entry?.stageName || entry?.stepName || '').trim().toLowerCase();
         const level = Number(entry?.intApprovalOrder ?? entry?.level);
         const action = String(entry?.action || entry?.status || '').toUpperCase();
-        return stepId === 'initiator' || role === 'submission' || action === 'SUBMITTED' || level === 1 && role === 'initiator';
+        return this.isInitiatorStepId(stepId) || role === 'submission' || action === 'SUBMITTED' || level === 1 && role === 'initiator';
     }
 
     private getDisplayLevelForHistoryEntry(entry: any, index: number): number {
@@ -1609,8 +1611,11 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     }
 
     private getDynamicSignatureStep(field: TemplateField): PipelineStep | null {
-        const targetId = field.signatureTargetId || field.pipelineStepId;
-        return this.getPipelineSteps().find((step) => step?.id === targetId) || null;
+        const targetId = String(field.signatureTargetId || field.pipelineStepId || '').trim();
+        if (!targetId) {
+            return null;
+        }
+        return this.getPipelineSteps().find((step) => this.isMatchingWorkflowStepId(step?.id, targetId)) || null;
     }
 
     private formatStepType(step: PipelineStep): string {
@@ -1658,7 +1663,35 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         if (field.type === 'dynamic_approver_designation') {
             return this.getDynamicSignatureDesignation(slot);
         }
+        if (field.type === 'dynamic_user_details') {
+            const timestamp = this.getHistoryDate(slot);
+            return [
+                this.getDynamicSignatureLabel(slot),
+                this.getDynamicSignatureDesignation(slot),
+                this.getDynamicSignatureDepartment(slot),
+                timestamp !== '--' ? timestamp : ''
+            ]
+                .map((value) => String(value || '').trim())
+                .filter((value) => value.length > 0)
+                .join('\n');
+        }
         return '';
+    }
+
+    private isMatchingWorkflowStepId(left: any, right: any): boolean {
+        const leftId = String(left || '').trim().toLowerCase();
+        const rightId = String(right || '').trim().toLowerCase();
+        if (!leftId || !rightId) {
+            return false;
+        }
+        if (leftId === rightId) {
+            return true;
+        }
+        return this.isInitiatorStepId(leftId) && this.isInitiatorStepId(rightId);
+    }
+
+    private isInitiatorStepId(value: string): boolean {
+        return value === 'initiator' || value === 'initiator-step';
     }
 
     private getDynamicSignatureDepartment(slot: any): string {

@@ -56,8 +56,7 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
             String normalizedPrefix = conventionPrefix.trim().toUpperCase(Locale.ROOT);
             String codeQuery = "SELECT f.txtFormCode FROM CfgTblCustomForm f " +
                     "WHERE f.txtFormCode IS NOT NULL " +
-                    "AND UPPER(f.txtFormCode) LIKE :prefixPattern " +
-                    "AND (f.blIsDeleted = false OR f.blIsDeleted IS NULL)";
+                    "AND UPPER(f.txtFormCode) LIKE :prefixPattern";
 
             @SuppressWarnings("unchecked")
             List<String> existingCodes = entityManager.createQuery(codeQuery)
@@ -90,6 +89,22 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
             // Fallback: use timestamp-based code
             return conventionPrefix + "-" + System.currentTimeMillis();
         }
+    }
+
+    private boolean isDuplicateFormCodeException(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null && current.getCause() != current) {
+            String message = current.getMessage();
+            if (message != null) {
+                String normalizedMessage = message.toLowerCase(Locale.ROOT);
+                if (normalizedMessage.contains("duplicate entry")
+                        && normalizedMessage.contains("cfg_tbl_custom_form.txt_form_code")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private Integer extractNumericSuffix(String code, String prefix) {
@@ -322,8 +337,6 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
     public String addNewCustomForm(CfgTblCustomForm customForm) {
         EntityManager entityManager = getEntityManager();
         try {
-            entityManager.getTransaction().begin();
-            
             // Set default values
             if (customForm.getBlIsActive() == null) {
                 customForm.setBlIsActive(true);
@@ -353,8 +366,6 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
             }
 
             if (conventionPrefix != null && !conventionPrefix.isEmpty()) {
-                String nextCode = generateNextFormCode(conventionPrefix, customForm.getTxtFormCode(), entityManager);
-                customForm.setTxtFormCode(nextCode);
                 customForm.setTxtConventionPrefix(conventionPrefix);
             }
 
@@ -418,9 +429,46 @@ public class CfgTblCustomFormDAO implements ICfgTblCustomFormDAO {
                 }
             }
 
-            entityManager.persist(customForm);
-            entityManager.getTransaction().commit();
-            return "Success";
+            final int maxAttempts = 5;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                try {
+                    entityManager.getTransaction().begin();
+                    if (conventionPrefix != null && !conventionPrefix.isEmpty()) {
+                        customForm.setTxtFormCode(
+                                generateNextFormCode(conventionPrefix, customForm.getTxtFormCode(), entityManager));
+                    }
+                    entityManager.persist(customForm);
+                    entityManager.flush();
+                    entityManager.getTransaction().commit();
+                    return "Success";
+                } catch (Exception persistException) {
+                    if (entityManager.getTransaction().isActive()) {
+                        entityManager.getTransaction().rollback();
+                    }
+                    if (attempt < maxAttempts && isDuplicateFormCodeException(persistException)) {
+                        entityManager.clear();
+                        customForm.setSerFormId(null);
+                        if (customForm.getCfgTblCustomFormFields() != null) {
+                            for (com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormField field : customForm.getCfgTblCustomFormFields()) {
+                                field.setSerFieldId(null);
+                                field.setCfgTblCustomForm(customForm);
+                            }
+                        }
+                        if (customForm.getCfgTblCustomFormApprovalPipelines() != null) {
+                            for (com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApprovalPipeline pipeline : customForm.getCfgTblCustomFormApprovalPipelines()) {
+                                pipeline.setSerApprovalPipelineId(null);
+                                pipeline.setCfgTblCustomForm(customForm);
+                            }
+                        }
+                        log.warn("Duplicate form code detected while creating form, retrying with a new code. Attempt {}/{}",
+                                attempt, maxAttempts);
+                        continue;
+                    }
+                    throw persistException;
+                }
+            }
+
+            return "Failure: Unable to generate a unique form code";
         } catch (Exception e) {
             if (entityManager.getTransaction().isActive()) {
                 entityManager.getTransaction().rollback();

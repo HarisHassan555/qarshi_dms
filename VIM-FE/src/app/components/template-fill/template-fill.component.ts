@@ -1030,7 +1030,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     private getMissingRequiredFields(): string[] {
-        return (this.template?.fields || [])
+        const missingFields = (this.template?.fields || [])
             .filter((field: TemplateField) =>
                 field.required
                 && !this.isDocumentRegionFieldType(field.type)
@@ -1040,6 +1040,28 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 && this.isFieldValueEmpty(field, this.values[field.id])
             )
             .map((field: TemplateField) => field.label || field.placeholder || 'Unnamed field');
+
+        const requiredIndividualFooter = (this.template?.fields || []).find((field: TemplateField) =>
+            field.type === 'individual_pipeline_footer' && field.required
+        );
+        if (requiredIndividualFooter && this.isRequiredIndividualFooterIncomplete()) {
+            missingFields.push(requiredIndividualFooter.label || requiredIndividualFooter.placeholder || 'Individual Footer Sections');
+        }
+
+        return missingFields;
+    }
+
+    private isRequiredIndividualFooterIncomplete(): boolean {
+        const normalizedPipeline = this.getNormalizedUserPipeline();
+        if (normalizedPipeline.length === 0) {
+            return true;
+        }
+
+        return normalizedPipeline.some((section) => {
+            const label = String(section?.label || '').trim();
+            const users = Array.isArray(section?.users) ? section.users : [];
+            return !label || users.length === 0;
+        });
     }
 
     private getSessionTemplatePreviewCode(): string {
