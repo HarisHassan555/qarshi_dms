@@ -184,6 +184,10 @@ export const routes: Routes = [
             { path: 'budget-approval', component: BudgetApprovalComponent, title: 'Budget Approval' },
             { path: 'budgetapprovalview', component: BudgetApprovalViewComponent, title: 'Budget Approval View' },
             { path: 'xyz', component: XyzComponent, title: 'XYZ' },
+            { path: 'xyzqu', component: XyzComponent, title: 'XYZ QU' },
+            { path: 'xyzqf', component: XyzComponent, title: 'XYZ QF' },
+            { path: 'xyzqri', component: XyzComponent, title: 'XYZ QRI' },
+            { path: 'xyzqb', component: XyzComponent, title: 'XYZ QB' },
             { path: 'custom-document-builder', component: CustomDocumentBuilderComponent, title: 'Custom Document Builder' },
             { path: 'template-builder', canActivate: [canActivate], component: TemplateBuilderComponent, title: 'Digital Document Builder' },
             { path: 'template-list', canActivate: [canActivate], component: TemplateFormsComponent, title: 'Digital Document List' },
@@ -253,5 +257,9 @@ export const routes: Routes = [
     { path: 'approveApplicationFromEmail', component: EmailApprovalComponent, title: 'Approve Application' },
     { path: 'rejectApplicationFromEmail', component: EmailApprovalComponent, title: 'Reject Application' },
     { path: 'abc', component: AbcComponent, title: 'Capital Assets Purchase Form' },
+    { path: 'abcqu', component: AbcComponent, title: 'Capital Assets Purchase Form QU' },
+    { path: 'abcqf', component: AbcComponent, title: 'Capital Assets Purchase Form QF' },
+    { path: 'abcqri', component: AbcComponent, title: 'Capital Assets Purchase Form QRI' },
+    { path: 'abcqb', component: AbcComponent, title: 'Capital Assets Purchase Form QB' },
 
 ];

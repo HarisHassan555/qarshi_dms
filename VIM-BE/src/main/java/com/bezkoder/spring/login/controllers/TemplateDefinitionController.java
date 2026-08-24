@@ -1,8 +1,11 @@
 package com.bezkoder.spring.login.controllers;
 
+import com.bezkoder.spring.login.admin.bll.services.ICommonService;
 import com.bezkoder.spring.login.sa.bll.services.ICustomFormApplicationService;
+import com.bezkoder.spring.login.sa.bll.services.IAppActivityLogService;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblRole;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
+import com.bezkoder.spring.login.admin.utility.common.RequestMetadataUtil;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApplication;
 import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 import com.bezkoder.spring.login.sa.dal.entities.TemplateDefinition;
@@ -22,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.transaction.Transactional;
 import java.sql.Timestamp;
@@ -46,9 +50,16 @@ public class TemplateDefinitionController {
     @Autowired
     private ICustomFormApplicationService customFormApplicationService;
 
+    @Autowired
+    private IAppActivityLogService activityLogService;
+
+    @Autowired
+    private ICommonService commonService;
+
     @Transactional
     @RequestMapping(value = "/submitTemplateApplication", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> submitTemplateApplication(@RequestBody CfgTblCustomFormApplication application,
+                                                         HttpServletRequest request,
                                                          HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
         try {
@@ -127,6 +138,9 @@ public class TemplateDefinitionController {
             }
             appendSubmissionHistory(application);
             entityManager.persist(application);
+            logTemplateAction("FORM_SUBMIT", request, application.getSerApplicationId(), "SUCCESS",
+                    "Template application submitted successfully",
+                    buildTemplateApplicationPayload(application, "FORM_SUBMIT", null), null);
 
             result.put("status", "Success");
             result.put("message", "Template application submitted successfully");
@@ -134,6 +148,9 @@ public class TemplateDefinitionController {
             result.put("formCode", application.getTxtFormCode());
             return result;
         } catch (Exception ex) {
+            logTemplateAction("FORM_SUBMIT", request, application != null ? application.getSerApplicationId() : null,
+                    "FAILURE", ex.getMessage(),
+                    buildTemplateApplicationPayload(application, "FORM_SUBMIT", null), ex.getMessage());
             logger.error("Error submitting template application: " + ex.getMessage(), ex);
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             result.put("status", "Failure");
@@ -186,20 +203,23 @@ public class TemplateDefinitionController {
     @Transactional
     @RequestMapping(value = "/approveTemplateApplication", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> approveTemplateApplication(@RequestBody Map<String, Object> requestBody,
+                                                          HttpServletRequest request,
                                                           HttpServletResponse response) {
-        return handleTemplateDecision(requestBody, "APPROVED", response);
+        return handleTemplateDecision(requestBody, "APPROVED", request, response);
     }
 
     @Transactional
     @RequestMapping(value = "/rejectTemplateApplication", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> rejectTemplateApplication(@RequestBody Map<String, Object> requestBody,
+                                                         HttpServletRequest request,
                                                          HttpServletResponse response) {
-        return handleTemplateDecision(requestBody, "REJECTED", response);
+        return handleTemplateDecision(requestBody, "REJECTED", request, response);
     }
 
     @Transactional
     @RequestMapping(value = "/sendBackTemplateApplication", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> sendBackTemplateApplication(@RequestBody Map<String, Object> requestBody,
+                                                           HttpServletRequest request,
                                                            HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
         try {
@@ -224,9 +244,14 @@ public class TemplateDefinitionController {
             touchTemplateApplication(application, actorId);
             entityManager.merge(application);
             entityManager.flush();
+            logTemplateAction("SEND_BACK", request, application.getSerApplicationId(), "SUCCESS",
+                    "Template application sent back successfully",
+                    buildTemplateApplicationPayload(application, "SEND_BACK", remarks), null);
             queueTemplatePostApprovalEmails(application.getSerApplicationId(), "template send-back notification", true);
             return success("Application sent back successfully");
         } catch (Exception ex) {
+            logTemplateAction("SEND_BACK", request, toInteger(requestBody.get("applicationId")), "FAILURE",
+                    ex.getMessage(), buildTemplateRequestPayload(requestBody, "SEND_BACK"), ex.getMessage());
             return failure(result, response, "Error sending back template application", ex);
         }
     }
@@ -234,6 +259,7 @@ public class TemplateDefinitionController {
     @Transactional
     @RequestMapping(value = "/sendBackTemplateApplicationToInitiator", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> sendBackTemplateApplicationToInitiator(@RequestBody Map<String, Object> requestBody,
+                                                                      HttpServletRequest request,
                                                                       HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
         try {
@@ -255,10 +281,15 @@ public class TemplateDefinitionController {
             touchTemplateApplication(application, actorId);
             entityManager.merge(application);
             entityManager.flush();
+            logTemplateAction("SEND_BACK", request, application.getSerApplicationId(), "SUCCESS",
+                    "Template application sent back to initiator successfully",
+                    buildTemplateApplicationPayload(application, "SEND_BACK_TO_INITIATOR", remarks), null);
             queueTemplatePostApprovalEmails(application.getSerApplicationId(),
                     "template send-back-to-initiator notification", true);
             return success("Application sent back to initiator successfully");
         } catch (Exception ex) {
+            logTemplateAction("SEND_BACK", request, toInteger(requestBody.get("applicationId")), "FAILURE",
+                    ex.getMessage(), buildTemplateRequestPayload(requestBody, "SEND_BACK_TO_INITIATOR"), ex.getMessage());
             return failure(result, response, "Error sending back template application to initiator", ex);
         }
     }
@@ -266,6 +297,7 @@ public class TemplateDefinitionController {
     @Transactional
     @RequestMapping(value = "/resubmitTemplateApplicationFromInitiator", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> resubmitTemplateApplicationFromInitiator(@RequestBody Map<String, Object> requestBody,
+                                                                        HttpServletRequest request,
                                                                         HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
         try {
@@ -286,8 +318,13 @@ public class TemplateDefinitionController {
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
             entityManager.merge(application);
+            logTemplateAction("RESUBMIT_INITIATOR", request, application.getSerApplicationId(), "SUCCESS",
+                    "Template application resubmitted by initiator",
+                    buildTemplateApplicationPayload(application, "RESUBMITTED_BY_INITIATOR", remarks), null);
             return success("Application resubmitted successfully");
         } catch (Exception ex) {
+            logTemplateAction("RESUBMIT_INITIATOR", request, toInteger(requestBody.get("applicationId")), "FAILURE",
+                    ex.getMessage(), buildTemplateRequestPayload(requestBody, "RESUBMITTED_BY_INITIATOR"), ex.getMessage());
             return failure(result, response, "Error resubmitting template application", ex);
         }
     }
@@ -295,6 +332,7 @@ public class TemplateDefinitionController {
     @Transactional
     @RequestMapping(value = "/requestTemplateApplicationOpinion", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> requestTemplateApplicationOpinion(@RequestBody Map<String, Object> requestBody,
+                                                                 HttpServletRequest request,
                                                                  HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
         try {
@@ -331,10 +369,15 @@ public class TemplateDefinitionController {
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
             entityManager.merge(application);
+            logTemplateAction("REQUEST_OPINION", request, application.getSerApplicationId(), "SUCCESS",
+                    "Template application sent for opinion successfully",
+                    buildTemplateApplicationPayload(application, "OPINION_REQUESTED", remarks), null);
             queueTemplatePostApprovalEmails(application.getSerApplicationId(),
                     "template opinion request notification");
             return success("Application sent for opinion successfully");
         } catch (Exception ex) {
+            logTemplateAction("REQUEST_OPINION", request, toInteger(requestBody.get("applicationId")), "FAILURE",
+                    ex.getMessage(), buildTemplateRequestPayload(requestBody, "OPINION_REQUESTED"), ex.getMessage());
             return failure(result, response, "Error requesting template opinion", ex);
         }
     }
@@ -342,6 +385,7 @@ public class TemplateDefinitionController {
     @Transactional
     @RequestMapping(value = "/submitTemplateApplicationOpinion", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> submitTemplateApplicationOpinion(@RequestBody Map<String, Object> requestBody,
+                                                                HttpServletRequest request,
                                                                 HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
         try {
@@ -370,10 +414,16 @@ public class TemplateDefinitionController {
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
             entityManager.merge(application);
+            logTemplateAction("SUBMIT_OPINION", request, application.getSerApplicationId(), "SUCCESS",
+                    "Template opinion submitted successfully",
+                    buildTemplateApplicationPayload(application,
+                            "reject".equalsIgnoreCase(action) ? "OPINION_REJECTED" : "OPINION_APPROVED", remarks), null);
             queueTemplatePostApprovalEmails(application.getSerApplicationId(),
                     "template opinion submission notification");
             return success("Opinion submitted successfully");
         } catch (Exception ex) {
+            logTemplateAction("SUBMIT_OPINION", request, toInteger(requestBody.get("applicationId")), "FAILURE",
+                    ex.getMessage(), buildTemplateRequestPayload(requestBody, "SUBMIT_OPINION"), ex.getMessage());
             return failure(result, response, "Error submitting template opinion", ex);
         }
     }
@@ -470,6 +520,7 @@ public class TemplateDefinitionController {
 
     @RequestMapping(value = "/getMyTemplateApplications", method = RequestMethod.GET)
     public Map<String, Object> getMyTemplateApplications(@RequestParam Integer userId,
+                                                         @RequestParam(defaultValue = "false") Boolean all,
                                                          @RequestParam(defaultValue = "0") Integer page,
                                                          @RequestParam(defaultValue = "10") Integer pageSize,
                                                          @RequestParam(required = false) String search,
@@ -481,9 +532,11 @@ public class TemplateDefinitionController {
             String searchText = search == null ? "" : search.trim().toLowerCase();
             boolean hasSearch = !searchText.isEmpty();
 
-            String whereClause = "WHERE a.serSubmittedBy = :userId " +
-                    "AND (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
+            String whereClause = "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
                     "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) ";
+            if (!Boolean.TRUE.equals(all)) {
+                whereClause += "AND a.serSubmittedBy = :userId ";
+            }
             if (hasSearch) {
                 whereClause += "AND (LOWER(COALESCE(a.txtFormCode, '')) LIKE :search " +
                         "OR LOWER(COALESCE(a.txtStatus, '')) LIKE :search " +
@@ -495,7 +548,9 @@ public class TemplateDefinitionController {
                             "FROM CfgTblCustomFormApplication a, TemplateDefinition t " +
                             whereClause +
                             "AND t.serFormId = a.serFormId");
-            countQuery.setParameter("userId", userId);
+            if (!Boolean.TRUE.equals(all)) {
+                countQuery.setParameter("userId", userId);
+            }
             if (hasSearch) {
                 countQuery.setParameter("search", "%" + searchText + "%");
             }
@@ -508,7 +563,9 @@ public class TemplateDefinitionController {
                             whereClause +
                             "AND t.serFormId = a.serFormId " +
                             "ORDER BY a.dteCreatedDate DESC");
-            rowQuery.setParameter("userId", userId);
+            if (!Boolean.TRUE.equals(all)) {
+                rowQuery.setParameter("userId", userId);
+            }
             if (hasSearch) {
                 rowQuery.setParameter("search", "%" + searchText + "%");
             }
@@ -582,47 +639,115 @@ public class TemplateDefinitionController {
                         "OR LOWER(COALESCE(t.txtTemplateName, '')) LIKE :search) ";
             }
 
-            javax.persistence.Query rowQuery = entityManager.createQuery(
-                    "SELECT a, t.txtTemplateName " +
-                            "FROM CfgTblCustomFormApplication a, TemplateDefinition t " +
-                            whereClause +
-                            "ORDER BY a.dteCreatedDate DESC");
-            rowQuery.setParameter("pendingStatuses", pendingStatuses);
-            if (hasSearch) {
-                rowQuery.setParameter("search", "%" + searchText + "%");
+            if (Boolean.TRUE.equals(all)) {
+                javax.persistence.Query countQuery = entityManager.createQuery(
+                        "SELECT COUNT(a.serApplicationId) " +
+                                "FROM CfgTblCustomFormApplication a, TemplateDefinition t " +
+                                whereClause);
+                countQuery.setParameter("pendingStatuses", pendingStatuses);
+                if (hasSearch) {
+                    countQuery.setParameter("search", "%" + searchText + "%");
+                }
+                Long total = (Long) countQuery.getSingleResult();
+
+                javax.persistence.Query rowQuery = entityManager.createQuery(
+                        "SELECT a.serApplicationId, a.serFormId, a.txtFormCode, a.txtStatus, " +
+                                "a.intCurrentApprovalLevel, a.serSubmittedBy, a.serCurrentApprover, " +
+                                "a.dteCreatedDate, t.txtTemplateName " +
+                                "FROM CfgTblCustomFormApplication a, TemplateDefinition t " +
+                                whereClause +
+                                "ORDER BY a.dteCreatedDate DESC");
+                rowQuery.setParameter("pendingStatuses", pendingStatuses);
+                if (hasSearch) {
+                    rowQuery.setParameter("search", "%" + searchText + "%");
+                }
+
+                @SuppressWarnings("unchecked")
+                List<Object[]> rows = rowQuery
+                        .setFirstResult(safePage * safePageSize)
+                        .setMaxResults(safePageSize)
+                        .getResultList();
+
+                java.util.List<Map<String, Object>> items = new java.util.ArrayList<>();
+                for (Object[] row : rows) {
+                    Map<String, Object> item = toPendingApprovalListItem(row);
+                    if (item != null) {
+                        items.add(item);
+                    }
+                }
+
+                result.put("items", items);
+                result.put("total", total == null ? 0 : total);
+                result.put("page", safePage);
+                result.put("pageSize", safePageSize);
+                return result;
             }
 
-            @SuppressWarnings("unchecked")
-            List<Object[]> rows = rowQuery.getResultList();
+            final int targetOffset = safePage * safePageSize;
+            final int batchSize = Math.max(safePageSize * 4, 50);
+            final Map<Integer, String> templatePayloadCache = new HashMap<>();
+            final List<Map<String, Object>> items = new ArrayList<>();
+            int total = 0;
+            int offset = 0;
 
-            java.util.List<Map<String, Object>> filteredItems = new java.util.ArrayList<>();
-            for (Object[] row : rows) {
-                CfgTblCustomFormApplication application = row[0] instanceof CfgTblCustomFormApplication
-                        ? (CfgTblCustomFormApplication) row[0]
-                        : null;
-                if (application == null) {
-                    continue;
+            while (true) {
+                javax.persistence.Query rowQuery = entityManager.createQuery(
+                        "SELECT a.serApplicationId, a.serFormId, a.txtFormCode, a.txtStatus, " +
+                                "a.intCurrentApprovalLevel, a.serSubmittedBy, a.serCurrentApprover, " +
+                                "a.dteCreatedDate, t.txtTemplateName " +
+                                "FROM CfgTblCustomFormApplication a, TemplateDefinition t " +
+                                whereClause +
+                                "ORDER BY a.dteCreatedDate DESC");
+                rowQuery.setParameter("pendingStatuses", pendingStatuses);
+                if (hasSearch) {
+                    rowQuery.setParameter("search", "%" + searchText + "%");
                 }
-                Integer applicationId = application.getSerApplicationId();
-                if (!Boolean.TRUE.equals(all) && !isUserPendingForCurrentTemplateStep(application, userId)) {
-                    continue;
+
+                @SuppressWarnings("unchecked")
+                List<Object[]> rows = rowQuery
+                        .setFirstResult(offset)
+                        .setMaxResults(batchSize)
+                        .getResultList();
+
+                if (rows.isEmpty()) {
+                    break;
                 }
-                Map<String, Object> item = new HashMap<>();
-                item.put("serApplicationId", applicationId);
-                item.put("serFormId", application.getSerFormId());
-                item.put("txtFormCode", application.getTxtFormCode());
-                item.put("txtStatus", application.getTxtStatus());
-                item.put("intCurrentApprovalLevel", application.getIntCurrentApprovalLevel());
-                item.put("serSubmittedBy", application.getSerSubmittedBy());
-                item.put("dteCreatedDate", application.getDteCreatedDate());
-                item.put("templateName", row[1]);
-                filteredItems.add(item);
+
+                for (Object[] row : rows) {
+                    CfgTblCustomFormApplication application = toPendingApprovalCandidate(row);
+                    if (application == null) {
+                        continue;
+                    }
+
+                    boolean isMatch = isDirectPendingApprover(application, userId);
+                    if (!isMatch) {
+                        CfgTblCustomFormApplication fullApplication = entityManager.find(
+                                CfgTblCustomFormApplication.class,
+                                application.getSerApplicationId());
+                        String templatePayload = getTemplatePayloadByFormId(
+                                application.getSerFormId(),
+                                templatePayloadCache);
+                        isMatch = isUserPendingForCurrentTemplateStep(fullApplication, userId, templatePayload);
+                    }
+
+                    if (!isMatch) {
+                        continue;
+                    }
+
+                    if (total >= targetOffset && items.size() < safePageSize) {
+                        Map<String, Object> item = toPendingApprovalListItem(row);
+                        if (item != null) {
+                            items.add(item);
+                        }
+                    }
+                    total++;
+                }
+
+                if (rows.size() < batchSize) {
+                    break;
+                }
+                offset += rows.size();
             }
-
-            int total = filteredItems.size();
-            int fromIndex = Math.min(safePage * safePageSize, total);
-            int toIndex = Math.min(fromIndex + safePageSize, total);
-            java.util.List<Map<String, Object>> items = new java.util.ArrayList<>(filteredItems.subList(fromIndex, toIndex));
 
             result.put("items", items);
             result.put("total", total);
@@ -1046,6 +1171,7 @@ public class TemplateDefinitionController {
     }
 
     private Map<String, Object> handleTemplateDecision(Map<String, Object> requestBody, String action,
+                                                       HttpServletRequest request,
                                                        HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
         try {
@@ -1082,14 +1208,73 @@ public class TemplateDefinitionController {
             touchTemplateApplication(application, actorId);
             entityManager.merge(application);
             entityManager.flush();
+            logTemplateAction("REJECTED".equals(action) ? "REJECT" : "APPROVE", request,
+                    application.getSerApplicationId(), "SUCCESS",
+                    "REJECTED".equals(action) ? "Template application rejected successfully"
+                            : "Template application approved successfully",
+                    buildTemplateApplicationPayload(application, action, remarks), null);
             if ("REJECTED".equals(action)) {
                 queueTemplatePostApprovalEmails(application.getSerApplicationId(),
                         "template rejection notification", true);
             }
             return success("REJECTED".equals(action) ? "Application rejected successfully" : "Application approved successfully");
         } catch (Exception ex) {
+            logTemplateAction("REJECTED".equals(action) ? "REJECT" : "APPROVE", request,
+                    toInteger(requestBody.get("applicationId")), "FAILURE",
+                    ex.getMessage(), buildTemplateRequestPayload(requestBody, action), ex.getMessage());
             return failure(result, response, "Error completing template action", ex);
         }
+    }
+
+    private void logTemplateAction(String actionType, HttpServletRequest request, Integer applicationId,
+                                   String status, String message, Map<String, Object> payload, String errorMessage) {
+        try {
+            int userId = commonService.getCurrentLoggedInUser();
+            String username = null;
+            if (userId > 0) {
+                CfgTblUser user = commonService.getCurrentUser(userId);
+                if (user != null) {
+                    username = user.getTxtUserName();
+                }
+            }
+            activityLogService.logActivity(actionType, userId > 0 ? userId : null, username,
+                    RequestMetadataUtil.resolveClientIp(request),
+                    RequestMetadataUtil.resolveDevice(request),
+                    status, message, "APPLICATION", applicationId, payload, errorMessage);
+        } catch (Exception ex) {
+            logger.warn("Failed to log template action: " + ex.getMessage());
+        }
+    }
+
+    private Map<String, Object> buildTemplateApplicationPayload(CfgTblCustomFormApplication application,
+                                                                String action,
+                                                                String remarks) {
+        Map<String, Object> payload = new HashMap<>();
+        if (application == null) {
+            return payload;
+        }
+        payload.put("applicationId", application.getSerApplicationId());
+        payload.put("formId", application.getSerFormId());
+        payload.put("formCode", application.getTxtFormCode());
+        payload.put("status", application.getTxtStatus());
+        payload.put("approvalLevel", application.getIntCurrentApprovalLevel());
+        payload.put("action", action);
+        if (remarks != null) {
+            payload.put("remarks", remarks);
+        }
+        return payload;
+    }
+
+    private Map<String, Object> buildTemplateRequestPayload(Map<String, Object> requestBody, String action) {
+        Map<String, Object> payload = new HashMap<>();
+        if (requestBody != null) {
+            payload.put("applicationId", toInteger(requestBody.get("applicationId")));
+            payload.put("userId", toInteger(requestBody.get("userId")));
+            payload.put("remarks", valueAsString(requestBody.get("remarks")));
+            payload.put("opinionUserId", toInteger(requestBody.get("opinionUserId")));
+        }
+        payload.put("action", action);
+        return payload;
     }
 
     private void queueTemplatePostApprovalEmails(Integer applicationId, String contextLabel) {
@@ -1171,6 +1356,21 @@ public class TemplateDefinitionController {
         return pendingApproverIdsForCurrentStep(application).contains(userId);
     }
 
+    private boolean isUserPendingForCurrentTemplateStep(CfgTblCustomFormApplication application,
+                                                        Integer userId,
+                                                        String templatePayloadJson) {
+        if (application == null) {
+            return false;
+        }
+
+        Integer currentApprover = application.getSerCurrentApprover();
+        if (currentApprover != null && currentApprover.equals(userId)) {
+            return true;
+        }
+
+        return pendingApproverIdsForCurrentStep(application, templatePayloadJson).contains(userId);
+    }
+
     private Set<Integer> pendingApproverIdsForCurrentStep(CfgTblCustomFormApplication application) {
         Set<Integer> pendingIds = new LinkedHashSet<>();
         if (application == null) {
@@ -1203,6 +1403,57 @@ public class TemplateDefinitionController {
         }
 
         TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
+        TemplateStep currentStep = context.stepAt(safeLevel(application));
+        if (currentStep == null || currentStep.approverIds.isEmpty()) {
+            return pendingIds;
+        }
+
+        Set<Integer> approvedIds = approvedIdsForStep(application, currentStep);
+        if ("AND".equalsIgnoreCase(currentStep.approvalMode)) {
+            currentStep.approverIds.stream()
+                    .filter((approverId) -> !approvedIds.contains(approverId))
+                    .forEach(pendingIds::add);
+            return pendingIds;
+        }
+
+        if (approvedIds.isEmpty()) {
+            pendingIds.addAll(currentStep.approverIds);
+        }
+        return pendingIds;
+    }
+
+    private Set<Integer> pendingApproverIdsForCurrentStep(CfgTblCustomFormApplication application, String templatePayloadJson) {
+        Set<Integer> pendingIds = new LinkedHashSet<>();
+        if (application == null) {
+            return pendingIds;
+        }
+
+        String status = valueAsString(application.getTxtStatus()).toUpperCase(Locale.ROOT);
+        if ("REJECTED".equals(status) || "APPROVED".equals(status) || "COMPLETED".equals(status)) {
+            return pendingIds;
+        }
+
+        if ("OPINION_PENDING".equals(status)) {
+            Map<String, Object> appData = parseMap(application.getTxtApplicationData());
+            Map<String, Object> opinionRequest = asMap(appData.get("templateOpinionRequest"));
+            if (Boolean.TRUE.equals(opinionRequest.get("active"))
+                    || "true".equalsIgnoreCase(valueAsString(opinionRequest.get("active")))) {
+                addIfPresent(pendingIds, toInteger(opinionRequest.get("requestedFrom")));
+                if (!pendingIds.isEmpty()) {
+                    return pendingIds;
+                }
+            }
+        }
+
+        Integer storedLevel = application.getIntCurrentApprovalLevel();
+        if (storedLevel != null && storedLevel <= 1) {
+            addIfPresent(pendingIds, application.getSerCurrentApprover() != null
+                    ? application.getSerCurrentApprover()
+                    : application.getSerSubmittedBy());
+            return pendingIds;
+        }
+
+        TemplateWorkflowContext context = buildTemplateWorkflowContext(application, templatePayloadJson);
         TemplateStep currentStep = context.stepAt(safeLevel(application));
         if (currentStep == null || currentStep.approverIds.isEmpty()) {
             return pendingIds;
@@ -1260,6 +1511,33 @@ public class TemplateDefinitionController {
         return approvedDate;
     }
 
+    private boolean isDirectPendingApprover(CfgTblCustomFormApplication application, Integer userId) {
+        if (application == null || userId == null || userId <= 0) {
+            return false;
+        }
+        Integer currentApprover = application.getSerCurrentApprover();
+        return currentApprover != null && currentApprover.equals(userId);
+    }
+
+    private String getTemplatePayloadByFormId(Integer formId, Map<Integer, String> cache) {
+        if (formId == null) {
+            return null;
+        }
+        if (cache.containsKey(formId)) {
+            return cache.get(formId);
+        }
+
+        List<String> payloads = entityManager.createQuery(
+                        "SELECT t.txtTemplatePayload FROM TemplateDefinition t WHERE t.serFormId = :formId",
+                        String.class)
+                .setParameter("formId", formId)
+                .setMaxResults(1)
+                .getResultList();
+        String payload = payloads.isEmpty() ? null : payloads.get(0);
+        cache.put(formId, payload);
+        return payload;
+    }
+
     private CfgTblCustomFormApplication loadTemplateApplication(Integer applicationId) {
         if (applicationId == null) {
             throw new IllegalArgumentException("Application ID is required");
@@ -1289,6 +1567,11 @@ public class TemplateDefinitionController {
     }
 
     private TemplateWorkflowContext buildTemplateWorkflowContext(CfgTblCustomFormApplication application) {
+        return buildTemplateWorkflowContext(application, null);
+    }
+
+    private TemplateWorkflowContext buildTemplateWorkflowContext(CfgTblCustomFormApplication application,
+                                                                String templatePayloadJson) {
         Map<String, Object> appData = parseMap(application.getTxtApplicationData());
         List<TemplateStep> footerSteps = buildFooterWorkflowSteps(appData, application);
         if (!footerSteps.isEmpty()) {
@@ -1308,6 +1591,9 @@ public class TemplateDefinitionController {
         }
         TemplateDefinition definition = findByFormId(application.getSerFormId());
         Map<String, Object> templatePayload = asMap(appData.get("templatePayload"));
+        if (templatePayload.isEmpty() && templatePayloadJson != null && !templatePayloadJson.trim().isEmpty()) {
+            templatePayload = parseMap(templatePayloadJson);
+        }
         if (templatePayload.isEmpty() && definition != null) {
             templatePayload = parseMap(definition.getTxtTemplatePayload());
         }
@@ -1332,6 +1618,40 @@ public class TemplateDefinitionController {
             }
         }
         return context;
+    }
+
+    private CfgTblCustomFormApplication toPendingApprovalCandidate(Object[] row) {
+        if (row == null || row.length < 8) {
+            return null;
+        }
+        CfgTblCustomFormApplication application = new CfgTblCustomFormApplication();
+        application.setSerApplicationId(toInteger(row[0]));
+        application.setSerFormId(toInteger(row[1]));
+        application.setTxtFormCode(row[2] != null ? String.valueOf(row[2]) : null);
+        application.setTxtStatus(row[3] != null ? String.valueOf(row[3]) : null);
+        application.setIntCurrentApprovalLevel(toInteger(row[4]));
+        application.setSerSubmittedBy(toInteger(row[5]));
+        application.setSerCurrentApprover(toInteger(row[6]));
+        application.setDteCreatedDate(row[7] instanceof Timestamp ? (Timestamp) row[7] : null);
+        return application;
+    }
+
+    private Map<String, Object> toPendingApprovalListItem(Object[] row) {
+        CfgTblCustomFormApplication application = toPendingApprovalCandidate(row);
+        if (application == null) {
+            return null;
+        }
+
+        Map<String, Object> item = new HashMap<>();
+        item.put("serApplicationId", application.getSerApplicationId());
+        item.put("serFormId", application.getSerFormId());
+        item.put("txtFormCode", application.getTxtFormCode());
+        item.put("txtStatus", application.getTxtStatus());
+        item.put("intCurrentApprovalLevel", application.getIntCurrentApprovalLevel());
+        item.put("serSubmittedBy", application.getSerSubmittedBy());
+        item.put("dteCreatedDate", application.getDteCreatedDate());
+        item.put("templateName", row.length > 8 ? row[8] : null);
+        return item;
     }
 
     private List<TemplateStep> buildFooterWorkflowSteps(Map<String, Object> appData,

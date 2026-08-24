@@ -1,5 +1,9 @@
 package com.bezkoder.spring.login.controllers;
 
+import com.bezkoder.spring.login.admin.bll.services.ICommonService;
+import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
+import com.bezkoder.spring.login.admin.utility.common.RequestMetadataUtil;
+import com.bezkoder.spring.login.sa.bll.services.IAppActivityLogService;
 import com.bezkoder.spring.login.sa.bll.services.ICustomFormService;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm;
 import org.apache.log4j.LogManager;
@@ -21,6 +25,12 @@ public class CustomFormController {
 
     @Autowired
     private ICustomFormService customFormService;
+
+    @Autowired
+    private IAppActivityLogService activityLogService;
+
+    @Autowired
+    private ICommonService commonService;
 
     @RequestMapping(value = "/getAllCustomForms", method = RequestMethod.GET)
     public List<CfgTblCustomForm> getAllCustomForms(HttpServletRequest request, HttpServletResponse response) {
@@ -116,10 +126,14 @@ public class CustomFormController {
 
             String status = customFormService.addNewCustomForm(customForm);
             if (status != null && status.startsWith("Success")) {
+                logTemplateFormAction("TEMPLATE_CREATE", request, customForm.getSerFormId(), "SUCCESS",
+                        "Template form created successfully", buildTemplateFormPayload(customForm, "CREATE"), null);
                 result.put("status", "Success");
                 result.put("message", "Form created successfully");
                 result.put("formId", customForm.getSerFormId());
             } else {
+                logTemplateFormAction("TEMPLATE_CREATE", request, customForm.getSerFormId(), "FAILURE",
+                        status, buildTemplateFormPayload(customForm, "CREATE"), status);
                 result.put("status", "Failure");
                 result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8) : "Failed to create form");
             }
@@ -127,6 +141,8 @@ public class CustomFormController {
         } catch (Exception ex) {
             logger.error("Error creating custom form: " + ex.getMessage(), ex);
             ex.printStackTrace();
+            logTemplateFormAction("TEMPLATE_CREATE", request, null, "FAILURE",
+                    ex.getMessage(), requestBody, ex.getMessage());
             result.put("status", "Failure");
             result.put("message", ex.getMessage());
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
@@ -209,9 +225,13 @@ public class CustomFormController {
 
             String status = customFormService.updateCustomForm(customForm);
             if ("Success".equals(status)) {
+                logTemplateFormAction("TEMPLATE_UPDATE", request, customForm.getSerFormId(), "SUCCESS",
+                        "Template form updated successfully", buildTemplateFormPayload(customForm, "UPDATE"), null);
                 result.put("status", "Success");
                 result.put("message", "Form updated successfully");
             } else {
+                logTemplateFormAction("TEMPLATE_UPDATE", request, customForm.getSerFormId(), "FAILURE",
+                        status, buildTemplateFormPayload(customForm, "UPDATE"), status);
                 result.put("status", "Failure");
                 result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8) : "Failed to update form");
             }
@@ -219,6 +239,8 @@ public class CustomFormController {
         } catch (Exception ex) {
             logger.error("Error updating custom form: " + ex.getMessage(), ex);
             ex.printStackTrace();
+            logTemplateFormAction("TEMPLATE_UPDATE", request, toInteger(requestBody.get("serFormId")), "FAILURE",
+                    ex.getMessage(), requestBody, ex.getMessage());
             result.put("status", "Failure");
             result.put("message", ex.getMessage());
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
@@ -235,19 +257,84 @@ public class CustomFormController {
         try {
             String status = customFormService.deleteCustomForm(formId);
             if ("Success".equals(status)) {
+                logTemplateFormAction("TEMPLATE_DELETE", request, formId, "SUCCESS",
+                        "Template form deleted successfully", buildTemplateFormPayload(formId, "DELETE"), null);
                 result.put("status", "Success");
                 result.put("message", "Form deleted successfully");
             } else {
+                logTemplateFormAction("TEMPLATE_DELETE", request, formId, "FAILURE",
+                        status, buildTemplateFormPayload(formId, "DELETE"), status);
                 result.put("status", "Failure");
                 result.put("message", "Failed to delete form");
             }
             return result;
         } catch (Exception ex) {
             logger.error("Error deleting custom form: " + ex.getMessage(), ex);
+            logTemplateFormAction("TEMPLATE_DELETE", request, formId, "FAILURE",
+                    ex.getMessage(), buildTemplateFormPayload(formId, "DELETE"), ex.getMessage());
             result.put("status", "Failure");
             result.put("message", ex.getMessage());
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return result;
+        }
+    }
+
+    private void logTemplateFormAction(String actionType, HttpServletRequest request, Integer formId,
+                                       String status, String message, Object payload, String errorMessage) {
+        try {
+            int userId = commonService.getCurrentLoggedInUser();
+            String username = null;
+            if (userId > 0) {
+                CfgTblUser user = commonService.getCurrentUser(userId);
+                if (user != null) {
+                    username = user.getTxtUserName();
+                }
+            }
+            Map<String, Object> normalizedPayload = new HashMap<>();
+            if (payload instanceof Map) {
+                normalizedPayload.putAll((Map<String, Object>) payload);
+            } else if (payload != null) {
+                normalizedPayload.put("value", payload);
+            }
+            activityLogService.logActivity(actionType, userId > 0 ? userId : null, username,
+                    RequestMetadataUtil.resolveClientIp(request),
+                    RequestMetadataUtil.resolveDevice(request),
+                    status, message, "TEMPLATE_FORM", formId, normalizedPayload, errorMessage);
+        } catch (Exception ex) {
+            logger.warn("Failed to log template form action: " + ex.getMessage());
+        }
+    }
+
+    private Map<String, Object> buildTemplateFormPayload(CfgTblCustomForm customForm, String action) {
+        Map<String, Object> payload = new HashMap<>();
+        if (customForm != null) {
+            payload.put("formId", customForm.getSerFormId());
+            payload.put("formCode", customForm.getTxtFormCode());
+            payload.put("formName", customForm.getTxtFormName());
+            payload.put("conventionPrefix", customForm.getTxtConventionPrefix());
+        }
+        payload.put("action", action);
+        return payload;
+    }
+
+    private Map<String, Object> buildTemplateFormPayload(Integer formId, String action) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("formId", formId);
+        payload.put("action", action);
+        return payload;
+    }
+
+    private Integer toInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception ex) {
+            return null;
         }
     }
 

@@ -239,9 +239,10 @@ export class TemplateWorkflowService {
         );
     }
 
-    getMyTemplateApplications(userId: number, page = 0, pageSize = 10, search = ''): Observable<any> {
+    getMyTemplateApplications(userId: number, page = 0, pageSize = 10, search = '', all = false): Observable<any> {
         const params = new URLSearchParams();
         params.set('userId', String(userId));
+        params.set('all', String(!!all));
         params.set('page', String(Math.max(0, page)));
         params.set('pageSize', String(Math.max(1, pageSize)));
         if (search.trim()) {

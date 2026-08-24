@@ -551,7 +551,7 @@ public class CustomFormApplicationController {
             if (isTemplateBuilderApplication(applicationId)) {
                 Map<String, Object> requestBody = buildTemplateEmailActionRequest(applicationId, userId, finalRemarks);
                 Map<String, Object> result = templateDefinitionController.approveTemplateApplication(requestBody,
-                        response);
+                        request, response);
                 if ("Success".equals(result.get("status"))) {
                     String pdfRefreshStatus = getCustomFormApplicationDaoImpl()
                             .refreshTemplateApplicationPdfFromStage0(applicationId);
@@ -611,7 +611,7 @@ public class CustomFormApplicationController {
             if (isTemplateBuilderApplication(applicationId)) {
                 Map<String, Object> requestBody = buildTemplateEmailActionRequest(applicationId, userId, finalRemarks);
                 Map<String, Object> result = templateDefinitionController.rejectTemplateApplication(requestBody,
-                        response);
+                        request, response);
                 if ("Success".equals(result.get("status"))) {
                     return renderEmailActionResultPage("Application Rejected", "The application has been rejected.");
                 }
@@ -893,7 +893,7 @@ public class CustomFormApplicationController {
             if (isTemplateBuilderApplication(applicationId)) {
                 Map<String, Object> requestBody = buildTemplateEmailActionRequest(applicationId, userId, finalRemarks);
                 Map<String, Object> result = templateDefinitionController.sendBackTemplateApplication(requestBody,
-                        response);
+                        request, response);
                 if ("Success".equals(result.get("status"))) {
                     return renderEmailActionResultPage("Application Sent Back", "The application has been sent back.");
                 }
@@ -940,7 +940,7 @@ public class CustomFormApplicationController {
             if (isTemplateBuilderApplication(applicationId)) {
                 Map<String, Object> requestBody = buildTemplateEmailActionRequest(applicationId, userId, finalRemarks);
                 Map<String, Object> result = templateDefinitionController
-                        .sendBackTemplateApplicationToInitiator(requestBody, response);
+                        .sendBackTemplateApplicationToInitiator(requestBody, request, response);
                 if ("Success".equals(result.get("status"))) {
                     return renderEmailActionResultPage("Application Sent Back To Initiator",
                             "The application has been sent back to the initiator.");

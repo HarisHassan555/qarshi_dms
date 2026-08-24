@@ -52,7 +52,17 @@ export class AbcComponent implements OnInit, OnDestroy, OnChanges {
         return this.formName
             || this.application?.cfgTblCustomForm?.txtFormName
             || this.application?.formName
+            || this.getCapfFormNameFromRoute()
             || '';
+    }
+
+    private getCapfFormNameFromRoute(): string {
+        const routePath = (this.route.snapshot.routeConfig?.path || '').toLowerCase();
+        if (routePath === 'abcqu') return 'CAPF QU';
+        if (routePath === 'abcqf') return 'CAPF QF';
+        if (routePath === 'abcqri') return 'CAPF QRI';
+        if (routePath === 'abcqb') return 'CAPF QB';
+        return 'CAPF';
     }
 
     signatureSlots: Array<{

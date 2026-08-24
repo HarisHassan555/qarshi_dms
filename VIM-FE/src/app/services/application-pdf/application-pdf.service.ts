@@ -6401,7 +6401,7 @@ export class ApplicationPdfService {
           <div class="label">FEASIBILITY REPORT ATTACHED:</div>
           <div class="check-group">
             <div class="check">Yes <span class="boxcheck" style="display:flex; align-items:center; justify-content:center;">${feasibilityYes ? '<span>&#10003;</span>' : ''}</span></div>
-            <div class="check">No <span class="boxcheck" style="display:flex; align-items:center; justify-content:center;">${feasibilityNo ? '<span>&#10003;</span>' : ''}</span></div>
+            <div class="check">No <span class="boxcheck" style="display:flex; align-items:center; justify-content:center;"></span></div>
           </div>
         </div>
 

@@ -5,11 +5,11 @@
         </div>
         <div class="xyz-header">
             <div class="xyz-logo">
-                <img src="assets/images/qarshi-logo.png" alt="Qarshi" />
+                <img [src]="logoPath" [alt]="companyName" />
             </div>
             <div class="xyz-company">
-                <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
-                <div class="xyz-company-address">15-G, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
+                <div class="xyz-company-name">{{ companyName }}</div>
+                <div class="xyz-company-address">{{ companyAddress }}</div>
             </div>
             <div class="xyz-header-spacer"></div>
         </div>
@@ -50,7 +50,7 @@
                     <td>
                         <span *ngIf="approver">
                             {{ approver.txtUserName }}<br>
-                            ({{ approver.cfgTblRole?.txtRoleName || 'Approver' }})
+                            ({{ getApproverRoleLabel() }})
                         </span>
                     </td>
                 </tr>

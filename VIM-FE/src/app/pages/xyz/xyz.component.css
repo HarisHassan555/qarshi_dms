@@ -225,7 +225,7 @@
 }
 
 .xyz-signatures-blank td {
-    height: 56px;
+    height: 88px;
     padding: 0;
     background: #ffffff;
 }
@@ -244,6 +244,8 @@
 .xyz-signatures td {
     font-family: Calibri, "Calibri (Body)", Arial, sans-serif;
     font-size: 12px;
+    padding-top: 10px;
+    padding-bottom: 10px;
 }
 
 @media (max-width: 900px) {

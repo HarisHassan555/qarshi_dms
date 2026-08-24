@@ -1,0 +1,11 @@
+.dashboard-lane-scroll,
+.dashboard-activity-scroll {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.dashboard-lane-scroll::-webkit-scrollbar,
+.dashboard-activity-scroll::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
