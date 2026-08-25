@@ -17,6 +17,14 @@ interface DepartmentApplication {
   submittedByUserName?: string;
 }
 
+type DepartmentApplicationCsvColumnKey =
+  'txtFormCode' | 'formName' | 'submittedByUserName' | 'submittedDepartmentName' | 'txtStatus' | 'dteCreatedDate';
+
+interface DepartmentApplicationCsvColumn {
+  key: DepartmentApplicationCsvColumnKey;
+  label: string;
+}
+
 @Component({
   selector: 'app-department-application',
   templateUrl: './department-application.component.html',
@@ -28,6 +36,17 @@ export class DepartmentApplicationComponent implements OnInit {
   displayedApplications: DepartmentApplication[] = [];
   currentUser: any;
   isLoading = false;
+  showCsvModal = false;
+  availableCsvColumns: DepartmentApplicationCsvColumn[] = [];
+  selectedCsvColumns: DepartmentApplicationCsvColumn[] = [];
+  readonly csvColumns: DepartmentApplicationCsvColumn[] = [
+    { key: 'txtFormCode', label: 'Application Code' },
+    { key: 'formName', label: 'Form Name' },
+    { key: 'submittedByUserName', label: 'Submitted By' },
+    { key: 'submittedDepartmentName', label: 'Department' },
+    { key: 'txtStatus', label: 'Status' },
+    { key: 'dteCreatedDate', label: 'Submitted Date' }
+  ];
 
   cols = [
     { field: 'txtFormCode', title: 'Application Code' },
@@ -110,6 +129,65 @@ export class DepartmentApplicationComponent implements OnInit {
     );
   }
 
+  openCsvModal(): void {
+    if (this.displayedApplications.length === 0) {
+      this.notificationService.showMessage('No department applications to download', 'warning');
+      return;
+    }
+    this.availableCsvColumns = [...this.csvColumns];
+    this.selectedCsvColumns = [];
+    this.showCsvModal = true;
+  }
+
+  closeCsvModal(): void {
+    this.showCsvModal = false;
+  }
+
+  selectAllCsvColumns(): void {
+    this.availableCsvColumns = [];
+    this.selectedCsvColumns = [...this.csvColumns];
+  }
+
+  unselectAllCsvColumns(): void {
+    this.availableCsvColumns = [...this.csvColumns];
+    this.selectedCsvColumns = [];
+  }
+
+  addCsvColumn(column: DepartmentApplicationCsvColumn): void {
+    if (!this.selectedCsvColumns.some((item) => item.key === column.key)) {
+      this.availableCsvColumns = this.availableCsvColumns.filter((item) => item.key !== column.key);
+      this.selectedCsvColumns = [...this.selectedCsvColumns, column];
+    }
+  }
+
+  removeCsvColumn(column: DepartmentApplicationCsvColumn): void {
+    this.selectedCsvColumns = this.selectedCsvColumns.filter((item) => item.key !== column.key);
+    const restoredColumns = [...this.availableCsvColumns, column];
+    this.availableCsvColumns = this.csvColumns.filter((candidate) => restoredColumns.some((item) => item.key === candidate.key));
+  }
+
+  downloadCsv(): void {
+    if (!this.selectedCsvColumns.length) {
+      this.notificationService.showMessage('Select at least one column before downloading CSV.', 'warning');
+      return;
+    }
+    const csvRows = [
+      this.selectedCsvColumns.map((column) => this.escapeCsvValue(column.label)).join(','),
+      ...this.displayedApplications.map((app) => this.selectedCsvColumns
+        .map((column) => this.escapeCsvValue(this.getCsvCellValue(app, column.key)))
+        .join(','))
+    ];
+    this.downloadBlob(
+      new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' }),
+      `department-applications_${new Date().toISOString().split('T')[0]}.csv`
+    );
+    this.showCsvModal = false;
+  }
+
+  trackByCsvColumn(index: number, column: DepartmentApplicationCsvColumn): DepartmentApplicationCsvColumnKey {
+    return column.key;
+  }
+
   getStatusBadgeClass(status: string | undefined): string {
     if (!status) return 'badge-outline-secondary';
     switch (status.toUpperCase()) {
@@ -148,5 +226,38 @@ export class DepartmentApplicationComponent implements OnInit {
     this.router.navigate(['/application-details', application.serApplicationId], {
       queryParams: { from: 'department-application' }
     });
+  }
+
+  private getCsvCellValue(application: DepartmentApplication, key: DepartmentApplicationCsvColumnKey): string {
+    switch (key) {
+      case 'txtFormCode':
+        return application.txtFormCode || '';
+      case 'formName':
+        return application.formName || '';
+      case 'submittedByUserName':
+        return application.submittedByUserName || '';
+      case 'submittedDepartmentName':
+        return application.submittedDepartmentName || '';
+      case 'txtStatus':
+        return application.txtStatus || '';
+      case 'dteCreatedDate':
+        return application.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleString() : '';
+      default:
+        return '';
+    }
+  }
+
+  private escapeCsvValue(value: any): string {
+    const normalized = String(value ?? '');
+    return `"${normalized.replace(/"/g, '""')}"`;
+  }
+
+  private downloadBlob(blob: Blob, filename: string): void {
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(objectUrl);
   }
 }

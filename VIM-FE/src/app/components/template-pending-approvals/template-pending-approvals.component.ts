@@ -14,6 +14,9 @@ interface TemplatePendingApplication {
     templateName?: string;
 }
 
+type PendingApprovalCsvColumnKey = 'txtFormCode' | 'templateName' | 'txtStatus' | 'intCurrentApprovalLevel' | 'dteCreatedDate';
+interface PendingApprovalCsvColumn { key: PendingApprovalCsvColumnKey; label: string; }
+
 @Component({
     selector: 'app-template-pending-approvals',
     templateUrl: './template-pending-approvals.component.html',
@@ -24,6 +27,9 @@ export class TemplatePendingApprovalsComponent implements OnInit, OnDestroy {
     currentUser: any = null;
     isLoading = false;
     pendingApprovals: TemplatePendingApplication[] = [];
+    showCsvModal = false;
+    availableCsvColumns: PendingApprovalCsvColumn[] = [];
+    selectedCsvColumns: PendingApprovalCsvColumn[] = [];
     page = 0;
     pageSize = 10;
     totalPendingApprovals = 0;
@@ -36,6 +42,13 @@ export class TemplatePendingApprovalsComponent implements OnInit, OnDestroy {
         { field: 'intCurrentApprovalLevel', title: 'Approval Level' },
         { field: 'dteCreatedDate', title: 'Submitted Date' },
         { field: 'actions', title: 'Actions', sort: false, headerClass: 'justify-center' },
+    ];
+    readonly csvColumns: PendingApprovalCsvColumn[] = [
+        { key: 'txtFormCode', label: 'Application Code' },
+        { key: 'templateName', label: 'Template' },
+        { key: 'txtStatus', label: 'Status' },
+        { key: 'intCurrentApprovalLevel', label: 'Approval Level' },
+        { key: 'dteCreatedDate', label: 'Submitted Date' }
     ];
 
     constructor(
@@ -113,7 +126,48 @@ export class TemplatePendingApprovalsComponent implements OnInit, OnDestroy {
         this.loadPendingApprovals();
     }
 
-    exportPendingApprovalsCsv(): void {
+    openCsvModal(): void {
+        if (this.getDisplayedPendingApprovals().length === 0) {
+            this.notificationService.showMessage('No pending approvals available to export.', 'warning');
+            return;
+        }
+        this.availableCsvColumns = [...this.csvColumns];
+        this.selectedCsvColumns = [];
+        this.showCsvModal = true;
+    }
+
+    closeCsvModal(): void {
+        this.showCsvModal = false;
+    }
+
+    selectAllCsvColumns(): void {
+        this.availableCsvColumns = [];
+        this.selectedCsvColumns = [...this.csvColumns];
+    }
+
+    unselectAllCsvColumns(): void {
+        this.availableCsvColumns = [...this.csvColumns];
+        this.selectedCsvColumns = [];
+    }
+
+    addCsvColumn(column: PendingApprovalCsvColumn): void {
+        if (!this.selectedCsvColumns.some((item) => item.key === column.key)) {
+            this.availableCsvColumns = this.availableCsvColumns.filter((item) => item.key !== column.key);
+            this.selectedCsvColumns = [...this.selectedCsvColumns, column];
+        }
+    }
+
+    removeCsvColumn(column: PendingApprovalCsvColumn): void {
+        this.selectedCsvColumns = this.selectedCsvColumns.filter((item) => item.key !== column.key);
+        const restoredColumns = [...this.availableCsvColumns, column];
+        this.availableCsvColumns = this.csvColumns.filter((candidate) => restoredColumns.some((item) => item.key === candidate.key));
+    }
+
+    downloadCsv(): void {
+        if (!this.selectedCsvColumns.length) {
+            this.notificationService.showMessage('Select at least one column before downloading CSV.', 'warning');
+            return;
+        }
         const userId = this.currentUser?.serUserId || this.currentUser?.userId || this.currentUser?.id || 0;
         const exportSize = Math.max(this.totalPendingApprovals || 0, this.pageSize, 1000);
         this.templateWorkflowService.getTemplatePendingApprovals(userId, false, 0, exportSize, this.search).subscribe({
@@ -124,21 +178,17 @@ export class TemplatePendingApprovalsComponent implements OnInit, OnDestroy {
                     this.notificationService.showMessage('No pending approvals available to export.', 'warning');
                     return;
                 }
-                const headers = ['Application Code', 'Template', 'Status', 'Approval Level', 'Submitted Date'];
                 const csvRows = [
-                    headers.join(','),
-                    ...rows.map((application: TemplatePendingApplication) => ([
-                        application.txtFormCode || '',
-                        application.templateName || '',
-                        application.txtStatus || '',
-                        String(application.intCurrentApprovalLevel || 1),
-                        application.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleString() : ''
-                    ].map((value) => this.escapeCsvValue(value)).join(',')))
+                    this.selectedCsvColumns.map((column) => this.escapeCsvValue(column.label)).join(','),
+                    ...rows.map((application: TemplatePendingApplication) => this.selectedCsvColumns
+                        .map((column) => this.escapeCsvValue(this.getCsvCellValue(application, column.key)))
+                        .join(','))
                 ];
                 this.downloadBlob(
                     new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' }),
                     `template-pending-approvals_${new Date().toISOString().split('T')[0]}.csv`
                 );
+                this.showCsvModal = false;
             },
             error: (error) => {
                 this.notificationService.showMessage(
@@ -147,6 +197,10 @@ export class TemplatePendingApprovalsComponent implements OnInit, OnDestroy {
                 );
             }
         });
+    }
+
+    trackByCsvColumn(index: number, column: PendingApprovalCsvColumn): PendingApprovalCsvColumnKey {
+        return column.key;
     }
 
     get totalPages(): number {
@@ -200,6 +254,17 @@ export class TemplatePendingApprovalsComponent implements OnInit, OnDestroy {
             dteCreatedDate: application?.dteCreatedDate,
             templateName: application?.templateName || 'Template'
         };
+    }
+
+    private getCsvCellValue(application: TemplatePendingApplication, key: PendingApprovalCsvColumnKey): string {
+        switch (key) {
+            case 'txtFormCode': return application.txtFormCode || '';
+            case 'templateName': return application.templateName || '';
+            case 'txtStatus': return application.txtStatus || '';
+            case 'intCurrentApprovalLevel': return String(application.intCurrentApprovalLevel || 1);
+            case 'dteCreatedDate': return application.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleString() : '';
+            default: return '';
+        }
     }
 
     private escapeCsvValue(value: any): string {

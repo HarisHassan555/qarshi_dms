@@ -1266,7 +1266,6 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             valueEl.style.setProperty('line-height', '1.05', 'important');
             valueEl.style.setProperty('overflow', 'hidden', 'important');
             valueEl.style.setProperty('padding', '0', 'important');
-            valueEl.style.setProperty('transform', 'translateY(1px)', 'important');
             valueEl.style.setProperty('white-space', 'pre-wrap', 'important');
         });
 

@@ -15,6 +15,9 @@ interface TemplateApprovedApplication {
     templateName?: string;
 }
 
+type ApprovedApplicationCsvColumnKey = 'txtFormCode' | 'templateName' | 'txtStatus' | 'myApprovalDate' | 'dteCreatedDate';
+interface ApprovedApplicationCsvColumn { key: ApprovedApplicationCsvColumnKey; label: string; }
+
 @Component({
     selector: 'app-template-approved-applications',
     templateUrl: './template-approved-applications.component.html',
@@ -25,6 +28,9 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
     currentUser: any = null;
     isLoading = false;
     approvedApplications: TemplateApprovedApplication[] = [];
+    showCsvModal = false;
+    availableCsvColumns: ApprovedApplicationCsvColumn[] = [];
+    selectedCsvColumns: ApprovedApplicationCsvColumn[] = [];
     page = 0;
     pageSize = 10;
     totalApprovedApplications = 0;
@@ -37,6 +43,13 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
         { field: 'myApprovalDate', title: 'Approved On' },
         { field: 'dteCreatedDate', title: 'Submitted Date' },
         { field: 'actions', title: 'Actions', sort: false, headerClass: 'justify-center' },
+    ];
+    readonly csvColumns: ApprovedApplicationCsvColumn[] = [
+        { key: 'txtFormCode', label: 'Application Code' },
+        { key: 'templateName', label: 'Template' },
+        { key: 'txtStatus', label: 'Current Status' },
+        { key: 'myApprovalDate', label: 'Approved On' },
+        { key: 'dteCreatedDate', label: 'Submitted Date' }
     ];
 
     constructor(
@@ -113,7 +126,48 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
         this.loadApprovedApplications();
     }
 
-    exportApprovedApplicationsCsv(): void {
+    openCsvModal(): void {
+        if (this.getDisplayedApprovedApplications().length === 0) {
+            this.notificationService.showMessage('No approved applications available to export.', 'warning');
+            return;
+        }
+        this.availableCsvColumns = [...this.csvColumns];
+        this.selectedCsvColumns = [];
+        this.showCsvModal = true;
+    }
+
+    closeCsvModal(): void {
+        this.showCsvModal = false;
+    }
+
+    selectAllCsvColumns(): void {
+        this.availableCsvColumns = [];
+        this.selectedCsvColumns = [...this.csvColumns];
+    }
+
+    unselectAllCsvColumns(): void {
+        this.availableCsvColumns = [...this.csvColumns];
+        this.selectedCsvColumns = [];
+    }
+
+    addCsvColumn(column: ApprovedApplicationCsvColumn): void {
+        if (!this.selectedCsvColumns.some((item) => item.key === column.key)) {
+            this.availableCsvColumns = this.availableCsvColumns.filter((item) => item.key !== column.key);
+            this.selectedCsvColumns = [...this.selectedCsvColumns, column];
+        }
+    }
+
+    removeCsvColumn(column: ApprovedApplicationCsvColumn): void {
+        this.selectedCsvColumns = this.selectedCsvColumns.filter((item) => item.key !== column.key);
+        const restoredColumns = [...this.availableCsvColumns, column];
+        this.availableCsvColumns = this.csvColumns.filter((candidate) => restoredColumns.some((item) => item.key === candidate.key));
+    }
+
+    downloadCsv(): void {
+        if (!this.selectedCsvColumns.length) {
+            this.notificationService.showMessage('Select at least one column before downloading CSV.', 'warning');
+            return;
+        }
         const userId = this.currentUser?.serUserId || this.currentUser?.userId || this.currentUser?.id || 0;
         const exportSize = Math.max(this.totalApprovedApplications || 0, this.pageSize, 1000);
         this.templateWorkflowService.getTemplateApprovedApplications(userId, 0, exportSize, this.search).subscribe({
@@ -124,21 +178,17 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
                     this.notificationService.showMessage('No approved applications available to export.', 'warning');
                     return;
                 }
-                const headers = ['Application Code', 'Template', 'Current Status', 'Approved On', 'Submitted Date'];
                 const csvRows = [
-                    headers.join(','),
-                    ...rows.map((application: TemplateApprovedApplication) => ([
-                        application.txtFormCode || '',
-                        application.templateName || '',
-                        application.txtStatus || '',
-                        application.myApprovalDate ? new Date(application.myApprovalDate).toLocaleString() : '',
-                        application.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleString() : ''
-                    ].map((value) => this.escapeCsvValue(value)).join(',')))
+                    this.selectedCsvColumns.map((column) => this.escapeCsvValue(column.label)).join(','),
+                    ...rows.map((application: TemplateApprovedApplication) => this.selectedCsvColumns
+                        .map((column) => this.escapeCsvValue(this.getCsvCellValue(application, column.key)))
+                        .join(','))
                 ];
                 this.downloadBlob(
                     new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' }),
                     `template-approved-applications_${new Date().toISOString().split('T')[0]}.csv`
                 );
+                this.showCsvModal = false;
             },
             error: (error) => {
                 this.notificationService.showMessage(
@@ -147,6 +197,10 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
                 );
             }
         });
+    }
+
+    trackByCsvColumn(index: number, column: ApprovedApplicationCsvColumn): ApprovedApplicationCsvColumnKey {
+        return column.key;
     }
 
     get totalPages(): number {
@@ -202,6 +256,17 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
             myApprovalDate: application?.myApprovalDate,
             templateName: application?.templateName || 'Template'
         };
+    }
+
+    private getCsvCellValue(application: TemplateApprovedApplication, key: ApprovedApplicationCsvColumnKey): string {
+        switch (key) {
+            case 'txtFormCode': return application.txtFormCode || '';
+            case 'templateName': return application.templateName || '';
+            case 'txtStatus': return application.txtStatus || '';
+            case 'myApprovalDate': return application.myApprovalDate ? new Date(application.myApprovalDate).toLocaleString() : '';
+            case 'dteCreatedDate': return application.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleString() : '';
+            default: return '';
+        }
     }
 
     private escapeCsvValue(value: any): string {

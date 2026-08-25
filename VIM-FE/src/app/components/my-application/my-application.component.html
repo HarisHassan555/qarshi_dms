@@ -87,6 +87,7 @@
 
 <ng-template #applicationDetails>
     <div class="my-application-page" *ngIf="selectedApplication as application">
+        <ng-container *ngIf="!showApprovalLogsCsvModal">
         <div class="panel selected-summary">
             <div>
                 <h3>{{ application.templateName || selectedTemplate?.name || 'Template Application' }}</h3>
@@ -316,7 +317,17 @@
             </div>
 
             <div class="mt-4 prior-approvals-log" *ngIf="getApprovalLogRows().length > 0">
-                <h4 class="text-sm font-bold text-gray-800 dark:text-white mb-2">Prior Approvals</h4>
+                <div class="flex items-center justify-between gap-3 mb-2">
+                    <h4 class="text-sm font-bold text-gray-800 dark:text-white mb-0">Prior Approvals</h4>
+                    <div class="flex items-center gap-2">
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-outline-secondary"
+                            (click)="openApprovalLogsCsvModal()">
+                            Download CSV
+                        </button>
+                    </div>
+                </div>
                 <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
                     <table class="min-w-full text-xs">
                         <thead class="bg-gray-100 dark:bg-gray-800">
@@ -348,5 +359,65 @@
                 </div>
             </div>
         </section>
+        </ng-container>
     </div>
 </ng-template>
+
+<div class="log-csv-modal-backdrop" *ngIf="showApprovalLogsCsvModal" (click)="closeApprovalLogsCsvModal()">
+    <div class="log-csv-modal" (click)="$event.stopPropagation()">
+        <div class="log-csv-modal-header">
+            <div>
+                <h3>Download Logs CSV</h3>
+                <p>Click columns on the left to add them. The right-side order will be used in the CSV.</p>
+            </div>
+            <button type="button" class="log-csv-close" (click)="closeApprovalLogsCsvModal()">x</button>
+        </div>
+
+        <div class="log-csv-modal-actions">
+            <button type="button" class="btn btn-sm btn-outline-primary" (click)="selectAllApprovalLogCsvColumns()">Select All</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" (click)="unselectAllApprovalLogCsvColumns()">Unselect All</button>
+        </div>
+
+        <div class="log-csv-modal-body">
+            <div class="log-csv-panel">
+                <h4>Available Columns</h4>
+                <div class="log-csv-list">
+                    <button
+                        *ngFor="let column of availableApprovalLogCsvColumns; trackBy: trackByApprovalLogCsvColumn"
+                        type="button"
+                        class="log-csv-item"
+                        (click)="addApprovalLogCsvColumn(column)">
+                        {{ column.label }}
+                    </button>
+                    <div *ngIf="availableApprovalLogCsvColumns.length === 0" class="log-csv-empty">
+                        All columns are selected.
+                    </div>
+                </div>
+            </div>
+
+            <div class="log-csv-panel">
+                <h4>Selected Columns</h4>
+                <div class="log-csv-list">
+                    <button
+                        *ngFor="let column of selectedApprovalLogCsvColumns; let index = index; trackBy: trackByApprovalLogCsvColumn"
+                        type="button"
+                        class="log-csv-item is-selected"
+                        (click)="removeApprovalLogCsvColumn(column)">
+                        <span>{{ index + 1 }}. {{ column.label }}</span>
+                        <span>Remove</span>
+                    </button>
+                    <div *ngIf="selectedApprovalLogCsvColumns.length === 0" class="log-csv-empty">
+                        No columns selected yet.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="log-csv-modal-footer">
+            <button type="button" class="btn btn-outline-danger" (click)="closeApprovalLogsCsvModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" [disabled]="selectedApprovalLogCsvColumns.length === 0" (click)="downloadApprovalLogsCsv()">
+                Download
+            </button>
+        </div>
+    </div>
+</div>

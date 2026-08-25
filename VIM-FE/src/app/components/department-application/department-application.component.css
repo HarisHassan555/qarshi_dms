@@ -13,3 +13,138 @@
         transform: rotate(360deg);
     }
 }
+
+.log-csv-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    background: rgb(15 23 42 / 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.log-csv-modal {
+    width: min(920px, 100%);
+    background: #ffffff;
+    border-radius: 16px;
+    box-shadow: 0 24px 60px rgb(15 23 42 / 0.25);
+    border: 1px solid #dbe4f0;
+    overflow: hidden;
+}
+
+.log-csv-modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px 20px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.log-csv-modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: #111827;
+}
+
+.log-csv-modal-header p {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: #6b7280;
+}
+
+.log-csv-close {
+    border: 0;
+    background: transparent;
+    color: #6b7280;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.log-csv-modal-actions {
+    display: flex;
+    gap: 10px;
+    padding: 14px 20px 0;
+}
+
+.log-csv-modal-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 20px;
+}
+
+.log-csv-panel {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 14px;
+    min-height: 320px;
+    background: #f8fafc;
+}
+
+.log-csv-panel h4 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #111827;
+}
+
+.log-csv-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.log-csv-item {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #111827;
+    padding: 10px 12px;
+    border-radius: 10px;
+    text-align: left;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.log-csv-item.is-selected {
+    border-color: #93c5fd;
+    background: #eff6ff;
+}
+
+.log-csv-empty {
+    min-height: 120px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 16px;
+    color: #6b7280;
+    font-size: 13px;
+    background: #ffffff;
+}
+
+.log-csv-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 20px 20px;
+    border-top: 1px solid #e5e7eb;
+}
+
+@media (max-width: 700px) {
+    .log-csv-modal-body {
+        grid-template-columns: 1fr;
+    }
+}

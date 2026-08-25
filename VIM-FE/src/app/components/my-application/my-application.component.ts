@@ -3,6 +3,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { finalize } from 'rxjs';
 import { NotificationService } from 'src/app/NotificationService';
+import { ApplicationPdfService } from 'src/app/services/application-pdf/application-pdf.service';
 import { SavedTemplateDefinition, TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
 import { urls } from 'src/app/utils/urls';
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
@@ -104,6 +105,13 @@ interface ApprovalLogRow {
     signatureUrl: string;
 }
 
+type ApprovalLogCsvColumnKey = 'level' | 'approver' | 'role' | 'status' | 'date' | 'comments';
+
+interface ApprovalLogCsvColumn {
+    key: ApprovalLogCsvColumnKey;
+    label: string;
+}
+
 interface AttachmentPayload {
     fileName: string;
     mimeType: string;
@@ -128,6 +136,18 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     page = 0;
     pageSize = 10;
     totalApplications = 0;
+    isDownloadingWithLogsPdf = false;
+    showApprovalLogsCsvModal = false;
+    availableApprovalLogCsvColumns: ApprovalLogCsvColumn[] = [];
+    selectedApprovalLogCsvColumns: ApprovalLogCsvColumn[] = [];
+    readonly approvalLogCsvColumns: ApprovalLogCsvColumn[] = [
+        { key: 'level', label: 'Level' },
+        { key: 'approver', label: 'Approver' },
+        { key: 'role', label: 'Role' },
+        { key: 'status', label: 'Status' },
+        { key: 'date', label: 'Date' },
+        { key: 'comments', label: 'Comments' }
+    ];
     private searchTimer: ReturnType<typeof setTimeout> | null = null;
     cols = [
         { field: 'txtFormCode', title: 'Application Code' },
@@ -139,6 +159,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     ];
 
     constructor(
+        private applicationPdfService: ApplicationPdfService,
         private templateWorkflowService: TemplateWorkflowService,
         private sanitizer: DomSanitizer,
         private notificationService: NotificationService,
@@ -340,6 +361,178 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
                 );
             }
         });
+    }
+
+    async downloadApplicationWithLogsPdf(application: MyTemplateApplication | null = this.selectedApplication): Promise<void> {
+        if (!application?.serApplicationId || this.isDownloadingWithLogsPdf) {
+            return;
+        }
+
+        this.isDownloadingWithLogsPdf = true;
+        try {
+            const filename = `${application.txtFormCode || 'template-application'}_logs.pdf`;
+            const pdfHtml = this.buildApprovalLogsPdfHtml(application, this.getApprovalLogRows());
+            const pdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(pdfHtml, filename);
+            this.downloadBlob(pdfBlob, filename);
+        } catch (error: any) {
+            this.notificationService.showMessage(
+                error?.message || 'Application and logs PDF could not be downloaded.',
+                'danger'
+            );
+        } finally {
+            this.isDownloadingWithLogsPdf = false;
+        }
+    }
+
+    openApprovalLogsCsvModal(): void {
+        if (this.getApprovalLogRows().length === 0) {
+            this.notificationService.showMessage('No approval logs available to export.', 'warning');
+            return;
+        }
+        this.availableApprovalLogCsvColumns = [...this.approvalLogCsvColumns];
+        this.selectedApprovalLogCsvColumns = [];
+        this.showApprovalLogsCsvModal = true;
+    }
+
+    closeApprovalLogsCsvModal(): void {
+        this.showApprovalLogsCsvModal = false;
+    }
+
+    selectAllApprovalLogCsvColumns(): void {
+        this.availableApprovalLogCsvColumns = [];
+        this.selectedApprovalLogCsvColumns = [...this.approvalLogCsvColumns];
+    }
+
+    unselectAllApprovalLogCsvColumns(): void {
+        this.availableApprovalLogCsvColumns = [...this.approvalLogCsvColumns];
+        this.selectedApprovalLogCsvColumns = [];
+    }
+
+    addApprovalLogCsvColumn(column: ApprovalLogCsvColumn): void {
+        if (!this.selectedApprovalLogCsvColumns.some((item) => item.key === column.key)) {
+            this.availableApprovalLogCsvColumns = this.availableApprovalLogCsvColumns.filter((item) => item.key !== column.key);
+            this.selectedApprovalLogCsvColumns = [...this.selectedApprovalLogCsvColumns, column];
+        }
+    }
+
+    removeApprovalLogCsvColumn(column: ApprovalLogCsvColumn): void {
+        this.selectedApprovalLogCsvColumns = this.selectedApprovalLogCsvColumns.filter((item) => item.key !== column.key);
+        const restoredColumns = [...this.availableApprovalLogCsvColumns, column];
+        this.availableApprovalLogCsvColumns = this.approvalLogCsvColumns
+            .filter((candidate) => restoredColumns.some((item) => item.key === candidate.key));
+    }
+
+    downloadApprovalLogsCsv(application: MyTemplateApplication | null = this.selectedApplication): void {
+        if (!application?.serApplicationId) {
+            return;
+        }
+        if (this.selectedApprovalLogCsvColumns.length === 0) {
+            this.notificationService.showMessage('Select at least one log column before downloading CSV.', 'warning');
+            return;
+        }
+
+        const rows = this.getApprovalLogRows();
+        const selectedColumns = this.selectedApprovalLogCsvColumns;
+        const csvRows = [
+            selectedColumns.map((column) => this.escapeCsvValue(column.label)).join(','),
+            ...rows.map((row) => selectedColumns
+                .map((column) => this.escapeCsvValue(this.getApprovalLogCsvCellValue(row, column.key)))
+                .join(','))
+        ];
+
+        this.downloadBlob(
+            new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' }),
+            `${application.txtFormCode || 'template-application'}_logs.csv`
+        );
+        this.showApprovalLogsCsvModal = false;
+    }
+
+    private buildApprovalLogsPdfHtml(application: MyTemplateApplication, rows: ApprovalLogRow[]): string {
+        const templateName = this.escapeHtml(application.templateName || this.selectedTemplate?.name || 'Template Application');
+        const formCode = this.escapeHtml(application.txtFormCode || '-');
+        const status = this.escapeHtml(application.txtStatus || 'PENDING');
+        const submittedDate = application.dteCreatedDate ? this.escapeHtml(new Date(application.dteCreatedDate).toLocaleString()) : '--';
+        const generatedAt = this.escapeHtml(new Date().toLocaleString());
+        const tableRows = rows.length > 0
+            ? rows.map((row, index) => `
+                <tr>
+                    <td style="border:1px solid #d1d5db;border-bottom:1px solid #d1d5db;padding:8px 10px;font-size:12px;text-align:center;background:${index % 2 === 0 ? '#ffffff' : '#f9fafb'};">${this.escapeHtml(row.level)}</td>
+                    <td style="border:1px solid #d1d5db;border-bottom:1px solid #d1d5db;padding:8px 10px;font-size:12px;line-height:1.35;background:${index % 2 === 0 ? '#ffffff' : '#f9fafb'};">${this.escapeHtml(row.approver)}</td>
+                    <td style="border:1px solid #d1d5db;border-bottom:1px solid #d1d5db;padding:8px 10px;font-size:12px;line-height:1.35;background:${index % 2 === 0 ? '#ffffff' : '#f9fafb'};">${this.escapeHtml(row.role)}</td>
+                    <td style="border:1px solid #d1d5db;border-bottom:1px solid #d1d5db;padding:8px 10px;font-size:12px;line-height:1.35;background:${index % 2 === 0 ? '#ffffff' : '#f9fafb'};">${this.escapeHtml(row.status)}</td>
+                    <td style="border:1px solid #d1d5db;border-bottom:1px solid #d1d5db;padding:8px 10px;font-size:12px;line-height:1.35;background:${index % 2 === 0 ? '#ffffff' : '#f9fafb'};">${this.escapeHtml(row.date)}</td>
+                    <td style="border:1px solid #d1d5db;border-bottom:1px solid #d1d5db;padding:8px 10px;font-size:12px;line-height:1.45;background:${index % 2 === 0 ? '#ffffff' : '#f9fafb'};">${this.escapeHtml(row.comments)}</td>
+                    <td style="border:1px solid #d1d5db;border-bottom:1px solid #d1d5db;padding:8px 10px;font-size:12px;text-align:center;vertical-align:middle;background:${index % 2 === 0 ? '#ffffff' : '#f9fafb'};">${row.signatureUrl ? `<img src="${this.escapeHtml(row.signatureUrl)}" alt="Signature" style="display:block;margin:0 auto;max-width:90px;max-height:30px;object-fit:contain;" />` : '--'}</td>
+                </tr>
+            `).join('')
+            : `
+                <tr>
+                    <td colspan="7" style="border:1px solid #d1d5db;padding:18px 12px;text-align:center;color:#6b7280;font-size:12px;">No approval logs available.</td>
+                </tr>
+            `;
+
+        return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+</head>
+<body style="margin:0;padding:12px 18px;font-family:Arial,sans-serif;background:#ffffff;color:#111827;box-sizing:border-box;">
+  <div style="width:100%;margin:0 auto;background:#ffffff;box-sizing:border-box;">
+    <div style="margin-bottom:14px;">
+      <div style="font-size:22px;font-weight:700;line-height:1.2;color:#111827;">Application Logs</div>
+      <div style="font-size:13px;color:#374151;margin-top:4px;">${templateName}</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;margin:0 auto 14px;">
+      <tbody>
+        <tr>
+          <td style="padding:6px 8px;border:1px solid #d1d5db;font-size:12px;width:25%;"><strong>Application Code:</strong> ${formCode}</td>
+          <td style="padding:6px 8px;border:1px solid #d1d5db;font-size:12px;width:25%;"><strong>Status:</strong> ${status}</td>
+          <td style="padding:6px 8px;border:1px solid #d1d5db;font-size:12px;width:25%;"><strong>Submitted Date:</strong> ${submittedDate}</td>
+          <td style="padding:6px 8px;border:1px solid #d1d5db;font-size:12px;width:25%;"><strong>Generated:</strong> ${generatedAt}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="font-size:14px;font-weight:700;color:#111827;margin:0 0 8px;">Prior Approvals (${rows.length})</div>
+    <table style="width:100%;margin:0 auto;border-collapse:collapse;table-layout:fixed;border:1px solid #d1d5db;">
+      <thead>
+        <tr>
+          <th style="width:8%;background:#f3f4f6;color:#111827;padding:8px;border:1px solid #d1d5db;font-size:12px;text-align:left;">Level</th>
+          <th style="width:16%;background:#f3f4f6;color:#111827;padding:8px;border:1px solid #d1d5db;font-size:12px;text-align:left;">Approver</th>
+          <th style="width:14%;background:#f3f4f6;color:#111827;padding:8px;border:1px solid #d1d5db;font-size:12px;text-align:left;">Role</th>
+          <th style="width:12%;background:#f3f4f6;color:#111827;padding:8px;border:1px solid #d1d5db;font-size:12px;text-align:left;">Status</th>
+          <th style="width:18%;background:#f3f4f6;color:#111827;padding:8px;border:1px solid #d1d5db;font-size:12px;text-align:left;">Date</th>
+          <th style="width:22%;background:#f3f4f6;color:#111827;padding:8px;border:1px solid #d1d5db;font-size:12px;text-align:left;">Comments</th>
+          <th style="width:10%;background:#f3f4f6;color:#111827;padding:8px;border:1px solid #d1d5db;font-size:12px;text-align:left;">Signature</th>
+        </tr>
+      </thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+  </div>
+</body>
+</html>`;
+    }
+
+    private getApprovalLogCsvCellValue(row: ApprovalLogRow, key: ApprovalLogCsvColumnKey): string {
+        switch (key) {
+            case 'level':
+                return row.level || '';
+            case 'approver':
+                return row.approver || '';
+            case 'role':
+                return row.role || '';
+            case 'status':
+                return row.status || '';
+            case 'date':
+                return row.date || '';
+            case 'comments':
+                return row.comments || '';
+            default:
+                return '';
+        }
+    }
+
+    trackByApprovalLogCsvColumn(index: number, column: ApprovalLogCsvColumn): ApprovalLogCsvColumnKey {
+        return column.key;
     }
 
     private loadApplicationDetails(applicationId: number): void {

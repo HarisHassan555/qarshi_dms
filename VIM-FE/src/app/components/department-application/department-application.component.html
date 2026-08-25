@@ -10,6 +10,9 @@
             <div>
                 <input [(ngModel)]="search" (ngModelChange)="applySearchFilter()" type="text" class="form-input" placeholder="Search department applications..." />
             </div>
+            <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="isLoading || displayedApplications.length === 0" (click)="openCsvModal()">
+                Download CSV
+            </button>
         </div>
     </div>
 
@@ -66,5 +69,46 @@
         <p class="text-gray-600 dark:text-gray-400">
             No department applications found.
         </p>
+    </div>
+</div>
+
+<div class="log-csv-modal-backdrop" *ngIf="showCsvModal" (click)="closeCsvModal()">
+    <div class="log-csv-modal" (click)="$event.stopPropagation()">
+        <div class="log-csv-modal-header">
+            <div>
+                <h3>Download Department Applications CSV</h3>
+                <p>Click columns on the left to add them. The right-side order will be used in the CSV.</p>
+            </div>
+            <button type="button" class="log-csv-close" (click)="closeCsvModal()">x</button>
+        </div>
+        <div class="log-csv-modal-actions">
+            <button type="button" class="btn btn-sm btn-outline-primary" (click)="selectAllCsvColumns()">Select All</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" (click)="unselectAllCsvColumns()">Unselect All</button>
+        </div>
+        <div class="log-csv-modal-body">
+            <div class="log-csv-panel">
+                <h4>Available Columns</h4>
+                <div class="log-csv-list">
+                    <button *ngFor="let column of availableCsvColumns; trackBy: trackByCsvColumn" type="button" class="log-csv-item" (click)="addCsvColumn(column)">
+                        {{ column.label }}
+                    </button>
+                    <div *ngIf="availableCsvColumns.length === 0" class="log-csv-empty">All columns are selected.</div>
+                </div>
+            </div>
+            <div class="log-csv-panel">
+                <h4>Selected Columns</h4>
+                <div class="log-csv-list">
+                    <button *ngFor="let column of selectedCsvColumns; let index = index; trackBy: trackByCsvColumn" type="button" class="log-csv-item is-selected" (click)="removeCsvColumn(column)">
+                        <span>{{ index + 1 }}. {{ column.label }}</span>
+                        <span>Remove</span>
+                    </button>
+                    <div *ngIf="selectedCsvColumns.length === 0" class="log-csv-empty">No columns selected yet.</div>
+                </div>
+            </div>
+        </div>
+        <div class="log-csv-modal-footer">
+            <button type="button" class="btn btn-outline-danger" (click)="closeCsvModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" [disabled]="selectedCsvColumns.length === 0" (click)="downloadCsv()">Download</button>
+        </div>
     </div>
 </div>

@@ -1,6 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, Observable } from 'rxjs';
 import { ActivityLogService } from './services/activity-log/activity-log.service';
 import { SharedDataService } from './services/shared-data/shared-data.service';
 import { TemplateWorkflowService } from './services/template-workflow/template-workflow.service';
@@ -18,6 +18,7 @@ interface DashboardApplicationItem {
     source: 'submitted' | 'pending';
     requiresAction: boolean;
     submittedByName: string;
+    departmentName: string;
     stageKey: string;
     stageLabel: string;
     stageOrder: number;
@@ -47,6 +48,25 @@ interface DashboardActivityEntry {
     createdAt: string;
 }
 
+interface DashboardPagedResponse {
+    items?: any[];
+    total?: number;
+}
+
+type DashboardCsvColumnKey =
+    'txtFormCode'
+    | 'templateName'
+    | 'txtStatus'
+    | 'stageLabel'
+    | 'departmentName'
+    | 'submittedByName'
+    | 'dteCreatedDate';
+
+interface DashboardCsvColumn {
+    key: DashboardCsvColumnKey;
+    label: string;
+}
+
 @Component({
     moduleId: module.id,
     templateUrl: './finance.html',
@@ -67,9 +87,31 @@ export class FinanceComponent implements OnInit {
     completedApplications = 0;
     rejectedApplications = 0;
     actionableApplications = 0;
+    filterStartDate = '';
+    filterEndDate = '';
+    filterDepartment = '';
+    filterStatus = '';
+    filterFormType = '';
+    availableDepartments: string[] = [];
+    availableStatuses: string[] = [];
+    availableFormTypes: string[] = [];
+    showDashboardCsvModal = false;
+    availableDashboardCsvColumns: DashboardCsvColumn[] = [];
+    selectedDashboardCsvColumns: DashboardCsvColumn[] = [];
+    readonly dashboardCsvColumns: DashboardCsvColumn[] = [
+        { key: 'txtFormCode', label: 'Application Code' },
+        { key: 'templateName', label: 'Form Type' },
+        { key: 'txtStatus', label: 'Status' },
+        { key: 'stageLabel', label: 'Stage' },
+        { key: 'departmentName', label: 'Department' },
+        { key: 'submittedByName', label: 'Submitted By' },
+        { key: 'dteCreatedDate', label: 'Submitted Date' }
+    ];
 
     private currentUserId = 0;
     private readonly userNameById = new Map<number, string>();
+    private readonly userDepartmentById = new Map<number, string>();
+    private allDashboardItems: DashboardApplicationItem[] = [];
 
     constructor(
         private activityLogService: ActivityLogService,
@@ -94,6 +136,81 @@ export class FinanceComponent implements OnInit {
         await this.loadDashboard();
     }
 
+    applyDashboardFilters(): void {
+        this.refreshDashboardView();
+    }
+
+    clearDashboardFilters(): void {
+        this.filterStartDate = '';
+        this.filterEndDate = '';
+        this.filterDepartment = '';
+        this.filterStatus = '';
+        this.filterFormType = '';
+        this.refreshDashboardView();
+    }
+
+    openDashboardCsvModal(): void {
+        const filteredItems = this.getFilteredDashboardItems();
+        if (filteredItems.length === 0) {
+            return;
+        }
+        this.availableDashboardCsvColumns = [...this.dashboardCsvColumns];
+        this.selectedDashboardCsvColumns = [];
+        this.showDashboardCsvModal = true;
+    }
+
+    closeDashboardCsvModal(): void {
+        this.showDashboardCsvModal = false;
+    }
+
+    selectAllDashboardCsvColumns(): void {
+        this.availableDashboardCsvColumns = [];
+        this.selectedDashboardCsvColumns = [...this.dashboardCsvColumns];
+    }
+
+    unselectAllDashboardCsvColumns(): void {
+        this.availableDashboardCsvColumns = [...this.dashboardCsvColumns];
+        this.selectedDashboardCsvColumns = [];
+    }
+
+    addDashboardCsvColumn(column: DashboardCsvColumn): void {
+        if (!this.selectedDashboardCsvColumns.some((item) => item.key === column.key)) {
+            this.availableDashboardCsvColumns = this.availableDashboardCsvColumns.filter((item) => item.key !== column.key);
+            this.selectedDashboardCsvColumns = [...this.selectedDashboardCsvColumns, column];
+        }
+    }
+
+    removeDashboardCsvColumn(column: DashboardCsvColumn): void {
+        this.selectedDashboardCsvColumns = this.selectedDashboardCsvColumns.filter((item) => item.key !== column.key);
+        const restoredColumns = [...this.availableDashboardCsvColumns, column];
+        this.availableDashboardCsvColumns = this.dashboardCsvColumns
+            .filter((candidate) => restoredColumns.some((item) => item.key === candidate.key));
+    }
+
+    downloadDashboardCsv(): void {
+        const filteredItems = this.getFilteredDashboardItems();
+        if (!filteredItems.length || this.selectedDashboardCsvColumns.length === 0) {
+            return;
+        }
+
+        const csvRows = [
+            this.selectedDashboardCsvColumns.map((column) => this.escapeCsvValue(column.label)).join(','),
+            ...filteredItems.map((item) => this.selectedDashboardCsvColumns
+                .map((column) => this.escapeCsvValue(this.getDashboardCsvCellValue(item, column.key)))
+                .join(','))
+        ];
+
+        this.downloadBlob(
+            new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' }),
+            `dashboard_${new Date().toISOString().split('T')[0]}.csv`
+        );
+        this.showDashboardCsvModal = false;
+    }
+
+    trackByDashboardCsvColumn(index: number, column: DashboardCsvColumn): DashboardCsvColumnKey {
+        return column.key;
+    }
+
     openApplication(item: DashboardApplicationItem): void {
         const applicationId = Number(item?.serApplicationId || 0);
         if (!applicationId) {
@@ -108,6 +225,10 @@ export class FinanceComponent implements OnInit {
 
     openActivityLogs(): void {
         this.router.navigate(['/activitylogs']);
+    }
+
+    openTemplateList(): void {
+        this.router.navigate(['/template-list']);
     }
 
     getMetricClasses(tone: DashboardMetric['tone']): string {
@@ -126,15 +247,15 @@ export class FinanceComponent implements OnInit {
     getStatusBadgeClasses(status: string | undefined): string {
         const normalizedStatus = String(status || '').trim().toUpperCase();
         if (normalizedStatus === 'REJECTED') {
-            return 'bg-rose-100 text-rose-700';
+            return 'badge-outline-danger';
         }
         if (normalizedStatus === 'APPROVED' || normalizedStatus === 'COMPLETED') {
-            return 'bg-emerald-100 text-emerald-700';
+            return 'badge-outline-success';
         }
         if (normalizedStatus === 'OPINION_PENDING') {
-            return 'bg-sky-100 text-sky-700';
+            return 'badge-outline-info';
         }
-        return 'bg-amber-100 text-amber-700';
+        return 'badge-outline-warning';
     }
 
     formatDate(value: string | undefined): string {
@@ -174,7 +295,7 @@ export class FinanceComponent implements OnInit {
             this.username = data.txtUserName || data.userName || '';
             this.currentUserId = this.resolveUserId(data);
             this.isAdmin = this.isAdminUser(data);
-            this.scopeLabel = this.isAdmin ? 'All users workflow' : 'Your workflow';
+            this.scopeLabel = this.isAdmin ? 'Qarshi Workflow' : 'Your workflow';
             if (previousUserId !== this.currentUserId || previousAdminState !== this.isAdmin) {
                 void this.loadDashboard();
             }
@@ -206,36 +327,32 @@ export class FinanceComponent implements OnInit {
         this.isLoadingDashboard = true;
         try {
             const activityFilters = this.isAdmin ? {} : { userId: this.currentUserId };
-            const [submittedResponse, pendingResponse, usersResponse, activityLogs] = await Promise.all([
-                firstValueFrom(this.templateWorkflowService.getMyTemplateApplications(
-                    this.currentUserId,
-                    0,
-                    100,
-                    '',
-                    this.isAdmin
-                )),
-                firstValueFrom(this.templateWorkflowService.getTemplatePendingApprovals(
-                    this.currentUserId,
-                    this.isAdmin,
-                    0,
-                    100,
-                    ''
-                )),
+            const [submittedItemsRaw, pendingItemsRaw, usersResponse, activityLogs] = await Promise.all([
+                this.fetchAllSubmittedApplications(),
+                this.fetchAllPendingApprovals(),
                 firstValueFrom(this.userService.getUsers()),
-                firstValueFrom(this.activityLogService.getAll(activityFilters))
+                this.isAdmin ? firstValueFrom(this.activityLogService.getAll(activityFilters)) : Promise.resolve([])
             ]);
 
             this.userNameById.clear();
+            this.userDepartmentById.clear();
             (Array.isArray(usersResponse) ? usersResponse : []).forEach((user: any) => {
                 const userId = this.resolveUserId(user);
                 if (userId > 0) {
                     this.userNameById.set(userId, user?.txtUserName || user?.userName || user?.name || `User ${userId}`);
+                    this.userDepartmentById.set(
+                        userId,
+                        user?.hrTblDepartment?.txtDepartmentName ||
+                        user?.departmentName ||
+                        user?.txtDepartmentName ||
+                        ''
+                    );
                 }
             });
 
-            const submittedItems = (Array.isArray(submittedResponse?.items) ? submittedResponse.items : [])
+            const submittedItems = submittedItemsRaw
                 .map((application: any) => this.toDashboardItem(application, 'submitted', false));
-            const pendingItems = (Array.isArray(pendingResponse?.items) ? pendingResponse.items : [])
+            const pendingItems = pendingItemsRaw
                 .map((application: any) => this.toDashboardItem(application, 'pending', true));
 
             const mergedItems = this.mergeDashboardItems(submittedItems, pendingItems);
@@ -247,49 +364,11 @@ export class FinanceComponent implements OnInit {
                 item.stageOrder = stageInfo.order;
             });
 
-            this.totalApplications = Number(submittedResponse?.total || submittedItems.length || 0);
-            this.pendingApplications = submittedItems
-                .filter((item: DashboardApplicationItem) => this.isOpenStatus(item.txtStatus))
-                .length;
-            this.completedApplications = submittedItems
-                .filter((item: DashboardApplicationItem) => this.isCompletedStatus(item.txtStatus))
-                .length;
-            this.rejectedApplications = submittedItems
-                .filter((item: DashboardApplicationItem) => this.isRejectedStatus(item.txtStatus))
-                .length;
-            this.actionableApplications = Number(pendingResponse?.total || pendingItems.length || 0);
-
-            this.dashboardMetrics = [
-                {
-                    label: 'Total Applications',
-                    value: this.totalApplications,
-                    tone: 'slate',
-                    hint: this.isAdmin ? 'All submitted workflow applications' : 'Applications you have submitted'
-                },
-                {
-                    label: 'Pending In Workflow',
-                    value: this.pendingApplications,
-                    tone: 'amber',
-                    hint: 'Applications still moving through approval'
-                },
-                {
-                    label: 'Completed',
-                    value: this.completedApplications,
-                    tone: 'emerald',
-                    hint: 'Applications that reached final approval'
-                },
-                {
-                    label: 'Rejected',
-                    value: this.rejectedApplications,
-                    tone: 'rose',
-                    hint: 'Applications stopped with rejection'
-                }
-            ];
-
-            this.boardColumns = this.buildBoardColumns(mergedItems);
-            this.recentApplications = [...mergedItems]
-                .sort((left, right) => this.getCreatedAtMillis(right) - this.getCreatedAtMillis(left))
-                .slice(0, 6);
+            this.allDashboardItems = mergedItems;
+            this.availableDepartments = this.buildDistinctOptions(mergedItems.map((item) => item.departmentName));
+            this.availableStatuses = this.buildDistinctOptions(mergedItems.map((item) => item.txtStatus || ''));
+            this.availableFormTypes = this.buildDistinctOptions(mergedItems.map((item) => item.templateName || ''));
+            this.refreshDashboardView();
             this.recentActivities = (Array.isArray(activityLogs) ? activityLogs : [])
                 .map((entry: any) => this.toActivityEntry(entry))
                 .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
@@ -303,6 +382,55 @@ export class FinanceComponent implements OnInit {
         } finally {
             this.isLoadingDashboard = false;
         }
+    }
+
+    private async fetchAllSubmittedApplications(): Promise<any[]> {
+        return this.fetchAllPages((page, pageSize) =>
+            this.templateWorkflowService.getMyTemplateApplications(
+                this.currentUserId,
+                page,
+                pageSize,
+                '',
+                this.isAdmin
+            )
+        );
+    }
+
+    private async fetchAllPendingApprovals(): Promise<any[]> {
+        return this.fetchAllPages((page, pageSize) =>
+            this.templateWorkflowService.getTemplatePendingApprovals(
+                this.currentUserId,
+                this.isAdmin,
+                page,
+                pageSize,
+                ''
+            )
+        );
+    }
+
+    private async fetchAllPages(
+        request: (page: number, pageSize: number) => Observable<DashboardPagedResponse>,
+        pageSize = 100
+    ): Promise<any[]> {
+        const firstResponse = await firstValueFrom(request(0, pageSize)) as DashboardPagedResponse;
+        const firstItems = Array.isArray(firstResponse?.items) ? firstResponse.items : [];
+        const total = Number(firstResponse?.total || firstItems.length || 0);
+
+        if (firstItems.length >= total) {
+            return firstItems;
+        }
+
+        const totalPages = Math.ceil(total / pageSize);
+        const remainingResponses = await Promise.all(
+            Array.from({ length: Math.max(0, totalPages - 1) }, (_, index) =>
+                firstValueFrom(request(index + 1, pageSize)) as Promise<DashboardPagedResponse>
+            )
+        );
+
+        return [
+            ...firstItems,
+            ...remainingResponses.flatMap((response: any) => Array.isArray(response?.items) ? response.items : [])
+        ];
     }
 
     private toDashboardItem(application: any, source: 'submitted' | 'pending', requiresAction: boolean): DashboardApplicationItem {
@@ -319,6 +447,11 @@ export class FinanceComponent implements OnInit {
             source,
             requiresAction,
             submittedByName: this.userNameById.get(submittedBy) || '',
+            departmentName: this.userDepartmentById.get(submittedBy)
+                || application?.departmentName
+                || application?.txtDepartmentName
+                || application?.hrTblDepartment?.txtDepartmentName
+                || '',
             stageKey: '',
             stageLabel: '',
             stageOrder: 999
@@ -477,5 +610,125 @@ export class FinanceComponent implements OnInit {
             || roleName === 'SUPER ADMIN'
             || roleName === 'ROLE_SUPER ADMIN'
             || roleName.includes('ADMIN');
+    }
+
+    private refreshDashboardView(): void {
+        const filteredItems = this.getFilteredDashboardItems();
+        this.totalApplications = filteredItems.length;
+        this.pendingApplications = filteredItems
+            .filter((item: DashboardApplicationItem) => this.isOpenStatus(item.txtStatus))
+            .length;
+        this.completedApplications = filteredItems
+            .filter((item: DashboardApplicationItem) => this.isCompletedStatus(item.txtStatus))
+            .length;
+        this.rejectedApplications = filteredItems
+            .filter((item: DashboardApplicationItem) => this.isRejectedStatus(item.txtStatus))
+            .length;
+        this.actionableApplications = filteredItems.filter((item) => item.requiresAction).length;
+
+        this.dashboardMetrics = [
+            {
+                label: 'Total Applications',
+                value: this.totalApplications,
+                tone: 'slate',
+                hint: this.isAdmin ? 'All submitted workflow applications' : 'Applications you have submitted'
+            },
+            {
+                label: 'Pending In Workflow',
+                value: this.pendingApplications,
+                tone: 'amber',
+                hint: 'Applications still moving through approval'
+            },
+            {
+                label: 'Completed',
+                value: this.completedApplications,
+                tone: 'emerald',
+                hint: 'Applications that reached final approval'
+            },
+            {
+                label: 'Rejected',
+                value: this.rejectedApplications,
+                tone: 'rose',
+                hint: 'Applications stopped with rejection'
+            }
+        ];
+
+        this.boardColumns = this.buildBoardColumns(filteredItems);
+        this.recentApplications = [...filteredItems]
+            .sort((left, right) => this.getCreatedAtMillis(right) - this.getCreatedAtMillis(left))
+            .slice(0, 6);
+    }
+
+    private getFilteredDashboardItems(): DashboardApplicationItem[] {
+        return this.allDashboardItems.filter((item) => {
+            if (this.filterDepartment && (item.departmentName || '') !== this.filterDepartment) {
+                return false;
+            }
+            if (this.filterStatus && (item.txtStatus || '') !== this.filterStatus) {
+                return false;
+            }
+            if (this.filterFormType && (item.templateName || '') !== this.filterFormType) {
+                return false;
+            }
+
+            const createdAtMs = this.getCreatedAtMillis(item);
+            if (this.filterStartDate) {
+                const startMs = new Date(`${this.filterStartDate}T00:00:00`).getTime();
+                if (Number.isFinite(startMs) && createdAtMs < startMs) {
+                    return false;
+                }
+            }
+            if (this.filterEndDate) {
+                const endMs = new Date(`${this.filterEndDate}T23:59:59.999`).getTime();
+                if (Number.isFinite(endMs) && createdAtMs > endMs) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+    }
+
+    private buildDistinctOptions(values: string[]): string[] {
+        return Array.from(new Set(
+            (Array.isArray(values) ? values : [])
+                .map((value) => String(value || '').trim())
+                .filter((value) => !!value)
+        )).sort((left, right) => left.localeCompare(right));
+    }
+
+    private getDashboardCsvCellValue(item: DashboardApplicationItem, key: DashboardCsvColumnKey): string {
+        switch (key) {
+            case 'txtFormCode':
+                return item.txtFormCode || '';
+            case 'templateName':
+                return item.templateName || '';
+            case 'txtStatus':
+                return item.txtStatus || '';
+            case 'stageLabel':
+                return item.stageLabel || '';
+            case 'departmentName':
+                return item.departmentName || '';
+            case 'submittedByName':
+                return item.submittedByName || '';
+            case 'dteCreatedDate':
+                return this.formatDate(item.dteCreatedDate);
+            default:
+                return '';
+        }
+    }
+
+    private escapeCsvValue(value: any): string {
+        const normalized = String(value ?? '');
+        return `"${normalized.replace(/"/g, '""')}"`;
+    }
+
+    private downloadBlob(blob: Blob, filename: string): void {
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(objectUrl);
     }
 }
