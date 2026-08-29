@@ -5909,16 +5909,40 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 return "Failure: Application is not a template-builder workflow";
             }
 
-            byte[] basePdf = application.getBlbPdfForStage(0);
+            List<Map<String, Object>> latestEntries = resolveLatestTemplatePdfOverlayEntries(application);
+            Integer latestApprovedDisplayLevel = resolveTemplateLatestApprovedDisplayLevel(latestEntries);
+            int latestApprovedStageIndex = latestApprovedDisplayLevel != null
+                    ? Math.max(0, latestApprovedDisplayLevel - 1)
+                    : -1;
+
+            // Email approvals do not have a freshly rendered client PDF to send downstream.
+            // For AND steps, keep a per-step base snapshot before any approver on that step
+            // is drawn, otherwise the second approver would redraw the first one.
+            byte[] basePdf = latestApprovedStageIndex >= 0
+                    ? application.getBlbPdfForStage(latestApprovedStageIndex)
+                    : null;
             if (basePdf == null || basePdf.length == 0) {
                 basePdf = application.getBlbPdfData();
+            }
+            if ((basePdf == null || basePdf.length == 0) && latestApprovedStageIndex > 0) {
+                basePdf = application.getBlbPdfForStage(latestApprovedStageIndex - 1);
+            }
+            if (basePdf == null || basePdf.length == 0) {
+                basePdf = application.getBlbPdfForStage(0);
             }
             if (basePdf == null || basePdf.length == 0) {
                 entityManager.getTransaction().rollback();
                 return "Failure: Base PDF snapshot is not available";
             }
 
-            byte[] refreshedPdf = applyTemplateApprovalSignaturesToPdf(basePdf, application, appData);
+            if (latestApprovedStageIndex >= 0) {
+                byte[] storedStepBase = application.getBlbPdfForStage(latestApprovedStageIndex);
+                if (storedStepBase == null || storedStepBase.length == 0) {
+                    application.setBlbPdfForStage(latestApprovedStageIndex, basePdf);
+                }
+            }
+
+            byte[] refreshedPdf = applyLatestTemplateApprovalToPdf(basePdf, application, appData, latestEntries);
             if (refreshedPdf == null || refreshedPdf.length == 0) {
                 entityManager.getTransaction().rollback();
                 return "Failure: Template PDF could not be refreshed";
@@ -5926,7 +5950,14 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
 
             application.setBlbPdfData(refreshedPdf);
             int stageIndex = Math.max(0, currentLevelSafe(application) - 1);
-            application.setBlbPdfForStage(stageIndex, refreshedPdf);
+            boolean advancedPastApprovedStep = latestApprovedDisplayLevel != null
+                    && currentLevelSafe(application) > latestApprovedDisplayLevel;
+            boolean terminalAfterApproval = "COMPLETED".equalsIgnoreCase(application.getTxtStatus())
+                    || "APPROVED".equalsIgnoreCase(application.getTxtStatus())
+                    || "REJECTED".equalsIgnoreCase(application.getTxtStatus());
+            if (stageIndex >= 0 && (stageIndex != latestApprovedStageIndex || advancedPastApprovedStep || terminalAfterApproval)) {
+                application.setBlbPdfForStage(stageIndex, refreshedPdf);
+            }
             if (application.getTxtPdfName() == null || application.getTxtPdfName().trim().isEmpty()) {
                 String code = application.getTxtFormCode() != null ? application.getTxtFormCode().trim()
                         : "template-application-" + applicationId;
@@ -5949,6 +5980,138 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 entityManager.close();
             }
         }
+    }
+
+    private byte[] applyLatestTemplateApprovalToPdf(byte[] basePdf,
+            CfgTblCustomFormApplication application,
+            Map<String, Object> appData,
+            List<Map<String, Object>> latestEntries) {
+        if (basePdf == null || basePdf.length == 0 || application == null || appData == null) {
+            return basePdf;
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> templatePayload = appData.get("templatePayload") instanceof Map
+                ? (Map<String, Object>) appData.get("templatePayload")
+                : new java.util.HashMap<>();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> fields = templatePayload.get("fields") instanceof List
+                ? (List<Map<String, Object>>) templatePayload.get("fields")
+                : java.util.Collections.emptyList();
+        if (fields.isEmpty()) {
+            return basePdf;
+        }
+
+        if (latestEntries.isEmpty()) {
+            return applyTemplateApprovalSignaturesToPdf(basePdf, application, appData);
+        }
+
+        try (PDDocument document = PDDocument.load(basePdf)) {
+            overlayTemplateApprovalSignaturesOnPdf(document, application, templatePayload, fields, latestEntries);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            document.save(baos);
+            return baos.toByteArray();
+        } catch (Exception e) {
+            log.warn("Error applying latest template approval to PDF for appId={}: {}",
+                    application.getSerApplicationId(), e.getMessage(), e);
+            return basePdf;
+        }
+    }
+
+    private Integer resolveTemplateLatestApprovedDisplayLevel(List<Map<String, Object>> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return null;
+        }
+        Integer latestLevel = null;
+        for (Map<String, Object> entry : entries) {
+            if (entry == null) {
+                continue;
+            }
+            Integer level = safeInt(entry.get("intApprovalOrder"), safeInt(entry.get("level"), null));
+            if (level != null && (latestLevel == null || level > latestLevel)) {
+                latestLevel = level;
+            }
+        }
+        return latestLevel;
+    }
+
+    private List<Map<String, Object>> resolveLatestTemplatePdfOverlayEntries(CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return java.util.Collections.emptyList();
+        }
+        List<Map<String, Object>> activeHistory = filterActiveTemplateHistoryEntries(
+                parseApprovalHistory(application.getTxtApprovalHistory()));
+        if (activeHistory.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+
+        for (int i = activeHistory.size() - 1; i >= 0; i--) {
+            Map<String, Object> entry = activeHistory.get(i);
+            if (entry == null) {
+                continue;
+            }
+            String action = entry.get("action") != null
+                    ? String.valueOf(entry.get("action")).trim().toUpperCase(Locale.ROOT)
+                    : "";
+            if ("APPROVED".equals(action)) {
+                return collectTemplateApprovedEntriesForSameStep(activeHistory, entry);
+            }
+        }
+        return java.util.Collections.emptyList();
+    }
+
+    private List<Map<String, Object>> collectTemplateApprovedEntriesForSameStep(
+            List<Map<String, Object>> activeHistory,
+            Map<String, Object> latestApprovedEntry) {
+        if (activeHistory == null || activeHistory.isEmpty() || latestApprovedEntry == null) {
+            return java.util.Collections.emptyList();
+        }
+
+        String latestStepId = firstNonBlank(
+                latestApprovedEntry.get("stepId") != null ? String.valueOf(latestApprovedEntry.get("stepId")) : null,
+                latestApprovedEntry.get("pipelineStepId") != null
+                        ? String.valueOf(latestApprovedEntry.get("pipelineStepId"))
+                        : null,
+                latestApprovedEntry.get("signatureTargetId") != null
+                        ? String.valueOf(latestApprovedEntry.get("signatureTargetId"))
+                        : null);
+        Integer latestLevel = safeInt(latestApprovedEntry.get("intApprovalOrder"),
+                safeInt(latestApprovedEntry.get("level"), null));
+
+        List<Map<String, Object>> matches = new java.util.ArrayList<>();
+        for (Map<String, Object> entry : activeHistory) {
+            if (entry == null) {
+                continue;
+            }
+            String action = entry.get("action") != null
+                    ? String.valueOf(entry.get("action")).trim().toUpperCase(Locale.ROOT)
+                    : "";
+            if (!"APPROVED".equals(action)) {
+                continue;
+            }
+
+            String entryStepId = firstNonBlank(
+                    entry.get("stepId") != null ? String.valueOf(entry.get("stepId")) : null,
+                    entry.get("pipelineStepId") != null ? String.valueOf(entry.get("pipelineStepId")) : null,
+                    entry.get("signatureTargetId") != null ? String.valueOf(entry.get("signatureTargetId")) : null);
+            Integer entryLevel = safeInt(entry.get("intApprovalOrder"), safeInt(entry.get("level"), null));
+
+            if (latestStepId != null && !latestStepId.trim().isEmpty()) {
+                if (entryStepId != null && latestStepId.equalsIgnoreCase(entryStepId)) {
+                    matches.add(entry);
+                }
+                continue;
+            }
+
+            if (latestLevel != null && latestLevel.equals(entryLevel)) {
+                matches.add(entry);
+            }
+        }
+
+        if (matches.isEmpty()) {
+            matches.add(latestApprovedEntry);
+        }
+        return matches;
     }
 
     private boolean templateApproverAlreadyActedForCurrentStep(CfgTblCustomFormApplication application,
