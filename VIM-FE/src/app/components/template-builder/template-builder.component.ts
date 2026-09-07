@@ -152,6 +152,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     templateIsActive = true;
     editorContent = '<h2>Template Title</h2><p>Select any text or table cell content, then assign it as a field from the side panel.</p><p>Example: Vendor Name, Amount, Delivery Date, Approval Notes.</p>';
     selectedFieldId = '';
+    private routeTemplateId = '';
     newFieldLabel = 'New Field';
     newFieldType: TemplateFieldType = 'text';
     newFieldRequired = false;
@@ -260,6 +261,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         this.loadUsers();
         this.loadRoles();
         const templateId = this.route.snapshot.queryParamMap.get('id') || this.route.snapshot.paramMap.get('id') || '';
+        this.routeTemplateId = templateId;
         if (templateId) {
             this.loadTemplateForEdit(templateId);
         }
@@ -283,6 +285,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     get selectedField(): TemplateField | undefined {
         return this.fields.find((field) => field.id === this.selectedFieldId);
+    }
+
+    get hidePayloadButton(): boolean {
+        return this.routeTemplateId === '615';
     }
 
     get pipelineAssignableFields(): TemplateField[] {

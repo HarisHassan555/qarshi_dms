@@ -19,8 +19,11 @@ public class ApprovalReminderScheduler {
 
     @Scheduled(cron = "${app.approval-reminder.cron:0 0 * * * *}")
     public void sendPendingApprovalReminders() {
+        long startedAt = System.currentTimeMillis();
         try {
+            log.info("Approval reminder scheduler tick started");
             customFormApplicationDAO.sendPendingApprovalReminderEmails();
+            log.info("Approval reminder scheduler tick finished in {} ms", System.currentTimeMillis() - startedAt);
         } catch (Exception e) {
             log.error("Approval reminder scheduler failed: {}", e.getMessage(), e);
         }

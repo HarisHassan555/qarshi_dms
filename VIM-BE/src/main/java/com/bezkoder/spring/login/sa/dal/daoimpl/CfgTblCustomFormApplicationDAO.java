@@ -2562,7 +2562,26 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         if (pipeline == null) {
             return null;
         }
-        Integer userId = safeInt(pipeline.get("serUserId"), safeInt(pipeline.get("userId"), null));
+        Integer userId = safeInt(pipeline.get("serUserId"), safeInt(pipeline.get("userId"),
+                safeInt(pipeline.get("approverId"), safeInt(pipeline.get("assignedUserId"),
+                        safeInt(pipeline.get("targetUserId"), null)))));
+        if (userId != null) {
+            return userId;
+        }
+
+        userId = extractFirstUserIdFromPipelineCollection(pipeline.get("userIds"));
+        if (userId != null) {
+            return userId;
+        }
+        userId = extractFirstUserIdFromPipelineCollection(pipeline.get("users"));
+        if (userId != null) {
+            return userId;
+        }
+        userId = extractFirstUserIdFromPipelineCollection(pipeline.get("approvers"));
+        if (userId != null) {
+            return userId;
+        }
+        userId = extractFirstUserIdFromPipelineCollection(pipeline.get("recipients"));
         if (userId != null) {
             return userId;
         }
@@ -2574,6 +2593,56 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     safeInt(userMap.get("userId"), safeInt(userMap.get("id"), null)));
         }
         return userId;
+    }
+
+    private Integer extractFirstUserIdFromPipelineCollection(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            int numeric = ((Number) value).intValue();
+            return numeric > 0 ? numeric : null;
+        }
+        if (value instanceof String) {
+            String text = String.valueOf(value).trim();
+            if (text.isEmpty()) {
+                return null;
+            }
+            try {
+                int parsed = Integer.parseInt(text);
+                return parsed > 0 ? parsed : null;
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        if (value instanceof java.util.Collection<?>) {
+            for (Object item : (java.util.Collection<?>) value) {
+                Integer userId = extractUserId(item);
+                if (userId != null && userId > 0) {
+                    return userId;
+                }
+            }
+            return null;
+        }
+        if (value.getClass().isArray()) {
+            int length = java.lang.reflect.Array.getLength(value);
+            for (int i = 0; i < length; i++) {
+                Integer userId = extractUserId(java.lang.reflect.Array.get(value, i));
+                if (userId != null && userId > 0) {
+                    return userId;
+                }
+            }
+            return null;
+        }
+        if (value instanceof Map<?, ?>) {
+            Map<?, ?> map = (Map<?, ?>) value;
+            Integer userId = safeInt(map.get("serUserId"),
+                    safeInt(map.get("userId"), safeInt(map.get("id"), null)));
+            if (userId != null && userId > 0) {
+                return userId;
+            }
+        }
+        return extractUserId(value);
     }
 
     private boolean isIndividualPipelineStage(Map<String, Object> pipeline) {
@@ -7849,6 +7918,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         try {
             long thresholdMillis = TimeUnit.HOURS.toMillis(Math.max(1L, approvalReminderThresholdHours));
             java.sql.Timestamp cutoff = new java.sql.Timestamp(System.currentTimeMillis() - thresholdMillis);
+            log.info("Approval reminder scan started: thresholdHours={}, cutoff={}, batchSize={}",
+                    Math.max(1L, approvalReminderThresholdHours), cutoff, approvalReminderBatchSize);
             List<String> statuses = java.util.Arrays.asList(
                     "PENDING",
                     "IN_PROGRESS",
@@ -7867,7 +7938,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                             + "AND (a.blIsActive = true OR a.blIsActive IS NULL) "
                             + "AND UPPER(COALESCE(a.txtStatus, '')) IN :statuses "
                             + "AND COALESCE(a.dteModifiedDate, a.dteCreatedDate) <= :cutoff "
-                            + "ORDER BY COALESCE(a.dteModifiedDate, a.dteCreatedDate) ASC",
+                            + "ORDER BY COALESCE(a.dteModifiedDate, a.dteCreatedDate) DESC",
                     Object[].class)
                     .setParameter("statuses", statuses)
                     .setParameter("cutoff", cutoff)
@@ -7877,6 +7948,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     .map(this::mapApprovalReminderCandidate)
                     .filter(java.util.Objects::nonNull)
                     .collect(java.util.stream.Collectors.toList());
+            log.info("Approval reminder scan matched {} candidate(s)", candidates.size());
 
             for (ApprovalReminderCandidate candidate : candidates) {
                 if (candidate == null || candidate.applicationId == null) {
@@ -7885,30 +7957,44 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 try {
                     java.sql.Timestamp stageStartedAt = resolveCurrentStageStartedAt(candidate);
                     if (stageStartedAt == null || stageStartedAt.after(cutoff)) {
+                        log.info("Skipping reminder appId={} status={} currentLevel={} because stageStartedAt={} is newer than cutoff={}",
+                                candidate.applicationId, candidate.status, candidate.currentLevel, stageStartedAt, cutoff);
                         continue;
                     }
                     if (hasApprovalReminderForCurrentStage(entityManager, candidate.applicationId, stageStartedAt)) {
+                        log.info("Skipping reminder appId={} status={} currentLevel={} because a reminder already exists for this stage",
+                                candidate.applicationId, candidate.status, candidate.currentLevel);
                         continue;
                     }
                     CfgTblCustomFormApplication application = entityManager.find(
                             CfgTblCustomFormApplication.class, candidate.applicationId);
                     if (application == null) {
+                        log.info("Skipping reminder appId={} because application no longer exists", candidate.applicationId);
                         continue;
                     }
                     CfgTblCustomForm form = application.getCfgTblCustomForm();
                     if (form == null && candidate.formId != null) {
                         form = entityManager.find(CfgTblCustomForm.class, candidate.formId);
                     }
+                    log.info("Processing reminder appId={} status={} currentLevel={} stageStartedAt={} formCode={}",
+                            candidate.applicationId, candidate.status, candidate.currentLevel, stageStartedAt,
+                            application.getTxtFormCode());
                     int recipientCount = sendPendingApprovalReminderEmail(entityManager, application, form);
                     if (recipientCount > 0) {
                         logApprovalReminder(entityManager, candidate.applicationId, application, stageStartedAt,
                                 recipientCount);
+                        log.info("Reminder sent successfully for appId={} recipientCount={}",
+                                candidate.applicationId, recipientCount);
+                    } else {
+                        log.info("No reminder recipient resolved for appId={} status={} currentLevel={}",
+                                candidate.applicationId, candidate.status, candidate.currentLevel);
                     }
                 } catch (Exception appEx) {
                     log.error("Failed to process approval reminder for appId={}: {}",
                             candidate.applicationId, appEx.getMessage(), appEx);
                 }
             }
+            log.info("Approval reminder scan finished");
         } catch (Exception e) {
             log.error("Error while sending approval reminder emails: {}", e.getMessage(), e);
         } finally {
@@ -8036,6 +8122,10 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             return 0;
         }
 
+        log.info("Routing approval reminder: appId={}, status={}, currentLevel={}, formCode={}",
+                application.getSerApplicationId(), status, application.getIntCurrentApprovalLevel(),
+                application.getTxtFormCode());
+
         if ("CEO_PENDING".equals(status)) {
             return sendCeoApprovalReminderEmail(emailEntityManager, application, form);
         }
@@ -8083,6 +8173,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                         || recipient.email.trim().isEmpty()) {
                     continue;
                 }
+                log.info("Sending CEO reminder: appId={}, recipientUserId={}, recipientEmail={}",
+                        application.getSerApplicationId(), recipient.userId, recipient.email);
                 String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
                         + application.getSerApplicationId() + "&userId=" + recipient.userId;
                 String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
@@ -8148,6 +8240,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 }
                 return 0;
             }
+            log.info("Sending finance reminder: appId={}, recipients={}",
+                    application.getSerApplicationId(), financeEmails);
             String formName = getResolvedFormName(form);
             boolean isCapf = isCapfForm(form);
             String assignUrl = getBaseUrl() + "/assign-asset-code/" + application.getSerApplicationId();
@@ -8199,6 +8293,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 }
                 return 0;
             }
+            log.info("Sending PR reminder: appId={}, recipientUserId={}, recipientEmail={}",
+                    application.getSerApplicationId(), submitter.getSerUserId(), submitter.getTxtAddress());
             String formName = getResolvedFormName(form);
             boolean isCapf = isCapfForm(form);
             String subject = "Reminder: " + formName + " Awaiting PR Code - "
@@ -8255,6 +8351,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 }
                 return 0;
             }
+            log.info("Sending PO reminder: appId={}, recipients={}",
+                    application.getSerApplicationId(), poEmails);
             String formName = getResolvedFormName(form);
             boolean isCapf = isCapfForm(form);
             String assignUrl = getBaseUrl() + "/po-code/" + application.getSerApplicationId();
@@ -8340,6 +8438,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 if (approver == null || approver.getTxtAddress() == null || approver.getTxtAddress().trim().isEmpty()) {
                     continue;
                 }
+                log.info("Sending PO Vendor TE reminder: appId={}, recipientUserId={}, recipientEmail={}",
+                        application.getSerApplicationId(), approver.getSerUserId(), approver.getTxtAddress());
                 if (shouldSkipCeoForCapf(form, targetDeptName, approver)) {
                     continue;
                 }
@@ -8449,7 +8549,34 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         }
 
         Map<String, Object> appData = parseApplicationData(application);
+        boolean templateBuilderApplication = isTemplateBuilderApplication(appData);
         boolean useIndividualPipelineFlow = !isCapf && (isBudgetApprovalForm(form) || !extractFooterFields(appData).isEmpty());
+        if (templateBuilderApplication) {
+            List<Map<String, Object>> templatePipelines = loadEffectiveApprovalPipeline(application, form,
+                    emailEntityManager);
+            int templateReminderLevel = Math.max(0, currentLevelSafe(application) - 2);
+            if (templatePipelines == null || templatePipelines.isEmpty()
+                    || templateReminderLevel < 0 || templateReminderLevel >= templatePipelines.size()) {
+                return 0;
+            }
+            int templatePipelineIndex = resolveTemplateNotificationPipelineIndex(application, templateReminderLevel,
+                    application.getTxtStatus());
+            if (templatePipelineIndex < 0 || templatePipelineIndex >= templatePipelines.size()) {
+                return 0;
+            }
+            Map<String, Object> templatePipeline = templatePipelines.get(templatePipelineIndex);
+            if (templatePipeline == null) {
+                return 0;
+            }
+            java.util.Set<Integer> recipientIds = resolveTemplatePipelineRecipientIds(emailEntityManager, application,
+                    templatePipeline);
+            if (recipientIds.isEmpty()) {
+                return 0;
+            }
+            sendTemplatePipelineNextApproverEmails(application, form, templatePipelines, templatePipelineIndex,
+                    null, null, null, application.getTxtStatus(), reminderRemarks);
+            return recipientIds.size();
+        }
         if (useIndividualPipelineFlow) {
             List<BudgetApprover> sequence = getBudgetApprovalSequence(appData, emailEntityManager);
             int currentLevel = currentLevelSafe(application);
@@ -8460,6 +8587,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             if (approver == null || approver.userId == null || approver.email == null || approver.email.trim().isEmpty()) {
                 return 0;
             }
+            log.info("Sending workflow-stage reminder: appId={}, recipientUserId={}, recipientEmail={}, currentLevel={}",
+                    application.getSerApplicationId(), approver.userId, approver.email, currentLevel);
             boolean startedHere = false;
             try {
                 if (!emailEntityManager.getTransaction().isActive()) {
@@ -8475,11 +8604,12 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                         + application.getSerApplicationId() + "&userId=" + approver.userId;
                 String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
                         + application.getSerApplicationId() + "&userId=" + approver.userId;
-                String subject = "Reminder: " + formName + " Pending Approval - Level " + (currentLevel + 1) + " - "
+                int reminderDisplayLevel = templateBuilderApplication ? currentLevel : (currentLevel + 1);
+                String subject = "Reminder: " + formName + " Pending Approval - Level " + reminderDisplayLevel + " - "
                         + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
                 String html = generateApprovalEmailHtml(
                         approver.name != null ? approver.name : "User",
-                        currentLevel + 1,
+                        reminderDisplayLevel,
                         application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A",
                         formName,
                         application.getTxtStatus(),
@@ -8607,6 +8737,9 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 if (shouldSkipCeoForCapf(form, departmentName, approver)) {
                     continue;
                 }
+                log.info("Sending department-stage reminder: appId={}, recipientUserId={}, recipientEmail={}, levelOrder={}, departmentName={}",
+                        application.getSerApplicationId(), approver.getSerUserId(), approver.getTxtAddress(),
+                        levelOrder, departmentName);
                 String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
                         + application.getSerApplicationId() + "&userId=" + approver.getSerUserId();
                 String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
@@ -8656,8 +8789,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
     }
 
     private String buildApprovalReminderRemarks() {
-        return "This application has been pending action for more than " + Math.max(1L, approvalReminderThresholdHours)
-                + " hours. Please review it as soon as possible.";
+        return "This application has been pending action for more than "
+                + Math.max(1L, approvalReminderThresholdHours) + " hours. Please review it as soon as possible.";
     }
 
     /**

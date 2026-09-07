@@ -11,7 +11,7 @@
             <button *ngIf="hasAnyAttachments" type="button" class="btn btn-outline" (click)="openAttachmentsModal()">
                 View Attachments
             </button>
-            <button *ngIf="savedTemplate" type="button" class="btn btn-outline" [disabled]="isSendingTestEmail" (click)="sendTestEmailToAdmin()">
+            <button *ngIf="savedTemplate && !hideTestEmailAdminButton" type="button" class="btn btn-outline" [disabled]="isSendingTestEmail" (click)="sendTestEmailToAdmin()">
                 {{ isSendingTestEmail ? 'Sending...' : 'Test Email Admin' }}
             </button>
             <button *ngIf="savedTemplate" type="button" class="btn btn-primary" [disabled]="isSubmitting" (click)="submitTemplate()">

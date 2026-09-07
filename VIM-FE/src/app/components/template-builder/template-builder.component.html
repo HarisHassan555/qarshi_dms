@@ -24,7 +24,7 @@
             </div>
             <button type="button" class="btn btn-outline" (click)="addPage()">Add Page</button>
             <button type="button" class="btn btn-primary" (click)="saveTemplate()">Save</button>
-            <button type="button" class="btn btn-outline" (click)="previewMode = !previewMode">
+            <button *ngIf="!hidePayloadButton" type="button" class="btn btn-outline" (click)="previewMode = !previewMode">
                 {{ previewMode ? 'Editor' : 'Payload' }}
             </button>
         </div>

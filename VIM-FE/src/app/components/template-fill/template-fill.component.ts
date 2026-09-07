@@ -149,6 +149,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     activeInlineWordEditorFieldId: string | null = null;
     readonly wordEditor = WORD_EDITOR_CKEDITOR;
     readonly wordEditorConfig = WORD_EDITOR_CKEDITOR_CONFIG;
+    private routeTemplateId = '';
     private initiatorSignatureApproved = false;
     private acceptedWordEditorValues: { [fieldId: string]: string } = {};
     private revertingWordEditorFields = new Set<string>();
@@ -171,6 +172,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         document.body.classList.add(TEMPLATE_FILL_HIDE_CKEDITOR_BADGE_CLASS);
         this.loadUsers();
         const templateId = this.route.snapshot.paramMap.get('id');
+        this.routeTemplateId = templateId || '';
         const applicationId = Number(this.route.snapshot.queryParamMap.get('applicationId'));
         try {
             if (Number.isFinite(applicationId) && applicationId > 0) {
@@ -233,6 +235,10 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
 
     get panelFields(): TemplateField[] {
         return this.fillableFields.filter((field: TemplateField) => !this.isInlineWordEditorField(field));
+    }
+
+    get hideTestEmailAdminButton(): boolean {
+        return this.routeTemplateId === '615';
     }
 
     getActiveInlineWordEditorField(): TemplateField | null {
