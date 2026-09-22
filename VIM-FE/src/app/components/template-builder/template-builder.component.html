@@ -73,6 +73,11 @@
         </aside>
 
         <main class="document-stage" [class.payload-open]="previewMode">
+            <div
+                #tableToolbarHost
+                class="table-toolbar-host"
+                [class.is-active]="isTableFieldEditorActive()">
+            </div>
             <div *ngIf="!previewMode" class="paper-wrap">
                 <div
                     #editorFrame
@@ -204,10 +209,38 @@
                                     <small>{{ getDynamicSignatureTargetLabel(field) }}</small>
                                 </ng-container>
                                 <ng-template #regularFloatingField>
-                                    <span>{{ field.label }}</span>
-                                    <small>{{ field.type }}</small>
+                                    <ng-container *ngIf="field.type === 'table'; else nonTableFloatingField">
+                                        <div
+                                            *ngIf="field.id === selectedFieldId; else tableStaticPreview"
+                                            class="table-field-editor-surface"
+                                            (mousedown)="$event.stopPropagation()"
+                                            (click)="$event.stopPropagation()">
+                                            <ckeditor
+                                                class="table-field-inline-editor"
+                                                [editor]="wordEditor"
+                                                [config]="wordEditorConfig"
+                                                [(ngModel)]="field.tableHtml"
+                                                (ready)="onInlineTableEditorReady(field, $event)">
+                                            </ckeditor>
+                                        </div>
+                                        <ng-template #tableStaticPreview>
+                                            <div class="table-field-preview" [innerHTML]="getTablePreviewHtml(field)"></div>
+                                        </ng-template>
+                                    </ng-container>
+                                    <ng-template #nonTableFloatingField>
+                                        <span>{{ field.label }}</span>
+                                        <small>{{ field.type }}</small>
+                                    </ng-template>
                                 </ng-template>
                             </ng-template>
+                            <button
+                                *ngIf="field.type === 'table'"
+                                type="button"
+                                class="field-move-handle"
+                                title="Move table field"
+                                (mousedown)="startFieldDrag($event, field)">
+                                Move
+                            </button>
                             <button
                                 *ngIf="!isDocumentRegionFieldType(field.type)"
                                 type="button"
@@ -359,6 +392,18 @@
                             <button type="button" title="Remove option box" (click)="removeRadioOptionBox(field, optionBox.id)">x</button>
                         </div>
                     </div>
+                    <div class="table-field-properties" *ngIf="field.type === 'table'">
+                        <div class="radio-option-properties-header">
+                            <strong>Table Design</strong>
+                            <span>Use CKEditor table tools to add rows, columns, merged cells, and styling. Empty cells become fillable.</span>
+                        </div>
+                        <ckeditor
+                            class="table-design-editor"
+                            [editor]="wordEditor"
+                            [config]="wordEditorConfig"
+                            [(ngModel)]="field.tableHtml">
+                        </ckeditor>
+                    </div>
                 </div>
             </div>
 
@@ -422,6 +467,17 @@
                     <button type="button" title="Remove option" (click)="removeNewRadioOption(i)">x</button>
                 </div>
             </div>
+            <div class="table-field-editor" *ngIf="newFieldType === 'table'">
+                <div class="radio-options-editor-header">
+                    <strong>Table Design</strong>
+                </div>
+                <ckeditor
+                    class="table-design-editor"
+                    [editor]="wordEditor"
+                    [config]="wordEditorConfig"
+                    [(ngModel)]="newTableHtml">
+                </ckeditor>
+            </div>
             <label class="check-row">
                 <input type="checkbox" [(ngModel)]="newFieldRequired" />
                 Required
@@ -431,7 +487,7 @@
                 <input type="number" min="1" [max]="pageCount" [(ngModel)]="newFieldPage" />
             </label>
             <button
-                *ngIf="!isAttachmentFieldType(newFieldType)"
+                *ngIf="!isAttachmentFieldType(newFieldType) && newFieldType !== 'table'"
                 type="button"
                 class="btn btn-primary full-width"
                 (click)="assignField()">

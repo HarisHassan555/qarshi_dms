@@ -1,4 +1,11 @@
-<ng-container *ngIf="!selectedApplication || !selectedTemplate; else applicationDetails">
+<div *ngIf="isDetailsLoading" class="panel loading-panel detail-loading-panel">
+    <div class="inline-flex items-center gap-3 text-primary">
+        <span class="loader-spinner" aria-hidden="true"></span>
+        <span>Loading application details...</span>
+    </div>
+</div>
+
+<ng-container *ngIf="!isDetailsLoading && (!selectedApplication || !selectedTemplate); else applicationDetails">
     <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
         <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
             <div class="flex items-center gap-2">

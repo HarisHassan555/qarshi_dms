@@ -128,6 +128,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     private static readonly INDIVIDUAL_FOOTER_MIN_HEIGHT = 136;
     search = '';
     isLoading = false;
+    isDetailsLoading = false;
     applications: MyTemplateApplication[] = [];
     selectedApplication: MyTemplateApplication | null = null;
     selectedTemplate: any = null;
@@ -149,6 +150,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         { key: 'comments', label: 'Comments' }
     ];
     private searchTimer: ReturnType<typeof setTimeout> | null = null;
+    private activeDetailRequestId = 0;
     cols = [
         { field: 'txtFormCode', title: 'Application Code' },
         { field: 'templateName', title: 'Template' },
@@ -170,11 +172,10 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     ngOnInit(): void {
         this.loadApplications();
         this.route.paramMap.subscribe((params) => {
-            if (this.isLoading) {
-                return;
-            }
             const applicationId = Number(params.get('id'));
             if (!applicationId) {
+                this.activeDetailRequestId += 1;
+                this.isDetailsLoading = false;
                 this.selectApplication(null);
                 return;
             }
@@ -206,9 +207,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
                 this.totalApplications = Number(response?.total || 0);
 
                 const routeApplicationId = Number(this.route.snapshot.paramMap.get('id'));
-                if (routeApplicationId) {
-                    this.loadApplicationDetails(routeApplicationId);
-                } else {
+                if (!routeApplicationId) {
                     this.selectApplication(null);
                 }
             },
@@ -326,6 +325,8 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             });
             return;
         }
+        this.isDetailsLoading = true;
+        this.selectApplication(null);
         this.router.navigate(['/my-application', application.serApplicationId]);
     }
 
@@ -340,7 +341,11 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     }
 
     backToList(): void {
-        this.router.navigate(['/my-application']);
+        this.activeDetailRequestId += 1;
+        this.isDetailsLoading = false;
+        const sourcePage = this.route.snapshot.queryParamMap.get('from');
+        const targetRoute = sourcePage === 'department-application' ? '/department-application' : '/my-application';
+        this.router.navigate([targetRoute]);
         this.selectApplication(null);
     }
 
@@ -536,13 +541,23 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     }
 
     private loadApplicationDetails(applicationId: number): void {
+        const detailRequestId = ++this.activeDetailRequestId;
+        this.isDetailsLoading = true;
+        this.selectApplication(null);
         this.templateWorkflowService.getApplication(applicationId).subscribe({
             next: (application) => {
+                if (detailRequestId !== this.activeDetailRequestId) {
+                    return;
+                }
                 this.templateWorkflowService.getTemplate(String(application?.serFormId || '')).subscribe({
                     next: (template) => {
+                        if (detailRequestId !== this.activeDetailRequestId) {
+                            return;
+                        }
                         if (!template) {
                             this.notificationService.showMessage('Template definition could not be found for this application.', 'danger');
                             this.selectApplication(null);
+                            this.isDetailsLoading = false;
                             return;
                         }
                         const listApplication = this.applications.find((item) => Number(item.serApplicationId) === Number(applicationId));
@@ -552,22 +567,31 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
                             template,
                             templateName: template.name || listApplication?.templateName || 'Template'
                         });
+                        this.isDetailsLoading = false;
                     },
                     error: (error) => {
+                        if (detailRequestId !== this.activeDetailRequestId) {
+                            return;
+                        }
                         this.notificationService.showMessage(
                             'Template definition could not be loaded: ' + (error.error?.message || error.message),
                             'danger'
                         );
                         this.selectApplication(null);
+                        this.isDetailsLoading = false;
                     }
                 });
             },
             error: (error) => {
+                if (detailRequestId !== this.activeDetailRequestId) {
+                    return;
+                }
                 this.notificationService.showMessage(
                     'Application details could not be loaded: ' + (error.error?.message || error.message),
                     'danger'
                 );
                 this.selectApplication(null);
+                this.isDetailsLoading = false;
             }
         });
     }
@@ -909,15 +933,19 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     }
 
     viewAttachment(attachment: AttachmentPayload): void {
-        const dataUrl = String(attachment?.dataUrl || '').trim();
         const base64 = String(attachment?.base64 || '').trim();
         const mimeType = String(attachment?.mimeType || 'application/octet-stream').trim();
-        const resolvedUrl = dataUrl || (base64 ? `data:${mimeType};base64,${base64}` : '');
+        const objectUrl = base64 ? this.createAttachmentObjectUrl(base64, mimeType) : '';
+        const dataUrl = String(attachment?.dataUrl || '').trim();
+        const resolvedUrl = objectUrl || dataUrl;
         if (!resolvedUrl) {
             this.notificationService.showMessage('Attachment content is unavailable.', 'warning');
             return;
         }
         window.open(resolvedUrl, '_blank', 'noopener');
+        if (objectUrl) {
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+        }
     }
 
     isHeaderFieldType(type: TemplateFieldType): boolean {
@@ -1975,6 +2003,20 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             normalized.push({ fileName, mimeType, dataUrl, base64 });
         }
         return normalized;
+    }
+
+    private createAttachmentObjectUrl(base64: string, mimeType: string): string {
+        try {
+            const binary = window.atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return URL.createObjectURL(new Blob([bytes], { type: mimeType || 'application/octet-stream' }));
+        } catch (error) {
+            console.error('Failed to create attachment object URL', error);
+            return '';
+        }
     }
 
     private getIndividualFooterUserParts(user: any): string[] {

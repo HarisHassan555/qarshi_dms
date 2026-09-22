@@ -57,9 +57,15 @@
             </ng-template>
             <ng-template slot="actions" let-value="data">
                 <div class="flex items-center justify-center">
-                    <a (click)="viewApplication(value)" class="hover:text-info" title="View Application">
-                        <icon-eye class="h-4.5 w-4.5" />
-                    </a>
+                    <button
+                        type="button"
+                        class="department-action-button hover:text-info"
+                        [disabled]="isOpeningApplication(value)"
+                        (click)="viewApplication(value)"
+                        title="View Application">
+                        <span *ngIf="isOpeningApplication(value)" class="loader-spinner action-spinner" aria-hidden="true"></span>
+                        <icon-eye *ngIf="!isOpeningApplication(value)" class="h-4.5 w-4.5" />
+                    </button>
                 </div>
             </ng-template>
         </ng-datatable>

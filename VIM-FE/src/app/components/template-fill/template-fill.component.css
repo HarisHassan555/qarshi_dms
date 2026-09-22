@@ -154,6 +154,89 @@
     width: 100%;
 }
 
+.table-field-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.table-editor-scroll {
+    max-width: 100%;
+    overflow: auto;
+}
+
+.fillable-table {
+    border-collapse: collapse;
+    min-width: 100%;
+    table-layout: fixed;
+}
+
+.fillable-table th,
+.fillable-table td {
+    border: 1px solid #cbd5e1;
+    padding: 4px;
+    vertical-align: top;
+}
+
+.fillable-table th {
+    background: #f8fafc;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: left;
+}
+
+.fillable-table input {
+    border: 0;
+    border-radius: 0;
+    min-width: 96px;
+    padding: 5px 6px;
+}
+
+.table-row-actions-heading,
+.table-row-actions {
+    width: 78px;
+}
+
+.inline-table-shell {
+    align-items: stretch;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    height: 100%;
+    overflow: hidden;
+    width: 100%;
+}
+
+.inline-fillable-table th,
+.inline-fillable-table td {
+    padding: 3px;
+}
+
+.inline-fillable-table input {
+    background: transparent;
+    font: inherit;
+    min-width: 72px;
+}
+
+.inline-table-add-row {
+    align-self: flex-start;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    color: #172033;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 5px 8px;
+}
+
+.inline-table-add-row:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
 .user-pipeline-panel {
     border-top: 1px solid #e2e8f0;
     margin-top: 14px;

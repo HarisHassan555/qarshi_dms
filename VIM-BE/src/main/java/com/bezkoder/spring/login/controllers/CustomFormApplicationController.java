@@ -7,6 +7,7 @@ import com.bezkoder.spring.login.admin.bll.services.ICommonService;
 import com.bezkoder.spring.login.admin.utility.common.RequestMetadataUtil;
 import com.bezkoder.spring.login.sa.dal.dao.ICfgTblCustomFormApplicationDAO;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApplication;
+import com.bezkoder.spring.login.sa.bll.servicesimpl.TemplateEmailDispatchService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.log4j.LogManager;
@@ -19,6 +20,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.net.URLEncoder;
@@ -49,6 +52,12 @@ public class CustomFormApplicationController {
 
     @Autowired
     private TemplateDefinitionController templateDefinitionController;
+
+    @Autowired
+    private TemplateEmailDispatchService templateEmailDispatchService;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -550,7 +559,17 @@ public class CustomFormApplicationController {
             String finalRemarks = remarks.trim();
             if (isTemplateBuilderApplication(applicationId)) {
                 Map<String, Object> requestBody = buildTemplateEmailActionRequest(applicationId, userId, finalRemarks);
-                Map<String, Object> result = templateDefinitionController.approveTemplateApplication(requestBody,
+                Map<String, Object> result;
+                if (isActiveTemplateOpinionAssignedToUser(applicationId, userId)) {
+                    requestBody.put("action", "approve");
+                    result = templateDefinitionController.submitTemplateApplicationOpinion(requestBody, request, response);
+                    if ("Success".equals(result.get("status"))) {
+                        return renderEmailActionResultPage("Opinion Submitted", "Your opinion has been submitted.");
+                    }
+                    return renderEmailActionErrorPage("Opinion Failed",
+                            String.valueOf(result.getOrDefault("message", "Failed to submit opinion")));
+                }
+                result = templateDefinitionController.approveTemplateApplication(requestBody,
                         request, response);
                 if ("Success".equals(result.get("status"))) {
                     String pdfRefreshStatus = getCustomFormApplicationDaoImpl()
@@ -610,7 +629,17 @@ public class CustomFormApplicationController {
             String finalRemarks = remarks.trim();
             if (isTemplateBuilderApplication(applicationId)) {
                 Map<String, Object> requestBody = buildTemplateEmailActionRequest(applicationId, userId, finalRemarks);
-                Map<String, Object> result = templateDefinitionController.rejectTemplateApplication(requestBody,
+                Map<String, Object> result;
+                if (isActiveTemplateOpinionAssignedToUser(applicationId, userId)) {
+                    requestBody.put("action", "reject");
+                    result = templateDefinitionController.submitTemplateApplicationOpinion(requestBody, request, response);
+                    if ("Success".equals(result.get("status"))) {
+                        return renderEmailActionResultPage("Opinion Submitted", "Your opinion has been submitted.");
+                    }
+                    return renderEmailActionErrorPage("Opinion Failed",
+                            String.valueOf(result.getOrDefault("message", "Failed to submit opinion")));
+                }
+                result = templateDefinitionController.rejectTemplateApplication(requestBody,
                         request, response);
                 if ("Success".equals(result.get("status"))) {
                     return renderEmailActionResultPage("Application Rejected", "The application has been rejected.");
@@ -1008,16 +1037,16 @@ public class CustomFormApplicationController {
                 result.put("message", "Application ID is required");
                 return result;
             }
-
-            String status = customFormApplicationService.sendTemplatePostApprovalEmails(applicationId);
-            if ("Success".equals(status)) {
-                result.put("status", "Success");
-                result.put("message", "Approval emails sent successfully");
-            } else {
+            if (!applicationExists(applicationId)) {
                 result.put("status", "Failure");
-                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8)
-                        : "Failed to send approval emails");
+                result.put("message", "Application not found");
+                return result;
             }
+
+            templateEmailDispatchService.queuePostApprovalEmails(applicationId,
+                    "template post-approval email notification");
+            result.put("status", "Success");
+            result.put("message", "Approval emails queued successfully");
             return result;
         } catch (Exception ex) {
             logger.error("Error sending template post-approval emails: " + ex.getMessage(), ex);
@@ -1042,6 +1071,11 @@ public class CustomFormApplicationController {
                 result.put("message", "Application ID is required");
                 return result;
             }
+            if (!applicationExists(applicationId)) {
+                result.put("status", "Failure");
+                result.put("message", "Application not found");
+                return result;
+            }
 
             byte[] initiatorBytes = initiatorPdf != null && !initiatorPdf.isEmpty() ? initiatorPdf.getBytes() : null;
             byte[] approverBytes = approverPdf != null && !approverPdf.isEmpty() ? approverPdf.getBytes() : null;
@@ -1052,16 +1086,10 @@ public class CustomFormApplicationController {
                     ? approverPdf.getContentType()
                     : (initiatorPdf != null ? initiatorPdf.getContentType() : "application/pdf");
 
-            String status = customFormApplicationService.sendTemplatePostApprovalEmails(applicationId, initiatorBytes,
-                    approverBytes, pdfName, pdfMime);
-            if ("Success".equals(status)) {
-                result.put("status", "Success");
-                result.put("message", "Approval emails sent successfully");
-            } else {
-                result.put("status", "Failure");
-                result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8)
-                        : "Failed to send approval emails");
-            }
+            templateEmailDispatchService.queuePostApprovalEmailsWithPdfs(applicationId, initiatorBytes,
+                    approverBytes, pdfName, pdfMime, "template post-approval email notification");
+            result.put("status", "Success");
+            result.put("message", "Approval emails queued successfully");
             return result;
         } catch (Exception ex) {
             logger.error("Error sending template post-approval emails with PDFs: " + ex.getMessage(), ex);
@@ -1374,6 +1402,62 @@ public class CustomFormApplicationController {
         } catch (Exception ex) {
             logger.warn("Failed to detect template-builder application for email action, applicationId="
                     + applicationId + ": " + ex.getMessage());
+            return false;
+        }
+    }
+
+    private boolean applicationExists(Integer applicationId) {
+        if (applicationId == null) {
+            return false;
+        }
+        try {
+            Number count = (Number) entityManager
+                    .createNativeQuery("SELECT COUNT(*) FROM cfg_tbl_custom_form_application WHERE ser_application_id = :applicationId")
+                    .setParameter("applicationId", applicationId)
+                    .getSingleResult();
+            return count != null && count.intValue() > 0;
+        } catch (Exception ex) {
+            logger.warn("Could not verify application existence for applicationId=" + applicationId + ": "
+                    + ex.getMessage());
+            return true;
+        }
+    }
+
+    private boolean isActiveTemplateOpinionAssignedToUser(Integer applicationId, Integer userId) {
+        if (applicationId == null || userId == null || userId <= 0) {
+            return false;
+        }
+        try {
+            CfgTblCustomFormApplication application = customFormApplicationService.getApplicationById(applicationId);
+            if (application == null || !"OPINION_PENDING".equalsIgnoreCase(String.valueOf(application.getTxtStatus()))) {
+                return false;
+            }
+            String rawJson = application.getTxtApplicationData() != null
+                    ? application.getTxtApplicationData().trim()
+                    : "";
+            if (rawJson.isEmpty()) {
+                return false;
+            }
+            Map<String, Object> appData = objectMapper.readValue(rawJson, new TypeReference<Map<String, Object>>() {
+            });
+            Object opinionValue = appData.get("templateOpinionRequest");
+            if (!(opinionValue instanceof Map)) {
+                return false;
+            }
+            Map<?, ?> opinion = (Map<?, ?>) opinionValue;
+            Object active = opinion.get("active");
+            boolean isActive = Boolean.TRUE.equals(active) || "true".equalsIgnoreCase(String.valueOf(active));
+            if (!isActive) {
+                return false;
+            }
+            Integer assignedUserId = getIntegerValue(opinion.get("requestedFrom"));
+            if (assignedUserId == null) {
+                assignedUserId = getIntegerValue(opinion.get("opinionUserId"));
+            }
+            return userId.equals(assignedUserId);
+        } catch (Exception ex) {
+            logger.warn("Failed to detect template opinion email action, applicationId=" + applicationId
+                    + ", userId=" + userId + ": " + ex.getMessage());
             return false;
         }
     }

@@ -97,8 +97,34 @@
                         </div>
                     </div>
                 </div>
+                <div *ngIf="field.type === 'table'" class="table-field-panel">
+                    <div class="table-editor-scroll">
+                        <table class="fillable-table">
+                            <tbody>
+                                <tr *ngFor="let row of getTableRenderRows(field)">
+                                    <td
+                                        *ngFor="let cell of row.cells"
+                                        [attr.colspan]="cell.colspan"
+                                        [attr.rowspan]="cell.rowspan"
+                                        [attr.class]="cell.className"
+                                        [attr.style]="cell.style">
+                                        <input
+                                            *ngIf="cell.editable; else staticTableCell"
+                                            type="text"
+                                            [ngModel]="getTableCellValue(field, cell.key)"
+                                            [disabled]="!canCurrentStepFillField(field)"
+                                            (ngModelChange)="setTableCellValue(field, cell.key, $event)" />
+                                        <ng-template #staticTableCell>
+                                            <span [innerHTML]="cell.html"></span>
+                                        </ng-template>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
                 <input
-                    *ngIf="field.type !== 'textarea' && field.type !== 'word_editor' && field.type !== 'checkbox' && field.type !== 'radio' && !isAttachmentField(field)"
+                    *ngIf="field.type !== 'textarea' && field.type !== 'word_editor' && field.type !== 'checkbox' && field.type !== 'radio' && field.type !== 'table' && !isAttachmentField(field)"
                     [id]="field.id"
                     [type]="getPanelInputType(field)"
                     [(ngModel)]="values[field.id]"
@@ -278,6 +304,35 @@
                             </div>
                         </ng-container>
                         <ng-template #nonSignatureField>
+                            <ng-container *ngIf="field.type === 'table'; else nonTableFieldValue">
+                                <div class="inline-table-shell" [ngStyle]="getInputStyle(field)">
+                                    <div class="table-editor-scroll">
+                                        <table class="fillable-table inline-fillable-table">
+                                            <tbody>
+                                                <tr *ngFor="let row of getTableRenderRows(field)">
+                                                    <td
+                                                        *ngFor="let cell of row.cells"
+                                                        [attr.colspan]="cell.colspan"
+                                                        [attr.rowspan]="cell.rowspan"
+                                                        [attr.class]="cell.className"
+                                                        [attr.style]="cell.style">
+                                                        <input
+                                                            *ngIf="cell.editable; else inlineStaticTableCell"
+                                                            type="text"
+                                                            [ngModel]="getTableCellValue(field, cell.key)"
+                                                            [disabled]="!canCurrentStepFillField(field)"
+                                                            (ngModelChange)="setTableCellValue(field, cell.key, $event)" />
+                                                        <ng-template #inlineStaticTableCell>
+                                                            <span [innerHTML]="cell.html"></span>
+                                                        </ng-template>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </ng-container>
+                            <ng-template #nonTableFieldValue>
                             <ng-container *ngIf="field.type === 'word_editor'; else plainFieldValue">
                                 <div
                                     class="inline-word-editor-shell"
@@ -296,6 +351,7 @@
                                     </ckeditor>
                                 </div>
                             </ng-container>
+                            </ng-template>
                             <ng-template #plainFieldValue>
                                 <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
                                 {{ getFieldValueText(field) }}

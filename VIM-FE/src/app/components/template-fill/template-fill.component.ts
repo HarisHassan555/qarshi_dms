@@ -70,6 +70,29 @@ interface TemplateField {
     signatureTargetId?: string;
     options?: string[];
     optionPlacements?: RadioOptionPlacement[];
+    tableConfig?: TableFieldConfig;
+    tableHtml?: string;
+}
+
+interface TableFieldConfig {
+    rows: number;
+    columns: number;
+    headers: string[];
+}
+
+interface TableRenderCell {
+    key: string;
+    tagName: 'td' | 'th';
+    html: string;
+    editable: boolean;
+    colspan: number;
+    rowspan: number;
+    className: string;
+    style: string;
+}
+
+interface TableRenderRow {
+    cells: TableRenderCell[];
 }
 
 interface RadioOptionPlacement {
@@ -190,9 +213,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             }
 
             if (!this.editingApplication) {
-                this.generatedApplicationCode = this.savedTemplate
-                    ? await firstValueFrom(this.templateWorkflowService.peekNextTemplateCode(this.savedTemplate))
-                    : this.getSessionTemplatePreviewCode();
+                this.generatedApplicationCode = await this.resolveInitialApplicationCode();
             }
         } catch (error) {
             console.error('Template load failed', error);
@@ -210,6 +231,10 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             if (this.isAttachmentField(field)) {
                 this.values[field.id] = this.normalizeExistingAttachmentPayloads(this.values[field.id]);
             }
+            if (field.type === 'table') {
+                field.tableHtml = this.normalizeTableHtml(field.tableHtml);
+                this.values[field.id] = this.normalizeTableCellValues(this.values[field.id]);
+            }
             this.persistedValues[field.id] = this.values[field.id];
             if (field.type === 'word_editor') {
                 this.acceptedWordEditorValues[field.id] = String(this.values[field.id] || '');
@@ -220,6 +245,18 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
 
     get isEditingExistingApplication(): boolean {
         return !!this.editingApplication?.serApplicationId;
+    }
+
+    private async resolveInitialApplicationCode(): Promise<string> {
+        if (!this.savedTemplate) {
+            return this.getSessionTemplatePreviewCode();
+        }
+        try {
+            return await firstValueFrom(this.templateWorkflowService.peekNextTemplateCode(this.savedTemplate));
+        } catch (error) {
+            console.warn('Next application code could not be loaded; using local fallback.', error);
+            return this.getSessionTemplatePreviewCode();
+        }
     }
 
     get pageIndexes(): number[] {
@@ -348,6 +385,10 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             return this.getAttachmentDisplayText(field);
         }
 
+        if (field.type === 'table') {
+            return '';
+        }
+
         if (field.type === 'dynamic_approver_name'
             || field.type === 'dynamic_approval_timestamp'
             || field.type === 'dynamic_approver_department'
@@ -377,6 +418,34 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
 
     getRadioOptionPlacements(field: TemplateField): RadioOptionPlacement[] {
         return Array.isArray(field.optionPlacements) ? field.optionPlacements : [];
+    }
+
+    getTableRenderRows(field: TemplateField): TableRenderRow[] {
+        field.tableHtml = this.normalizeTableHtml(field.tableHtml);
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(field.tableHtml, 'text/html');
+        const table = doc.querySelector('table');
+        if (!table) {
+            return [];
+        }
+
+        return Array.from(table.querySelectorAll('tr')).map((row, rowIndex) => ({
+            cells: Array.from(row.children)
+                .filter((cell) => ['TD', 'TH'].includes(cell.tagName))
+                .map((cell, cellIndex) => this.buildTableRenderCell(cell as HTMLTableCellElement, rowIndex, cellIndex))
+        }));
+    }
+
+    getTableCellValue(field: TemplateField, cellKey: string): string {
+        const tableValues = this.normalizeTableCellValues(this.values[field.id]);
+        return tableValues[cellKey] || '';
+    }
+
+    setTableCellValue(field: TemplateField, cellKey: string, value: string): void {
+        const tableValues = this.normalizeTableCellValues(this.values[field.id]);
+        tableValues[cellKey] = value;
+        this.values[field.id] = tableValues;
+        this.onPanelValueChanged();
     }
 
     getFieldValueHtml(field: TemplateField): SafeHtml {
@@ -570,7 +639,6 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         const previousValue = this.acceptedWordEditorValues[field.id] || '';
         this.values[field.id] = nextValue;
         this.onPanelValueChanged();
-
         if (!field.placement) {
             this.acceptedWordEditorValues[field.id] = nextValue;
             return;
@@ -879,6 +947,10 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 : (field.type === 'application_code' ? this.generatedApplicationCode : (field.type === 'checkbox' ? false : ''));
             if (this.isAttachmentField(field)) {
                 this.values[field.id] = this.normalizeExistingAttachmentPayloads(this.values[field.id]);
+            }
+            if (field.type === 'table') {
+                field.tableHtml = this.normalizeTableHtml(field.tableHtml);
+                this.values[field.id] = this.normalizeTableCellValues(this.values[field.id]);
             }
             this.persistedValues[field.id] = this.values[field.id];
         });
@@ -1476,6 +1548,14 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             const attachments = Array.isArray(value) ? value : (value ? [value] : []);
             return attachments.length === 0;
         }
+        if (field.type === 'table') {
+            const tableValues = this.normalizeTableCellValues(value);
+            return this.getTableRenderRows(field)
+                .filter((row) => row.cells.some((cell) => cell.editable))
+                .every((row) => row.cells
+                    .filter((cell) => cell.editable)
+                    .every((cell) => String(tableValues[cell.key] || '').trim() === ''));
+        }
         if (Array.isArray(value)) {
             return value.length === 0;
         }
@@ -1946,6 +2026,84 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         }
 
         return 'text';
+    }
+
+    private getTableColumnCount(field: TemplateField): number {
+        return this.normalizeTableConfig(field.tableConfig).columns;
+    }
+
+    private buildTableRenderCell(cell: HTMLTableCellElement, rowIndex: number, cellIndex: number): TableRenderCell {
+        const html = String(cell.innerHTML || '').trim();
+        const key = `r${rowIndex}c${cellIndex}`;
+        return {
+            key,
+            tagName: cell.tagName.toLowerCase() === 'th' ? 'th' : 'td',
+            html,
+            editable: !this.hasMeaningfulTableCellContent(cell),
+            colspan: Math.max(1, Number(cell.getAttribute('colspan') || cell.colSpan || 1)),
+            rowspan: Math.max(1, Number(cell.getAttribute('rowspan') || cell.rowSpan || 1)),
+            className: cell.getAttribute('class') || '',
+            style: cell.getAttribute('style') || ''
+        };
+    }
+
+    private hasMeaningfulTableCellContent(cell: HTMLTableCellElement): boolean {
+        const text = String(cell.textContent || '').replace(/\u00a0/g, ' ').trim();
+        if (text) {
+            return true;
+        }
+        return Array.from(cell.children).some((child) => !['BR'].includes(child.tagName));
+    }
+
+    private normalizeTableHtml(value: any): string {
+        const html = String(value || '').trim();
+        return /<table[\s>]/i.test(html)
+            ? html
+            : '<figure class="table"><table><tbody><tr><td>Header 1</td><td>Header 2</td></tr><tr><td></td><td></td></tr></tbody></table></figure>';
+    }
+
+    private normalizeTableCellValues(value: any): { [cellKey: string]: string } {
+        if (!value || Array.isArray(value) || typeof value !== 'object') {
+            return {};
+        }
+        return Object.keys(value).reduce((acc: { [cellKey: string]: string }, key) => {
+            acc[key] = String(value[key] ?? '');
+            return acc;
+        }, {});
+    }
+
+    private normalizeTableConfig(config?: Partial<TableFieldConfig>): TableFieldConfig {
+        const columns = this.normalizeTableSize(config?.columns, 1, 20);
+        const rows = this.normalizeTableSize(config?.rows, 1, 50);
+        const headers = Array.from({ length: columns }, (_, index) => {
+            const existing = String(config?.headers?.[index] || '').trim();
+            return existing || `Column ${index + 1}`;
+        });
+        return { rows, columns, headers };
+    }
+
+    private normalizeTableValue(field: TemplateField, value: any): string[][] {
+        const config = this.normalizeTableConfig(field.tableConfig);
+        const sourceRows = Array.isArray(value) ? value : [];
+        return Array.from({ length: Math.max(config.rows, sourceRows.length, 1) }, (_, rowIndex) => {
+            const sourceRow = Array.isArray(sourceRows[rowIndex]) ? sourceRows[rowIndex] : [];
+            return Array.from({ length: config.columns }, (_, columnIndex) => String(sourceRow[columnIndex] ?? ''));
+        });
+    }
+
+    private isNormalizedTableValue(field: TemplateField, value: any): value is string[][] {
+        const config = this.normalizeTableConfig(field.tableConfig);
+        return Array.isArray(value)
+            && value.length >= Math.max(config.rows, 1)
+            && value.every((row) => Array.isArray(row) && row.length === config.columns);
+    }
+
+    private normalizeTableSize(value: any, min: number, max: number): number {
+        const numeric = Math.round(Number(value));
+        if (!Number.isFinite(numeric)) {
+            return min;
+        }
+        return Math.min(Math.max(numeric, min), max);
     }
 
     private normalizeRadioValue(value: any): string {

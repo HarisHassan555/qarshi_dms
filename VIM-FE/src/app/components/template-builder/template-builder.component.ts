@@ -64,6 +64,12 @@ interface RadioOptionPlacement {
     placement: TemplateFieldPlacement;
 }
 
+interface TableFieldConfig {
+    rows: number;
+    columns: number;
+    headers: string[];
+}
+
 interface TemplateFieldStyle {
     fontSize: number;
     bold: boolean;
@@ -87,6 +93,8 @@ interface TemplateField {
     signatureTargetId?: string;
     options?: string[];
     optionPlacements?: RadioOptionPlacement[];
+    tableConfig?: TableFieldConfig;
+    tableHtml?: string;
 }
 
 interface TemplateBackground {
@@ -131,6 +139,7 @@ interface PipelineStep {
 export class TemplateBuilderComponent implements OnInit, OnDestroy {
     @ViewChild('editorFrame') editorFrame?: ElementRef<HTMLElement>;
     @ViewChild('fieldLayer') fieldLayer?: ElementRef<HTMLElement>;
+    @ViewChild('tableToolbarHost') tableToolbarHost?: ElementRef<HTMLElement>;
 
     readonly a4PortraitWidth = 794;
     readonly a4PortraitHeight = 1123;
@@ -158,6 +167,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     newFieldRequired = false;
     newFieldPage = 1;
     newRadioOptions: { id: string; label: string }[] = [];
+    newTableRows = 3;
+    newTableColumns = 3;
+    newTableHeaders: string[] = ['Column 1', 'Column 2', 'Column 3'];
+    newTableHtml = this.getDefaultTableHtml();
     newPipelineName = '';
     newPipelineType: PipelineStepType = 'department';
     newPipelineApprovalMode: PipelineApprovalMode = 'OR';
@@ -182,6 +195,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     showPipelineModal = false;
     showPipelineRightsModal = false;
     fieldPropertiesCollapsed = false;
+    activeTableEditorFieldId = '';
+    private activeTableToolbarElement: HTMLElement | null = null;
+    private activeTableToolbarOriginParent: HTMLElement | null = null;
+    private activeTableToolbarOriginNextSibling: ChildNode | null = null;
 
     fieldTypes: { value: TemplateFieldType; label: string }[] = [
         { value: 'document_header', label: 'Document Header QI' },
@@ -268,6 +285,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     }
 
     ngOnDestroy(): void {
+        this.restoreTableToolbar();
         document.body.classList.remove(TEMPLATE_BUILDER_HIDE_CKEDITOR_BADGE_CLASS);
     }
 
@@ -417,7 +435,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         const isHeader = this.isHeaderFieldType(field.type);
         const isFooter = this.isFooterFieldType(field.type);
         const pageTop = (field.page - 1) * (this.pageHeight + this.pageGap);
-        field.placement = {
+        field.placement = field.type === 'table' ? this.buildDefaultTablePlacement(field.page, index) : {
             x: isHeader || isFooter ? 0 : 32 + (index % 4) * 18,
             y: isHeader ? pageTop : (isFooter ? pageTop + this.pageHeight - 86 : pageTop + 120 + (index % 5) * 18),
             width: isHeader || isFooter ? this.pageWidth : 160,
@@ -494,6 +512,23 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (this.newFieldType === 'radio') {
             this.ensureNewRadioOptions();
         }
+        if (this.newFieldType === 'table') {
+            this.ensureNewTableHeaders();
+            this.newTableHtml = this.normalizeTableHtml(this.newTableHtml);
+        }
+    }
+
+    onNewTableSizeChanged(): void {
+        this.newTableRows = this.normalizeTableSize(this.newTableRows, 1, 50);
+        this.newTableColumns = this.normalizeTableSize(this.newTableColumns, 1, 20);
+        this.ensureNewTableHeaders();
+    }
+
+    onFieldTableSizeChanged(field: TemplateField): void {
+        if (field.type !== 'table') {
+            return;
+        }
+        field.tableConfig = this.normalizeTableConfig(field.tableConfig);
     }
 
     addNewRadioOption(): void {
@@ -937,12 +972,18 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     }
 
     selectField(fieldId: string): void {
+        if (this.selectedFieldId !== fieldId) {
+            this.restoreTableToolbar();
+        }
         this.selectedFieldId = fieldId;
         this.editorContent = this.withSelectedField(fieldId);
         this.editorInstance?.setData(this.editorContent);
     }
 
     removeField(fieldId: string): void {
+        if (this.selectedFieldId === fieldId) {
+            this.restoreTableToolbar();
+        }
         this.fields = this.fields.filter((field) => field.id !== fieldId);
         this.editorContent = this.replaceFieldMarkers(fieldId);
         this.editorInstance?.setData(this.editorContent);
@@ -985,6 +1026,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
         if (nextType === 'radio') {
             field.options = this.getExistingOrDefaultRadioOptions(field.options);
+            delete field.tableConfig;
             field.optionPlacements = [];
             const page = this.clamp(Math.round(Number(field.page) || 1), 1, this.pageCount);
             this.getRadioOptions(field).forEach((option, index) => {
@@ -1007,11 +1049,20 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         } else {
             delete field.options;
             delete field.optionPlacements;
+            if (nextType === 'table') {
+                field.tableConfig = this.normalizeTableConfig(field.tableConfig);
+                field.tableHtml = this.normalizeTableHtml(field.tableHtml);
+            } else {
+                delete field.tableConfig;
+                delete field.tableHtml;
+            }
 
             if (this.isAttachmentFieldType(nextType)) {
                 delete field.placement;
             } else if (this.isDocumentRegionFieldType(nextType)) {
                 field.placement = this.buildDocumentRegionPlacement(nextType, field.page);
+            } else if (nextType === 'table') {
+                field.placement = previousPlacement || this.buildDefaultTablePlacement(field.page, this.fields.indexOf(field));
             } else if (previousType === 'radio' && previousRadioPlacement) {
                 field.page = previousRadioPlacement.page;
                 field.placement = {
@@ -1060,6 +1111,38 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     getRadioOptionPlacements(field: TemplateField): RadioOptionPlacement[] {
         return Array.isArray(field.optionPlacements) ? field.optionPlacements : [];
+    }
+
+    getTableHeaders(field: TemplateField): string[] {
+        field.tableConfig = this.normalizeTableConfig(field.tableConfig);
+        return field.tableConfig.headers;
+    }
+
+    getTablePreviewHtml(field: TemplateField): string {
+        field.tableHtml = this.normalizeTableHtml(field.tableHtml);
+        return field.tableHtml;
+    }
+
+    isTableFieldEditorActive(): boolean {
+        return this.selectedField?.type === 'table' && this.activeTableEditorFieldId === this.selectedFieldId;
+    }
+
+    onInlineTableEditorReady(field: TemplateField, editor: any): void {
+        if (field.id !== this.selectedFieldId) {
+            return;
+        }
+        const toolbar = editor?.ui?.view?.toolbar?.element as HTMLElement | undefined;
+        const host = this.tableToolbarHost?.nativeElement;
+        if (!toolbar || !host) {
+            return;
+        }
+
+        this.restoreTableToolbar();
+        this.activeTableEditorFieldId = field.id;
+        this.activeTableToolbarElement = toolbar;
+        this.activeTableToolbarOriginParent = toolbar.parentElement;
+        this.activeTableToolbarOriginNextSibling = toolbar.nextSibling;
+        host.replaceChildren(toolbar);
     }
 
     addRadioOptionBox(field: TemplateField, optionLabel: string): void {
@@ -1194,6 +1277,12 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
                 this.editorContent = this.removeRadioFieldMarkers(payload.html || '');
                 this.backgroundFile = payload.background || null;
                 this.fields = Array.isArray(payload.fields) ? payload.fields : [];
+                this.fields.forEach((field) => {
+                    if (field.type === 'table') {
+                        field.tableConfig = this.normalizeTableConfig(field.tableConfig);
+                        field.tableHtml = this.normalizeTableHtml(field.tableHtml);
+                    }
+                });
                 this.pipelineSteps = Array.isArray(payload.pipeline) ? payload.pipeline : [];
 
                 const page = payload.page || {};
@@ -1295,6 +1384,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (this.isAttachmentFieldType(this.newFieldType)) {
             return 'Add Attachment Field';
         }
+        if (this.newFieldType === 'table') {
+            return 'Place Table Field';
+        }
         return this.isDocumentRegionFieldType(this.newFieldType) ? 'Add Page Region' : 'Place Draggable Field';
     }
 
@@ -1330,6 +1422,12 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             field.optionPlacements = [];
             field.style.fontSize = 18;
             field.style.bold = true;
+        }
+
+        if (field.type === 'table') {
+            field.tableConfig = this.buildNewTableConfig();
+            field.tableHtml = this.normalizeTableHtml(this.newTableHtml);
+            field.style.textAlign = 'left';
         }
 
         if (this.isDynamicApprovalDataField(field)) {
@@ -1375,10 +1473,78 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         ];
     }
 
+    private ensureNewTableHeaders(): void {
+        const columns = this.normalizeTableSize(this.newTableColumns, 1, 20);
+        this.newTableColumns = columns;
+        this.newTableRows = this.normalizeTableSize(this.newTableRows, 1, 50);
+        this.newTableHeaders = Array.from({ length: columns }, (_, index) => {
+            const existing = String(this.newTableHeaders[index] || '').trim();
+            return existing || `Column ${index + 1}`;
+        });
+    }
+
+    private buildNewTableConfig(): TableFieldConfig {
+        this.ensureNewTableHeaders();
+        return this.normalizeTableConfig({
+            rows: this.newTableRows,
+            columns: this.newTableColumns,
+            headers: [...this.newTableHeaders]
+        });
+    }
+
+    private normalizeTableConfig(config?: Partial<TableFieldConfig>): TableFieldConfig {
+        const columns = this.normalizeTableSize(config?.columns, 1, 20);
+        const rows = this.normalizeTableSize(config?.rows, 1, 50);
+        const headers = Array.from({ length: columns }, (_, index) => {
+            const existing = String(config?.headers?.[index] || '').trim();
+            return existing || `Column ${index + 1}`;
+        });
+        return { rows, columns, headers };
+    }
+
+    private normalizeTableSize(value: any, min: number, max: number): number {
+        const numeric = Math.round(Number(value));
+        if (!Number.isFinite(numeric)) {
+            return min;
+        }
+        return this.clamp(numeric, min, max);
+    }
+
+    private normalizeTableHtml(value: any): string {
+        const html = String(value || '').trim();
+        return /<table[\s>]/i.test(html) ? html : this.getDefaultTableHtml();
+    }
+
+    private restoreTableToolbar(): void {
+        if (!this.activeTableToolbarElement || !this.activeTableToolbarOriginParent) {
+            this.activeTableEditorFieldId = '';
+            return;
+        }
+
+        if (this.activeTableToolbarOriginNextSibling?.parentNode === this.activeTableToolbarOriginParent) {
+            this.activeTableToolbarOriginParent.insertBefore(this.activeTableToolbarElement, this.activeTableToolbarOriginNextSibling);
+        } else {
+            this.activeTableToolbarOriginParent.appendChild(this.activeTableToolbarElement);
+        }
+
+        this.activeTableToolbarElement = null;
+        this.activeTableToolbarOriginParent = null;
+        this.activeTableToolbarOriginNextSibling = null;
+        this.activeTableEditorFieldId = '';
+    }
+
+    private getDefaultTableHtml(): string {
+        return '<figure class="table"><table><tbody><tr><td>Header 1</td><td>Header 2</td></tr><tr><td></td><td></td></tr></tbody></table></figure>';
+    }
+
     private resetNewFieldForm(): void {
         this.newFieldLabel = 'New Field';
         this.newFieldRequired = false;
         this.newRadioOptions = [];
+        this.newTableRows = 3;
+        this.newTableColumns = 3;
+        this.newTableHeaders = ['Column 1', 'Column 2', 'Column 3'];
+        this.newTableHtml = this.getDefaultTableHtml();
     }
 
     private getDynamicApprovalDefaultLabel(type: TemplateFieldType): string {
@@ -1434,6 +1600,15 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             y: pageTop + 120 + (Math.max(index, 0) % 5) * 18,
             width: 160,
             height: 38
+        };
+    }
+
+    private buildDefaultTablePlacement(page: number, index: number): TemplateFieldPlacement {
+        const base = this.buildDefaultFloatingPlacement(page, index);
+        return {
+            ...base,
+            width: Math.min(this.pageWidth - base.x, 420),
+            height: 160
         };
     }
 

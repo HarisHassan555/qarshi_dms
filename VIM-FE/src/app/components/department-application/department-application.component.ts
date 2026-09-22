@@ -36,6 +36,7 @@ export class DepartmentApplicationComponent implements OnInit {
   displayedApplications: DepartmentApplication[] = [];
   currentUser: any;
   isLoading = false;
+  openingApplicationId: number | null = null;
   showCsvModal = false;
   availableCsvColumns: DepartmentApplicationCsvColumn[] = [];
   selectedCsvColumns: DepartmentApplicationCsvColumn[] = [];
@@ -209,22 +210,33 @@ export class DepartmentApplicationComponent implements OnInit {
     }
   }
 
+  isOpeningApplication(application: DepartmentApplication): boolean {
+    return !!application.serApplicationId && this.openingApplicationId === application.serApplicationId;
+  }
+
   viewApplication(application: DepartmentApplication) {
     if (!application.serApplicationId) {
       this.notificationService.showMessage('Invalid application ID', 'danger');
       return;
     }
 
+    this.openingApplicationId = application.serApplicationId;
     const formDescription = (application.cfgTblCustomForm?.txtFormDescription || '').toString().trim().toLowerCase();
-    if (formDescription === 'template-builder') {
-      this.router.navigate(['/my-application', application.serApplicationId], {
+    const navigation = formDescription === 'template-builder'
+      ? this.router.navigate(['/my-application', application.serApplicationId], {
+        queryParams: { from: 'department-application' }
+      })
+      : this.router.navigate(['/application-details', application.serApplicationId], {
         queryParams: { from: 'department-application' }
       });
-      return;
-    }
 
-    this.router.navigate(['/application-details', application.serApplicationId], {
-      queryParams: { from: 'department-application' }
+    navigation.then((opened) => {
+      if (!opened) {
+        this.openingApplicationId = null;
+      }
+    }).catch(() => {
+      this.openingApplicationId = null;
+      this.notificationService.showMessage('Unable to open application. Please try again.', 'danger');
     });
   }
 

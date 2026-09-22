@@ -9,6 +9,7 @@ import com.bezkoder.spring.login.admin.utility.common.RequestMetadataUtil;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApplication;
 import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 import com.bezkoder.spring.login.sa.dal.entities.TemplateDefinition;
+import com.bezkoder.spring.login.sa.bll.servicesimpl.TemplateEmailDispatchService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.log4j.LogManager;
@@ -55,6 +56,9 @@ public class TemplateDefinitionController {
 
     @Autowired
     private ICommonService commonService;
+
+    @Autowired
+    private TemplateEmailDispatchService templateEmailDispatchService;
 
     @Transactional
     @RequestMapping(value = "/submitTemplateApplication", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
@@ -1286,19 +1290,7 @@ public class TemplateDefinitionController {
             return;
         }
         Runnable sendEmails = () -> {
-            try {
-                if (refreshPdfBeforeEmail) {
-                    String refreshStatus = customFormApplicationService.refreshTemplateApplicationPdfFromStage0(applicationId);
-                    if (!"Success".equalsIgnoreCase(refreshStatus)) {
-                        logger.warn("Failed to refresh template PDF before " + contextLabel + " for applicationId="
-                                + applicationId + ": " + refreshStatus);
-                    }
-                }
-                customFormApplicationService.sendTemplatePostApprovalEmails(applicationId);
-            } catch (Exception emailEx) {
-                logger.warn("Failed to send " + contextLabel + " for applicationId="
-                        + applicationId + ": " + emailEx.getMessage(), emailEx);
-            }
+            templateEmailDispatchService.queuePostApprovalEmails(applicationId, contextLabel, refreshPdfBeforeEmail);
         };
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {

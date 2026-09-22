@@ -391,6 +391,30 @@
     min-width: 0;
 }
 
+.table-toolbar-host {
+    align-items: center;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    display: none;
+    margin-bottom: 10px;
+    min-height: 44px;
+    overflow-x: auto;
+    padding: 6px;
+    position: sticky;
+    top: 0;
+    z-index: 8;
+}
+
+.table-toolbar-host.is-active {
+    display: flex;
+}
+
+:host ::ng-deep .table-toolbar-host .ck.ck-toolbar {
+    border: 0;
+    width: max-content;
+}
+
 .paper-wrap {
     background: #dbe3ef;
     border: 1px solid #cbd5e1;
@@ -1113,6 +1137,107 @@
     border-top: 1px solid #e2e8f0;
     margin-top: 12px;
     padding-top: 12px;
+}
+
+.table-field-properties,
+.table-field-editor {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 12px 0 10px;
+    padding: 10px;
+}
+
+.table-field-properties {
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+    margin-bottom: 0;
+}
+
+.table-size-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: 1fr 1fr;
+}
+
+.table-header-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.table-design-editor {
+    display: block;
+}
+
+:host ::ng-deep .table-design-editor .ck.ck-editor__editable_inline {
+    min-height: 180px;
+}
+
+.table-field-preview {
+    box-sizing: border-box;
+    height: 100%;
+    overflow: auto;
+    width: 100%;
+}
+
+.table-field-editor-surface {
+    box-sizing: border-box;
+    height: 100%;
+    overflow: auto;
+    padding: 28px 2px 2px;
+    width: 100%;
+}
+
+.table-field-inline-editor {
+    display: block;
+    min-height: 100%;
+}
+
+:host ::ng-deep .table-field-inline-editor .ck.ck-editor {
+    height: 100%;
+}
+
+:host ::ng-deep .table-field-inline-editor .ck.ck-editor__main {
+    height: 100%;
+    min-height: 72px;
+}
+
+:host ::ng-deep .table-field-inline-editor .ck.ck-editor__editable_inline {
+    box-sizing: border-box;
+    min-height: 100%;
+    padding: 6px;
+}
+
+.table-field-preview table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.table-field-preview td,
+.table-field-preview th {
+    border: 1px solid #94a3b8;
+    min-width: 32px;
+    padding: 4px 6px;
+}
+
+.field-move-handle {
+    background: #2563eb;
+    border: 1px solid #1d4ed8;
+    border-radius: 5px;
+    color: #ffffff;
+    cursor: move;
+    font-size: 11px;
+    font-weight: 700;
+    left: 6px;
+    line-height: 1;
+    padding: 5px 7px;
+    position: absolute;
+    top: 6px;
+    z-index: 4;
 }
 
 .radio-option-property {

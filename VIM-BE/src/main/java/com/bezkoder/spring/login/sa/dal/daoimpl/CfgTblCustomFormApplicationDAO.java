@@ -5229,7 +5229,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     return "Success";
                 }
                 sendTemplateSubmitterProgressEmail(application, form, currentLevel, null, null, null,
-                        latestTemplateAction, latestTemplateRemarks);
+                        resolveSubmitterProgressStatus(application, latestTemplateAction), latestTemplateRemarks);
                 if ("REJECTED".equalsIgnoreCase(latestTemplateAction)
                         || "SENT_BACK_TO_INITIATOR".equalsIgnoreCase(latestTemplateAction)) {
                     return "Success";
@@ -5346,7 +5346,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 }
             }
             sendTemplateSubmitterProgressEmail(application, form, currentLevel, initiatorBytes, pdfName, pdfMime,
-                    latestTemplateAction, latestTemplateRemarks);
+                    resolveSubmitterProgressStatus(application, latestTemplateAction), latestTemplateRemarks);
 
             if (isTemplateBuilderApplication && ("REJECTED".equalsIgnoreCase(latestTemplateAction)
                     || "SENT_BACK_TO_INITIATOR".equalsIgnoreCase(latestTemplateAction))) {
@@ -5711,6 +5711,25 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             }
         }
         return application.getTxtRemarks();
+    }
+
+    private String resolveSubmitterProgressStatus(CfgTblCustomFormApplication application, String latestTemplateAction) {
+        String applicationStatus = application != null && application.getTxtStatus() != null
+                ? application.getTxtStatus().trim()
+                : "";
+        String action = latestTemplateAction != null ? latestTemplateAction.trim().toUpperCase(Locale.ROOT) : "";
+        if ("REJECTED".equals(action)
+                || "SENT_BACK".equals(action)
+                || "SENT_BACK_TO_INITIATOR".equals(action)
+                || "REVISION_REQUIRED".equals(action)
+                || "OPINION_APPROVED".equals(action)
+                || "OPINION_REJECTED".equals(action)
+                || "OPINION_REQUESTED".equals(action)
+                || "SUBMITTED".equals(action)
+                || "RESUBMITTED_BY_INITIATOR".equals(action)) {
+            return latestTemplateAction;
+        }
+        return !applicationStatus.isEmpty() ? applicationStatus : latestTemplateAction;
     }
 
     private int resolveTemplateNotificationPipelineIndex(CfgTblCustomFormApplication application, int fallbackPipelineIndex,
@@ -14304,6 +14323,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 html.append("<p style='margin:0 0 15px 0;'>Please review the remarks and update your application accordingly.</p>");
             } else if ("REJECTED".equalsIgnoreCase(status)) {
                 html.append("<p style='margin:0 0 15px 0;'>Your application has been <strong>rejected</strong> at Level ").append(level).append(".</p>");
+            } else if ("IN_PROGRESS".equalsIgnoreCase(status)) {
+                html.append("<p style='margin:0 0 15px 0;'>Your application has been approved at the previous level and is now pending approval at Level ").append(level).append(".</p>");
             } else {
                 html.append("<p style='margin:0 0 15px 0;'>Your application has been approved at Level ").append(level).append(".</p>");
             }
