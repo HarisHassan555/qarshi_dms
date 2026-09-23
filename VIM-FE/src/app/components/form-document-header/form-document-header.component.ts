@@ -14,8 +14,8 @@ export class FormDocumentHeaderComponent {
   @Input() required: boolean = false;
   @Input() readonly: boolean = false;
   @Input() dateText: string = '';
-  @Input() logoPath: string = 'assets/images/qarshi-logo.png';
-  @Input() brandTitle: string = 'Qarshi Industries (Pvt) Ltd.';
+  @Input() logoPath: string = 'assets/images/dsg-velocity-logo-cropped.png';
+  @Input() brandTitle: string = 'DSG Industries (Pvt) Ltd.';
   @Input() brandAddress: string = '15-G, Jam-e-Shirin Boulevard, Gulberg-III, Lahore';
 
   private readonly defaultDate = new Date().toLocaleDateString('en-GB', {

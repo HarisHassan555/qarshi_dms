@@ -1,12 +1,12 @@
-export const DEFAULT_DOCUMENT_HEADER_LOGO = 'assets/images/qarshi-logo.png';
-export const DEFAULT_DOCUMENT_HEADER_BRAND_TITLE = 'Qarshi Industries (Pvt) Ltd.';
+export const DEFAULT_DOCUMENT_HEADER_LOGO = 'assets/images/dsg-velocity-logo-cropped.png';
+export const DEFAULT_DOCUMENT_HEADER_BRAND_TITLE = 'DSG Industries (Pvt) Ltd.';
 export const QU_DOCUMENT_HEADER_LOGO = 'assets/images/QU_logo.png';
-export const QU_DOCUMENT_HEADER_BRAND_TITLE = 'Qarshi University';
+export const QU_DOCUMENT_HEADER_BRAND_TITLE = 'DSG University';
 export const QF_DOCUMENT_HEADER_LOGO = 'assets/images/QF_logo.png';
-export const QF_DOCUMENT_HEADER_BRAND_TITLE = 'Qarshi Foundation';
+export const QF_DOCUMENT_HEADER_BRAND_TITLE = 'DSG Foundation';
 export const QRI_DOCUMENT_HEADER_LOGO = 'assets/images/QRI Logo.jpg.jpeg';
-export const QRI_DOCUMENT_HEADER_BRAND_TITLE = 'Qarshi Research International';
-export const QB_DOCUMENT_HEADER_BRAND_TITLE = 'Qarshi Brands';
+export const QRI_DOCUMENT_HEADER_BRAND_TITLE = 'DSG Research International';
+export const QB_DOCUMENT_HEADER_BRAND_TITLE = 'DSG Brands';
 export const DOCUMENT_HEADER_ADDRESS = '15-G, Jam-e-Shirin Boulevard, Gulberg-III, Lahore';
 export const QRI_DOCUMENT_HEADER_ADDRESS = '149, 1st Floor, Al Hassan Plaza, Near Jamia Ashrafia, Ferozpur Road, Lahore';
 

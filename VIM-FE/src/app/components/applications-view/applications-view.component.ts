@@ -2482,9 +2482,9 @@ export class ApplicationsViewComponent implements OnInit {
       <div class="xyz-paper">
       <div class="xyz-date-row"><div class="xyz-date">Date: ${dateStr}</div></div>
       <div class="xyz-header">
-        <div class="xyz-logo"><img src="assets/images/qarshi-logo.png" alt="Qarshi" /></div>
+        <div class="xyz-logo"><img src="assets/images/dsg-velocity-logo-cropped.png" alt="DSG" /></div>
         <div class="xyz-company">
-          <div class="xyz-company-name">Qarshi Industries (Pvt) Ltd.</div>
+          <div class="xyz-company-name">DSG Industries (Pvt) Ltd.</div>
           <div class="xyz-company-address">15-G, Jam-e-Shirin Boulevard, Gulberg-III, Lahore</div>
         </div>
         <div class="xyz-meta">Form: ${headingText}</div>

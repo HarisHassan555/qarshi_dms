@@ -295,7 +295,7 @@ export class FinanceComponent implements OnInit {
             this.username = data.txtUserName || data.userName || '';
             this.currentUserId = this.resolveUserId(data);
             this.isAdmin = this.isAdminUser(data);
-            this.scopeLabel = this.isAdmin ? 'Qarshi Workflow' : 'Your workflow';
+            this.scopeLabel = this.isAdmin ? 'DSG Workflow' : 'Your workflow';
             if (previousUserId !== this.currentUserId || previousAdminState !== this.isAdmin) {
                 void this.loadDashboard();
             }

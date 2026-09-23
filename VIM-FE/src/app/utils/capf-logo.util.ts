@@ -1,8 +1,8 @@
 /** Logo and header branding for CAPF form variants. */
-export const DEFAULT_CAPF_LOGO = 'assets/images/qarshi-logo.png';
-export const DEFAULT_CAPF_BRAND_TITLE = 'Qarshi Industries (Pvt) Ltd.';
+export const DEFAULT_CAPF_LOGO = 'assets/images/dsg-velocity-logo-cropped.png';
+export const DEFAULT_CAPF_BRAND_TITLE = 'DSG Industries (Pvt) Ltd.';
 
-/** Matches original qarshi-logo (158x79) rendered at max-width 64px. */
+/** Matches original logo rendered at max-width 64px. */
 export const CAPF_LOGO_DISPLAY_HEIGHT_PX = 32;
 export const CAPF_LOGO_COMPACT_HEIGHT_PX = 18;
 export const CAPF_LOGO_CSS_CLASS = 'ml-[5px] flex-none';
@@ -28,16 +28,16 @@ export function resolveCapfLogoPath(formName?: string | null): string {
 export function resolveCapfBrandTitle(formName?: string | null): string {
   const normalized = normalizeCapfFormName(formName);
   if (normalized === 'CAPF QU') {
-    return 'Qarshi University (Pvt) Ltd.';
+    return 'DSG University (Pvt) Ltd.';
   }
   if (normalized === 'CAPF QF') {
-    return 'Qarshi Foundation (Pvt) Ltd.';
+    return 'DSG Foundation (Pvt) Ltd.';
   }
   if (normalized === 'CAPF QRI') {
-    return 'Qarshi Research International (Pvt) Ltd.';
+    return 'DSG Research International (Pvt) Ltd.';
   }
   if (normalized === 'CAPF QB') {
-    return 'Qarshi Brands (Pvt) Ltd.';
+    return 'DSG Brands (Pvt) Ltd.';
   }
   return DEFAULT_CAPF_BRAND_TITLE;
 }
