@@ -1,15 +1,6 @@
 <div class="font-[sans-serif] relative overflow-hidden">
-    <!-- YouTube background video -->
     <div aria-hidden="true"
-         style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; overflow: hidden; z-index: 0; pointer-events: none;">
-        <iframe
-            src="https://www.youtube.com/embed/n-7ibajRLZU?autoplay=1&mute=1&loop=1&playlist=n-7ibajRLZU&controls=0&showinfo=0&modestbranding=1&disablekb=1&playsinline=1&rel=0&iv_load_policy=3&fs=0"
-            title="Background video"
-            frameborder="0"
-            allow="autoplay; encrypted-media"
-            allowfullscreen
-            style="position: absolute; top: 50%; left: 50%; width: 100vw; height: 56.25vw; min-height: 100vh; min-width: 177.77vh; transform: translate(-50%, -50%); pointer-events: none; border: 0;">
-        </iframe>
+         style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-image: url('assets/images/velocity-logo.png'); background-size: cover; background-position: center; background-repeat: no-repeat; z-index: 0; pointer-events: none;">
     </div>
     <!-- Dim overlay to keep the form readable -->
     <div aria-hidden="true"
@@ -18,12 +9,8 @@
 
     <div class="min-h-screen flex flex-col items-center justify-center py-6 px-4 relative" style="z-index: 2;">
       <div class="max-w-md w-full">
-        <a href="javascript:void(0)"><img
-          src="assets/images/dsg-velocity-logo-cropped.png" alt="DSG logo" class='w-40 mb-8 mx-auto block' />
-        </a>
-
         <div class="p-8 rounded-2xl bg-white/90 backdrop-blur-sm shadow-xl">
-          <h2 class="text-gray-800 text-center text-2xl font-bold">Sign In</h2>
+          <h2 class="text-gray-800 text-center text-2xl font-bold">DSG Velocity</h2>
           <p class="text-center text-xs font-semibold uppercase tracking-wide text-gray-500 mt-1">DSG Workflow Management System</p>
           <form class="mt-8 space-y-4" [formGroup]="signinForm" (submit)="onSignin()">
             <div>
@@ -75,8 +62,8 @@
             </div>
 
             <div class="!mt-8">
-              <button type="submit" class="flex w-full justify-center items-center gap-2 rounded-md bg-red-500 px-3 py-1.5 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-red-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500">
-                {{isSuccess ? 'Redirecting...' : 'Sign In'}} <span *ngIf="isShowLoader" class="animate-spin border-2 border-white border-l-transparent rounded-full w-5 h-5 ltr:mr-4 rtl:ml-4 inline-block align-middle"></span>
+              <button type="submit" class="flex w-full justify-center items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                {{isSuccess ? 'Redirecting...' : 'Sign In to DSG Velocity'}} <span *ngIf="isShowLoader" class="animate-spin border-2 border-white border-l-transparent rounded-full w-5 h-5 ltr:mr-4 rtl:ml-4 inline-block align-middle"></span>
               </button>
             </div>
             <div *ngIf="isError" class="text-red-500 p-1 text-center">
@@ -116,7 +103,7 @@
         </div>
   
         <div>
-          <button type="submit" class="flex w-full justify-center rounded-md bg-red-500 px-3 py-1.5 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-red-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500">Sign in</button>
+          <button type="submit" class="flex w-full justify-center rounded-md bg-red-500 px-3 py-1.5 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-red-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500">Sign in to DSG Velocity</button>
         </div>
       </form>
   
@@ -189,7 +176,7 @@
                 </div> -->
                 <div class="mx-auto w-full max-w-[440px]">
                     <div class="mb-10">
-                        <h1 class="text-3xl font-extrabold uppercase !leading-snug text-primary md:text-4xl">Sign in</h1>
+                        <h1 class="text-3xl font-extrabold uppercase !leading-snug text-primary md:text-4xl">Sign in to DSG Velocity</h1>
                         <p class="text-base font-bold leading-normal text-white-dark">Enter your email and password to login</p>
                     </div>
                     <!-- (submit)="router.navigate(['/'])" -->
@@ -219,7 +206,7 @@
                             </label>
                         </div> -->
                         <button type="submit" class="btn btn-gradient !mt-6 w-full border-0 uppercase shadow-[0_10px_20px_-10px_rgba(67,97,238,0.44)]">
-                            Sign in
+                            Sign in to DSG Velocity
                         </button>
                     </form>
                     <!-- <div class="relative my-7 text-center md:mb-9">

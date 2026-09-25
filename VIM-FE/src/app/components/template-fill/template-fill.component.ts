@@ -165,8 +165,6 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     userPipeline: IndividualPipelineFooterSection[] = [];
     submittedCode = '';
     generatedApplicationCode = '';
-    isSendingTestEmail = false;
-    testEmailMessage = '';
     isSubmitting = false;
     showAttachmentsModal = false;
     activeInlineWordEditorFieldId: string | null = null;
@@ -272,10 +270,6 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
 
     get panelFields(): TemplateField[] {
         return this.fillableFields.filter((field: TemplateField) => !this.isInlineWordEditorField(field));
-    }
-
-    get hideTestEmailAdminButton(): boolean {
-        return this.routeTemplateId === '615';
     }
 
     getActiveInlineWordEditorField(): TemplateField | null {
@@ -1052,46 +1046,6 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         }
     }
 
-    async sendTestEmailToAdmin(): Promise<void> {
-        if (!this.template || this.isSendingTestEmail) {
-            return;
-        }
-
-        const recipients = this.getAdminEmails();
-        if (recipients.length === 0) {
-            this.testEmailMessage = 'No admin user email found.';
-            this.notificationService.showMessage(this.testEmailMessage, 'warning');
-            return;
-        }
-
-            this.isSendingTestEmail = true;
-        this.testEmailMessage = '';
-        try {
-            const filename = `${this.sanitizeFilename(this.template?.name || 'template-form')}.pdf`;
-            const pdfBlob = await this.renderTemplatePreviewPdfBlob();
-            const response: any = await firstValueFrom(this.templateWorkflowService.sendTemplateTestEmailPdf(
-                recipients,
-                `Template test email - ${this.template?.name || 'Template Form'}`,
-                this.buildTemplateEmailBodyHtml(),
-                pdfBlob,
-                filename
-            ));
-
-            if (response?.status === 'Success') {
-                this.testEmailMessage = `Test email sent to ${recipients.join(', ')}`;
-                this.notificationService.showMessage(this.testEmailMessage, 'success');
-            } else {
-                this.testEmailMessage = response?.message || 'Test email could not be sent.';
-                this.notificationService.showMessage(this.testEmailMessage, 'danger');
-            }
-        } catch (error: any) {
-            this.testEmailMessage = error?.error?.message || error?.message || 'Test email could not be sent.';
-            this.notificationService.showMessage(this.testEmailMessage, 'danger');
-        } finally {
-            this.isSendingTestEmail = false;
-        }
-    }
-
     private getAllowedSubmissionValues(): { [fieldId: string]: any } {
         return (this.template?.fields || []).reduce((acc: { [fieldId: string]: any }, field: TemplateField) => {
             if (field.type === 'application_code') {
@@ -1147,46 +1101,6 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         const prefix = String(this.template?.codePrefix || convention.prefix);
         const serialLength = Number(this.template?.serialLength || convention.serialLength);
         return `${prefix}-${String(1).padStart(serialLength, '0')}`;
-    }
-
-    private getAdminEmails(): string[] {
-        return (this.allUsers || [])
-            .filter((user) => this.isAdminUser(user))
-            .map((user) => String(user?.txtAddress || user?.email || '').trim())
-            .filter((email, index, emails) => !!email && emails.indexOf(email) === index);
-    }
-
-    private isAdminUser(user: any): boolean {
-        const role = (
-            user?.cfgTblRole?.txtRoleName ||
-            user?.cfgTblRole?.txtRoleCode ||
-            user?.txtrole ||
-            user?.roleName ||
-            ''
-        ).toString().trim().toUpperCase();
-        return role === 'ADMIN' || role === 'ROLE_ADMIN' || role.includes('ADMIN');
-    }
-
-    private buildTemplateEmailBodyHtml(): string {
-        return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <style>
-    body { margin: 0; padding: 20px; background: #f8fafc; font-family: Arial, sans-serif; color: #111827; }
-    .email-shell { max-width: 680px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; }
-    h2 { font-size: 18px; margin: 0 0 8px; }
-    p { color: #475569; font-size: 13px; line-height: 1.5; margin: 0; }
-  </style>
-</head>
-<body>
-  <div class="email-shell">
-    <h2>${this.escapeHtml(this.template?.name || 'Template Form')}</h2>
-    <p>Attached is the exact filled template form PDF generated from the template-fill preview.</p>
-  </div>
-</body>
-</html>`;
     }
 
     private async renderTemplatePreviewPdfBlob(): Promise<Blob> {

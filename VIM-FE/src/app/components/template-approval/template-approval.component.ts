@@ -700,7 +700,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
         try {
             const payloads = await Promise.all(files.map((file) => this.buildAttachmentPayload(file)));
-            this.values[field.id] = [...currentPayloads, ...payloads];
+            this.setAttachmentPayloads(field, [...currentPayloads, ...payloads]);
             this.refreshDerivedState();
             this.onPanelValueChanged(field);
         } catch (error) {
@@ -711,14 +711,19 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         }
     }
 
-    removeAttachment(field: TemplateField, indexToRemove: number): void {
+    removeAttachment(field: TemplateField, indexToRemove: number, event?: Event): void {
+        event?.preventDefault();
+        event?.stopPropagation();
+
         const attachments = this.getAttachmentPayloads(field);
         if (indexToRemove < 0 || indexToRemove >= attachments.length) {
             return;
         }
-        attachments.splice(indexToRemove, 1);
-        this.values[field.id] = attachments;
+        this.setAttachmentPayloads(field, attachments.filter((_, index) => index !== indexToRemove));
         this.refreshDerivedState();
+        if (!this.hasAnyAttachments) {
+            this.showAttachmentsModal = false;
+        }
         this.onPanelValueChanged(field);
     }
 
@@ -2515,6 +2520,13 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             normalized.push({ fileName, mimeType, dataUrl, base64 });
         }
         return normalized;
+    }
+
+    private setAttachmentPayloads(field: TemplateField, attachments: AttachmentPayload[]): void {
+        this.values = {
+            ...this.values,
+            [field.id]: this.normalizeExistingAttachmentPayloads(attachments)
+        };
     }
 
     private getAttachmentBytes(attachments: AttachmentPayload[]): number {
