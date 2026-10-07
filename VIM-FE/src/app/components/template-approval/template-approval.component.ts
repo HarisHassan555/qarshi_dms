@@ -1,4 +1,4 @@
-import { Component, ElementRef, HostListener, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, ElementRef, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
@@ -132,7 +132,7 @@ const TEMPLATE_APPROVAL_HIDE_CKEDITOR_BADGE_CLASS = 'template-fill-hide-ckeditor
 })
 export class TemplateApprovalComponent implements OnInit, OnDestroy {
     private static readonly INDIVIDUAL_FOOTER_MIN_HEIGHT = 136;
-    private static readonly MAX_ATTACHMENT_TOTAL_BYTES = 5 * 1024 * 1024;
+    private static readonly MAX_ATTACHMENT_FIELD_BYTES = 5 * 1024 * 1024;
     private static readonly ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
         'application/pdf',
         'image/webp',
@@ -207,7 +207,8 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         private notificationService: NotificationService,
         private applicationPdfService: ApplicationPdfService,
         private templateWorkflowService: TemplateWorkflowService,
-        private userService: UserService
+        private userService: UserService,
+        private cdr: ChangeDetectorRef
     ) { }
 
     async ngOnInit(): Promise<void> {
@@ -687,11 +688,11 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         }
 
         const currentPayloads = this.getAttachmentPayloads(field);
-        const totalBytes = this.getAttachmentBytes(currentPayloads)
+        const fieldBytes = this.getAttachmentBytes(currentPayloads)
             + files.reduce((sum, file) => sum + (Number(file.size) || 0), 0);
-        if (totalBytes > TemplateApprovalComponent.MAX_ATTACHMENT_TOTAL_BYTES) {
+        if (fieldBytes > TemplateApprovalComponent.MAX_ATTACHMENT_FIELD_BYTES) {
             this.notificationService.showMessage(
-                `Combined attachment size (${(totalBytes / (1024 * 1024)).toFixed(2)} MB) exceeds 5 MB.`,
+                `This attachment field is using ${(fieldBytes / (1024 * 1024)).toFixed(2)} MB. Each attachment field can hold up to 5 MB independently.`,
                 'danger'
             );
             input.value = '';
@@ -701,7 +702,8 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         try {
             const payloads = await Promise.all(files.map((file) => this.buildAttachmentPayload(file)));
             this.values[field.id] = [...currentPayloads, ...payloads];
-            this.refreshDerivedState();
+            this.patchApplicationDataValue(field.id, this.values[field.id]);
+            this.refreshAttachmentDerivedState();
             this.onPanelValueChanged(field);
         } catch (error) {
             console.error('Failed generating attachment payload', error);
@@ -711,15 +713,45 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         }
     }
 
-    removeAttachment(field: TemplateField, indexToRemove: number): void {
+    removeAttachment(field: TemplateField, indexToRemove: number, event?: Event): void {
+        event?.preventDefault();
+        event?.stopPropagation();
+        const fieldId = field?.id || '';
+        console.log('[template-approval] remove attachment event', {
+            applicationId: this.application?.serApplicationId,
+            fieldId,
+            fieldLabel: field?.label,
+            indexToRemove,
+            eventType: event?.type || '',
+            rawValue: fieldId ? this.values?.[fieldId] : undefined,
+            normalizedCount: this.getAttachmentPayloads(field).length
+        });
         const attachments = this.getAttachmentPayloads(field);
         if (indexToRemove < 0 || indexToRemove >= attachments.length) {
+            console.log('[template-approval] remove attachment ignored: invalid index', {
+                indexToRemove,
+                attachmentCount: attachments.length
+            });
             return;
         }
-        attachments.splice(indexToRemove, 1);
-        this.values[field.id] = attachments;
-        this.refreshDerivedState();
+        const nextAttachments = attachments.filter((_, index) => index !== indexToRemove);
+        this.values = {
+            ...this.values,
+            [fieldId]: nextAttachments
+        };
+        this.patchApplicationDataValue(fieldId, this.values[fieldId]);
+        this.refreshAttachmentDerivedState();
+        if (!this.hasAnyAttachments) {
+            this.showAttachmentsModal = false;
+        }
         this.onPanelValueChanged(field);
+        this.cdr.detectChanges();
+        console.log('[template-approval] remove attachment applied', {
+            fieldId,
+            beforeCount: attachments.length,
+            afterCount: nextAttachments.length,
+            remainingFiles: nextAttachments.map((attachment) => attachment.fileName)
+        });
     }
 
     viewAttachment(attachment: AttachmentPayload): void {
@@ -1325,6 +1357,30 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         this.approvalLogRowsCache = this.buildApprovalLogRowsCache();
     }
 
+    private refreshAttachmentDerivedState(): void {
+        this.attachmentItemsCache = this.computeAttachmentItems();
+        this.hasAttachmentFieldsCache = this.getAttachmentFields().length > 0;
+        this.hasAnyAttachmentsCache = this.attachmentItemsCache.length > 0;
+    }
+
+    private patchApplicationDataValue(fieldId: string, value: any): void {
+        const nextData = {
+            ...(this.applicationDataCache || this.parseApplicationData(this.application?.txtApplicationData)),
+        };
+        nextData[fieldId] = value;
+        nextData.templateValues = {
+            ...(nextData.templateValues || {}),
+            [fieldId]: value
+        };
+        this.applicationDataCache = nextData;
+        if (this.application) {
+            this.application = {
+                ...this.application,
+                txtApplicationData: JSON.stringify(nextData)
+            };
+        }
+    }
+
     private computeIsOpinionPending(): boolean {
         const request = this.applicationDataCache?.templateOpinionRequest;
         return String(this.application?.txtStatus || '').toUpperCase() === 'OPINION_PENDING'
@@ -1490,10 +1546,14 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
         this.isDownloadingWithLogsPdf = true;
         try {
-            const filename = `${this.application?.txtFormCode || 'template-application'}_logs.pdf`;
-            const pdfHtml = this.buildApprovalLogsPdfHtml(this.approvalLogRowsCache);
-            const pdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(pdfHtml, filename);
-            this.downloadBlob(pdfBlob, filename);
+            const filename = `${this.application?.txtFormCode || 'template-application'}_with_logs.pdf`;
+            const applicationPdfBlob = await firstValueFrom(
+                this.templateWorkflowService.downloadTemplateApplicationPdf(this.application.serApplicationId)
+            );
+            const logsPdfHtml = this.buildApprovalLogsPdfHtml(this.approvalLogRowsCache);
+            const logsPdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(logsPdfHtml, filename);
+            const mergedPdfBlob = await this.applicationPdfService.mergePdfBlobs([applicationPdfBlob, logsPdfBlob]);
+            this.downloadBlob(mergedPdfBlob, filename);
         } catch (error: any) {
             this.notificationService.showMessage(
                 error?.message || 'Application and logs PDF could not be downloaded.',
@@ -1571,13 +1631,6 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     private buildApprovalLogsPdfHtml(rows: ApprovalLogRow[]): string {
-        const templateName = this.escapeHtml(this.template?.name || 'Template Application');
-        const formCode = this.escapeHtml(this.application?.txtFormCode || '-');
-        const status = this.escapeHtml(this.application?.txtStatus || 'PENDING');
-        const submittedDate = this.application?.dteCreatedDate
-            ? this.escapeHtml(new Date(this.application.dteCreatedDate).toLocaleString())
-            : '--';
-        const generatedAt = this.escapeHtml(new Date().toLocaleString());
         const tableRows = rows.length > 0
             ? rows.map((row, index) => `
                 <tr>
@@ -1600,24 +1653,16 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 <html>
 <head>
   <meta charset="UTF-8" />
+  <style>
+    html, body { min-height: 100%; width: 1120px; max-width: none; }
+    * { box-sizing: border-box; }
+    table { page-break-inside: auto; break-inside: auto; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
+  </style>
 </head>
-<body style="margin:0;padding:12px 18px;font-family:Arial,sans-serif;background:#ffffff;color:#111827;box-sizing:border-box;">
-  <div style="width:100%;margin:0 auto;background:#ffffff;box-sizing:border-box;">
-    <div style="margin-bottom:14px;">
-      <div style="font-size:22px;font-weight:700;line-height:1.2;color:#111827;">Application Logs</div>
-      <div style="font-size:13px;color:#374151;margin-top:4px;">${templateName}</div>
-    </div>
-    <table style="width:100%;border-collapse:collapse;margin:0 auto 14px;">
-      <tbody>
-        <tr>
-          <td style="padding:6px 8px;border:1px solid #d1d5db;font-size:12px;width:25%;"><strong>Application Code:</strong> ${formCode}</td>
-          <td style="padding:6px 8px;border:1px solid #d1d5db;font-size:12px;width:25%;"><strong>Status:</strong> ${status}</td>
-          <td style="padding:6px 8px;border:1px solid #d1d5db;font-size:12px;width:25%;"><strong>Submitted Date:</strong> ${submittedDate}</td>
-          <td style="padding:6px 8px;border:1px solid #d1d5db;font-size:12px;width:25%;"><strong>Generated:</strong> ${generatedAt}</td>
-        </tr>
-      </tbody>
-    </table>
-    <div style="font-size:14px;font-weight:700;color:#111827;margin:0 0 8px;">Prior Approvals (${rows.length})</div>
+<body style="width:1120px;max-width:none;margin:0;padding:18px 18px 48px;font-family:Arial,sans-serif;background:#ffffff;color:#111827;box-sizing:border-box;">
+  <div style="width:100%;max-width:none;margin:0;padding-bottom:24px;background:#ffffff;box-sizing:border-box;">
+    <div style="font-size:14px;font-weight:700;color:#111827;margin:0 0 8px;">Logs (${rows.length})</div>
     <table style="width:100%;margin:0 auto;border-collapse:collapse;table-layout:fixed;border:1px solid #d1d5db;">
       <thead>
         <tr>

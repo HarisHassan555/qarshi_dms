@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 import { finalize } from 'rxjs';
 import { NotificationService } from 'src/app/NotificationService';
 import { TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
+import { resolveApplicationTitle } from 'src/app/utils/application-title.util';
 
 interface TemplatePendingApplication {
     serApplicationId?: number;
@@ -12,9 +13,11 @@ interface TemplatePendingApplication {
     intCurrentApprovalLevel?: number;
     dteCreatedDate?: string;
     templateName?: string;
+    txtApplicationData?: string;
+    applicationTitle?: string;
 }
 
-type PendingApprovalCsvColumnKey = 'txtFormCode' | 'templateName' | 'txtStatus' | 'intCurrentApprovalLevel' | 'dteCreatedDate';
+type PendingApprovalCsvColumnKey = 'txtFormCode' | 'applicationTitle' | 'templateName' | 'txtStatus' | 'intCurrentApprovalLevel' | 'dteCreatedDate';
 interface PendingApprovalCsvColumn { key: PendingApprovalCsvColumnKey; label: string; }
 
 @Component({
@@ -37,6 +40,7 @@ export class TemplatePendingApprovalsComponent implements OnInit, OnDestroy {
 
     cols = [
         { field: 'txtFormCode', title: 'Application Code' },
+        { field: 'applicationTitle', title: 'Title' },
         { field: 'templateName', title: 'Template' },
         { field: 'txtStatus', title: 'Status' },
         { field: 'intCurrentApprovalLevel', title: 'Approval Level' },
@@ -45,6 +49,7 @@ export class TemplatePendingApprovalsComponent implements OnInit, OnDestroy {
     ];
     readonly csvColumns: PendingApprovalCsvColumn[] = [
         { key: 'txtFormCode', label: 'Application Code' },
+        { key: 'applicationTitle', label: 'Title' },
         { key: 'templateName', label: 'Template' },
         { key: 'txtStatus', label: 'Status' },
         { key: 'intCurrentApprovalLevel', label: 'Approval Level' },
@@ -252,13 +257,16 @@ export class TemplatePendingApprovalsComponent implements OnInit, OnDestroy {
             txtStatus: application?.txtStatus,
             intCurrentApprovalLevel: application?.intCurrentApprovalLevel,
             dteCreatedDate: application?.dteCreatedDate,
-            templateName: application?.templateName || 'Template'
+            templateName: application?.templateName || 'Template',
+            txtApplicationData: application?.txtApplicationData,
+            applicationTitle: resolveApplicationTitle(application)
         };
     }
 
     private getCsvCellValue(application: TemplatePendingApplication, key: PendingApprovalCsvColumnKey): string {
         switch (key) {
             case 'txtFormCode': return application.txtFormCode || '';
+            case 'applicationTitle': return application.applicationTitle || '';
             case 'templateName': return application.templateName || '';
             case 'txtStatus': return application.txtStatus || '';
             case 'intCurrentApprovalLevel': return String(application.intCurrentApprovalLevel || 1);

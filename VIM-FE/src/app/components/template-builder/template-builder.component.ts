@@ -1,6 +1,7 @@
 import { Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { PDFDocument } from 'pdf-lib';
+import { EditorConfig } from 'ckeditor5';
 import { DepartmentService } from 'src/app/services/department/department.service';
 import { TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
 import { UserService } from 'src/app/services/user/user.service';
@@ -139,7 +140,6 @@ interface PipelineStep {
 export class TemplateBuilderComponent implements OnInit, OnDestroy {
     @ViewChild('editorFrame') editorFrame?: ElementRef<HTMLElement>;
     @ViewChild('fieldLayer') fieldLayer?: ElementRef<HTMLElement>;
-    @ViewChild('tableToolbarHost') tableToolbarHost?: ElementRef<HTMLElement>;
 
     readonly a4PortraitWidth = 794;
     readonly a4PortraitHeight = 1123;
@@ -147,9 +147,19 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     readonly selfHodDepartmentValue = -1;
     readonly wordEditor = WORD_EDITOR_CKEDITOR;
     readonly wordEditorConfig = WORD_EDITOR_CKEDITOR_CONFIG;
+    readonly tableFieldEditorConfig: EditorConfig = {
+        ...WORD_EDITOR_CKEDITOR_CONFIG,
+        toolbar: {
+            items: [],
+            shouldNotGroupWhenFull: true,
+        },
+    };
     private readonly pdfBackgroundRenderScale = 3;
     private readonly minFloatingFieldWidth = 1;
     private readonly minFloatingFieldHeight = 1;
+    private readonly tableMinColumnWidth = 56;
+    private readonly tableMinRowHeight = 36;
+    private readonly tableVerticalChromeHeight = 36;
     private readonly initiatorPipelineStepId = 'initiator-step';
     private readonly initiatorPipelineUserId = '__initiator__';
 
@@ -195,10 +205,13 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     showPipelineModal = false;
     showPipelineRightsModal = false;
     fieldPropertiesCollapsed = false;
-    activeTableEditorFieldId = '';
-    private activeTableToolbarElement: HTMLElement | null = null;
-    private activeTableToolbarOriginParent: HTMLElement | null = null;
-    private activeTableToolbarOriginNextSibling: ChildNode | null = null;
+    private lastValidTableHtmlByFieldId: Record<string, string> = {};
+    private lastValidNewTableHtml = this.newTableHtml;
+    private revertingTableFieldIds = new Set<string>();
+    private tableEditorsByFieldId: Record<string, any> = {};
+    private newTableEditor: any = null;
+    private revertingNewTableEditor = false;
+    private tableResizeObserversByEditor = new WeakMap<object, ResizeObserver>();
 
     fieldTypes: { value: TemplateFieldType; label: string }[] = [
         { value: 'document_header', label: 'Document Header QI' },
@@ -285,7 +298,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     }
 
     ngOnDestroy(): void {
-        this.restoreTableToolbar();
         document.body.classList.remove(TEMPLATE_BUILDER_HIDE_CKEDITOR_BADGE_CLASS);
     }
 
@@ -524,11 +536,131 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         this.ensureNewTableHeaders();
     }
 
+    onNewTableHtmlChanged(nextHtml: string): void {
+        const normalizedHtml = this.normalizeTableHtml(nextHtml);
+        const placement = this.buildDefaultTablePlacement(this.newFieldPage, this.fields.length);
+        if (this.doesTableHtmlFitPlacement(normalizedHtml, placement)) {
+            this.newTableHtml = normalizedHtml;
+            return;
+        }
+
+        this.newTableHtml = this.lastValidNewTableHtml || this.getDefaultTableHtml();
+        console.warn('[template-builder] table size limit reached for new table field', {
+            placement,
+            attempted: this.getTableHtmlDimensions(normalizedHtml),
+            allowed: this.getAllowedTableDimensions(placement)
+        });
+    }
+
+    onNewTableEditorReady(editor: any): void {
+        this.newTableEditor = editor;
+        this.lastValidNewTableHtml = this.normalizeTableHtml(this.newTableHtml);
+        this.hideTableEditorTopToolbar(editor);
+        this.attachNewTableEditorSizeGuard(editor);
+    }
+
+    onNewTableEditorChanged(event: any): void {
+        if (this.revertingNewTableEditor) {
+            return;
+        }
+        const editor = event?.editor || this.newTableEditor;
+        const nextHtml = this.normalizeTableHtml(editor?.getData ? editor.getData() : this.newTableHtml);
+        const placement = this.buildDefaultTablePlacement(this.newFieldPage, this.fields.length);
+        if (!this.shouldRejectNewTableChange(editor, nextHtml, placement)) {
+            this.newTableHtml = nextHtml;
+            this.lastValidNewTableHtml = nextHtml;
+            return;
+        }
+
+        this.revertingNewTableEditor = true;
+        this.revertTableEditor(editor, this.lastValidNewTableHtml || this.getDefaultTableHtml());
+        this.newTableHtml = this.lastValidNewTableHtml || this.getDefaultTableHtml();
+        setTimeout(() => {
+            this.revertingNewTableEditor = false;
+        });
+        console.warn('[template-builder] table size limit reached for new table editor', {
+            placement,
+            attempted: this.getTableHtmlDimensions(nextHtml),
+            allowed: this.getAllowedTableDimensions(placement)
+        });
+    }
+
     onFieldTableSizeChanged(field: TemplateField): void {
         if (field.type !== 'table') {
             return;
         }
         field.tableConfig = this.normalizeTableConfig(field.tableConfig);
+    }
+
+    onTableFieldHtmlChanged(field: TemplateField, nextHtml: string): void {
+        if (field.type !== 'table') {
+            field.tableHtml = nextHtml;
+            return;
+        }
+        if (this.revertingTableFieldIds.has(field.id)) {
+            return;
+        }
+
+        const normalizedHtml = this.normalizeTableHtml(nextHtml);
+        if (!this.shouldRejectTableFieldChange(field, null, normalizedHtml)) {
+            field.tableHtml = normalizedHtml;
+            return;
+        }
+
+        const previousHtml = this.getRestorableTableHtmlForField(field);
+        this.revertingTableFieldIds.add(field.id);
+        field.tableHtml = previousHtml;
+        setTimeout(() => {
+            field.tableHtml = previousHtml;
+            this.revertingTableFieldIds.delete(field.id);
+        });
+        console.warn('[template-builder] table size limit reached for field', {
+            fieldId: field.id,
+            fieldLabel: field.label,
+            placement: field.placement,
+            attempted: this.getTableHtmlDimensions(normalizedHtml),
+            allowed: field.placement ? this.getAllowedTableDimensions(field.placement) : null
+        });
+    }
+
+    onTableDesignEditorReady(field: TemplateField, editor: any): void {
+        if (field.type !== 'table') {
+            return;
+        }
+        field.tableHtml = this.normalizeTableHtml(field.tableHtml);
+        this.lastValidTableHtmlByFieldId[field.id] = field.tableHtml;
+        this.tableEditorsByFieldId[field.id] = editor;
+        this.hideTableEditorTopToolbar(editor);
+        this.attachTableFieldEditorSizeGuard(field, editor);
+    }
+
+    onTableFieldEditorChanged(field: TemplateField, event: any): void {
+        if (field.type !== 'table' || this.revertingTableFieldIds.has(field.id)) {
+            return;
+        }
+        const editor = event?.editor || this.tableEditorsByFieldId[field.id];
+        const nextHtml = this.normalizeTableHtml(editor?.getData ? editor.getData() : field.tableHtml);
+        if (!this.shouldRejectTableFieldChange(field, editor, nextHtml)) {
+            field.tableHtml = nextHtml;
+            this.lastValidTableHtmlByFieldId[field.id] = nextHtml;
+            return;
+        }
+
+        const previousHtml = this.getRestorableTableHtmlForField(field);
+        this.revertingTableFieldIds.add(field.id);
+        this.revertTableEditor(editor, previousHtml);
+        field.tableHtml = previousHtml;
+        setTimeout(() => {
+            field.tableHtml = previousHtml;
+            this.revertingTableFieldIds.delete(field.id);
+        });
+        console.warn('[template-builder] table editor change reverted because it exceeds field size', {
+            fieldId: field.id,
+            fieldLabel: field.label,
+            placement: field.placement,
+            attempted: this.getTableHtmlDimensions(nextHtml),
+            allowed: field.placement ? this.getAllowedTableDimensions(field.placement) : null
+        });
     }
 
     addNewRadioOption(): void {
@@ -972,18 +1104,12 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     }
 
     selectField(fieldId: string): void {
-        if (this.selectedFieldId !== fieldId) {
-            this.restoreTableToolbar();
-        }
         this.selectedFieldId = fieldId;
         this.editorContent = this.withSelectedField(fieldId);
         this.editorInstance?.setData(this.editorContent);
     }
 
     removeField(fieldId: string): void {
-        if (this.selectedFieldId === fieldId) {
-            this.restoreTableToolbar();
-        }
         this.fields = this.fields.filter((field) => field.id !== fieldId);
         this.editorContent = this.replaceFieldMarkers(fieldId);
         this.editorInstance?.setData(this.editorContent);
@@ -1123,26 +1249,15 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         return field.tableHtml;
     }
 
-    isTableFieldEditorActive(): boolean {
-        return this.selectedField?.type === 'table' && this.activeTableEditorFieldId === this.selectedFieldId;
-    }
-
     onInlineTableEditorReady(field: TemplateField, editor: any): void {
         if (field.id !== this.selectedFieldId) {
             return;
         }
-        const toolbar = editor?.ui?.view?.toolbar?.element as HTMLElement | undefined;
-        const host = this.tableToolbarHost?.nativeElement;
-        if (!toolbar || !host) {
-            return;
-        }
-
-        this.restoreTableToolbar();
-        this.activeTableEditorFieldId = field.id;
-        this.activeTableToolbarElement = toolbar;
-        this.activeTableToolbarOriginParent = toolbar.parentElement;
-        this.activeTableToolbarOriginNextSibling = toolbar.nextSibling;
-        host.replaceChildren(toolbar);
+        field.tableHtml = this.normalizeTableHtml(field.tableHtml);
+        this.lastValidTableHtmlByFieldId[field.id] = field.tableHtml;
+        this.tableEditorsByFieldId[field.id] = editor;
+        this.attachTableFieldEditorSizeGuard(field, editor);
+        this.hideTableEditorTopToolbar(editor);
     }
 
     addRadioOptionBox(field: TemplateField, optionLabel: string): void {
@@ -1427,6 +1542,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (field.type === 'table') {
             field.tableConfig = this.buildNewTableConfig();
             field.tableHtml = this.normalizeTableHtml(this.newTableHtml);
+            this.lastValidTableHtmlByFieldId[field.id] = field.tableHtml;
             field.style.textAlign = 'left';
         }
 
@@ -1515,22 +1631,327 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         return /<table[\s>]/i.test(html) ? html : this.getDefaultTableHtml();
     }
 
-    private restoreTableToolbar(): void {
-        if (!this.activeTableToolbarElement || !this.activeTableToolbarOriginParent) {
-            this.activeTableEditorFieldId = '';
+    private doesTableHtmlFitField(field: TemplateField, html: string): boolean {
+        if (!field.placement) {
+            return true;
+        }
+        return this.doesTableHtmlFitPlacement(html, field.placement);
+    }
+
+    private doesTableHtmlFitPlacement(html: string, placement: TemplateFieldPlacement): boolean {
+        const dimensions = this.getTableHtmlDimensions(html);
+        const allowed = this.getAllowedTableDimensions(placement);
+        return dimensions.rows <= allowed.rows && dimensions.columns <= allowed.columns;
+    }
+
+    private shouldRejectTableFieldChange(field: TemplateField, editor: any, nextHtml: string): boolean {
+        if (!field.placement) {
+            return false;
+        }
+
+        const nextDimensions = this.getTableHtmlDimensions(nextHtml);
+        const allowedDimensions = this.getAllowedTableDimensions(field.placement);
+        const previousDimensions = this.getTableHtmlDimensions(
+            this.lastValidTableHtmlByFieldId[field.id] || this.normalizeTableHtml(field.tableHtml)
+        );
+        const growsStructure =
+            nextDimensions.rows > previousDimensions.rows ||
+            nextDimensions.columns > previousDimensions.columns;
+
+        if (nextDimensions.rows > allowedDimensions.rows || nextDimensions.columns > allowedDimensions.columns) {
+            return growsStructure;
+        }
+
+        if (!editor || this.doesRenderedTableFitField(field, editor)) {
+            return false;
+        }
+
+        return growsStructure;
+    }
+
+    private shouldRejectNewTableChange(editor: any, nextHtml: string, placement: TemplateFieldPlacement): boolean {
+        const nextDimensions = this.getTableHtmlDimensions(nextHtml);
+        const allowedDimensions = this.getAllowedTableDimensions(placement);
+        const previousDimensions = this.getTableHtmlDimensions(this.lastValidNewTableHtml || this.getDefaultTableHtml());
+        const growsStructure =
+            nextDimensions.rows > previousDimensions.rows ||
+            nextDimensions.columns > previousDimensions.columns;
+
+        if (nextDimensions.rows > allowedDimensions.rows || nextDimensions.columns > allowedDimensions.columns) {
+            return growsStructure;
+        }
+
+        if (!editor || this.doesRenderedTableFitPlacement(editor, placement)) {
+            return false;
+        }
+
+        return growsStructure;
+    }
+
+    private getAllowedTableDimensions(placement: TemplateFieldPlacement): { rows: number; columns: number } {
+        const usableWidth = Math.max(0, Number(placement?.width || 0) - 12);
+        const usableHeight = Math.max(0, Number(placement?.height || 0) - this.tableVerticalChromeHeight);
+        return {
+            rows: Math.max(1, Math.floor(usableHeight / this.tableMinRowHeight)),
+            columns: Math.max(1, Math.floor(usableWidth / this.tableMinColumnWidth))
+        };
+    }
+
+    private getRestorableTableHtmlForField(field: TemplateField): string {
+        const previousHtml = this.lastValidTableHtmlByFieldId[field.id] || this.normalizeTableHtml(field.tableHtml);
+        if (!field.placement || this.doesTableHtmlFitField(field, previousHtml)) {
+            return previousHtml;
+        }
+        const trimmedHtml = this.trimTableHtmlToPlacement(previousHtml, field.placement);
+        this.lastValidTableHtmlByFieldId[field.id] = trimmedHtml;
+        return trimmedHtml;
+    }
+
+    private getRestorableNewTableHtml(placement: TemplateFieldPlacement): string {
+        const previousHtml = this.lastValidNewTableHtml || this.getDefaultTableHtml();
+        if (this.doesTableHtmlFitPlacement(previousHtml, placement)) {
+            return previousHtml;
+        }
+        const trimmedHtml = this.trimTableHtmlToPlacement(previousHtml, placement);
+        this.lastValidNewTableHtml = trimmedHtml;
+        return trimmedHtml;
+    }
+
+    private trimTableHtmlToPlacement(html: string, placement: TemplateFieldPlacement): string {
+        const allowed = this.getAllowedTableDimensions(placement);
+        const host = document.createElement('div');
+        host.innerHTML = this.normalizeTableHtml(html);
+        const table = host.querySelector('table');
+        if (!table) {
+            return this.getDefaultTableHtml();
+        }
+
+        const rows = Array.from(table.querySelectorAll('tr'));
+        rows.forEach((row, rowIndex) => {
+            if (rowIndex >= allowed.rows) {
+                row.remove();
+                return;
+            }
+            let columnCount = 0;
+            Array.from(row.children).forEach((cell) => {
+                columnCount += Number((cell as HTMLTableCellElement).colSpan || 1) || 1;
+                if (columnCount > allowed.columns) {
+                    cell.remove();
+                }
+            });
+        });
+
+        return host.innerHTML || this.getDefaultTableHtml();
+    }
+
+    private getTableHtmlDimensions(html: string): { rows: number; columns: number } {
+        const host = document.createElement('div');
+        host.innerHTML = this.normalizeTableHtml(html);
+        const table = host.querySelector('table');
+        if (!table) {
+            return { rows: 0, columns: 0 };
+        }
+
+        const rows = Array.from(table.querySelectorAll('tr'));
+        const columns = rows.reduce((maxColumns, row) => {
+            const rowColumns = Array.from(row.children).reduce((count, cell) => {
+                const span = Number((cell as HTMLTableCellElement).colSpan || 1);
+                return count + (Number.isFinite(span) && span > 0 ? span : 1);
+            }, 0);
+            return Math.max(maxColumns, rowColumns);
+        }, 0);
+
+        return { rows: rows.length, columns: Math.max(columns, 1) };
+    }
+
+    private attachTableFieldEditorSizeGuard(field: TemplateField, editor: any): void {
+        if (!editor || editor.__templateBuilderTableSizeGuardAttached) {
+            return;
+        }
+        editor.__templateBuilderTableSizeGuardAttached = true;
+        editor.model?.document?.on?.('change:data', () => {
+            this.scheduleTableSizeEnforcement(() => this.enforceRenderedTableFieldSize(field, editor));
+        });
+        this.observeEditorTableSize(editor, () => this.enforceRenderedTableFieldSize(field, editor));
+        this.scheduleTableSizeEnforcement(() => this.enforceRenderedTableFieldSize(field, editor));
+    }
+
+    private attachNewTableEditorSizeGuard(editor: any): void {
+        if (!editor || editor.__templateBuilderNewTableSizeGuardAttached) {
+            return;
+        }
+        editor.__templateBuilderNewTableSizeGuardAttached = true;
+        editor.model?.document?.on?.('change:data', () => {
+            this.scheduleTableSizeEnforcement(() => this.enforceRenderedNewTableSize(editor));
+        });
+        this.observeEditorTableSize(editor, () => this.enforceRenderedNewTableSize(editor));
+        this.scheduleTableSizeEnforcement(() => this.enforceRenderedNewTableSize(editor));
+    }
+
+    private enforceRenderedTableFieldSize(field: TemplateField, editor: any): void {
+        if (field.type !== 'table' || this.revertingTableFieldIds.has(field.id)) {
+            return;
+        }
+        const nextHtml = this.normalizeTableHtml(editor?.getData ? editor.getData() : field.tableHtml);
+        if (!this.shouldRejectTableFieldChange(field, editor, nextHtml)) {
+            field.tableHtml = nextHtml;
+            this.lastValidTableHtmlByFieldId[field.id] = nextHtml;
             return;
         }
 
-        if (this.activeTableToolbarOriginNextSibling?.parentNode === this.activeTableToolbarOriginParent) {
-            this.activeTableToolbarOriginParent.insertBefore(this.activeTableToolbarElement, this.activeTableToolbarOriginNextSibling);
-        } else {
-            this.activeTableToolbarOriginParent.appendChild(this.activeTableToolbarElement);
+        const previousHtml = this.getRestorableTableHtmlForField(field);
+        this.revertingTableFieldIds.add(field.id);
+        field.tableHtml = previousHtml;
+        this.revertTableEditor(editor, previousHtml);
+        setTimeout(() => {
+            field.tableHtml = previousHtml;
+            this.revertingTableFieldIds.delete(field.id);
+        });
+        console.warn('[template-builder] rendered table change reverted because it exceeds field bounds', {
+            fieldId: field.id,
+            fieldLabel: field.label,
+            placement: field.placement,
+            rendered: this.getRenderedTableSize(editor),
+            allowed: field.placement ? this.getAllowedRenderedTableSize(field.placement) : null
+        });
+    }
+
+    private enforceRenderedNewTableSize(editor: any): void {
+        if (this.revertingNewTableEditor) {
+            return;
+        }
+        const placement = this.buildDefaultTablePlacement(this.newFieldPage, this.fields.length);
+        const nextHtml = this.normalizeTableHtml(editor?.getData ? editor.getData() : this.newTableHtml);
+        if (!this.shouldRejectNewTableChange(editor, nextHtml, placement)) {
+            this.newTableHtml = nextHtml;
+            this.lastValidNewTableHtml = nextHtml;
+            return;
         }
 
-        this.activeTableToolbarElement = null;
-        this.activeTableToolbarOriginParent = null;
-        this.activeTableToolbarOriginNextSibling = null;
-        this.activeTableEditorFieldId = '';
+        this.revertingNewTableEditor = true;
+        this.newTableHtml = this.getRestorableNewTableHtml(placement);
+        this.revertTableEditor(editor, this.newTableHtml);
+        setTimeout(() => {
+            this.revertingNewTableEditor = false;
+        });
+        console.warn('[template-builder] rendered new table change reverted because it exceeds field bounds', {
+            placement,
+            rendered: this.getRenderedTableSize(editor),
+            allowed: this.getAllowedRenderedTableSize(placement)
+        });
+    }
+
+    private doesRenderedTableFitField(field: TemplateField, editor: any): boolean {
+        if (!field.placement) {
+            return true;
+        }
+        return this.doesRenderedTableFitPlacement(editor, field.placement);
+    }
+
+    private doesRenderedTableFitPlacement(editor: any, placement: TemplateFieldPlacement): boolean {
+        const editableOverflow = this.getInlineEditorOverflow(editor);
+        if (editableOverflow && (editableOverflow.overflowsX || editableOverflow.overflowsY)) {
+            return false;
+        }
+        const rendered = this.getRenderedTableSize(editor);
+        if (!rendered) {
+            return true;
+        }
+        const allowed = this.getAllowedRenderedTableSize(placement);
+        return rendered.width <= allowed.width + 2 && rendered.height <= allowed.height + 2;
+    }
+
+    private getRenderedTableSize(editor: any): { width: number; height: number } | null {
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        const table = editable?.querySelector('figure.table table, table') as HTMLElement | null;
+        if (!editable || !table) {
+            return null;
+        }
+        const tableRect = table.getBoundingClientRect();
+        return {
+            width: Math.ceil(tableRect.width),
+            height: Math.ceil(tableRect.height)
+        };
+    }
+
+    private getInlineEditorOverflow(editor: any): { overflowsX: boolean; overflowsY: boolean; scrollWidth: number; clientWidth: number; scrollHeight: number; clientHeight: number } | null {
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        if (!editable || !editable.closest('.table-field-inline-editor')) {
+            return null;
+        }
+        const scrollWidth = Math.ceil(editable.scrollWidth);
+        const clientWidth = Math.ceil(editable.clientWidth);
+        const scrollHeight = Math.ceil(editable.scrollHeight);
+        const clientHeight = Math.ceil(editable.clientHeight);
+        return {
+            overflowsX: scrollWidth > clientWidth + 2,
+            overflowsY: scrollHeight > clientHeight + 2,
+            scrollWidth,
+            clientWidth,
+            scrollHeight,
+            clientHeight
+        };
+    }
+
+    private getAllowedRenderedTableSize(placement: TemplateFieldPlacement): { width: number; height: number } {
+        return {
+            width: Math.max(1, Number(placement?.width || 0) - 12),
+            height: Math.max(1, Number(placement?.height || 0) - this.tableVerticalChromeHeight)
+        };
+    }
+
+    private observeEditorTableSize(editor: any, callback: () => void): void {
+        if (!editor || typeof ResizeObserver === 'undefined' || this.tableResizeObserversByEditor.has(editor)) {
+            return;
+        }
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        const table = editable?.querySelector('figure.table table, table') as HTMLElement | null;
+        if (!editable || !table) {
+            return;
+        }
+        const observer = new ResizeObserver(() => this.scheduleTableSizeEnforcement(callback));
+        observer.observe(table);
+        this.tableResizeObserversByEditor.set(editor, observer);
+    }
+
+    private revertTableEditor(editor: any, html: string): void {
+        if (!editor) {
+            return;
+        }
+        try {
+            if (editor.execute) {
+                editor.execute('undo');
+            }
+        } catch {
+            // Fall through to setData; some CKEditor operations cannot be undone cleanly.
+        }
+        try {
+            if (editor.setData) {
+                editor.setData(html);
+            }
+        } catch (error) {
+            console.warn('[template-builder] failed to restore table editor data', error);
+        }
+    }
+
+    private scheduleTableSizeEnforcement(callback: () => void): void {
+        setTimeout(() => {
+            if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(callback);
+            } else {
+                callback();
+            }
+        }, 0);
+    }
+
+    private hideTableEditorTopToolbar(editor: any): void {
+        const toolbar = editor?.ui?.view?.toolbar?.element as HTMLElement | undefined;
+        const editorTop = toolbar?.closest('.ck-editor__top') as HTMLElement | null;
+        if (editorTop) {
+            editorTop.style.display = 'none';
+        } else if (toolbar) {
+            toolbar.style.display = 'none';
+        }
     }
 
     private getDefaultTableHtml(): string {
@@ -1545,6 +1966,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         this.newTableColumns = 3;
         this.newTableHeaders = ['Column 1', 'Column 2', 'Column 3'];
         this.newTableHtml = this.getDefaultTableHtml();
+        this.lastValidNewTableHtml = this.newTableHtml;
     }
 
     private getDynamicApprovalDefaultLabel(type: TemplateFieldType): string {

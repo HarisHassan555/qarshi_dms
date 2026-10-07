@@ -6,6 +6,9 @@
         "types": ["node"],
         "typeRoots": ["./node_modules/@types"]
     },
-    "files": ["src/main.ts"],
+    "files": [
+        "src/main.ts",
+        "src/app/components/univer-form-builder/univer-form-builder.component.ts"
+    ],
     "include": ["src/**/*.d.ts"]
 }

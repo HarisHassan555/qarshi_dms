@@ -56,6 +56,7 @@ export class PermissionService {
             'Applications View',
             'Pending Approvals',
             'Form Builder',
+            'Univer Form Builder',
             'Budget Approval'
         ],
         'User Management': ['User', 'Password Policy', 'Change Password', 'Permission', 'Role Management', 'Activity Logs']

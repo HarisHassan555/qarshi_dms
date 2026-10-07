@@ -158,6 +158,7 @@ import { TemplatePendingApprovalsComponent } from './components/template-pending
 import { TemplateApprovalComponent } from './components/template-approval/template-approval.component';
 import { TemplateApprovedApplicationsComponent } from './components/template-approved-applications/template-approved-applications.component';
 import { MyApplicationComponent } from './components/my-application/my-application.component';
+import { UniverFormBuilderComponent } from './components/univer-form-builder/univer-form-builder.component';
 
 
 @NgModule({
@@ -292,7 +293,8 @@ import { MyApplicationComponent } from './components/my-application/my-applicati
         TemplatePendingApprovalsComponent,
         TemplateApprovedApplicationsComponent,
         TemplateApprovalComponent,
-        MyApplicationComponent
+        MyApplicationComponent,
+        UniverFormBuilderComponent
     ],
 
     providers: [

@@ -3,16 +3,19 @@ import { Router } from '@angular/router';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
 import { NotificationService } from 'src/app/NotificationService';
 import { finalize } from 'rxjs/operators';
+import { resolveApplicationTitle } from 'src/app/utils/application-title.util';
 
 interface Application {
   serApplicationId?: number;
   serFormId?: number;
   txtFormCode?: string;
   txtStatus?: string;
+  txtApplicationData?: string;
   intCurrentApprovalLevel?: number;
   dteCreatedDate?: string;
   cfgTblCustomForm?: any;
   formName?: string;
+  applicationTitle?: string;
 }
 
 @Component({
@@ -28,6 +31,7 @@ export class PendingApprovalsComponent implements OnInit {
 
   cols = [
     { field: 'txtFormCode', title: 'Application Code' },
+    { field: 'applicationTitle', title: 'Title' },
     { field: 'formName', title: 'Form Name' },
     { field: 'intCurrentApprovalLevel', title: 'Approval Level' },
     { field: 'dteCreatedDate', title: 'Submitted Date' },
@@ -62,7 +66,8 @@ export class PendingApprovalsComponent implements OnInit {
         if (data) {
           this.pendingApprovals = data.map((app: any) => ({
             ...app,
-            formName: this.getFormName(app)
+            formName: this.getFormName(app),
+            applicationTitle: resolveApplicationTitle(app)
           }));
         } else {
           this.pendingApprovals = [];
@@ -86,6 +91,7 @@ export class PendingApprovalsComponent implements OnInit {
     const searchLower = this.search.toLowerCase();
     return this.pendingApprovals.filter(app =>
       (app.txtFormCode && app.txtFormCode.toLowerCase().includes(searchLower)) ||
+      (app.applicationTitle && app.applicationTitle.toLowerCase().includes(searchLower)) ||
       (app.formName && app.formName.toLowerCase().includes(searchLower)) ||
       (app.intCurrentApprovalLevel !== undefined && app.intCurrentApprovalLevel !== null &&
         String(app.intCurrentApprovalLevel).toLowerCase().includes(searchLower)) ||

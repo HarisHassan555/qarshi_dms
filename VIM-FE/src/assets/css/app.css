@@ -9,4 +9,5 @@
 @import 'file-upload-with-preview/dist/style.css';
 @import 'flatpickr/dist/flatpickr.min.css';
 @import 'nouislider/dist/nouislider.min.css';
+@import '@univerjs/preset-docs-core/lib/index.css';
 @import 'tailwind.css';

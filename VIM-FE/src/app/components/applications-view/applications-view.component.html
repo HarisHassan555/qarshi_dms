@@ -37,6 +37,9 @@
                     </span>
                     <span class="text-gray-400" *ngIf="!value.txtFormCode">-</span>
                 </ng-template>
+                <ng-template slot="applicationTitle" let-value="data">
+                    <span class="block max-w-[220px] truncate" [title]="value.applicationTitle || ''">{{ value.applicationTitle || '' }}</span>
+                </ng-template>
                 <ng-template slot="txtStatus" let-value="data">
                     <span class="badge" [ngClass]="getStatusBadgeClass(value.txtStatus)">
                         {{ value.txtStatus || 'N/A' }}

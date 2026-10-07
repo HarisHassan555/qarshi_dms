@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 import { finalize } from 'rxjs/operators';
 import { NotificationService } from 'src/app/NotificationService';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
+import { resolveApplicationTitle } from 'src/app/utils/application-title.util';
 
 interface DepartmentApplication {
   serApplicationId?: number;
@@ -10,15 +11,17 @@ interface DepartmentApplication {
   serFormId?: number;
   txtFormCode?: string;
   txtStatus?: string;
+  txtApplicationData?: string;
   dteCreatedDate?: string;
   cfgTblCustomForm?: any;
   formName?: string;
   submittedDepartmentName?: string;
   submittedByUserName?: string;
+  applicationTitle?: string;
 }
 
 type DepartmentApplicationCsvColumnKey =
-  'txtFormCode' | 'formName' | 'submittedByUserName' | 'submittedDepartmentName' | 'txtStatus' | 'dteCreatedDate';
+  'txtFormCode' | 'applicationTitle' | 'formName' | 'submittedByUserName' | 'submittedDepartmentName' | 'txtStatus' | 'dteCreatedDate';
 
 interface DepartmentApplicationCsvColumn {
   key: DepartmentApplicationCsvColumnKey;
@@ -42,6 +45,7 @@ export class DepartmentApplicationComponent implements OnInit {
   selectedCsvColumns: DepartmentApplicationCsvColumn[] = [];
   readonly csvColumns: DepartmentApplicationCsvColumn[] = [
     { key: 'txtFormCode', label: 'Application Code' },
+    { key: 'applicationTitle', label: 'Title' },
     { key: 'formName', label: 'Form Name' },
     { key: 'submittedByUserName', label: 'Submitted By' },
     { key: 'submittedDepartmentName', label: 'Department' },
@@ -51,6 +55,7 @@ export class DepartmentApplicationComponent implements OnInit {
 
   cols = [
     { field: 'txtFormCode', title: 'Application Code' },
+    { field: 'applicationTitle', title: 'Title' },
     { field: 'formName', title: 'Form Name' },
     { field: 'submittedByUserName', title: 'Submitted By' },
     { field: 'submittedDepartmentName', title: 'Department' },
@@ -90,6 +95,7 @@ export class DepartmentApplicationComponent implements OnInit {
             this.applications = data.map((app: any) => ({
               ...app,
               formName: this.getFormName(app),
+              applicationTitle: resolveApplicationTitle(app),
             }));
           } else {
             this.applications = [];
@@ -122,6 +128,7 @@ export class DepartmentApplicationComponent implements OnInit {
     const searchLower = this.search.toLowerCase();
     this.displayedApplications = this.applications.filter((app) =>
       (app.txtFormCode && app.txtFormCode.toLowerCase().includes(searchLower)) ||
+      (app.applicationTitle && app.applicationTitle.toLowerCase().includes(searchLower)) ||
       (app.formName && app.formName.toLowerCase().includes(searchLower)) ||
       (app.submittedByUserName && app.submittedByUserName.toLowerCase().includes(searchLower)) ||
       (app.submittedDepartmentName && app.submittedDepartmentName.toLowerCase().includes(searchLower)) ||
@@ -244,6 +251,8 @@ export class DepartmentApplicationComponent implements OnInit {
     switch (key) {
       case 'txtFormCode':
         return application.txtFormCode || '';
+      case 'applicationTitle':
+        return application.applicationTitle || '';
       case 'formName':
         return application.formName || '';
       case 'submittedByUserName':

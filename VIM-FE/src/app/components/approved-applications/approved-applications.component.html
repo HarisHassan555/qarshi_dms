@@ -20,6 +20,10 @@
                 <span class="font-medium">{{ value.formName }}</span>
             </ng-template>
 
+            <ng-template slot="applicationTitle" let-value="data">
+                <span class="block max-w-[220px] truncate" [title]="value.applicationTitle || ''">{{ value.applicationTitle || '' }}</span>
+            </ng-template>
+
             <!-- Status badge showing both User's Action and OVERALL application status -->
             <ng-template slot="txtStatus" let-value="data">
                 <div *ngIf="isCeo()">

@@ -25,6 +25,9 @@
             <button type="button" class="btn btn-outline-primary" [disabled]="isLoading || isActing" (click)="downloadApplicationPdf()">
                 Download PDF
             </button>
+            <button type="button" class="btn btn-outline-primary" [disabled]="isLoading || isActing || isDownloadingWithLogsPdf" (click)="downloadApplicationWithLogsPdf()">
+                {{ isDownloadingWithLogsPdf ? 'Downloading...' : 'Download PDF With Logs' }}
+            </button>
             <button type="button" class="btn btn-outline" [disabled]="isSaving || isActing" (click)="saveChanges()">
                 {{ isSaving ? 'Saving...' : 'Save' }}
             </button>
@@ -96,7 +99,12 @@
                             <button type="button" class="attachment-link-button" (click)="viewAttachment(attachment)">
                                 {{ attachment.fileName }}
                             </button>
-                            <button type="button" class="btn btn-danger btn-sm" (click)="removeAttachment(field, index)">
+                            <button
+                                type="button"
+                                class="btn btn-danger btn-sm attachment-remove-button"
+                                (pointerdown)="removeAttachment(field, index, $event)"
+                                (keydown.enter)="removeAttachment(field, index, $event)"
+                                (keydown.space)="removeAttachment(field, index, $event)">
                                 Remove
                             </button>
                         </div>

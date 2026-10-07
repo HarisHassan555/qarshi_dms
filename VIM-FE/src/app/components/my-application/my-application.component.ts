@@ -1,7 +1,7 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
-import { finalize } from 'rxjs';
+import { finalize, firstValueFrom } from 'rxjs';
 import { NotificationService } from 'src/app/NotificationService';
 import { ApplicationPdfService } from 'src/app/services/application-pdf/application-pdf.service';
 import { SavedTemplateDefinition, TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
@@ -12,6 +12,7 @@ import {
     resolveDocumentHeaderBrandTitle,
     resolveDocumentHeaderLogoPath,
 } from 'src/app/utils/document-header.util';
+import { resolveApplicationTitle } from 'src/app/utils/application-title.util';
 
 type TemplateFieldType =
     'document_header' | 'document_header_qu' | 'document_header_qf' | 'document_header_qri' | 'document_header_qb'
@@ -75,6 +76,7 @@ interface MyTemplateApplication {
     serSubmittedBy?: number;
     submittedByUserName?: string;
     templateName?: string;
+    applicationTitle?: string;
     template?: SavedTemplateDefinition;
 }
 
@@ -153,6 +155,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     private activeDetailRequestId = 0;
     cols = [
         { field: 'txtFormCode', title: 'Application Code' },
+        { field: 'applicationTitle', title: 'Title' },
         { field: 'templateName', title: 'Template' },
         { field: 'txtStatus', title: 'Status' },
         { field: 'intCurrentApprovalLevel', title: 'Approval Level' },
@@ -265,11 +268,12 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
                     this.notificationService.showMessage('No applications available to export.', 'warning');
                     return;
                 }
-                const headers = ['Application Code', 'Template', 'Status', 'Approval Level', 'Submitted Date'];
+                const headers = ['Application Code', 'Title', 'Template', 'Status', 'Approval Level', 'Submitted Date'];
                 const csvRows = [
                     headers.join(','),
                     ...rows.map((application: MyTemplateApplication) => ([
                         application.txtFormCode || '',
+                        application.applicationTitle || '',
                         application.templateName || '',
                         application.txtStatus || '',
                         String(this.getApplicationDisplayLevel(application)),
@@ -375,10 +379,14 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
 
         this.isDownloadingWithLogsPdf = true;
         try {
-            const filename = `${application.txtFormCode || 'template-application'}_logs.pdf`;
-            const pdfHtml = this.buildApprovalLogsPdfHtml(application, this.getApprovalLogRows());
-            const pdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(pdfHtml, filename);
-            this.downloadBlob(pdfBlob, filename);
+            const filename = `${application.txtFormCode || 'template-application'}_with_logs.pdf`;
+            const applicationPdfBlob = await firstValueFrom(
+                this.templateWorkflowService.downloadTemplateApplicationPdf(application.serApplicationId)
+            );
+            const logsPdfHtml = this.buildApprovalLogsPdfHtml(application, this.getApprovalLogRows());
+            const logsPdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(logsPdfHtml, filename);
+            const mergedPdfBlob = await this.applicationPdfService.mergePdfBlobs([applicationPdfBlob, logsPdfBlob]);
+            this.downloadBlob(mergedPdfBlob, filename);
         } catch (error: any) {
             this.notificationService.showMessage(
                 error?.message || 'Application and logs PDF could not be downloaded.',
@@ -452,12 +460,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         this.showApprovalLogsCsvModal = false;
     }
 
-    private buildApprovalLogsPdfHtml(application: MyTemplateApplication, rows: ApprovalLogRow[]): string {
-        const templateName = this.escapeHtml(application.templateName || this.selectedTemplate?.name || 'Template Application');
-        const formCode = this.escapeHtml(application.txtFormCode || '-');
-        const status = this.escapeHtml(application.txtStatus || 'PENDING');
-        const submittedDate = application.dteCreatedDate ? this.escapeHtml(new Date(application.dteCreatedDate).toLocaleString()) : '--';
-        const generatedAt = this.escapeHtml(new Date().toLocaleString());
+    private buildApprovalLogsPdfHtml(_application: MyTemplateApplication, rows: ApprovalLogRow[]): string {
         const tableRows = rows.length > 0
             ? rows.map((row, index) => `
                 <tr>
@@ -480,24 +483,16 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
 <html>
 <head>
   <meta charset="UTF-8" />
+  <style>
+    html, body { min-height: 100%; width: 1120px; max-width: none; }
+    * { box-sizing: border-box; }
+    table { page-break-inside: auto; break-inside: auto; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
+  </style>
 </head>
-<body style="margin:0;padding:12px 18px;font-family:Arial,sans-serif;background:#ffffff;color:#111827;box-sizing:border-box;">
-  <div style="width:100%;margin:0 auto;background:#ffffff;box-sizing:border-box;">
-    <div style="margin-bottom:14px;">
-      <div style="font-size:22px;font-weight:700;line-height:1.2;color:#111827;">Application Logs</div>
-      <div style="font-size:13px;color:#374151;margin-top:4px;">${templateName}</div>
-    </div>
-    <table style="width:100%;border-collapse:collapse;margin:0 auto 14px;">
-      <tbody>
-        <tr>
-          <td style="padding:6px 8px;border:1px solid #d1d5db;font-size:12px;width:25%;"><strong>Application Code:</strong> ${formCode}</td>
-          <td style="padding:6px 8px;border:1px solid #d1d5db;font-size:12px;width:25%;"><strong>Status:</strong> ${status}</td>
-          <td style="padding:6px 8px;border:1px solid #d1d5db;font-size:12px;width:25%;"><strong>Submitted Date:</strong> ${submittedDate}</td>
-          <td style="padding:6px 8px;border:1px solid #d1d5db;font-size:12px;width:25%;"><strong>Generated:</strong> ${generatedAt}</td>
-        </tr>
-      </tbody>
-    </table>
-    <div style="font-size:14px;font-weight:700;color:#111827;margin:0 0 8px;">Prior Approvals (${rows.length})</div>
+<body style="width:1120px;max-width:none;margin:0;padding:18px 18px 48px;font-family:Arial,sans-serif;background:#ffffff;color:#111827;box-sizing:border-box;">
+  <div style="width:100%;max-width:none;margin:0;padding-bottom:24px;background:#ffffff;box-sizing:border-box;">
+    <div style="font-size:14px;font-weight:700;color:#111827;margin:0 0 8px;">Logs (${rows.length})</div>
     <table style="width:100%;margin:0 auto;border-collapse:collapse;table-layout:fixed;border:1px solid #d1d5db;">
       <thead>
         <tr>
@@ -604,8 +599,10 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             txtStatus: application?.txtStatus,
             intCurrentApprovalLevel: application?.intCurrentApprovalLevel,
             dteCreatedDate: application?.dteCreatedDate,
+            txtApplicationData: application?.txtApplicationData,
             serSubmittedBy: application?.serSubmittedBy,
-            templateName: application?.templateName || application?.cfgTblCustomForm?.txtFormName || 'Template'
+            templateName: application?.templateName || application?.cfgTblCustomForm?.txtFormName || 'Template',
+            applicationTitle: resolveApplicationTitle(application)
         };
     }
 

@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 import { finalize } from 'rxjs';
 import { NotificationService } from 'src/app/NotificationService';
 import { TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
+import { resolveApplicationTitle } from 'src/app/utils/application-title.util';
 
 interface TemplateApprovedApplication {
     serApplicationId?: number;
@@ -13,9 +14,11 @@ interface TemplateApprovedApplication {
     dteCreatedDate?: string;
     myApprovalDate?: string;
     templateName?: string;
+    txtApplicationData?: string;
+    applicationTitle?: string;
 }
 
-type ApprovedApplicationCsvColumnKey = 'txtFormCode' | 'templateName' | 'txtStatus' | 'myApprovalDate' | 'dteCreatedDate';
+type ApprovedApplicationCsvColumnKey = 'txtFormCode' | 'applicationTitle' | 'templateName' | 'txtStatus' | 'myApprovalDate' | 'dteCreatedDate';
 interface ApprovedApplicationCsvColumn { key: ApprovedApplicationCsvColumnKey; label: string; }
 
 @Component({
@@ -38,6 +41,7 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
 
     cols = [
         { field: 'txtFormCode', title: 'Application Code' },
+        { field: 'applicationTitle', title: 'Title' },
         { field: 'templateName', title: 'Template' },
         { field: 'txtStatus', title: 'Current Status' },
         { field: 'myApprovalDate', title: 'Approved On' },
@@ -46,6 +50,7 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
     ];
     readonly csvColumns: ApprovedApplicationCsvColumn[] = [
         { key: 'txtFormCode', label: 'Application Code' },
+        { key: 'applicationTitle', label: 'Title' },
         { key: 'templateName', label: 'Template' },
         { key: 'txtStatus', label: 'Current Status' },
         { key: 'myApprovalDate', label: 'Approved On' },
@@ -254,13 +259,16 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
             intCurrentApprovalLevel: application?.intCurrentApprovalLevel,
             dteCreatedDate: application?.dteCreatedDate,
             myApprovalDate: application?.myApprovalDate,
-            templateName: application?.templateName || 'Template'
+            templateName: application?.templateName || 'Template',
+            txtApplicationData: application?.txtApplicationData,
+            applicationTitle: resolveApplicationTitle(application)
         };
     }
 
     private getCsvCellValue(application: TemplateApprovedApplication, key: ApprovedApplicationCsvColumnKey): string {
         switch (key) {
             case 'txtFormCode': return application.txtFormCode || '';
+            case 'applicationTitle': return application.applicationTitle || '';
             case 'templateName': return application.templateName || '';
             case 'txtStatus': return application.txtStatus || '';
             case 'myApprovalDate': return application.myApprovalDate ? new Date(application.myApprovalDate).toLocaleString() : '';

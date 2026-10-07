@@ -60,6 +60,25 @@
     overflow: auto;
 }
 
+.template-approval-page .attachment-list {
+    overflow: hidden;
+}
+
+.template-approval-page .attachment-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: 100%;
+}
+
+.template-approval-page .attachment-link-button {
+    min-width: 0;
+}
+
+.template-approval-page .attachment-remove-button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
 .step-rights-note {
     background: #f8fafc;
     border: 1px solid #e2e8f0;

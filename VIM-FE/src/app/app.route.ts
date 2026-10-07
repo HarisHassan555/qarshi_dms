@@ -91,6 +91,7 @@ import { TemplatePendingApprovalsComponent } from './components/template-pending
 import { TemplateApprovalComponent } from './components/template-approval/template-approval.component';
 import { TemplateApprovedApplicationsComponent } from './components/template-approved-applications/template-approved-applications.component';
 import { MyApplicationComponent } from './components/my-application/my-application.component';
+import { UniverFormBuilderComponent } from './components/univer-form-builder/univer-form-builder.component';
 
 
 export const routes: Routes = [
@@ -147,6 +148,7 @@ export const routes: Routes = [
             { path: 'pr-code/:id', canActivate: [canActivate], component: PrCodeComponent, title: 'Assign PR Code' },
             { path: 'po-code/:id', canActivate: [canActivate], component: PoCodeComponent, title: 'Assign PO Code' },
             { path: 'formbuilder', canActivate: [canActivate], component: FormBuilderComponent, title: 'Form Builder' },
+            { path: 'univer-form-builder', canActivate: [canActivate], component: UniverFormBuilderComponent, title: 'Univer Form Builder' },
             { path: 'order', canActivate: [canActivate], component: OrderListComponent, title: 'Order' },
             { path: 'sale-invoice', canActivate: [canActivate], component: SaleInvoiceListComponent, title: 'Sale Invoice' },
             { path: 'sale-invoice-view', canActivate: [canActivate], component: SaleInvoiceViewListComponent, title: 'Sale Invoice View' },

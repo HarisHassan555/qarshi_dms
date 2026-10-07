@@ -391,30 +391,6 @@
     min-width: 0;
 }
 
-.table-toolbar-host {
-    align-items: center;
-    background: #ffffff;
-    border: 1px solid #cbd5e1;
-    border-radius: 8px;
-    display: none;
-    margin-bottom: 10px;
-    min-height: 44px;
-    overflow-x: auto;
-    padding: 6px;
-    position: sticky;
-    top: 0;
-    z-index: 8;
-}
-
-.table-toolbar-host.is-active {
-    display: flex;
-}
-
-:host ::ng-deep .table-toolbar-host .ck.ck-toolbar {
-    border: 0;
-    width: max-content;
-}
-
 .paper-wrap {
     background: #dbe3ef;
     border: 1px solid #cbd5e1;
@@ -1180,21 +1156,22 @@
 .table-field-preview {
     box-sizing: border-box;
     height: 100%;
-    overflow: auto;
+    overflow: hidden;
     width: 100%;
 }
 
 .table-field-editor-surface {
     box-sizing: border-box;
     height: 100%;
-    overflow: auto;
+    overflow: hidden;
     padding: 28px 2px 2px;
     width: 100%;
 }
 
 .table-field-inline-editor {
     display: block;
-    min-height: 100%;
+    height: 100%;
+    min-height: 0;
 }
 
 :host ::ng-deep .table-field-inline-editor .ck.ck-editor {
@@ -1203,12 +1180,14 @@
 
 :host ::ng-deep .table-field-inline-editor .ck.ck-editor__main {
     height: 100%;
-    min-height: 72px;
+    min-height: 0;
 }
 
 :host ::ng-deep .table-field-inline-editor .ck.ck-editor__editable_inline {
     box-sizing: border-box;
-    min-height: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
     padding: 6px;
 }
 

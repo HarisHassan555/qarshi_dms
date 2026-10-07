@@ -1,0 +1,322 @@
+<div class="univer-builder-page" [ngStyle]="canvasStyleVars" (click)="closeContextMenu()">
+    <div class="builder-toolbar panel">
+        <div class="builder-title">
+            <h5>Univer Form Builder</h5>
+            <p>{{ activeMode === 'sheet' ? 'Editable spreadsheet-style form canvas.' : 'Blank Word-style document canvas.' }}</p>
+        </div>
+
+        <div class="builder-actions">
+            <div class="mode-switch" aria-label="Editor mode">
+                <button type="button" [class.active]="activeMode === 'sheet'" (click)="switchMode('sheet')">Excel</button>
+                <button type="button" [class.active]="activeMode === 'document'" (click)="switchMode('document')">Word</button>
+            </div>
+
+            <button type="button" class="btn btn-primary gap-2">
+                <icon-save class="h-4 w-4" />
+                Save Builder
+            </button>
+        </div>
+    </div>
+
+    <div class="builder-ribbon panel" *ngIf="activeMode === 'sheet'">
+        <div class="ribbon-band">
+            <div class="ribbon-tabs">
+                <button type="button" class="ribbon-tab" [class.active]="activeRibbonTab === 'home'" (click)="setRibbonTab('home')">Home</button>
+                <button type="button" class="ribbon-tab" [class.active]="activeRibbonTab === 'insert'" (click)="setRibbonTab('insert')">Insert</button>
+                <button type="button" class="ribbon-tab" [class.active]="activeRibbonTab === 'data'" (click)="setRibbonTab('data')">Data</button>
+                <button type="button" class="ribbon-tab" [class.active]="activeRibbonTab === 'view'" (click)="setRibbonTab('view')">View</button>
+            </div>
+            <div class="ribbon-content">
+        <div class="ribbon-group ribbon-group-sheet" *ngIf="activeMode === 'sheet' && activeRibbonTab === 'insert'">
+            <div class="ribbon-label">Sheet</div>
+            <div class="ribbon-row" *ngIf="activeMode === 'sheet'">
+                <label class="ribbon-number">
+                    Rows
+                    <input type="number" min="1" max="100" [(ngModel)]="sheetRowCount" (change)="resizeSheet()" />
+                </label>
+                <label class="ribbon-number">
+                    Columns
+                    <input type="number" min="1" max="26" [(ngModel)]="sheetColumnCount" (change)="resizeSheet()" />
+                </label>
+            </div>
+            <div class="ribbon-row" *ngIf="activeMode === 'sheet'">
+                <button type="button" class="ribbon-command" (click)="insertRow('above')">+ Row Above</button>
+                <button type="button" class="ribbon-command" (click)="insertRow('below')">+ Row Below</button>
+                <button type="button" class="ribbon-command danger" (click)="deleteSelectedRow()">Delete Row</button>
+            </div>
+            <div class="ribbon-row" *ngIf="activeMode === 'sheet'">
+                <button type="button" class="ribbon-command" (click)="insertColumn('left')">+ Col Left</button>
+                <button type="button" class="ribbon-command" (click)="insertColumn('right')">+ Col Right</button>
+                <button type="button" class="ribbon-command danger" (click)="deleteSelectedColumn()">Delete Column</button>
+            </div>
+        </div>
+
+        <div class="ribbon-group" *ngIf="activeMode === 'sheet' && activeRibbonTab === 'insert'">
+            <div class="ribbon-label">Merge</div>
+            <div class="ribbon-row">
+                <label class="ribbon-number">
+                    Rows
+                    <input type="number" min="1" [max]="sheetRowCount" [(ngModel)]="mergeRowCount" />
+                </label>
+                <label class="ribbon-number">
+                    Columns
+                    <input type="number" min="1" [max]="sheetColumnCount" [(ngModel)]="mergeColumnCount" />
+                </label>
+            </div>
+            <div class="ribbon-row">
+                <button type="button" class="ribbon-command" (click)="mergeSelectedCells()">Merge Cells</button>
+                <button type="button" class="ribbon-command" (click)="unmergeSelectedCell()">Unmerge</button>
+            </div>
+        </div>
+
+        <div class="ribbon-group" *ngIf="activeMode === 'sheet' && activeRibbonTab === 'data'">
+            <div class="ribbon-label">Data</div>
+            <div class="ribbon-row">
+                <button type="button" class="ribbon-command" (click)="sortSelectedColumn('asc')">Sort A-Z</button>
+                <button type="button" class="ribbon-command" (click)="sortSelectedColumn('desc')">Sort Z-A</button>
+            </div>
+            <div class="ribbon-row">
+                <input class="ribbon-input" [(ngModel)]="filterText" placeholder="Filter text" />
+                <button type="button" class="ribbon-command" (click)="filterText = ''">Clear</button>
+            </div>
+        </div>
+
+        <div class="ribbon-group ribbon-group-size" *ngIf="activeMode === 'sheet' && activeRibbonTab === 'view'">
+            <div class="ribbon-label">Cell Size</div>
+            <div class="ribbon-row">
+                <label class="ribbon-number">
+                    {{ selectedColumnName }} Width
+                    <input class="wide-number" type="number" min="60" max="360" [(ngModel)]="selectedColumnWidth" />
+                </label>
+                <label class="ribbon-number">
+                    Row Height
+                    <input class="wide-number" type="number" min="24" max="240" [(ngModel)]="selectedRowHeight" />
+                </label>
+            </div>
+        </div>
+
+        <div class="ribbon-group" *ngIf="activeMode === 'sheet' && activeRibbonTab === 'view'">
+            <div class="ribbon-label">View</div>
+            <div class="ribbon-row">
+                <label class="ribbon-number">
+                    Freeze Rows
+                    <input type="number" min="0" [max]="sheetRowCount" [(ngModel)]="freezeRowCount" />
+                </label>
+                <label class="ribbon-number">
+                    Freeze Columns
+                    <input type="number" min="0" [max]="sheetColumnCount" [(ngModel)]="freezeColumnCount" />
+                </label>
+            </div>
+        </div>
+
+        <div class="ribbon-group" *ngIf="activeMode === 'sheet' && activeRibbonTab === 'data'">
+            <div class="ribbon-label">Clipboard</div>
+            <div class="ribbon-row">
+                <button type="button" class="ribbon-command" (click)="copySheetToClipboard()">Copy TSV</button>
+                <button type="button" class="ribbon-command" (click)="pasteClipboardIntoSheet()">Paste TSV</button>
+            </div>
+            <div class="ribbon-row">
+                <button type="button" class="ribbon-command danger" (click)="clearSelectedCell()">Clear Cell</button>
+                <button type="button" class="ribbon-command danger" (click)="clearSheet()">Clear Sheet</button>
+                <button type="button" class="ribbon-command" (click)="exportCsv()">Export CSV</button>
+            </div>
+        </div>
+
+        <div class="ribbon-group" *ngIf="activeMode === 'sheet' && activeRibbonTab === 'home'">
+            <div class="ribbon-label">Font</div>
+            <div class="ribbon-row">
+                <select class="ribbon-select wide" [ngModel]="selectedSheetCell.fontFamily" (ngModelChange)="applyFontFamily($event)">
+                    <option *ngFor="let font of fontFamilies" [value]="font">{{ font }}</option>
+                </select>
+                <select class="ribbon-select size" [ngModel]="selectedSheetCell.fontSize" (ngModelChange)="applyFontSize($event)">
+                    <option *ngFor="let size of fontSizes" [value]="size">{{ size }}</option>
+                </select>
+                <button type="button" class="ribbon-icon" (click)="decreaseFontSize()">A-</button>
+                <button type="button" class="ribbon-icon" (click)="increaseFontSize()">A+</button>
+            </div>
+            <div class="ribbon-row">
+                <button type="button" class="ribbon-icon" [class.active]="selectedSheetCell.bold" (click)="toggleStyle('bold')">B</button>
+                <button type="button" class="ribbon-icon italic" [class.active]="selectedSheetCell.italic" (click)="toggleStyle('italic')">I</button>
+                <button type="button" class="ribbon-icon underline" [class.active]="selectedSheetCell.underline" (click)="toggleStyle('underline')">U</button>
+                <button type="button" class="ribbon-icon" [class.active]="selectedSheetCell.wrap" (click)="toggleWrap()">Wrap</button>
+                <label class="ribbon-color" title="Text color">
+                    A
+                    <input type="color" [ngModel]="selectedSheetCell.color" (ngModelChange)="applyTextColor($event)" />
+                </label>
+                <label class="ribbon-color fill" title="Fill color">
+                    Fill
+                    <input type="color" [ngModel]="selectedSheetCell.background" (ngModelChange)="applyFillColor($event)" />
+                </label>
+                <select class="ribbon-select wide" [ngModel]="selectedSheetCell.format" (ngModelChange)="applyCellFormat($event)">
+                    <option *ngFor="let format of cellFormats" [value]="format.value">{{ format.label }}</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="ribbon-group" *ngIf="activeMode === 'sheet' && activeRibbonTab === 'home'">
+            <div class="ribbon-label">Alignment</div>
+            <div class="ribbon-row">
+                <button type="button" class="ribbon-icon" [class.active]="selectedSheetCell.textAlign === 'left'" (click)="setAlignment('left')">Left</button>
+                <button type="button" class="ribbon-icon" [class.active]="selectedSheetCell.textAlign === 'center'" (click)="setAlignment('center')">Center</button>
+                <button type="button" class="ribbon-icon" [class.active]="selectedSheetCell.textAlign === 'right'" (click)="setAlignment('right')">Right</button>
+            </div>
+            <div class="ribbon-row">
+                <label class="zoom-control">
+                    Zoom
+                    <input type="range" min="75" max="125" step="5" [(ngModel)]="zoom" />
+                    <span>{{ zoom }}%</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="ribbon-group" *ngIf="activeRibbonTab === 'view'">
+            <div class="ribbon-label">Style</div>
+            <div class="ribbon-row">
+                <button type="button" class="ribbon-command" (click)="applyQuickTheme('clean')">Clean</button>
+                <button type="button" class="ribbon-command" (click)="applyQuickTheme('blue')">Blue</button>
+                <button type="button" class="ribbon-command" (click)="applyQuickTheme('charcoal')">Charcoal</button>
+            </div>
+            <div class="ribbon-row">
+                <label class="ribbon-color" title="Page background">
+                    Page
+                    <input type="color" [(ngModel)]="canvasStyle.background" />
+                </label>
+                <label class="ribbon-color" title="Accent">
+                    Accent
+                    <input type="color" [(ngModel)]="canvasStyle.accent" />
+                </label>
+            </div>
+        </div>
+        <div class="ribbon-group" *ngIf="activeRibbonTab === 'view'">
+            <div class="ribbon-label">Page</div>
+            <div class="ribbon-row">
+                <button type="button" class="ribbon-command" [class.active]="pageOrientation === 'portrait'" (click)="pageOrientation = 'portrait'">Portrait</button>
+                <button type="button" class="ribbon-command" [class.active]="pageOrientation === 'landscape'" (click)="pageOrientation = 'landscape'">Landscape</button>
+            </div>
+            <div class="ribbon-row">
+                <span class="ribbon-note">A4 {{ pageOrientation }}</span>
+            </div>
+        </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="word-control-bar panel" *ngIf="activeMode === 'document'">
+        <div class="word-control-group">
+            <span class="word-control-label">Page</span>
+            <button type="button" class="ribbon-command" [class.active]="pageOrientation === 'portrait'" (click)="setWordOrientation('portrait')">A4 Portrait</button>
+            <button type="button" class="ribbon-command" [class.active]="pageOrientation === 'landscape'" (click)="setWordOrientation('landscape')">A4 Landscape</button>
+        </div>
+
+    </div>
+
+    <main class="builder-workspace panel" [class.compact]="canvasStyle.density === 'compact'" [class.spacious]="canvasStyle.density === 'spacious'" [class.document-workspace]="activeMode === 'document'">
+        <div class="workspace-header" *ngIf="activeMode === 'sheet'">
+            <div>
+                <div class="workspace-label">{{ activeMode === 'sheet' ? 'Spreadsheet' : 'Word Document' }}</div>
+                <h6>{{ activeMode === 'sheet' ? sheetRowCount + ' rows x ' + sheetColumnCount + ' columns' : 'Blank editable page' }}</h6>
+            </div>
+        </div>
+
+        <div class="formula-bar" *ngIf="activeMode === 'sheet'">
+            <span>{{ selectedRangeName }}</span>
+            <input [ngModel]="selectedSheetCell.value" (ngModelChange)="updateSelectedCellValue($event)" placeholder="Type text, numbers, or formulas like =SUM(A1:A5)" />
+        </div>
+
+        <div class="univer-document-editor" *ngIf="activeMode === 'document'">
+            <div
+                #univerDocsHost
+                class="univer-docs-host"
+            ></div>
+        </div>
+
+        <div class="builder-canvas sheet-canvas" *ngIf="activeMode === 'sheet'" [style.zoom.%]="zoom" (mouseup)="endSelection()" (mouseleave)="endSelection()">
+            <div class="sheet-page" [class.landscape]="pageOrientation === 'landscape'">
+                <table class="sheet-grid">
+                    <colgroup>
+                        <col />
+                        <col *ngFor="let header of columnHeaders; let colIndex = index" [ngStyle]="getColumnStyle(colIndex)" />
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th
+                                *ngFor="let header of columnHeaders; let colIndex = index"
+                                [class.frozen-col]="isFrozenColumn(colIndex)"
+                                [class.header-selected]="isColumnSelected(colIndex)"
+                                [style.left.px]="getFrozenColumnLeft(colIndex)"
+                                (click)="selectColumn(colIndex)"
+                                (contextmenu)="openColumnContextMenu($event, colIndex)"
+                            >
+                                <span>{{ header }}</span>
+                                <button
+                                    type="button"
+                                    class="column-resize-handle"
+                                    title="Drag to resize column"
+                                    (mousedown)="startColumnResize($event, colIndex)"
+                                ></button>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr *ngFor="let row of sheetData; let rowIndex = index" [ngStyle]="getRowStyle(rowIndex)" [hidden]="!shouldShowRow(row, rowIndex)" [class.frozen-row]="isFrozenRow(rowIndex)">
+                            <th
+                                [class.header-selected]="isRowSelected(rowIndex)"
+                                (click)="selectRow(rowIndex)"
+                                (contextmenu)="openRowContextMenu($event, rowIndex)"
+                            >{{ rowIndex + 1 }}</th>
+                            <td
+                                *ngFor="let cell of row; let colIndex = index"
+                                [hidden]="cell.hidden"
+                                [class.selected-cell]="selectedCell.row === rowIndex && selectedCell.col === colIndex"
+                                [class.range-selected]="isCellSelected(rowIndex, colIndex)"
+                                [class.frozen-col]="isFrozenColumn(colIndex)"
+                                [class.frozen-row-cell]="isFrozenRow(rowIndex)"
+                                [style.left.px]="getFrozenColumnLeft(colIndex)"
+                                [style.top.px]="getFrozenRowTop(rowIndex)"
+                                [attr.rowspan]="cell.rowSpan > 1 ? cell.rowSpan : null"
+                                [attr.colspan]="cell.colSpan > 1 ? cell.colSpan : null"
+                                [ngStyle]="getCellStyle(cell)"
+                                (mousedown)="beginSelection($event, rowIndex, colIndex)"
+                                (mouseenter)="extendSelection(rowIndex, colIndex)"
+                                (contextmenu)="openCellContextMenu($event, rowIndex, colIndex)"
+                            >
+                                <textarea
+                                    rows="1"
+                                    [attr.wrap]="cell.wrap ? 'soft' : 'off'"
+                                    [ngModel]="selectedCell.row === rowIndex && selectedCell.col === colIndex ? cell.value : getCellDisplayValue(cell)"
+                                    (ngModelChange)="updateCellValue(rowIndex, colIndex, $event)"
+                                    (focus)="selectCell(rowIndex, colIndex)"
+                                ></textarea>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div
+                class="sheet-context-menu"
+                *ngIf="contextMenu.visible"
+                [style.left.px]="contextMenu.x"
+                [style.top.px]="contextMenu.y"
+                (click)="$event.stopPropagation()"
+            >
+                <div class="context-title">{{ selectedRangeName }}</div>
+                <button type="button" *ngIf="contextMenu.type === 'row' || isWholeRowSelection" (click)="insertRow('above'); closeContextMenu()">Insert Row Above</button>
+                <button type="button" *ngIf="contextMenu.type === 'row' || isWholeRowSelection" (click)="insertRow('below'); closeContextMenu()">Insert Row Below</button>
+                <button type="button" *ngIf="contextMenu.type === 'column' || isWholeColumnSelection" (click)="insertColumn('left'); closeContextMenu()">Insert Column Left</button>
+                <button type="button" *ngIf="contextMenu.type === 'column' || isWholeColumnSelection" (click)="insertColumn('right'); closeContextMenu()">Insert Column Right</button>
+                <button type="button" *ngIf="isMultiCellSelection && !isWholeRowSelection && !isWholeColumnSelection" (click)="mergeSelectedCells(); closeContextMenu()">Merge Selection</button>
+                <button type="button" *ngIf="hasMergedSelection" (click)="unmergeSelectedCells(); closeContextMenu()">Unmerge Cells</button>
+                <button type="button" *ngIf="!isWholeRowSelection && !isWholeColumnSelection" (click)="toggleWrap(); closeContextMenu()">Wrap Text</button>
+                <button type="button" *ngIf="contextMenu.type === 'column' || isWholeColumnSelection" (click)="sortSelectedColumn('asc'); closeContextMenu()">Sort A-Z</button>
+                <button type="button" *ngIf="contextMenu.type === 'column' || isWholeColumnSelection" (click)="sortSelectedColumn('desc'); closeContextMenu()">Sort Z-A</button>
+                <button type="button" (click)="copySelectionToClipboard(); closeContextMenu()">Copy Selection</button>
+                <button type="button" (click)="pasteClipboardIntoSheet(); closeContextMenu()">Paste TSV</button>
+                <button type="button" class="danger" (click)="clearSelectedCell(); closeContextMenu()">Clear Selection</button>
+                <button type="button" class="danger" (click)="deleteSelectedRow(); closeContextMenu()" *ngIf="contextMenu.type === 'row' || isWholeRowSelection">Delete Row</button>
+                <button type="button" class="danger" (click)="deleteSelectedColumn(); closeContextMenu()" *ngIf="contextMenu.type === 'column' || isWholeColumnSelection">Delete Column</button>
+            </div>
+        </div>
+    </main>
+</div>

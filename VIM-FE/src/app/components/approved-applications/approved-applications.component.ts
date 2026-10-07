@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 import { CustomFormApplicationService } from '../../services/custom-form-application/custom-form-application.service';
 import { CustomFormService } from '../../services/custom-form/custom-form.service';
 import { NotificationService } from 'src/app/NotificationService';
+import { resolveApplicationTitle } from 'src/app/utils/application-title.util';
 
 interface Application {
     serApplicationId?: number;
@@ -14,6 +15,8 @@ interface Application {
     dteCreatedDate?: string;
     cfgTblCustomForm?: any;
     formName?: string;
+    txtApplicationData?: string;
+    applicationTitle?: string;
     txtAssetCode?: string;
     txtPrCode?: string;
     myApprovalDate?: string;  // Date this user approved (extracted from history)
@@ -33,6 +36,7 @@ export class ApprovedApplicationsComponent implements OnInit {
 
     cols = [
         { field: 'txtFormCode', title: 'Application Code' },
+        { field: 'applicationTitle', title: 'Title' },
         { field: 'formName', title: 'Form Name' },
         { field: 'txtStatus', title: 'Status', sort: false },
         { field: 'txtAssetCode', title: 'Asset Code' },
@@ -81,6 +85,7 @@ export class ApprovedApplicationsComponent implements OnInit {
                     this.applications = data.map((app: any) => ({
                         ...app,
                         formName: this.getFormName(app),
+                        applicationTitle: resolveApplicationTitle(app),
                         myApprovalDate: this.extractMyApprovalDate(app, userId)
                     }));
                 }
@@ -129,6 +134,7 @@ export class ApprovedApplicationsComponent implements OnInit {
         const s = this.search.toLowerCase();
         return this.applications.filter(app =>
             (app.txtFormCode?.toLowerCase().includes(s)) ||
+            (app.applicationTitle?.toLowerCase().includes(s)) ||
             (app.formName?.toLowerCase().includes(s)) ||
             (app.txtStatus?.toLowerCase().includes(s)) ||
             (app.txtAssetCode?.toLowerCase().includes(s)) ||

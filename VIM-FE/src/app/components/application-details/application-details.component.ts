@@ -93,6 +93,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
 
   // PDF Generation
   isGeneratingPdf: boolean = false;
+  isGeneratingPdfWithLogs: boolean = false;
   pdfBlobUrl: string | null = null;
 
 
@@ -5658,6 +5659,100 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
     const n = id != null ? Number(id) : NaN;
     if (isNaN(n) || n <= 0) return '';
     return `${urls.API_URL}getSignature?userId=${n}`;
+  }
+
+  private buildApprovalLogsPdfHtmlForDetails(rows: any[]): string {
+    const tableRows = rows.length > 0
+      ? rows.map((entry, index) => {
+          const signatureUrl = this.getApprovalLogSignatureUrl(entry);
+          const rowBackground = index % 2 === 0 ? '#ffffff' : '#f9fafb';
+          return `
+                <tr>
+                    <td style="border:1px solid #d1d5db;padding:8px 10px;font-size:12px;vertical-align:top;background:${rowBackground};">${this.escapeHtml(this.getApprovalLogLevel(entry))}</td>
+                    <td style="border:1px solid #d1d5db;padding:8px 10px;font-size:12px;vertical-align:top;background:${rowBackground};">${this.escapeHtml(this.getApprovalLogApprover(entry))}</td>
+                    <td style="border:1px solid #d1d5db;padding:8px 10px;font-size:12px;vertical-align:top;background:${rowBackground};">${this.escapeHtml(this.getApprovalLogRole(entry))}</td>
+                    <td style="border:1px solid #d1d5db;padding:8px 10px;font-size:12px;vertical-align:top;background:${rowBackground};">${this.escapeHtml(this.getApprovalLogStatus(entry))}</td>
+                    <td style="border:1px solid #d1d5db;padding:8px 10px;font-size:12px;vertical-align:top;background:${rowBackground};">${this.escapeHtml(this.getApprovalLogDate(entry))}</td>
+                    <td style="border:1px solid #d1d5db;padding:8px 10px;font-size:12px;line-height:1.45;vertical-align:top;background:${rowBackground};">${this.escapeHtml(this.getApprovalLogComments(entry))}</td>
+                    <td style="border:1px solid #d1d5db;padding:8px 10px;font-size:12px;text-align:center;vertical-align:middle;background:${rowBackground};">${signatureUrl ? `<img src="${this.escapeHtml(signatureUrl)}" alt="Signature" style="display:block;margin:0 auto;max-width:90px;max-height:30px;object-fit:contain;" />` : '--'}</td>
+                </tr>
+            `;
+        }).join('')
+      : `
+                <tr>
+                    <td colspan="7" style="border:1px solid #d1d5db;padding:18px 12px;text-align:center;color:#6b7280;font-size:12px;">No approval logs available.</td>
+                </tr>
+            `;
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    html, body { min-height: 100%; width: 1120px; max-width: none; }
+    * { box-sizing: border-box; }
+    table { page-break-inside: auto; break-inside: auto; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
+  </style>
+</head>
+<body style="width:1120px;max-width:none;margin:0;padding:18px 18px 48px;font-family:Arial,sans-serif;background:#ffffff;color:#111827;box-sizing:border-box;">
+  <div style="width:100%;max-width:none;margin:0;padding-bottom:24px;background:#ffffff;box-sizing:border-box;">
+    <div style="font-size:14px;font-weight:700;color:#111827;margin:0 0 8px;">Logs (${rows.length})</div>
+    <table style="width:100%;margin:0 auto;border-collapse:collapse;table-layout:fixed;border:1px solid #d1d5db;">
+      <thead>
+        <tr>
+          <th style="width:8%;background:#f3f4f6;color:#111827;padding:8px;border:1px solid #d1d5db;font-size:12px;text-align:left;">Level</th>
+          <th style="width:16%;background:#f3f4f6;color:#111827;padding:8px;border:1px solid #d1d5db;font-size:12px;text-align:left;">Approver</th>
+          <th style="width:14%;background:#f3f4f6;color:#111827;padding:8px;border:1px solid #d1d5db;font-size:12px;text-align:left;">Role</th>
+          <th style="width:12%;background:#f3f4f6;color:#111827;padding:8px;border:1px solid #d1d5db;font-size:12px;text-align:left;">Status</th>
+          <th style="width:18%;background:#f3f4f6;color:#111827;padding:8px;border:1px solid #d1d5db;font-size:12px;text-align:left;">Date</th>
+          <th style="width:22%;background:#f3f4f6;color:#111827;padding:8px;border:1px solid #d1d5db;font-size:12px;text-align:left;">Comments</th>
+          <th style="width:10%;background:#f3f4f6;color:#111827;padding:8px;border:1px solid #d1d5db;font-size:12px;text-align:center;">Signature</th>
+        </tr>
+      </thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+  </div>
+</body>
+</html>`;
+  }
+
+  async downloadApplicationWithLogsPdf(): Promise<void> {
+    if (!this.applicationDetails || this.isGeneratingPdfWithLogs) {
+      return;
+    }
+
+    this.isGeneratingPdfWithLogs = true;
+    try {
+      const filename = `${this.applicationDetails?.txtFormCode || 'application'}_with_logs.pdf`;
+      const applicationPdfBlob = await this.generatePdf(false);
+      if (!applicationPdfBlob) {
+        throw new Error('Application PDF could not be generated.');
+      }
+      const logsPdfHtml = this.buildApprovalLogsPdfHtmlForDetails(this.getApprovalLogRows());
+      const logsPdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(logsPdfHtml, filename);
+      const mergedPdfBlob = await this.applicationPdfService.mergePdfBlobs([applicationPdfBlob, logsPdfBlob]);
+      this.downloadBlob(mergedPdfBlob, filename);
+    } catch (error: any) {
+      console.error('Error generating application PDF with logs:', error);
+      this.notificationService.showMessage(
+        error?.message || 'Application and logs PDF could not be downloaded.',
+        'danger'
+      );
+    } finally {
+      this.isGeneratingPdfWithLogs = false;
+    }
+  }
+
+  private downloadBlob(blob: Blob, filename: string): void {
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(objectUrl);
   }
 
   // Latest approval entry for a specific head at a specific stage.

@@ -92,6 +92,14 @@
                     <icon-download class="w-4 h-4" />
                     Download PDF
                 </a>
+                <button *ngIf="pdfBlobUrl" (click)="downloadApplicationWithLogsPdf()"
+                    [disabled]="isGeneratingPdf || isGeneratingPdfWithLogs"
+                    class="btn btn-outline-primary gap-2">
+                    <span *ngIf="isGeneratingPdfWithLogs"
+                        class="animate-spin border-2 border-primary border-l-transparent rounded-full w-4 h-4 inline-block align-middle"></span>
+                    <icon-download class="w-4 h-4" *ngIf="!isGeneratingPdfWithLogs" />
+                    {{ isGeneratingPdfWithLogs ? 'Generating...' : 'Download PDF With Logs' }}
+                </button>
             </div>
         </div>
     </div>

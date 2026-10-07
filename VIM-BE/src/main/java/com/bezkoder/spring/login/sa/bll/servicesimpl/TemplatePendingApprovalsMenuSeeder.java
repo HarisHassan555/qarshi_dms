@@ -24,6 +24,7 @@ public class TemplatePendingApprovalsMenuSeeder {
 
     private static final Logger log = LoggerFactory.getLogger(TemplatePendingApprovalsMenuSeeder.class);
     private static final List<TemplateSubMenuConfig> TEMPLATE_SUB_MENUS = Arrays.asList(
+            new TemplateSubMenuConfig("Univer Form Builder", "univer-form-builder", true, true, true, false, 9),
             new TemplateSubMenuConfig("Digital Document Builder", "template-builder", true, true, true, false, 10),
             new TemplateSubMenuConfig("Digital Document List", "template-list", true, true, true, false, 11),
             new TemplateSubMenuConfig("Template Fill", "template-fill", true, true, true, false, 12),

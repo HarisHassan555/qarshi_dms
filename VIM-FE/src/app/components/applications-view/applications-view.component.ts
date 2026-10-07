@@ -38,6 +38,7 @@ import {
   WORD_EDITOR_CKEDITOR_CONFIG,
   normalizeWordEditorValueForCkeditor,
 } from 'src/app/utils/word-editor-ckeditor.util';
+import { resolveApplicationTitle } from 'src/app/utils/application-title.util';
 
 const Quill: any = QuillNamespace;
 const Q_TABLE_PASTE_GUARD = '__qTablePasteGuard';
@@ -78,6 +79,7 @@ interface Application {
   cfgTblCustomForm?: any;
   formName?: string; // Added for display purposes
   txtRemarks?: string; // Added for download functionality
+  applicationTitle?: string;
 }
 
 @Component({
@@ -107,6 +109,7 @@ export class ApplicationsViewComponent implements OnInit {
 
   cols = [
     { field: 'txtFormCode', title: 'Application Code' },
+    { field: 'applicationTitle', title: 'Title' },
     { field: 'formName', title: 'Form Name' },
     { field: 'txtStatus', title: 'Status' },
     { field: 'intCurrentApprovalLevel', title: 'Approval Level' },
@@ -116,6 +119,7 @@ export class ApplicationsViewComponent implements OnInit {
 
   pendingApprovalCols = [
     { field: 'txtFormCode', title: 'Application Code' },
+    { field: 'applicationTitle', title: 'Title' },
     { field: 'formName', title: 'Form Name' },
     { field: 'intCurrentApprovalLevel', title: 'Approval Level' },
     { field: 'dteCreatedDate', title: 'Submitted Date' },
@@ -332,7 +336,8 @@ export class ApplicationsViewComponent implements OnInit {
           this.isDepartmentHead = true;
           this.pendingApprovals = data.map((app: any) => ({
             ...app,
-            formName: this.getFormName(app)
+            formName: this.getFormName(app),
+            applicationTitle: resolveApplicationTitle(app)
           }));
         }
       },
@@ -369,7 +374,8 @@ export class ApplicationsViewComponent implements OnInit {
         if (data) {
           this.applications = data.map((app: any) => ({
             ...app,
-            formName: this.getFormName(app)
+            formName: this.getFormName(app),
+            applicationTitle: resolveApplicationTitle(app)
           }));
         }
       },
@@ -404,6 +410,7 @@ export class ApplicationsViewComponent implements OnInit {
     const searchLower = this.search.toLowerCase();
     return this.applications.filter(app =>
       (app.txtFormCode && app.txtFormCode.toLowerCase().includes(searchLower)) ||
+      (app.applicationTitle && app.applicationTitle.toLowerCase().includes(searchLower)) ||
       (app.formName && app.formName.toLowerCase().includes(searchLower)) ||
       (app.txtStatus && app.txtStatus.toLowerCase().includes(searchLower)) ||
       (app.intCurrentApprovalLevel !== undefined && app.intCurrentApprovalLevel !== null &&
@@ -1212,7 +1219,7 @@ export class ApplicationsViewComponent implements OnInit {
     }
 
     // Prepare CSV data
-    const headers = ['Application Code', 'Form Name', 'Status', 'Approval Level', 'Submitted Date', 'Remarks'];
+    const headers = ['Application Code', 'Title', 'Form Name', 'Status', 'Approval Level', 'Submitted Date', 'Remarks'];
     const csvRows: string[] = [];
 
     // Add headers
@@ -1222,6 +1229,7 @@ export class ApplicationsViewComponent implements OnInit {
     applicationsToExport.forEach(app => {
       const row = [
         this.escapeCsvValue(app.txtFormCode || ''),
+        this.escapeCsvValue(app.applicationTitle || ''),
         this.escapeCsvValue(app.formName || ''),
         this.escapeCsvValue(app.txtStatus || ''),
         (app.intCurrentApprovalLevel || 0).toString(),

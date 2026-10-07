@@ -146,7 +146,12 @@ const TEMPLATE_FILL_HIDE_CKEDITOR_BADGE_CLASS = 'template-fill-hide-ckeditor-bad
     styleUrls: ['./template-fill.component.css']
 })
 export class TemplateFillComponent implements OnInit, OnDestroy {
-    private static readonly MAX_ATTACHMENT_TOTAL_BYTES = 5 * 1024 * 1024;
+    private static readonly MAX_ATTACHMENT_FIELD_BYTES = 5 * 1024 * 1024;
+    private static readonly TABLE_MIN_COLUMN_WIDTH = 56;
+    private static readonly TABLE_MIN_ROW_HEIGHT = 36;
+    private static readonly TABLE_VERTICAL_CHROME_HEIGHT = 36;
+    private static readonly TABLE_RENDER_HARD_MAX_ROWS = 80;
+    private static readonly TABLE_RENDER_HARD_MAX_COLUMNS = 30;
     private static readonly ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
         'application/pdf',
         'image/webp',
@@ -173,6 +178,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     readonly wordEditor = WORD_EDITOR_CKEDITOR;
     readonly wordEditorConfig = WORD_EDITOR_CKEDITOR_CONFIG;
     private routeTemplateId = '';
+    private tableRenderRowsCache = new Map<string, { html: string; rows: TableRenderRow[] }>();
     private initiatorSignatureApproved = false;
     private acceptedWordEditorValues: { [fieldId: string]: string } = {};
     private revertingWordEditorFields = new Set<string>();
@@ -232,7 +238,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 this.values[field.id] = this.normalizeExistingAttachmentPayloads(this.values[field.id]);
             }
             if (field.type === 'table') {
-                field.tableHtml = this.normalizeTableHtml(field.tableHtml);
+                field.tableHtml = this.normalizeTableHtmlForField(field, field.tableHtml);
                 this.values[field.id] = this.normalizeTableCellValues(this.values[field.id]);
             }
             this.persistedValues[field.id] = this.values[field.id];
@@ -421,19 +427,29 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     getTableRenderRows(field: TemplateField): TableRenderRow[] {
-        field.tableHtml = this.normalizeTableHtml(field.tableHtml);
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(field.tableHtml, 'text/html');
-        const table = doc.querySelector('table');
+        const html = this.normalizeTableHtmlForField(field, field.tableHtml);
+        const cached = this.tableRenderRowsCache.get(field.id);
+        if (cached && cached.html === html) {
+            return cached.rows;
+        }
+
+        const host = document.createElement('div');
+        host.innerHTML = html;
+        const table = host.querySelector('table');
         if (!table) {
             return [];
         }
 
-        return Array.from(table.querySelectorAll('tr')).map((row, rowIndex) => ({
+        const rows = Array.from(table.querySelectorAll('tr'))
+            .slice(0, TemplateFillComponent.TABLE_RENDER_HARD_MAX_ROWS)
+            .map((row, rowIndex) => ({
             cells: Array.from(row.children)
                 .filter((cell) => ['TD', 'TH'].includes(cell.tagName))
+                .slice(0, TemplateFillComponent.TABLE_RENDER_HARD_MAX_COLUMNS)
                 .map((cell, cellIndex) => this.buildTableRenderCell(cell as HTMLTableCellElement, rowIndex, cellIndex))
         }));
+        this.tableRenderRowsCache.set(field.id, { html, rows });
+        return rows;
     }
 
     getTableCellValue(field: TemplateField, cellKey: string): string {
@@ -541,11 +557,11 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         }
 
         const currentPayloads = this.getAttachmentPayloads(field);
-        const totalBytes = this.getAttachmentBytes(currentPayloads)
+        const fieldBytes = this.getAttachmentBytes(currentPayloads)
             + files.reduce((sum, file) => sum + (Number(file.size) || 0), 0);
-        if (totalBytes > TemplateFillComponent.MAX_ATTACHMENT_TOTAL_BYTES) {
+        if (fieldBytes > TemplateFillComponent.MAX_ATTACHMENT_FIELD_BYTES) {
             this.notificationService.showMessage(
-                `Combined attachment size (${(totalBytes / (1024 * 1024)).toFixed(2)} MB) exceeds 5 MB.`,
+                `This attachment field is using ${(fieldBytes / (1024 * 1024)).toFixed(2)} MB. Each attachment field can hold up to 5 MB independently.`,
                 'danger'
             );
             input.value = '';
@@ -949,7 +965,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 this.values[field.id] = this.normalizeExistingAttachmentPayloads(this.values[field.id]);
             }
             if (field.type === 'table') {
-                field.tableHtml = this.normalizeTableHtml(field.tableHtml);
+                field.tableHtml = this.normalizeTableHtmlForField(field, field.tableHtml);
                 this.values[field.id] = this.normalizeTableCellValues(this.values[field.id]);
             }
             this.persistedValues[field.id] = this.values[field.id];
@@ -2033,33 +2049,136 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     private buildTableRenderCell(cell: HTMLTableCellElement, rowIndex: number, cellIndex: number): TableRenderCell {
-        const html = String(cell.innerHTML || '').trim();
+        const html = this.cleanTableCellHtml(cell.innerHTML);
         const key = `r${rowIndex}c${cellIndex}`;
         return {
             key,
             tagName: cell.tagName.toLowerCase() === 'th' ? 'th' : 'td',
             html,
-            editable: !this.hasMeaningfulTableCellContent(cell),
+            editable: !this.hasMeaningfulTableCellContent(cell, html),
             colspan: Math.max(1, Number(cell.getAttribute('colspan') || cell.colSpan || 1)),
             rowspan: Math.max(1, Number(cell.getAttribute('rowspan') || cell.rowSpan || 1)),
-            className: cell.getAttribute('class') || '',
-            style: cell.getAttribute('style') || ''
+            className: this.cleanTableCellClass(cell.getAttribute('class') || ''),
+            style: this.cleanTableCellStyle(cell.getAttribute('style') || '')
         };
     }
 
-    private hasMeaningfulTableCellContent(cell: HTMLTableCellElement): boolean {
+    private hasMeaningfulTableCellContent(cell: HTMLTableCellElement, cleanedHtml?: string): boolean {
         const text = String(cell.textContent || '').replace(/\u00a0/g, ' ').trim();
         if (text) {
             return true;
         }
-        return Array.from(cell.children).some((child) => !['BR'].includes(child.tagName));
+        const html = String(cleanedHtml ?? this.cleanTableCellHtml(cell.innerHTML)).replace(/&nbsp;/gi, '').trim();
+        return !!html;
+    }
+
+    private cleanTableCellHtml(value: any): string {
+        const host = document.createElement('div');
+        host.innerHTML = String(value || '');
+        host.querySelectorAll('[data-cke-filler], br[data-cke-filler]').forEach((node) => node.remove());
+        host.querySelectorAll('.ck-table-bogus-paragraph').forEach((node) => {
+            const element = node as HTMLElement;
+            if (!String(element.textContent || '').replace(/\u00a0/g, ' ').trim()) {
+                element.remove();
+            }
+        });
+        return host.innerHTML.trim();
+    }
+
+    private cleanTableCellClass(value: string): string {
+        return String(value || '')
+            .split(/\s+/)
+            .filter((className) => className && !className.startsWith('ck-'))
+            .join(' ');
+    }
+
+    private cleanTableCellStyle(value: string): string {
+        return String(value || '')
+            .split(';')
+            .map((rule) => rule.trim())
+            .filter((rule) => {
+                if (!rule) return false;
+                const property = rule.split(':')[0]?.trim().toLowerCase();
+                return !!property && !property.startsWith('--ck-');
+            })
+            .join('; ');
     }
 
     private normalizeTableHtml(value: any): string {
-        const html = String(value || '').trim();
+        const html = stripEditorTableChromeFromHtml(String(value || '').trim());
+        if (/<table[\s>]/i.test(html)) {
+            const host = document.createElement('div');
+            host.innerHTML = html;
+            host.querySelectorAll('[data-cke-filler], br[data-cke-filler]').forEach((node) => node.remove());
+            host.querySelectorAll('.ck-widget__selection-handle, .ck-table-column-resizer, .ck-table-bogus-paragraph').forEach((node) => {
+                if (!String(node.textContent || '').replace(/\u00a0/g, ' ').trim()) {
+                    node.remove();
+                }
+            });
+            return host.innerHTML;
+        }
         return /<table[\s>]/i.test(html)
             ? html
             : '<figure class="table"><table><tbody><tr><td>Header 1</td><td>Header 2</td></tr><tr><td></td><td></td></tr></tbody></table></figure>';
+    }
+
+    private normalizeTableHtmlForField(field: TemplateField, value: any): string {
+        const html = this.normalizeTableHtml(value);
+        return this.trimTableHtmlForField(field, html);
+    }
+
+    private trimTableHtmlForField(field: TemplateField, html: string): string {
+        const limits = this.getTableRenderLimits(field);
+        const host = document.createElement('div');
+        host.innerHTML = html;
+        const table = host.querySelector('table');
+        if (!table) {
+            return html;
+        }
+
+        Array.from(table.querySelectorAll('tr')).forEach((row, rowIndex) => {
+            if (rowIndex >= limits.rows) {
+                row.remove();
+                return;
+            }
+            let columnCount = 0;
+            Array.from(row.children).forEach((cell) => {
+                if (!['TD', 'TH'].includes(cell.tagName)) {
+                    cell.remove();
+                    return;
+                }
+                const colSpan = Math.max(1, Number((cell as HTMLTableCellElement).colSpan || cell.getAttribute('colspan') || 1));
+                columnCount += Number.isFinite(colSpan) ? colSpan : 1;
+                if (columnCount > limits.columns) {
+                    cell.remove();
+                }
+            });
+        });
+
+        return host.innerHTML || html;
+    }
+
+    private getTableRenderLimits(field: TemplateField): { rows: number; columns: number } {
+        const placement = field.placement;
+        if (!placement) {
+            return {
+                rows: TemplateFillComponent.TABLE_RENDER_HARD_MAX_ROWS,
+                columns: TemplateFillComponent.TABLE_RENDER_HARD_MAX_COLUMNS
+            };
+        }
+
+        const usableWidth = Math.max(0, Number(placement.width || 0) - 12);
+        const usableHeight = Math.max(0, Number(placement.height || 0) - TemplateFillComponent.TABLE_VERTICAL_CHROME_HEIGHT);
+        return {
+            rows: Math.min(
+                TemplateFillComponent.TABLE_RENDER_HARD_MAX_ROWS,
+                Math.max(1, Math.floor(usableHeight / TemplateFillComponent.TABLE_MIN_ROW_HEIGHT))
+            ),
+            columns: Math.min(
+                TemplateFillComponent.TABLE_RENDER_HARD_MAX_COLUMNS,
+                Math.max(1, Math.floor(usableWidth / TemplateFillComponent.TABLE_MIN_COLUMN_WIDTH))
+            )
+        };
     }
 
     private normalizeTableCellValues(value: any): { [cellKey: string]: string } {

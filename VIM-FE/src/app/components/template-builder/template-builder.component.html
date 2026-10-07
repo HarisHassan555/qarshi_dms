@@ -24,9 +24,6 @@
             </div>
             <button type="button" class="btn btn-outline" (click)="addPage()">Add Page</button>
             <button type="button" class="btn btn-primary" (click)="saveTemplate()">Save</button>
-            <button *ngIf="!hidePayloadButton" type="button" class="btn btn-outline" (click)="previewMode = !previewMode">
-                {{ previewMode ? 'Editor' : 'Payload' }}
-            </button>
         </div>
     </div>
 
@@ -73,11 +70,6 @@
         </aside>
 
         <main class="document-stage" [class.payload-open]="previewMode">
-            <div
-                #tableToolbarHost
-                class="table-toolbar-host"
-                [class.is-active]="isTableFieldEditorActive()">
-            </div>
             <div *ngIf="!previewMode" class="paper-wrap">
                 <div
                     #editorFrame
@@ -218,8 +210,10 @@
                                             <ckeditor
                                                 class="table-field-inline-editor"
                                                 [editor]="wordEditor"
-                                                [config]="wordEditorConfig"
-                                                [(ngModel)]="field.tableHtml"
+                                                [config]="tableFieldEditorConfig"
+                                                [ngModel]="field.tableHtml"
+                                                (ngModelChange)="onTableFieldHtmlChanged(field, $event)"
+                                                (change)="onTableFieldEditorChanged(field, $event)"
                                                 (ready)="onInlineTableEditorReady(field, $event)">
                                             </ckeditor>
                                         </div>
@@ -400,8 +394,11 @@
                         <ckeditor
                             class="table-design-editor"
                             [editor]="wordEditor"
-                            [config]="wordEditorConfig"
-                            [(ngModel)]="field.tableHtml">
+                            [config]="tableFieldEditorConfig"
+                            [ngModel]="field.tableHtml"
+                            (ngModelChange)="onTableFieldHtmlChanged(field, $event)"
+                            (change)="onTableFieldEditorChanged(field, $event)"
+                            (ready)="onTableDesignEditorReady(field, $event)">
                         </ckeditor>
                     </div>
                 </div>
@@ -474,8 +471,11 @@
                 <ckeditor
                     class="table-design-editor"
                     [editor]="wordEditor"
-                    [config]="wordEditorConfig"
-                    [(ngModel)]="newTableHtml">
+                    [config]="tableFieldEditorConfig"
+                    [ngModel]="newTableHtml"
+                    (ngModelChange)="onNewTableHtmlChanged($event)"
+                    (change)="onNewTableEditorChanged($event)"
+                    (ready)="onNewTableEditorReady($event)">
                 </ckeditor>
             </div>
             <label class="check-row">

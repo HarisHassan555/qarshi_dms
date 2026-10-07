@@ -23,6 +23,7 @@ import {
   resolveDocumentHeaderLogoPath,
 } from 'src/app/utils/document-header.util';
 import { getDocumentRenderPreviewMaxCharsPerLine } from 'src/app/utils/document-render.util';
+import { PDFDocument } from 'pdf-lib';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
@@ -30,6 +31,20 @@ import html2pdf from 'html2pdf.js';
   providedIn: 'root'
 })
 export class ApplicationPdfService {
+  async mergePdfBlobs(pdfBlobs: Blob[]): Promise<Blob> {
+    const mergedPdf = await PDFDocument.create();
+    for (const blob of pdfBlobs) {
+      if (!blob || blob.size === 0) {
+        continue;
+      }
+      const sourcePdf = await PDFDocument.load(await blob.arrayBuffer());
+      const copiedPages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
+      copiedPages.forEach((page) => mergedPdf.addPage(page));
+    }
+    const bytes = await mergedPdf.save();
+    return new Blob([bytes], { type: 'application/pdf' });
+  }
+
   private createScopedCaptureClone(container: HTMLElement): { captureRoot: HTMLElement; clonedContainer: HTMLElement } {
     const markerAttr = 'data-pdf-capture-target';
     const hadMarker = container.hasAttribute(markerAttr);

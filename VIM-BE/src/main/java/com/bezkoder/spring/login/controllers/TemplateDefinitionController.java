@@ -591,6 +591,7 @@ public class TemplateDefinitionController {
                 item.put("serSubmittedBy", row[5]);
                 item.put("dteCreatedDate", row[6]);
                 item.put("templateName", row[7]);
+                item.put("txtApplicationData", getApplicationDataById(toInteger(row[0])));
                 items.add(item);
             }
 
@@ -819,6 +820,7 @@ public class TemplateDefinitionController {
                 item.put("dteCreatedDate", row[6]);
                 item.put("myApprovalDate", getLatestTemplateApprovalDate(row[7], userId));
                 item.put("templateName", row[8]);
+                item.put("txtApplicationData", getApplicationDataById(toInteger(row[0])));
                 matchedItems.add(item);
             }
 
@@ -1643,7 +1645,16 @@ public class TemplateDefinitionController {
         item.put("serSubmittedBy", application.getSerSubmittedBy());
         item.put("dteCreatedDate", application.getDteCreatedDate());
         item.put("templateName", row.length > 8 ? row[8] : null);
+        item.put("txtApplicationData", getApplicationDataById(application.getSerApplicationId()));
         return item;
+    }
+
+    private String getApplicationDataById(Integer applicationId) {
+        if (applicationId == null) {
+            return null;
+        }
+        CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+        return application != null ? application.getTxtApplicationData() : null;
     }
 
     private List<TemplateStep> buildFooterWorkflowSteps(Map<String, Object> appData,
