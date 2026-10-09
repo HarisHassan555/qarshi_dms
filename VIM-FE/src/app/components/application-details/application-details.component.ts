@@ -6754,6 +6754,14 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
   }
 
   private readonly NOT_AUTHORIZED_MSG = 'You are not authorized to perform this action';
+  private readonly SIGNATURE_REQUIRED_MSG = 'Before approving the document, kindly upload your signature.';
+
+  private isSignatureRequiredMessage(message: string | null | undefined): boolean {
+    const normalized = (message || '').toString().toLowerCase();
+    return normalized.includes('kindly upload your signature')
+      || normalized.includes('upload your signature before approving')
+      || normalized.includes('signature not uploaded');
+  }
 
   @ViewChild('approveModal') approveModal: any;
   @ViewChild('rejectModal') rejectModal: any;
@@ -6859,15 +6867,25 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
           this.applyOptimisticAction('APPROVED');
           this.loadApplicationDetails();
         } else {
-          this.notificationService.showMessage(response?.message || 'Failed to approve application', 'danger');
+          const failureMessage = response?.message || 'Failed to approve application';
+          if (this.isSignatureRequiredMessage(failureMessage)) {
+            this.notificationService.showMessage(this.SIGNATURE_REQUIRED_MSG, 'warning');
+          } else {
+            this.notificationService.showMessage(failureMessage, 'danger');
+          }
         }
       },
       (error) => {
-        const msg = (error.error?.message || error.message || '').toString().toLowerCase();
-        if (msg.includes('not authorized') || msg.includes('already approved') || msg.includes('already acted') || error.status === 403) {
+        const msg = (error.error?.message || error.message || '').toString();
+        if (this.isSignatureRequiredMessage(msg)) {
+          this.notificationService.showMessage(this.SIGNATURE_REQUIRED_MSG, 'warning');
+          return;
+        }
+        const normalized = msg.toLowerCase();
+        if (normalized.includes('not authorized') || normalized.includes('already approved') || normalized.includes('already acted') || error.status === 403) {
           this.notificationService.showMessage(this.NOT_AUTHORIZED_MSG, 'danger');
         } else {
-          this.notificationService.showMessage('Error approving application: ' + (error.error?.message || error.message), 'danger');
+          this.notificationService.showMessage('Error approving application: ' + msg, 'danger');
         }
       }
     );

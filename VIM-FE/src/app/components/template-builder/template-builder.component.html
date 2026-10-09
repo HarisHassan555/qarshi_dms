@@ -23,7 +23,12 @@
                 </button>
             </div>
             <button type="button" class="btn btn-outline" (click)="addPage()">Add Page</button>
-            <button type="button" class="btn btn-primary" (click)="saveTemplate()">Save</button>
+            <button type="button" class="btn btn-outline" [disabled]="isSavingTemplate" (click)="saveTemplateAsDraft()">
+                {{ isSavingTemplate ? 'Saving...' : 'Save as Draft' }}
+            </button>
+            <button type="button" class="btn btn-primary" [disabled]="isSavingTemplate" (click)="saveTemplate()">
+                {{ isSavingTemplate ? 'Saving...' : 'Save' }}
+            </button>
         </div>
     </div>
 
@@ -533,8 +538,8 @@
                 </select>
             </label>
 
-            <label *ngIf="newPipelineType === 'individual'">
-                Employees
+            <ng-container *ngIf="newPipelineType === 'individual'">
+                <label>Employees</label>
                 <div class="pipeline-user-dropdown" (click)="$event.stopPropagation()">
                     <button
                         type="button"
@@ -552,22 +557,31 @@
                                 [(ngModel)]="pipelineUserSearchTerm"
                                 placeholder="Search employees"
                                 (click)="$event.stopPropagation()" />
+                            <button
+                                type="button"
+                                class="pipeline-user-search-close"
+                                title="Close employee list"
+                                aria-label="Close employee list"
+                                (click)="closePipelineUserDropdown($event)">
+                                ×
+                            </button>
                         </div>
 
                         <div class="empty-state compact-empty-state" *ngIf="filteredPipelineUserOptions.length === 0">
                             No employees found.
                         </div>
 
-                        <label class="pipeline-user-option" *ngFor="let user of filteredPipelineUserOptions">
+                        <div
+                            class="pipeline-user-option"
+                            *ngFor="let user of filteredPipelineUserOptions; trackBy: trackPipelineUserOption"
+                            [class.is-selected]="isPipelineUserSelected(user)"
+                            (click)="togglePipelineUserOption(user, $event)">
                             <span>{{ getUserName(user) }}</span>
-                            <input
-                                type="checkbox"
-                                [checked]="isPipelineUserSelected(user)"
-                                (change)="onPipelineUserSelectionChanged(user, $any($event.target).checked)" />
-                        </label>
+                            <span class="pipeline-user-check" [class.is-checked]="isPipelineUserSelected(user)"></span>
+                        </div>
                     </div>
                 </div>
-            </label>
+            </ng-container>
 
             <div class="approval-mode-row" *ngIf="shouldShowPipelineApprovalMode()">
                 <span>Step Logic</span>

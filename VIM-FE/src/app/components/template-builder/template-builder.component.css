@@ -251,11 +251,38 @@
 }
 
 .pipeline-user-search {
+    align-items: center;
+    display: flex;
+    gap: 8px;
     padding: 6px 10px 8px;
 }
 
 .pipeline-user-search input {
+    flex: 1;
     margin-top: 0 !important;
+    min-width: 0;
+}
+
+.pipeline-user-search-close {
+    align-items: center;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    color: #475569;
+    cursor: pointer;
+    display: inline-flex;
+    flex-shrink: 0;
+    font-size: 18px;
+    height: 32px;
+    justify-content: center;
+    line-height: 1;
+    padding: 0;
+    width: 32px;
+}
+
+.pipeline-user-search-close:hover {
+    background: #e2e8f0;
+    color: #0f172a;
 }
 
 .pipeline-user-option {
@@ -278,8 +305,34 @@
     color: #0f172a;
 }
 
-.pipeline-user-option input {
-    margin: 0;
+.pipeline-user-option.is-selected {
+    background: #eff6ff;
+}
+
+.pipeline-user-check {
+    border: 1px solid #94a3b8;
+    border-radius: 3px;
+    flex-shrink: 0;
+    height: 16px;
+    position: relative;
+    width: 16px;
+}
+
+.pipeline-user-check.is-checked {
+    background: #2563eb;
+    border-color: #2563eb;
+}
+
+.pipeline-user-check.is-checked::after {
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    content: '';
+    height: 9px;
+    left: 5px;
+    position: absolute;
+    top: 1px;
+    transform: rotate(45deg);
+    width: 5px;
 }
 
 .approval-mode-row {

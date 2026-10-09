@@ -4,6 +4,7 @@ import { PDFDocument } from 'pdf-lib';
 import { EditorConfig } from 'ckeditor5';
 import { DepartmentService } from 'src/app/services/department/department.service';
 import { TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
+import { NotificationService } from 'src/app/NotificationService';
 import { UserService } from 'src/app/services/user/user.service';
 import {
     WORD_EDITOR_CKEDITOR,
@@ -162,6 +163,11 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     private readonly tableVerticalChromeHeight = 36;
     private readonly initiatorPipelineStepId = 'initiator-step';
     private readonly initiatorPipelineUserId = '__initiator__';
+    readonly initiatorPipelineUserOption = {
+        id: this.initiatorPipelineUserId,
+        dynamicTarget: 'initiator' as PipelineDynamicTarget,
+        txtUserName: 'Initiator'
+    };
 
     pageOrientation: 'portrait' | 'landscape' = 'portrait';
     fieldLayerTop = 0;
@@ -169,6 +175,8 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     codeConvention = 'TPL-0000';
     editingTemplateId = '';
     templateIsActive = true;
+    templateIsDraft = false;
+    isSavingTemplate = false;
     editorContent = '<h2>Template Title</h2><p>Select any text or table cell content, then assign it as a field from the side panel.</p><p>Example: Vendor Name, Amount, Delivery Date, Approval Notes.</p>';
     selectedFieldId = '';
     private routeTemplateId = '';
@@ -281,7 +289,8 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         private router: Router,
         private departmentService: DepartmentService,
         private templateWorkflowService: TemplateWorkflowService,
-        private userService: UserService
+        private userService: UserService,
+        private notificationService: NotificationService
     ) { }
 
     ngOnInit(): void {
@@ -333,16 +342,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         return this.pipelineSteps.find((step) => step.id === this.editingPipelineStepId);
     }
 
-    get initiatorPipelineUserOption(): any {
-        return {
-            id: this.initiatorPipelineUserId,
-            dynamicTarget: 'initiator',
-            txtUserName: 'Initiator'
-        };
-    }
-
     get pipelineUserOptions(): any[] {
-        return [this.initiatorPipelineUserOption, ...this.allUsers];
+        const users = (this.allUsers || []).filter((user) => this.isSelectablePipelineEmployee(user));
+        return [this.initiatorPipelineUserOption, ...users];
     }
 
     get filteredPipelineUserOptions(): any[] {
@@ -865,7 +867,12 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (this.isInitiatorPipelineUser(a) || this.isInitiatorPipelineUser(b)) {
             return this.isInitiatorPipelineUser(a) && this.isInitiatorPipelineUser(b);
         }
-        return Number(a?.serUserId ?? a?.userId ?? a?.id) === Number(b?.serUserId ?? b?.userId ?? b?.id);
+        const aId = Number(a?.serUserId ?? a?.userId ?? a?.id);
+        const bId = Number(b?.serUserId ?? b?.userId ?? b?.id);
+        if (!Number.isFinite(aId) || !Number.isFinite(bId) || aId <= 0 || bId <= 0) {
+            return false;
+        }
+        return aId === bId;
     }
 
     togglePipelineUserDropdown(event?: Event): void {
@@ -876,18 +883,48 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         }
     }
 
+    closePipelineUserDropdown(event?: Event): void {
+        event?.stopPropagation();
+        this.showPipelineUserDropdown = false;
+        this.pipelineUserSearchTerm = '';
+    }
+
     isPipelineUserSelected(user: any): boolean {
         return this.selectedPipelineUsers.some((selectedUser) => this.comparePipelineUsers(selectedUser, user));
     }
 
+    togglePipelineUserOption(user: any, event: Event): void {
+        event.stopPropagation();
+        this.onPipelineUserSelectionChanged(user, !this.isPipelineUserSelected(user));
+    }
+
+    trackPipelineUserOption = (index: number, user: any): string => {
+        if (user?.dynamicTarget === 'initiator' || user?.id === this.initiatorPipelineUserId) {
+            return this.initiatorPipelineUserId;
+        }
+        const userId = Number(user?.serUserId ?? user?.userId ?? user?.id);
+        return Number.isFinite(userId) && userId > 0 ? `user-${userId}` : `user-index-${index}`;
+    };
+
     onPipelineUserSelectionChanged(user: any, checked: boolean): void {
+        const normalizedUser = this.isInitiatorPipelineUser(user) ? this.initiatorPipelineUserOption : user;
         if (checked) {
-            if (!this.isPipelineUserSelected(user)) {
-                this.selectedPipelineUsers = [...this.selectedPipelineUsers, user];
+            if (!this.isPipelineUserSelected(normalizedUser)) {
+                this.selectedPipelineUsers = [...this.selectedPipelineUsers, normalizedUser];
             }
             return;
         }
-        this.selectedPipelineUsers = this.selectedPipelineUsers.filter((selectedUser) => !this.comparePipelineUsers(selectedUser, user));
+        this.selectedPipelineUsers = this.selectedPipelineUsers.filter(
+            (selectedUser) => !this.comparePipelineUsers(selectedUser, normalizedUser)
+        );
+    }
+
+    private isSelectablePipelineEmployee(user: any): boolean {
+        if (!user || this.isInitiatorPipelineUser(user)) {
+            return false;
+        }
+        const userId = Number(user?.serUserId ?? user?.userId ?? user?.id);
+        return Number.isFinite(userId) && userId > 0;
     }
 
     getSelectedPipelineUsersSummary(): string {
@@ -1011,7 +1048,19 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (this.isInitiatorPipelineUser(user)) {
             return 'Initiator';
         }
-        return user?.txtUserName || user?.userName || user?.name || user?.email || '';
+        const name = String(user?.txtUserName || user?.userName || user?.name || '').trim();
+        if (name) {
+            return name;
+        }
+        const email = String(user?.txtAddress || user?.email || '').trim();
+        if (email) {
+            return email;
+        }
+        const userId = Number(user?.serUserId ?? user?.userId ?? user?.id);
+        if (Number.isFinite(userId) && userId > 0) {
+            return `Employee #${userId}`;
+        }
+        return 'Unnamed employee';
     }
 
     isInitiatorPipelineUser(user: any): boolean {
@@ -1388,7 +1437,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
                 this.editingTemplateId = String(template?.id || payload.id || templateId);
                 this.templateName = payload.name || template?.name || 'Untitled Template';
                 this.codeConvention = this.resolveCodeConvention(payload.codeConvention || template?.codeConvention);
-                this.templateIsActive = payload.isActive !== false && template?.isActive !== false;
+                this.templateIsDraft = payload.isDraft === true || template?.isDraft === true;
+                this.templateIsActive = !this.templateIsDraft
+                    && payload.isActive !== false
+                    && template?.isActive !== false;
                 this.editorContent = this.removeRadioFieldMarkers(payload.html || '');
                 this.backgroundFile = payload.background || null;
                 this.fields = Array.isArray(payload.fields) ? payload.fields : [];
@@ -1442,17 +1494,61 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         }, null, 2);
     }
 
-    saveTemplate(): void {
+    saveTemplateAsDraft(): void {
+        if (this.isSavingTemplate) {
+            return;
+        }
         const payload = JSON.parse(this.getTemplatePayload());
         if (this.editingTemplateId) {
             payload.id = this.editingTemplateId;
         }
-        this.templateWorkflowService.saveTemplate(payload, this.editingTemplateId || undefined).subscribe({
+        this.isSavingTemplate = true;
+        this.templateWorkflowService.saveTemplate(payload, this.editingTemplateId || undefined, { asDraft: true }).subscribe({
             next: (template) => {
+                this.isSavingTemplate = false;
+                this.editingTemplateId = String(template.id);
+                this.templateIsDraft = true;
+                this.templateIsActive = false;
                 sessionStorage.setItem('templateBuilder:lastTemplate', JSON.stringify(template.payload));
+                this.router.navigate(['/template-builder'], {
+                    queryParams: { id: template.id },
+                    replaceUrl: true
+                });
+                this.notificationService.showMessage('Template saved as draft. Publish with Save when ready.', 'success');
+            },
+            error: (error) => {
+                this.isSavingTemplate = false;
+                this.notificationService.showMessage(error?.message || 'Template draft could not be saved.', 'danger');
+                console.error('Template draft save failed', error);
+            }
+        });
+    }
+
+    saveTemplate(): void {
+        if (this.isSavingTemplate) {
+            return;
+        }
+        const payload = JSON.parse(this.getTemplatePayload());
+        if (this.editingTemplateId) {
+            payload.id = this.editingTemplateId;
+        }
+        payload.isDraft = false;
+        payload.isActive = true;
+        this.isSavingTemplate = true;
+        this.templateWorkflowService.saveTemplate(payload, this.editingTemplateId || undefined, { asDraft: false }).subscribe({
+            next: (template) => {
+                this.isSavingTemplate = false;
+                this.templateIsDraft = false;
+                this.templateIsActive = true;
+                sessionStorage.setItem('templateBuilder:lastTemplate', JSON.stringify(template.payload));
+                this.notificationService.showMessage('Template published successfully.', 'success');
                 this.router.navigate(['/template-list']);
             },
-            error: (error) => console.error('Template save failed', error)
+            error: (error) => {
+                this.isSavingTemplate = false;
+                this.notificationService.showMessage(error?.message || 'Template could not be saved.', 'danger');
+                console.error('Template save failed', error);
+            }
         });
     }
 

@@ -32,6 +32,8 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
     togglingTemplateStatusId = '';
     isAdmin = false;
     currentUserId: number | null = null;
+    /** Admin: published documents vs builder drafts (not shown to end users). */
+    listMode: 'published' | 'drafts' = 'published';
     duplicateSourceTemplateId = '';
     duplicateTemplateName = '';
     private searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -71,7 +73,13 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
 
     loadTemplates(): void {
         this.isLoading = true;
-        this.templateWorkflowService.getTemplateSummaries(this.page, this.pageSize, this.search, this.currentUserId)
+        this.templateWorkflowService.getTemplateSummaries(
+            this.page,
+            this.pageSize,
+            this.search,
+            this.currentUserId,
+            this.listMode === 'drafts'
+        )
             .pipe(finalize(() => {
                 this.isLoading = false;
             }))
@@ -87,6 +95,19 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
                 this.loadError = 'Saved template list could not be loaded.';
             }
         });
+    }
+
+    setListMode(mode: 'published' | 'drafts'): void {
+        if (!this.isAdmin || this.listMode === mode) {
+            return;
+        }
+        this.listMode = mode;
+        this.page = 0;
+        this.loadTemplates();
+    }
+
+    get isDraftList(): boolean {
+        return this.listMode === 'drafts';
     }
 
     onSearchChanged(): void {
@@ -141,6 +162,10 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
     }
 
     fillTemplate(template: SavedTemplateDefinition): void {
+        if (this.isTemplateDraft(template) && !this.isAdmin) {
+            this.notificationService.showMessage('This digital document is still a draft and is not available yet.', 'warning');
+            return;
+        }
         this.router.navigate(['/template-fill', template.id]);
     }
 
@@ -313,7 +338,21 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
     }
 
     getStatusSummary(template: SavedTemplateDefinition): string {
+        if (this.isTemplateDraft(template)) {
+            return 'Draft';
+        }
         return template?.isActive === false ? 'Inactive' : 'Active';
+    }
+
+    isTemplateDraft(template: SavedTemplateDefinition | null | undefined): boolean {
+        return template?.isDraft === true || template?.backendForm?.isDraft === true;
+    }
+
+    getStatusBadgeClass(template: SavedTemplateDefinition): string {
+        if (this.isTemplateDraft(template)) {
+            return 'badge-outline-secondary';
+        }
+        return template?.isActive === false ? 'badge-outline-danger' : 'badge-outline-success';
     }
 
     getDisplayedTemplates(): SavedTemplateDefinition[] {

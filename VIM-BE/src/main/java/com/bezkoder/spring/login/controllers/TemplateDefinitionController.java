@@ -5,6 +5,7 @@ import com.bezkoder.spring.login.sa.bll.services.ICustomFormApplicationService;
 import com.bezkoder.spring.login.sa.bll.services.IAppActivityLogService;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblRole;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
+import com.bezkoder.spring.login.admin.utility.common.IpGeolocationService;
 import com.bezkoder.spring.login.admin.utility.common.RequestMetadataUtil;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApplication;
 import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
@@ -60,6 +61,95 @@ public class TemplateDefinitionController {
     @Autowired
     private TemplateEmailDispatchService templateEmailDispatchService;
 
+    @Autowired
+    private IpGeolocationService ipGeolocationService;
+
+    @Transactional
+    @RequestMapping(value = "/saveTemplateApplicationDraft", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> saveTemplateApplicationDraft(@RequestBody CfgTblCustomFormApplication application,
+                                                            HttpServletRequest request,
+                                                            HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            if (application == null || application.getSerFormId() == null) {
+                throw new IllegalArgumentException("Template form ID is required");
+            }
+            TemplateDefinition definition = findByFormId(application.getSerFormId());
+            if (definition == null) {
+                throw new IllegalArgumentException("Template definition not found for this form");
+            }
+            int actorUserId = commonService.getCurrentLoggedInUser();
+            if (actorUserId <= 0) {
+                throw new IllegalArgumentException("You must be logged in to save a draft");
+            }
+
+            enrichTemplateApplicationPayload(application, definition);
+
+            Integer applicationId = application.getSerApplicationId();
+            CfgTblCustomFormApplication target;
+            if (applicationId != null && applicationId > 0) {
+                target = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+                if (target == null) {
+                    throw new IllegalArgumentException("Application not found");
+                }
+                assertCanEditTemplateDraft(target, actorUserId);
+                if (!isDraftStatus(target.getTxtStatus())) {
+                    throw new IllegalArgumentException("Only draft applications can be updated as draft");
+                }
+                target.setTxtApplicationData(application.getTxtApplicationData());
+                if (target.getTxtFormCode() == null || target.getTxtFormCode().trim().isEmpty()) {
+                    target.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, application.getTxtFormCode()));
+                }
+                target.setTxtStatus("DRAFT");
+                target.setIntCurrentApprovalLevel(0);
+                target.setSerCurrentApprover(null);
+                target.setDteModifiedDate(now());
+                target.setSerModifiedUser(actorUserId);
+                application = target;
+            } else {
+                if (application.getSerSubmittedBy() == null) {
+                    application.setSerSubmittedBy(actorUserId);
+                }
+                assertCanEditTemplateDraft(application, actorUserId);
+                if (application.getTxtFormCode() == null || application.getTxtFormCode().trim().isEmpty()) {
+                    application.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, null));
+                } else {
+                    application.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, application.getTxtFormCode()));
+                }
+                application.setBlIsActive(application.getBlIsActive() == null ? true : application.getBlIsActive());
+                application.setBlIsDeleted(application.getBlIsDeleted() == null ? false : application.getBlIsDeleted());
+                application.setBlnStatus(application.getBlnStatus() == null ? true : application.getBlnStatus());
+                application.setDteCreatedDate(application.getDteCreatedDate() == null ? now() : application.getDteCreatedDate());
+                application.setDteModifiedDate(now());
+                application.setSerCreatedUser(application.getSerCreatedUser() == null ? actorUserId : application.getSerCreatedUser());
+                application.setSerModifiedUser(actorUserId);
+                application.setTxtStatus("DRAFT");
+                application.setIntCurrentApprovalLevel(0);
+                application.setSerCurrentApprover(null);
+                entityManager.persist(application);
+            }
+
+            logTemplateAction("FORM_DRAFT_SAVE", request, application.getSerApplicationId(), "SUCCESS",
+                    "Template application saved as draft",
+                    buildTemplateApplicationPayload(application, "FORM_DRAFT_SAVE", null), null);
+
+            result.put("status", "Success");
+            result.put("message", "Draft saved successfully");
+            result.put("applicationId", application.getSerApplicationId());
+            result.put("formCode", application.getTxtFormCode());
+            return result;
+        } catch (Exception ex) {
+            logTemplateAction("FORM_DRAFT_SAVE", request, application != null ? application.getSerApplicationId() : null,
+                    "FAILURE", ex.getMessage(),
+                    buildTemplateApplicationPayload(application, "FORM_DRAFT_SAVE", null), ex.getMessage());
+            logger.error("Error saving template application draft: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            return result;
+        }
+    }
+
     @Transactional
     @RequestMapping(value = "/submitTemplateApplication", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> submitTemplateApplication(@RequestBody CfgTblCustomFormApplication application,
@@ -75,47 +165,19 @@ public class TemplateDefinitionController {
                 throw new IllegalArgumentException("Template definition not found for this form");
             }
 
-            if (application.getTxtApplicationData() == null || application.getTxtApplicationData().trim().isEmpty()) {
-                application.setTxtApplicationData("{}");
-            }
-            Map<String, Object> appData = parseMap(application.getTxtApplicationData());
-            if (asMap(appData.get("templatePayload")).isEmpty()) {
-                appData.put("templatePayload", parseMap(definition.getTxtTemplatePayload()));
-                application.setTxtApplicationData(writeJson(appData));
-            }
-            if (application.getSerSubmittedBy() == null) {
-                application.setSerSubmittedBy(toInteger(appData.get("submittedBy")));
-            }
-            if (application.getSerCreatedUser() == null) {
-                application.setSerCreatedUser(application.getSerSubmittedBy());
-            }
-            CfgTblUser submittedByUser = application.getSerSubmittedBy() != null
-                    ? entityManager.find(CfgTblUser.class, application.getSerSubmittedBy())
-                    : null;
-            if (submittedByUser != null) {
-                Integer submittedDepartmentId = submittedByUser.getHrTblDepartment() != null
-                        ? submittedByUser.getHrTblDepartment().getSerDepartmentId()
-                        : null;
-                String submittedDepartmentName = submittedByUser.getTxtDepartmentName();
-                if ((submittedDepartmentName == null || submittedDepartmentName.trim().isEmpty())
-                        && submittedByUser.getHrTblDepartment() != null) {
-                    submittedDepartmentName = submittedByUser.getHrTblDepartment().getTxtDepartmentName();
+            Integer existingApplicationId = application.getSerApplicationId();
+            if (existingApplicationId != null && existingApplicationId > 0) {
+                CfgTblCustomFormApplication existing = entityManager.find(CfgTblCustomFormApplication.class, existingApplicationId);
+                if (existing != null && isDraftStatus(existing.getTxtStatus())) {
+                    return submitTemplateApplicationFromDraft(application, existing, definition, request, response);
                 }
-                if (submittedDepartmentId != null && appData.get("submittedDepartmentId") == null
-                        && appData.get("serSubmittedDepartmentId") == null
-                        && appData.get("submitterDepartmentId") == null) {
-                    appData.put("submittedDepartmentId", submittedDepartmentId);
-                }
-                if (submittedDepartmentName != null && !submittedDepartmentName.trim().isEmpty()
-                        && appData.get("submittedDepartmentName") == null
-                        && appData.get("submitterDepartmentName") == null
-                        && appData.get("txtSubmittedDepartmentName") == null
-                        && appData.get("txtDepartmentName") == null
-                        && appData.get("departmentName") == null
-                        && appData.get("submittedByDepartmentName") == null) {
-                    appData.put("submittedDepartmentName", submittedDepartmentName.trim());
-                }
-                application.setTxtApplicationData(writeJson(appData));
+                throw new IllegalArgumentException("Application cannot be submitted from its current state");
+            }
+
+            enrichTemplateApplicationPayload(application, definition);
+            int actorUserId = commonService.getCurrentLoggedInUser();
+            if (application.getSerSubmittedBy() == null && actorUserId > 0) {
+                application.setSerSubmittedBy(actorUserId);
             }
             if (application.getTxtFormCode() == null || application.getTxtFormCode().trim().isEmpty()) {
                 application.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, null));
@@ -129,18 +191,7 @@ public class TemplateDefinitionController {
             application.setDteModifiedDate(now());
             application.setSerModifiedUser(application.getSerCreatedUser());
 
-            TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
-            TemplateStep firstStep = context.stepAt(0);
-            if (firstStep == null || firstStep.approverIds.isEmpty()) {
-                application.setTxtStatus("COMPLETED");
-                application.setIntCurrentApprovalLevel(1);
-                application.setSerCurrentApprover(null);
-            } else {
-                application.setTxtStatus("IN_PROGRESS");
-                application.setIntCurrentApprovalLevel(displayLevelForIndex(0));
-                application.setSerCurrentApprover(firstApproverId(firstStep));
-            }
-            appendSubmissionHistory(application);
+            applyTemplateSubmitWorkflowState(application, request);
             entityManager.persist(application);
             logTemplateAction("FORM_SUBMIT", request, application.getSerApplicationId(), "SUCCESS",
                     "Template application submitted successfully",
@@ -165,6 +216,7 @@ public class TemplateDefinitionController {
 
     @RequestMapping(value = "/getTemplateApplicationById", method = RequestMethod.GET)
     public Map<String, Object> getTemplateApplicationById(@RequestParam Integer applicationId,
+                                                          @RequestParam(required = false) Integer userId,
                                                           HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
         try {
@@ -184,6 +236,13 @@ public class TemplateDefinitionController {
             result.put("txtApprovalHistory", application.getTxtApprovalHistory());
             result.put("txtPriorApprovals", application.getTxtPriorApprovals());
             result.put("currentApproverIds", new ArrayList<>(pendingApproverIdsForCurrentStep(application)));
+            if (userId != null && userId > 0) {
+                TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
+                String workflowUserNotice = resolveOrAlreadyApprovedMessage(application, context, userId);
+                if (workflowUserNotice != null) {
+                    result.put("workflowUserNotice", workflowUserNotice);
+                }
+            }
             result.put("txtPdfName", application.getTxtPdfName());
             result.put("txtPdfMime", application.getTxtPdfMime());
             result.put("dteCreatedDate", application.getDteCreatedDate());
@@ -202,6 +261,334 @@ public class TemplateDefinitionController {
             result.put("message", ex.getMessage());
             return result;
         }
+    }
+
+    @RequestMapping(value = "/getTemplateApprovalLocationByIp", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> getTemplateApprovalLocationByIp(@RequestParam("ip") String ip,
+                                                               HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            if (ip == null || ip.trim().isEmpty()) {
+                result.put("status", "Failure");
+                result.put("message", "IP address is required");
+                return result;
+            }
+            if (IpGeolocationService.isNonPublicIp(ip.trim())) {
+                result.put("status", "Failure");
+                result.put("message", "Location is not available for local or private network addresses");
+                return result;
+            }
+            return ipGeolocationService.resolve(ip.trim())
+                    .map((geo) -> {
+                        Map<String, Object> success = new HashMap<>();
+                        success.put("status", "Success");
+                        success.put("latitude", geo.latitude);
+                        success.put("longitude", geo.longitude);
+                        if (geo.label != null && !geo.label.isEmpty()) {
+                            success.put("locationLabel", geo.label);
+                        }
+                        return success;
+                    })
+                    .orElseGet(() -> {
+                        result.put("status", "Failure");
+                        result.put("message", "Could not resolve location for this IP address");
+                        return result;
+                    });
+        } catch (Exception ex) {
+            return failure(result, response, "Error resolving approval location", ex);
+        }
+    }
+
+    private static final String PORTAL_APPLICATION_PDF_FIELD_ID = "__application_pdf__";
+
+    @RequestMapping(value = "/getCompletedTemplatePortalAttachments", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> getCompletedTemplatePortalAttachments(@RequestParam(defaultValue = "0") Integer page,
+                                                                     @RequestParam(defaultValue = "50") Integer pageSize,
+                                                                     @RequestParam(required = false) String search,
+                                                                     HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            int safePage = page == null || page < 0 ? 0 : page;
+            int safePageSize = pageSize == null ? 50 : Math.max(1, Math.min(pageSize, 200));
+            String searchText = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+
+            // Light metadata only — do not select large JSON/PDF blobs in the ordered list query.
+            @SuppressWarnings("unchecked")
+            List<Object[]> rows = entityManager.createQuery(
+                            "SELECT a.serApplicationId, a.serFormId, a.txtFormCode, a.txtStatus, a.dteCreatedDate, " +
+                                    "t.txtTemplateName, a.txtPdfName, " +
+                                    "CASE WHEN a.blbPdfData IS NULL THEN false ELSE true END " +
+                                    "FROM CfgTblCustomFormApplication a, TemplateDefinition t " +
+                                    "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
+                                    "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) " +
+                                    "AND t.serFormId = a.serFormId " +
+                                    "AND (a.txtStatus = 'COMPLETED' OR a.txtStatus = 'APPROVED' " +
+                                    "OR a.txtStatus = 'completed' OR a.txtStatus = 'approved') " +
+                                    "ORDER BY a.dteCreatedDate DESC")
+                    .getResultList();
+
+            List<Map<String, Object>> matchedItems = new ArrayList<>();
+            for (Object[] row : rows) {
+                Integer applicationId = toInteger(row[0]);
+                if (applicationId == null || applicationId <= 0) {
+                    continue;
+                }
+                String formCode = row[2] == null ? "" : String.valueOf(row[2]);
+                String status = row[3] == null ? "" : String.valueOf(row[3]);
+                if (!isCompletedPortalApplicationStatus(status)) {
+                    continue;
+                }
+                Object createdDate = row[4];
+                String templateName = row[5] == null ? "" : String.valueOf(row[5]);
+                String pdfName = row[6] == null ? "" : String.valueOf(row[6]).trim();
+                boolean hasPdf = Boolean.TRUE.equals(row[7]) || "true".equalsIgnoreCase(String.valueOf(row[7]));
+
+                if (hasPdf) {
+                    Map<String, Object> pdfItem = buildCompletedApplicationPdfMeta(
+                            applicationId, formCode, status, createdDate, templateName, pdfName);
+                    if (matchesPortalAttachmentSearch(pdfItem, formCode, templateName, searchText)) {
+                        matchedItems.add(pdfItem);
+                    }
+                }
+
+                String applicationDataRaw = getApplicationJsonById(applicationId);
+                for (Map<String, Object> attachmentMeta : extractCompletedPortalAttachmentMetas(
+                        applicationId, formCode, status, createdDate, templateName, applicationDataRaw)) {
+                    if (matchesPortalAttachmentSearch(attachmentMeta, formCode, templateName, searchText)) {
+                        matchedItems.add(attachmentMeta);
+                    }
+                }
+            }
+
+            int total = matchedItems.size();
+            int fromIndex = Math.min(safePage * safePageSize, total);
+            int toIndex = Math.min(fromIndex + safePageSize, total);
+            result.put("status", "Success");
+            result.put("items", matchedItems.subList(fromIndex, toIndex));
+            result.put("total", total);
+            result.put("page", safePage);
+            result.put("pageSize", safePageSize);
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error fetching completed portal attachments: " + ex.getMessage(), ex);
+            // Fallback without CASE/blob-null check if the dialect rejects it.
+            try {
+                return getCompletedTemplatePortalAttachmentsFallback(page, pageSize, search, response);
+            } catch (Exception fallbackEx) {
+                logger.error("Fallback completed portal attachments also failed: " + fallbackEx.getMessage(), fallbackEx);
+                response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                result.put("status", "Failure");
+                result.put("items", java.util.Collections.emptyList());
+                result.put("total", 0);
+                result.put("message", ex.getMessage());
+                return result;
+            }
+        }
+    }
+
+    private Map<String, Object> getCompletedTemplatePortalAttachmentsFallback(Integer page,
+                                                                              Integer pageSize,
+                                                                              String search,
+                                                                              HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        int safePage = page == null || page < 0 ? 0 : page;
+        int safePageSize = pageSize == null ? 50 : Math.max(1, Math.min(pageSize, 200));
+        String searchText = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = entityManager.createQuery(
+                        "SELECT a.serApplicationId, a.serFormId, a.txtFormCode, a.txtStatus, a.dteCreatedDate, " +
+                                "t.txtTemplateName, a.txtPdfName " +
+                                "FROM CfgTblCustomFormApplication a, TemplateDefinition t " +
+                                "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
+                                "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) " +
+                                "AND t.serFormId = a.serFormId " +
+                                "AND (a.txtStatus = 'COMPLETED' OR a.txtStatus = 'APPROVED' " +
+                                "OR a.txtStatus = 'completed' OR a.txtStatus = 'approved') " +
+                                "ORDER BY a.dteCreatedDate DESC")
+                .getResultList();
+
+        List<Map<String, Object>> matchedItems = new ArrayList<>();
+        for (Object[] row : rows) {
+            Integer applicationId = toInteger(row[0]);
+            if (applicationId == null || applicationId <= 0) {
+                continue;
+            }
+            String formCode = row[2] == null ? "" : String.valueOf(row[2]);
+            String status = row[3] == null ? "" : String.valueOf(row[3]);
+            if (!isCompletedPortalApplicationStatus(status)) {
+                continue;
+            }
+            Object createdDate = row[4];
+            String templateName = row[5] == null ? "" : String.valueOf(row[5]);
+            String pdfName = row[6] == null ? "" : String.valueOf(row[6]).trim();
+
+            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+            boolean hasPdf = application != null && application.getBlbPdfData() != null && application.getBlbPdfData().length > 0;
+            if (!hasPdf && application != null) {
+                byte[] stage0 = application.getBlbPdfForStage(0);
+                hasPdf = stage0 != null && stage0.length > 0;
+            }
+            if (hasPdf) {
+                Map<String, Object> pdfItem = buildCompletedApplicationPdfMeta(
+                        applicationId, formCode, status, createdDate, templateName, pdfName);
+                if (matchesPortalAttachmentSearch(pdfItem, formCode, templateName, searchText)) {
+                    matchedItems.add(pdfItem);
+                }
+            }
+
+            String applicationDataRaw = application != null ? application.getTxtApplicationData() : getApplicationJsonById(applicationId);
+            for (Map<String, Object> attachmentMeta : extractCompletedPortalAttachmentMetas(
+                    applicationId, formCode, status, createdDate, templateName, applicationDataRaw)) {
+                if (matchesPortalAttachmentSearch(attachmentMeta, formCode, templateName, searchText)) {
+                    matchedItems.add(attachmentMeta);
+                }
+            }
+        }
+
+        int total = matchedItems.size();
+        int fromIndex = Math.min(safePage * safePageSize, total);
+        int toIndex = Math.min(fromIndex + safePageSize, total);
+        result.put("status", "Success");
+        result.put("items", matchedItems.subList(fromIndex, toIndex));
+        result.put("total", total);
+        result.put("page", safePage);
+        result.put("pageSize", safePageSize);
+        return result;
+    }
+
+    @RequestMapping(value = "/getCompletedTemplatePortalAttachmentContent", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> getCompletedTemplatePortalAttachmentContent(@RequestParam Integer applicationId,
+                                                                            @RequestParam String fieldId,
+                                                                            @RequestParam(defaultValue = "0") Integer attachmentIndex,
+                                                                            HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            if (applicationId == null || applicationId <= 0) {
+                throw new IllegalArgumentException("applicationId is required");
+            }
+            if (fieldId == null || fieldId.trim().isEmpty()) {
+                throw new IllegalArgumentException("fieldId is required");
+            }
+
+            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+            if (application == null || Boolean.TRUE.equals(application.getBlIsDeleted())) {
+                throw new IllegalArgumentException("Application not found");
+            }
+            if (!isCompletedPortalApplicationStatus(String.valueOf(application.getTxtStatus()))) {
+                throw new IllegalArgumentException("Only completed/approved applications can be used for portal attachments");
+            }
+
+            Map<String, Object> payload;
+            if (PORTAL_APPLICATION_PDF_FIELD_ID.equals(fieldId.trim())) {
+                payload = resolveCompletedApplicationPdfPayload(application);
+            } else {
+                if (attachmentIndex == null || attachmentIndex < 0) {
+                    throw new IllegalArgumentException("attachmentIndex is required");
+                }
+                payload = resolvePortalAttachmentPayload(
+                        application.getTxtApplicationData(), fieldId.trim(), attachmentIndex);
+            }
+            if (payload == null || payload.isEmpty()) {
+                throw new IllegalArgumentException("Attachment content was not found");
+            }
+
+            result.put("status", "Success");
+            result.put("attachment", payload);
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error fetching completed portal attachment content: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            return result;
+        }
+    }
+
+    private Map<String, Object> buildCompletedApplicationPdfMeta(Integer applicationId,
+                                                                 String formCode,
+                                                                 String status,
+                                                                 Object createdDate,
+                                                                 String templateName,
+                                                                 String pdfName) {
+        String safeFormCode = formCode == null || formCode.trim().isEmpty() ? ("APP-" + applicationId) : formCode.trim();
+        String fileName = pdfName != null && !pdfName.trim().isEmpty()
+                ? pdfName.trim()
+                : (safeFormCode + ".pdf");
+        if (!fileName.toLowerCase(Locale.ROOT).endsWith(".pdf")) {
+            fileName = fileName + ".pdf";
+        }
+        Map<String, Object> item = new HashMap<>();
+        item.put("applicationId", applicationId);
+        item.put("formCode", formCode);
+        item.put("status", status);
+        item.put("createdDate", createdDate);
+        item.put("templateName", templateName);
+        item.put("fieldId", PORTAL_APPLICATION_PDF_FIELD_ID);
+        item.put("fieldLabel", "Completed Document");
+        item.put("attachmentIndex", 0);
+        item.put("fileName", fileName);
+        item.put("mimeType", "application/pdf");
+        item.put("sourceType", "APPLICATION_PDF");
+        return item;
+    }
+
+    private Map<String, Object> resolveCompletedApplicationPdfPayload(CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return null;
+        }
+        byte[] pdfBytes = application.getBlbPdfData();
+        if (pdfBytes == null || pdfBytes.length == 0) {
+            pdfBytes = application.getBlbPdfForStage(0);
+        }
+        if (pdfBytes == null || pdfBytes.length == 0) {
+            return null;
+        }
+        String formCode = application.getTxtFormCode();
+        String safeFormCode = formCode == null || formCode.trim().isEmpty()
+                ? ("APP-" + application.getSerApplicationId())
+                : formCode.trim();
+        String fileName = application.getTxtPdfName();
+        if (fileName == null || fileName.trim().isEmpty()) {
+            fileName = safeFormCode + ".pdf";
+        } else if (!fileName.toLowerCase(Locale.ROOT).endsWith(".pdf")) {
+            fileName = fileName.trim() + ".pdf";
+        } else {
+            fileName = fileName.trim();
+        }
+        String mimeType = application.getTxtPdfMime();
+        if (mimeType == null || mimeType.trim().isEmpty()) {
+            mimeType = "application/pdf";
+        }
+        String base64 = java.util.Base64.getEncoder().encodeToString(pdfBytes);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("fileName", fileName);
+        payload.put("mimeType", mimeType);
+        payload.put("base64", base64);
+        payload.put("dataUrl", "data:" + mimeType + ";base64," + base64);
+        return payload;
+    }
+
+    private boolean matchesPortalAttachmentSearch(Map<String, Object> item,
+                                                  String formCode,
+                                                  String templateName,
+                                                  String searchText) {
+        if (searchText == null || searchText.isEmpty()) {
+            return true;
+        }
+        String haystack = String.valueOf(item.getOrDefault("fileName", "")).toLowerCase(Locale.ROOT)
+                + " " + (formCode == null ? "" : formCode.toLowerCase(Locale.ROOT))
+                + " " + (templateName == null ? "" : templateName.toLowerCase(Locale.ROOT))
+                + " " + String.valueOf(item.getOrDefault("fieldLabel", "")).toLowerCase(Locale.ROOT);
+        return haystack.contains(searchText);
+    }
+
+    private boolean isCompletedPortalApplicationStatus(String status) {
+        if (status == null) {
+            return false;
+        }
+        String normalized = status.trim().toUpperCase(Locale.ROOT);
+        return "COMPLETED".equals(normalized) || "APPROVED".equals(normalized);
     }
 
     @Transactional
@@ -234,9 +621,9 @@ public class TemplateDefinitionController {
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
             int currentLevel = safeLevel(application);
             TemplateStep currentStep = context.stepAt(currentLevel);
-            if (!isAuthorizedForTemplateStep(currentStep, actorId)) {
-                throw new IllegalArgumentException("You are not authorized to send back this template application");
-            }
+            assertActorAuthorizedForTemplateStep(application, context, currentStep, actorId,
+                    "You are not authorized to send back this template application");
+            ensureActorHasUploadedSignature(actorId);
             int targetLevel = Math.max(0, currentLevel - 1);
             TemplateStep targetStep = context.stepAt(targetLevel);
             appendTemplateHistory(application, currentStep, actorId, "SENT_BACK", remarks, displayLevelForIndex(targetLevel));
@@ -273,9 +660,9 @@ public class TemplateDefinitionController {
             String remarks = valueAsString(requestBody.get("remarks"));
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
             TemplateStep currentStep = context.stepAt(safeLevel(application));
-            if (!isAuthorizedForTemplateStep(currentStep, actorId)) {
-                throw new IllegalArgumentException("You are not authorized to send back this template application");
-            }
+            assertActorAuthorizedForTemplateStep(application, context, currentStep, actorId,
+                    "You are not authorized to send back this template application");
+            ensureActorHasUploadedSignature(actorId);
             appendTemplateHistory(application, currentStep, actorId, "SENT_BACK_TO_INITIATOR", remarks, 1);
             application.setTxtApprovalHistory(writeJson(activeTemplateHistory(parseHistory(application.getTxtApprovalHistory()))));
             application.setTxtStatus("PENDING");
@@ -312,9 +699,12 @@ public class TemplateDefinitionController {
             if (application.getSerSubmittedBy() == null || !application.getSerSubmittedBy().equals(actorId)) {
                 throw new IllegalArgumentException("Only the initiator can resubmit this template application");
             }
+            ensureActorHasUploadedSignature(actorId);
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
             TemplateStep firstStep = context.stepAt(0);
-            appendTemplateHistory(application, context.initiatorStep(), actorId, "RESUBMITTED_BY_INITIATOR", remarks, 1);
+            String clientIp = RequestMetadataUtil.resolveClientIp(request);
+            appendTemplateHistory(application, context.initiatorStep(), actorId, "RESUBMITTED_BY_INITIATOR", remarks, 1,
+                    clientIp, "SYSTEM");
             application.setTxtApprovalHistory(writeJson(activeTemplateHistory(parseHistory(application.getTxtApprovalHistory()))));
             application.setTxtStatus("IN_PROGRESS");
             application.setIntCurrentApprovalLevel(displayLevelForIndex(0));
@@ -347,9 +737,9 @@ public class TemplateDefinitionController {
             String remarks = valueAsString(requestBody.get("remarks"));
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
             TemplateStep currentStep = context.stepAt(safeLevel(application));
-            if (!isAuthorizedForTemplateStep(currentStep, actorId)) {
-                throw new IllegalArgumentException("You are not authorized to request opinion for this template application");
-            }
+            assertActorAuthorizedForTemplateStep(application, context, currentStep, actorId,
+                    "You are not authorized to request opinion for this template application");
+            ensureActorHasUploadedSignature(actorId);
             if (opinionUserId == null || opinionUserId <= 0) {
                 throw new IllegalArgumentException("Opinion user is required");
             }
@@ -403,6 +793,7 @@ public class TemplateDefinitionController {
             if (!Boolean.TRUE.equals(opinion.get("active")) || !actorId.equals(toInteger(opinion.get("requestedFrom")))) {
                 throw new IllegalArgumentException("No active opinion request is assigned to this user");
             }
+            ensureActorHasUploadedSignature(actorId);
             int returnLevel = toInteger(opinion.get("returnLevel")) != null ? toInteger(opinion.get("returnLevel")) : safeLevel(application);
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
             appendTemplateHistory(application, context.stepAt(returnLevel), actorId,
@@ -453,12 +844,21 @@ public class TemplateDefinitionController {
                                                               @RequestParam(defaultValue = "0") Integer page,
                                                               @RequestParam(defaultValue = "10") Integer pageSize,
                                                               @RequestParam(required = false) String search,
+                                                              @RequestParam(defaultValue = "false") Boolean draftsOnly,
                                                               HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
         try {
             int safePage = page == null || page < 0 ? 0 : page;
             int safePageSize = pageSize == null ? 10 : Math.max(1, Math.min(pageSize, 100));
             String searchText = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+            boolean draftListRequested = Boolean.TRUE.equals(draftsOnly);
+            if (draftListRequested && !isAdminUser(userId)) {
+                result.put("items", new ArrayList<>());
+                result.put("total", 0);
+                result.put("page", safePage);
+                result.put("pageSize", safePageSize);
+                return result;
+            }
 
             List<TemplateDefinition> definitions = entityManager.createQuery(
                     "SELECT t FROM TemplateDefinition t WHERE (t.blIsDeleted IS NULL OR t.blIsDeleted = false) ORDER BY t.dteCreatedDate DESC",
@@ -467,6 +867,13 @@ public class TemplateDefinitionController {
 
             List<Map<String, Object>> summaries = new ArrayList<>();
             for (TemplateDefinition definition : filterVisibleTemplateDefinitions(definitions, userId)) {
+                boolean isDraft = isTemplateDefinitionDraft(definition);
+                if (draftListRequested && !isDraft) {
+                    continue;
+                }
+                if (!draftListRequested && isDraft) {
+                    continue;
+                }
                 Map<String, Object> summary = toTemplateDefinitionSummary(definition);
                 if (matchesTemplateSummarySearch(summary, searchText)) {
                     summaries.add(summary);
@@ -726,8 +1133,7 @@ public class TemplateDefinitionController {
 
                     boolean isMatch = isDirectPendingApprover(application, userId);
                     if (!isMatch) {
-                        CfgTblCustomFormApplication fullApplication = entityManager.find(
-                                CfgTblCustomFormApplication.class,
+                        CfgTblCustomFormApplication fullApplication = loadApplicationWorkflowContextById(
                                 application.getSerApplicationId());
                         String templatePayload = getTemplatePayloadByFormId(
                                 application.getSerFormId(),
@@ -956,6 +1362,7 @@ public class TemplateDefinitionController {
         Map<String, Object> summary = new LinkedHashMap<>();
         Set<Integer> visibleUserIds = extractVisibleUserIds(definition);
         boolean isActive = isTemplateDefinitionActive(definition);
+        boolean isDraft = isTemplateDefinitionDraft(definition);
 
         summary.put("serTemplateId", definition.getSerTemplateId());
         summary.put("serFormId", definition.getSerFormId());
@@ -972,6 +1379,7 @@ public class TemplateDefinitionController {
         summary.put("visibleUserIds", new ArrayList<>(visibleUserIds));
         summary.put("selectedUsers", new ArrayList<>(visibleUserIds));
         summary.put("isActive", isActive);
+        summary.put("isDraft", isDraft);
         return summary;
     }
 
@@ -983,6 +1391,7 @@ public class TemplateDefinitionController {
                 String.valueOf(summary.get("serFormId")),
                 String.valueOf(summary.get("txtTemplateName")),
                 String.valueOf(summary.get("txtCodeConvention")),
+                Boolean.TRUE.equals(summary.get("isDraft")) ? "draft" : "",
                 Boolean.FALSE.equals(summary.get("isActive")) ? "inactive" : "active")
                 .toLowerCase(Locale.ROOT);
         return haystack.contains(searchText);
@@ -1079,6 +1488,9 @@ public class TemplateDefinitionController {
         if (isAdminUser(userId)) {
             return true;
         }
+        if (isTemplateDefinitionDraft(definition)) {
+            return false;
+        }
         if (!isTemplateDefinitionActive(definition)) {
             return false;
         }
@@ -1118,11 +1530,28 @@ public class TemplateDefinitionController {
         if (definition == null) {
             return false;
         }
+        if (isTemplateDefinitionDraft(definition)) {
+            return false;
+        }
         if (Boolean.FALSE.equals(definition.getBlIsActive()) || Boolean.FALSE.equals(definition.getBlnStatus())) {
             return false;
         }
         Map<String, Object> payload = parseMap(definition.getTxtTemplatePayload());
         return isTemplatePayloadMarkedActive(payload);
+    }
+
+    private boolean isTemplateDefinitionDraft(TemplateDefinition definition) {
+        if (definition == null) {
+            return false;
+        }
+        Map<String, Object> payload = parseMap(definition.getTxtTemplatePayload());
+        if (payload == null || payload.isEmpty()) {
+            return false;
+        }
+        Object draftFlag = payload.get("isDraft");
+        return draftFlag instanceof Boolean
+                ? (Boolean) draftFlag
+                : draftFlag != null && "true".equalsIgnoreCase(String.valueOf(draftFlag).trim());
     }
 
     private boolean isTemplatePayloadMarkedActive(Map<String, Object> payload) {
@@ -1186,11 +1615,14 @@ public class TemplateDefinitionController {
             String remarks = valueAsString(requestBody.get("remarks"));
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
             TemplateStep currentStep = context.stepAt(safeLevel(application));
-            if (!isAuthorizedForTemplateStep(currentStep, actorId)) {
-                throw new IllegalArgumentException("You are not authorized to act on this template application");
-            }
+            assertActorAuthorizedForTemplateStep(application, context, currentStep, actorId,
+                    "You are not authorized to act on this template application");
+            ensureActorHasUploadedSignature(actorId);
 
-            appendTemplateHistory(application, currentStep, actorId, action, remarks, displayLevelForIndex(safeLevel(application)));
+            String approvedIp = RequestMetadataUtil.resolveClientIp(request);
+            String approvedVia = resolveTemplateApprovalVia(requestBody);
+            appendTemplateHistory(application, currentStep, actorId, action, remarks,
+                    displayLevelForIndex(safeLevel(application)), approvedIp, approvedVia);
             if ("REJECTED".equals(action)) {
                 application.setTxtStatus("REJECTED");
                 application.setSerCurrentApprover(null);
@@ -1645,16 +2077,154 @@ public class TemplateDefinitionController {
         item.put("serSubmittedBy", application.getSerSubmittedBy());
         item.put("dteCreatedDate", application.getDteCreatedDate());
         item.put("templateName", row.length > 8 ? row[8] : null);
-        item.put("txtApplicationData", getApplicationDataById(application.getSerApplicationId()));
+        String applicationJson = getApplicationJsonById(application.getSerApplicationId());
+        item.put("applicationTitle", resolveTemplateApplicationTitle(applicationJson));
         return item;
+    }
+
+    private String getApplicationJsonById(Integer applicationId) {
+        if (applicationId == null) {
+            return null;
+        }
+        List<String> results = entityManager.createQuery(
+                        "SELECT a.txtApplicationData FROM CfgTblCustomFormApplication a WHERE a.serApplicationId = :id",
+                        String.class)
+                .setParameter("id", applicationId)
+                .setMaxResults(1)
+                .getResultList();
+        return results.isEmpty() ? null : results.get(0);
+    }
+
+    private CfgTblCustomFormApplication loadApplicationWorkflowContextById(Integer applicationId) {
+        if (applicationId == null) {
+            return null;
+        }
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = entityManager.createQuery(
+                        "SELECT a.serApplicationId, a.serFormId, a.txtApplicationData, a.txtStatus, " +
+                                "a.intCurrentApprovalLevel, a.serSubmittedBy, a.serCurrentApprover, a.txtApprovalHistory " +
+                                "FROM CfgTblCustomFormApplication a WHERE a.serApplicationId = :id")
+                .setParameter("id", applicationId)
+                .setMaxResults(1)
+                .getResultList();
+        if (rows.isEmpty()) {
+            return null;
+        }
+        Object[] row = rows.get(0);
+        CfgTblCustomFormApplication application = new CfgTblCustomFormApplication();
+        application.setSerApplicationId(toInteger(row[0]));
+        application.setSerFormId(toInteger(row[1]));
+        application.setTxtApplicationData(row[2] != null ? String.valueOf(row[2]) : null);
+        application.setTxtStatus(row[3] != null ? String.valueOf(row[3]) : null);
+        application.setIntCurrentApprovalLevel(toInteger(row[4]));
+        application.setSerSubmittedBy(toInteger(row[5]));
+        application.setSerCurrentApprover(toInteger(row[6]));
+        application.setTxtApprovalHistory(row[7] != null ? String.valueOf(row[7]) : null);
+        return application;
+    }
+
+    private String resolveTemplateApplicationTitle(String txtApplicationData) {
+        Map<String, Object> data = parseMap(txtApplicationData);
+        Map<String, Object> titleField = findTemplateTitleFieldDefinition(data);
+        if (titleField != null) {
+            for (Object candidate : templateTitleValueCandidates(titleField, data)) {
+                String normalized = normalizeTemplateTitleDisplayValue(candidate);
+                if (!normalized.isEmpty()) {
+                    return normalized;
+                }
+            }
+        }
+        for (Object candidate : directTemplateTitleCandidates(data)) {
+            String normalized = normalizeTemplateTitleDisplayValue(candidate);
+            if (!normalized.isEmpty()) {
+                return normalized;
+            }
+        }
+        return "";
+    }
+
+    private Map<String, Object> findTemplateTitleFieldDefinition(Map<String, Object> data) {
+        List<Map<String, Object>> fields = new ArrayList<>();
+        fields.addAll(asListOfMaps(asMap(data.get("templatePayload")).get("fields")));
+        fields.addAll(asListOfMaps(data.get("fields")));
+        for (Map<String, Object> field : fields) {
+            if (field == null || field.isEmpty()) {
+                continue;
+            }
+            String label = templateFieldLabel(field);
+            if ("title".equals(normalizeTemplateFieldLabel(label))) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    private List<Object> templateTitleValueCandidates(Map<String, Object> field, Map<String, Object> data) {
+        List<Object> candidates = new ArrayList<>();
+        String label = templateFieldLabel(field);
+        String id = firstText(field.get("id"), field.get("fieldId"));
+        String slug = slugifyTemplateFieldLabel(label);
+        Map<String, Object> templateValues = asMap(data.get("templateValues"));
+        if (!id.isEmpty()) {
+            candidates.add(templateValues.get(id));
+            candidates.add(data.get(id));
+        }
+        if (!label.isEmpty()) {
+            candidates.add(data.get(label));
+            candidates.add(templateValues.get(label));
+        }
+        if (!slug.isEmpty()) {
+            candidates.add(data.get(slug));
+            candidates.add(templateValues.get(slug));
+        }
+        return candidates;
+    }
+
+    private List<Object> directTemplateTitleCandidates(Map<String, Object> data) {
+        Map<String, Object> templateValues = asMap(data.get("templateValues"));
+        List<Object> candidates = new ArrayList<>();
+        candidates.add(data.get("Title"));
+        candidates.add(data.get("title"));
+        candidates.add(templateValues.get("Title"));
+        candidates.add(templateValues.get("title"));
+        return candidates;
+    }
+
+    private String templateFieldLabel(Map<String, Object> field) {
+        return firstText(field.get("label"), field.get("txtFieldLabel"), field.get("name"), field.get("key"));
+    }
+
+    private String normalizeTemplateFieldLabel(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+    }
+
+    private String slugifyTemplateFieldLabel(String value) {
+        if (value == null || value.isEmpty()) {
+            return "";
+        }
+        return value.toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "_")
+                .replaceAll("^_+|_+$", "");
+    }
+
+    private String normalizeTemplateTitleDisplayValue(Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof Map || value instanceof List) {
+            return "";
+        }
+        return String.valueOf(value).trim();
     }
 
     private String getApplicationDataById(Integer applicationId) {
         if (applicationId == null) {
             return null;
         }
-        CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
-        return application != null ? application.getTxtApplicationData() : null;
+        return getApplicationJsonById(applicationId);
     }
 
     private List<TemplateStep> buildFooterWorkflowSteps(Map<String, Object> appData,
@@ -1758,6 +2328,159 @@ public class TemplateDefinitionController {
         return step != null && actorId != null && step.approverIds.contains(actorId);
     }
 
+    public String resolveWorkflowUserNotice(Integer applicationId, Integer userId) {
+        if (applicationId == null || userId == null || userId <= 0) {
+            return null;
+        }
+        try {
+            CfgTblCustomFormApplication application = loadTemplateApplication(applicationId);
+            TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
+            String orMessage = resolveOrAlreadyApprovedMessage(application, context, userId);
+            if (orMessage != null) {
+                return orMessage;
+            }
+            if (hasUserApprovedTemplateHistory(application.getTxtApprovalHistory(), userId)) {
+                return "Already approved by you.";
+            }
+            return null;
+        } catch (Exception ex) {
+            logger.warn("Failed to resolve template workflow user notice for applicationId=" + applicationId
+                    + ", userId=" + userId + ": " + ex.getMessage());
+            return null;
+        }
+    }
+
+    private void assertActorAuthorizedForTemplateStep(CfgTblCustomFormApplication application,
+            TemplateWorkflowContext context,
+            TemplateStep currentStep,
+            Integer actorId,
+            String defaultMessage) {
+        if (isAuthorizedForTemplateStep(currentStep, actorId)) {
+            return;
+        }
+        String orMessage = resolveOrAlreadyApprovedMessage(application, context, actorId);
+        if (orMessage != null) {
+            throw new IllegalArgumentException(orMessage);
+        }
+        throw new IllegalArgumentException(defaultMessage);
+    }
+
+    private String resolveOrAlreadyApprovedMessage(CfgTblCustomFormApplication application,
+            TemplateWorkflowContext context,
+            Integer actorId) {
+        if (application == null || context == null || actorId == null || actorId <= 0) {
+            return null;
+        }
+        int currentIdx = safeLevel(application);
+
+        for (int idx = 0; idx < context.steps.size(); idx++) {
+            TemplateStep step = context.stepAt(idx);
+            if (step == null || !"OR".equalsIgnoreCase(step.approvalMode) || step.approverIds.isEmpty()) {
+                continue;
+            }
+            if (!step.approverIds.contains(actorId)) {
+                continue;
+            }
+            Set<Integer> approvedIds = approvedIdsForStep(application, step);
+            if (approvedIds.isEmpty()) {
+                continue;
+            }
+            boolean orStepClosed = idx < currentIdx
+                    || (idx == currentIdx && !pendingApproverIdsForCurrentStep(application).contains(actorId));
+            if (!orStepClosed) {
+                continue;
+            }
+            if (approvedIds.contains(actorId)) {
+                return "Already approved by you.";
+            }
+            String approverName = resolveOrApproverDisplayName(application, step, approvedIds, actorId);
+            return "Already approved by " + approverName + ".";
+        }
+        return null;
+    }
+
+    private String resolveOrApproverDisplayName(CfgTblCustomFormApplication application,
+            TemplateStep step,
+            Set<Integer> approvedIds,
+            Integer excludeActorId) {
+        List<Map<String, Object>> history = activeTemplateHistory(parseHistory(application.getTxtApprovalHistory()));
+        for (int index = history.size() - 1; index >= 0; index--) {
+            Map<String, Object> entry = history.get(index);
+            if (!"APPROVED".equalsIgnoreCase(valueAsString(entry.get("action")))) {
+                continue;
+            }
+            Integer userId = toInteger(firstObject(entry.get("approvedBy"), entry.get("userId")));
+            if (userId == null || !approvedIds.contains(userId)) {
+                continue;
+            }
+            if (excludeActorId != null && excludeActorId.equals(userId)) {
+                continue;
+            }
+            if (!historyEntryMatchesTemplateStep(entry, step)) {
+                continue;
+            }
+            return resolveUserDisplayName(userId, entry);
+        }
+
+        for (Integer approvedUserId : approvedIds) {
+            if (approvedUserId == null || (excludeActorId != null && excludeActorId.equals(approvedUserId))) {
+                continue;
+            }
+            return resolveUserDisplayName(approvedUserId, null);
+        }
+        return "another user";
+    }
+
+    private boolean historyEntryMatchesTemplateStep(Map<String, Object> entry, TemplateStep step) {
+        if (entry == null || step == null) {
+            return false;
+        }
+        Integer level = toInteger(firstObject(entry.get("intApprovalOrder"), entry.get("level")));
+        String entryStepId = firstText(entry.get("stepId"), entry.get("pipelineStepId"), entry.get("signatureTargetId"));
+        int displayLevel = step.level + 2;
+        boolean hasConcreteStepId = step.id != null && !step.id.isBlank();
+        boolean hasConcreteEntryStepId = entryStepId != null && !entryStepId.isBlank();
+        if (hasConcreteStepId && hasConcreteEntryStepId) {
+            return step.id.equals(entryStepId);
+        }
+        return level != null && (level == displayLevel || level == step.level + 1 || level == step.level);
+    }
+
+    private String resolveUserDisplayName(Integer userId, Map<String, Object> historyEntry) {
+        if (historyEntry != null) {
+            String historyName = firstText(historyEntry.get("approverName"),
+                    historyEntry.get("txtUserName"),
+                    historyEntry.get("userName"));
+            if (historyName != null && !historyName.isBlank()) {
+                return historyName;
+            }
+        }
+        if (userId != null && userId > 0) {
+            CfgTblUser user = entityManager.find(CfgTblUser.class, userId);
+            if (user != null && user.getTxtUserName() != null && !user.getTxtUserName().isBlank()) {
+                return user.getTxtUserName();
+            }
+        }
+        return "another user";
+    }
+
+    private static final String SIGNATURE_REQUIRED_MESSAGE =
+            "Before approving the document, kindly upload your signature.";
+
+    private void ensureActorHasUploadedSignature(Integer actorId) {
+        if (actorId == null || actorId <= 0) {
+            throw new IllegalArgumentException("User not authenticated");
+        }
+        CfgTblUser user = entityManager.find(CfgTblUser.class, actorId);
+        if (user == null) {
+            throw new IllegalArgumentException("User not found");
+        }
+        String signaturePath = user.getTxtSignaturePath();
+        if (!com.bezkoder.spring.login.admin.utility.common.SignatureStorageUtil.hasStoredSignatureFile(signaturePath)) {
+            throw new IllegalArgumentException(SIGNATURE_REQUIRED_MESSAGE);
+        }
+    }
+
     private boolean isTemplateStepComplete(CfgTblCustomFormApplication application, TemplateStep step) {
         if (step == null || step.approverIds.isEmpty()) {
             return true;
@@ -1805,8 +2528,27 @@ public class TemplateDefinitionController {
         return ids;
     }
 
+    private String resolveTemplateApprovalVia(Map<String, Object> requestBody) {
+        if (requestBody == null) {
+            return "SYSTEM";
+        }
+        String approvedVia = valueAsString(requestBody.get("approvedVia"));
+        if (approvedVia != null && !approvedVia.trim().isEmpty()) {
+            return approvedVia.trim();
+        }
+        boolean deferEmail = Boolean.TRUE.equals(requestBody.get("deferEmail"))
+                || "true".equalsIgnoreCase(String.valueOf(requestBody.get("deferEmail")));
+        return deferEmail ? "TEMPLATE_PORTAL_DEFER_EMAIL" : "SYSTEM";
+    }
+
     private void appendTemplateHistory(CfgTblCustomFormApplication application, TemplateStep step, Integer actorId,
                                        String action, String remarks, Integer targetLevel) {
+        appendTemplateHistory(application, step, actorId, action, remarks, targetLevel, null, null);
+    }
+
+    private void appendTemplateHistory(CfgTblCustomFormApplication application, TemplateStep step, Integer actorId,
+                                       String action, String remarks, Integer targetLevel, String approvedIp,
+                                       String approvedVia) {
         CfgTblUser user = actorId != null ? entityManager.find(CfgTblUser.class, actorId) : null;
         Map<String, Object> entry = new HashMap<>();
         Integer displayLevel = step != null
@@ -1833,6 +2575,13 @@ public class TemplateDefinitionController {
         entry.put("designation", user != null ? user.getTxtDesignation() : "");
         entry.put("txtDesignation", user != null ? user.getTxtDesignation() : "");
         entry.put("approvedDate", now().toString());
+        if (approvedIp != null && !approvedIp.trim().isEmpty()) {
+            entry.put("approvedIp", approvedIp.trim());
+        }
+        if (approvedVia != null && !approvedVia.trim().isEmpty()) {
+            entry.put("approvedVia", approvedVia.trim());
+        }
+        applyApprovalGeoToEntry(entry, approvedIp);
 
         List<Map<String, Object>> history = parseHistory(application.getTxtApprovalHistory());
         history.add(entry);
@@ -1842,7 +2591,7 @@ public class TemplateDefinitionController {
         application.setTxtPriorApprovals(writeJson(prior));
     }
 
-    private void appendSubmissionHistory(CfgTblCustomFormApplication application) {
+    private void appendSubmissionHistory(CfgTblCustomFormApplication application, HttpServletRequest request) {
         Integer submittedBy = application.getSerSubmittedBy();
         CfgTblUser user = submittedBy != null ? entityManager.find(CfgTblUser.class, submittedBy) : null;
         Map<String, Object> entry = new HashMap<>();
@@ -1866,6 +2615,12 @@ public class TemplateDefinitionController {
         entry.put("designation", user != null ? user.getTxtDesignation() : "");
         entry.put("txtDesignation", user != null ? user.getTxtDesignation() : "");
         entry.put("approvedDate", application.getDteCreatedDate() != null ? application.getDteCreatedDate().toString() : now().toString());
+        String clientIp = RequestMetadataUtil.resolveClientIp(request);
+        if (clientIp != null && !clientIp.trim().isEmpty()) {
+            entry.put("approvedIp", clientIp.trim());
+            entry.put("approvedVia", "SYSTEM");
+            applyApprovalGeoToEntry(entry, clientIp.trim());
+        }
 
         List<Map<String, Object>> history = parseHistory(application.getTxtApprovalHistory());
         history.add(entry);
@@ -1873,6 +2628,19 @@ public class TemplateDefinitionController {
         List<Map<String, Object>> prior = parseHistory(application.getTxtPriorApprovals());
         prior.add(new HashMap<>(entry));
         application.setTxtPriorApprovals(writeJson(prior));
+    }
+
+    private void applyApprovalGeoToEntry(Map<String, Object> entry, String approvedIp) {
+        if (approvedIp == null || approvedIp.trim().isEmpty()) {
+            return;
+        }
+        ipGeolocationService.resolve(approvedIp.trim()).ifPresent((geo) -> {
+            entry.put("approvalLatitude", geo.latitude);
+            entry.put("approvalLongitude", geo.longitude);
+            if (geo.label != null && !geo.label.isEmpty()) {
+                entry.put("approvalLocationLabel", geo.label);
+            }
+        });
     }
 
     private List<Map<String, Object>> activeTemplateHistory(List<Map<String, Object>> history) {
@@ -1916,6 +2684,122 @@ public class TemplateDefinitionController {
                 || "initiator".equalsIgnoreCase(stepId)
                 || "submission".equals(role)
                 || (level != null && level == 1 && "resubmitted_by_initiator".equalsIgnoreCase(action));
+    }
+
+    private void enrichTemplateApplicationPayload(CfgTblCustomFormApplication application, TemplateDefinition definition) {
+        if (application.getTxtApplicationData() == null || application.getTxtApplicationData().trim().isEmpty()) {
+            application.setTxtApplicationData("{}");
+        }
+        Map<String, Object> appData = parseMap(application.getTxtApplicationData());
+        if (asMap(appData.get("templatePayload")).isEmpty()) {
+            appData.put("templatePayload", parseMap(definition.getTxtTemplatePayload()));
+            application.setTxtApplicationData(writeJson(appData));
+        }
+        if (application.getSerSubmittedBy() == null) {
+            application.setSerSubmittedBy(toInteger(appData.get("submittedBy")));
+        }
+        if (application.getSerCreatedUser() == null) {
+            application.setSerCreatedUser(application.getSerSubmittedBy());
+        }
+        CfgTblUser submittedByUser = application.getSerSubmittedBy() != null
+                ? entityManager.find(CfgTblUser.class, application.getSerSubmittedBy())
+                : null;
+        if (submittedByUser != null) {
+            Integer submittedDepartmentId = submittedByUser.getHrTblDepartment() != null
+                    ? submittedByUser.getHrTblDepartment().getSerDepartmentId()
+                    : null;
+            String submittedDepartmentName = submittedByUser.getTxtDepartmentName();
+            if ((submittedDepartmentName == null || submittedDepartmentName.trim().isEmpty())
+                    && submittedByUser.getHrTblDepartment() != null) {
+                submittedDepartmentName = submittedByUser.getHrTblDepartment().getTxtDepartmentName();
+            }
+            if (submittedDepartmentId != null && appData.get("submittedDepartmentId") == null
+                    && appData.get("serSubmittedDepartmentId") == null
+                    && appData.get("submitterDepartmentId") == null) {
+                appData.put("submittedDepartmentId", submittedDepartmentId);
+            }
+            if (submittedDepartmentName != null && !submittedDepartmentName.trim().isEmpty()
+                    && appData.get("submittedDepartmentName") == null
+                    && appData.get("submitterDepartmentName") == null
+                    && appData.get("txtSubmittedDepartmentName") == null
+                    && appData.get("txtDepartmentName") == null
+                    && appData.get("departmentName") == null
+                    && appData.get("submittedByDepartmentName") == null) {
+                appData.put("submittedDepartmentName", submittedDepartmentName.trim());
+            }
+            application.setTxtApplicationData(writeJson(appData));
+        }
+    }
+
+    private void applyTemplateSubmitWorkflowState(CfgTblCustomFormApplication application, HttpServletRequest request) {
+        TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
+        TemplateStep firstStep = context.stepAt(0);
+        if (firstStep == null || firstStep.approverIds.isEmpty()) {
+            application.setTxtStatus("COMPLETED");
+            application.setIntCurrentApprovalLevel(1);
+            application.setSerCurrentApprover(null);
+        } else {
+            application.setTxtStatus("IN_PROGRESS");
+            application.setIntCurrentApprovalLevel(displayLevelForIndex(0));
+            application.setSerCurrentApprover(firstApproverId(firstStep));
+        }
+        appendSubmissionHistory(application, request);
+    }
+
+    private Map<String, Object> submitTemplateApplicationFromDraft(CfgTblCustomFormApplication incoming,
+                                                                   CfgTblCustomFormApplication existing,
+                                                                   TemplateDefinition definition,
+                                                                   HttpServletRequest request,
+                                                                   HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        int actorUserId = commonService.getCurrentLoggedInUser();
+        if (actorUserId <= 0) {
+            throw new IllegalArgumentException("You must be logged in to submit this application");
+        }
+        assertCanEditTemplateDraft(existing, actorUserId);
+
+        existing.setTxtApplicationData(incoming.getTxtApplicationData());
+        enrichTemplateApplicationPayload(existing, definition);
+        if (existing.getTxtFormCode() == null || existing.getTxtFormCode().trim().isEmpty()) {
+            existing.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, incoming.getTxtFormCode()));
+        } else {
+            existing.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, existing.getTxtFormCode()));
+        }
+        existing.setDteModifiedDate(now());
+        existing.setSerModifiedUser(actorUserId);
+        applyTemplateSubmitWorkflowState(existing, request);
+        entityManager.merge(existing);
+
+        logTemplateAction("FORM_SUBMIT", request, existing.getSerApplicationId(), "SUCCESS",
+                "Template application submitted from draft",
+                buildTemplateApplicationPayload(existing, "FORM_SUBMIT", null), null);
+
+        result.put("status", "Success");
+        result.put("message", "Template application submitted successfully");
+        result.put("applicationId", existing.getSerApplicationId());
+        result.put("formCode", existing.getTxtFormCode());
+        return result;
+    }
+
+    private boolean isDraftStatus(String status) {
+        return status != null && "DRAFT".equalsIgnoreCase(status.trim());
+    }
+
+    private void assertCanEditTemplateDraft(CfgTblCustomFormApplication application, int actorUserId) {
+        if (application == null) {
+            throw new IllegalArgumentException("Application not found");
+        }
+        if (actorUserId <= 0) {
+            throw new IllegalArgumentException("You are not authorized to edit this draft");
+        }
+        if (isAdminUser(actorUserId)) {
+            return;
+        }
+        Integer submittedBy = application.getSerSubmittedBy();
+        if (submittedBy != null && submittedBy.equals(actorUserId)) {
+            return;
+        }
+        throw new IllegalArgumentException("You are not authorized to edit this draft");
     }
 
     private String resolveUniqueTemplateApplicationCode(TemplateDefinition definition, String requestedCode) {
@@ -2084,6 +2968,190 @@ public class TemplateDefinitionController {
         } catch (Exception ex) {
             return new HashMap<>();
         }
+    }
+
+    private List<Map<String, Object>> extractCompletedPortalAttachmentMetas(Integer applicationId,
+                                                                             String formCode,
+                                                                             String status,
+                                                                             Object createdDate,
+                                                                             String templateName,
+                                                                             String applicationDataRaw) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        Map<String, Object> appData = parseMap(applicationDataRaw);
+        if (appData.isEmpty()) {
+            return items;
+        }
+
+        Map<String, String> attachmentFieldLabels = new HashMap<>();
+        for (Map<String, Object> field : asListOfMaps(asMap(appData.get("templatePayload")).get("fields"))) {
+            if (field == null || field.isEmpty()) {
+                continue;
+            }
+            if (!"attachment".equalsIgnoreCase(valueAsString(field.get("type")))) {
+                continue;
+            }
+            String fieldId = valueAsString(field.get("id"));
+            if (fieldId == null || fieldId.trim().isEmpty()) {
+                continue;
+            }
+            String label = valueAsString(field.get("label"));
+            attachmentFieldLabels.put(fieldId.trim(),
+                    label != null && !label.trim().isEmpty() ? label.trim() : "Attachment");
+        }
+
+        Map<String, Object> valueRoots = new LinkedHashMap<>();
+        valueRoots.put("root", appData);
+        valueRoots.put("templateValues", asMap(appData.get("templateValues")));
+
+        Set<String> emittedKeys = new HashSet<>();
+        for (Map.Entry<String, Object> rootEntry : valueRoots.entrySet()) {
+            Map<String, Object> valuesMap = asMap(rootEntry.getValue());
+            for (Map.Entry<String, Object> entry : valuesMap.entrySet()) {
+                String fieldId = entry.getKey();
+                if (fieldId == null || fieldId.trim().isEmpty()) {
+                    continue;
+                }
+                if ("templateValues".equals(fieldId)
+                        || "footerFields".equals(fieldId)
+                        || "templatePayload".equals(fieldId)
+                        || "templateOpinionRequest".equals(fieldId)) {
+                    continue;
+                }
+                List<Map<String, Object>> attachments = asListOfMaps(entry.getValue());
+                if (attachments.isEmpty() && entry.getValue() instanceof Map) {
+                    Map<String, Object> single = asMap(entry.getValue());
+                    if (!single.isEmpty()) {
+                        attachments = new ArrayList<>();
+                        attachments.add(single);
+                    }
+                }
+                for (int index = 0; index < attachments.size(); index++) {
+                    Map<String, Object> attachment = attachments.get(index);
+                    if (!looksLikeAttachmentPayload(attachment)) {
+                        continue;
+                    }
+                    String fileName = firstNonBlank(
+                            valueAsString(attachment.get("fileName")),
+                            valueAsString(attachment.get("name")));
+                    if (fileName == null || fileName.trim().isEmpty()) {
+                        continue;
+                    }
+                    String mimeType = firstNonBlank(
+                            valueAsString(attachment.get("mimeType")),
+                            valueAsString(attachment.get("type")),
+                            "application/octet-stream");
+                    if (!isAllowedPortalAttachmentMimeOrName(mimeType, fileName)) {
+                        continue;
+                    }
+                    String emitKey = applicationId + "|" + fieldId + "|" + index;
+                    if (!emittedKeys.add(emitKey)) {
+                        continue;
+                    }
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("applicationId", applicationId);
+                    item.put("formCode", formCode);
+                    item.put("status", status);
+                    item.put("createdDate", createdDate);
+                    item.put("templateName", templateName);
+                    item.put("fieldId", fieldId);
+                    item.put("fieldLabel", attachmentFieldLabels.getOrDefault(fieldId, "Attachment"));
+                    item.put("attachmentIndex", index);
+                    item.put("fileName", fileName.trim());
+                    item.put("mimeType", mimeType);
+                    items.add(item);
+                }
+            }
+        }
+        return items;
+    }
+
+    private Map<String, Object> resolvePortalAttachmentPayload(String applicationDataRaw,
+                                                               String fieldId,
+                                                               int attachmentIndex) {
+        Map<String, Object> appData = parseMap(applicationDataRaw);
+        if (appData.isEmpty()) {
+            return null;
+        }
+        Object rawValue = appData.get(fieldId);
+        if (rawValue == null) {
+            rawValue = asMap(appData.get("templateValues")).get(fieldId);
+        }
+        List<Map<String, Object>> attachments = asListOfMaps(rawValue);
+        if (attachments.isEmpty() && rawValue instanceof Map) {
+            attachments = new ArrayList<>();
+            attachments.add(asMap(rawValue));
+        }
+        if (attachmentIndex < 0 || attachmentIndex >= attachments.size()) {
+            return null;
+        }
+        Map<String, Object> source = attachments.get(attachmentIndex);
+        if (!looksLikeAttachmentPayload(source)) {
+            return null;
+        }
+        String fileName = firstNonBlank(valueAsString(source.get("fileName")), valueAsString(source.get("name")));
+        String mimeType = firstNonBlank(
+                valueAsString(source.get("mimeType")),
+                valueAsString(source.get("type")),
+                "application/octet-stream");
+        String dataUrl = valueAsString(source.get("dataUrl"));
+        String base64 = valueAsString(source.get("base64"));
+        if ((base64 == null || base64.trim().isEmpty()) && dataUrl != null && dataUrl.contains(",")) {
+            base64 = dataUrl.substring(dataUrl.indexOf(',') + 1);
+        }
+        if (fileName == null || fileName.trim().isEmpty() || base64 == null || base64.trim().isEmpty()) {
+            return null;
+        }
+        if (!isAllowedPortalAttachmentMimeOrName(mimeType, fileName)) {
+            return null;
+        }
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("fileName", fileName.trim());
+        payload.put("mimeType", mimeType);
+        payload.put("base64", base64.trim());
+        if (dataUrl != null && !dataUrl.trim().isEmpty()) {
+            payload.put("dataUrl", dataUrl.trim());
+        } else {
+            payload.put("dataUrl", "data:" + mimeType + ";base64," + base64.trim());
+        }
+        return payload;
+    }
+
+    private boolean looksLikeAttachmentPayload(Map<String, Object> value) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+        String fileName = firstNonBlank(valueAsString(value.get("fileName")), valueAsString(value.get("name")));
+        String base64 = valueAsString(value.get("base64"));
+        String dataUrl = valueAsString(value.get("dataUrl"));
+        return fileName != null && !fileName.trim().isEmpty()
+                && ((base64 != null && !base64.trim().isEmpty()) || (dataUrl != null && !dataUrl.trim().isEmpty()));
+    }
+
+    private boolean isAllowedPortalAttachmentMimeOrName(String mimeType, String fileName) {
+        String mime = mimeType == null ? "" : mimeType.trim().toLowerCase(Locale.ROOT);
+        if ("application/pdf".equals(mime)
+                || "image/webp".equals(mime)
+                || "image/png".equals(mime)
+                || "image/jpeg".equals(mime)
+                || "image/jpg".equals(mime)) {
+            return true;
+        }
+        String name = fileName == null ? "" : fileName.trim().toLowerCase(Locale.ROOT);
+        int dot = name.lastIndexOf('.');
+        String ext = dot >= 0 ? name.substring(dot + 1) : "";
+        return "pdf".equals(ext) || "webp".equals(ext) || "png".equals(ext) || "jpeg".equals(ext) || "jpg".equals(ext);
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) {
+                return value.trim();
+            }
+        }
+        return null;
     }
 
     private List<Map<String, Object>> parseHistory(String raw) {

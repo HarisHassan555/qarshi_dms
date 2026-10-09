@@ -159,6 +159,7 @@ import { TemplateApprovalComponent } from './components/template-approval/templa
 import { TemplateApprovedApplicationsComponent } from './components/template-approved-applications/template-approved-applications.component';
 import { MyApplicationComponent } from './components/my-application/my-application.component';
 import { UniverFormBuilderComponent } from './components/univer-form-builder/univer-form-builder.component';
+import { PortalAttachmentsPickerComponent } from './components/portal-attachments-picker/portal-attachments-picker.component';
 
 
 @NgModule({
@@ -294,7 +295,8 @@ import { UniverFormBuilderComponent } from './components/univer-form-builder/uni
         TemplateApprovedApplicationsComponent,
         TemplateApprovalComponent,
         MyApplicationComponent,
-        UniverFormBuilderComponent
+        UniverFormBuilderComponent,
+        PortalAttachmentsPickerComponent
     ],
 
     providers: [

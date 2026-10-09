@@ -189,6 +189,77 @@ public class CustomFormApplicationController {
         }
     }
 
+    @RequestMapping(value = "/getTemplateApprovalReminderPreview", method = RequestMethod.GET)
+    public Map<String, Object> getTemplateApprovalReminderPreview(@RequestParam Integer applicationId,
+            @RequestParam(required = false) Integer userId) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            int actorUserId = userId != null && userId > 0 ? userId : commonService.getCurrentLoggedInUser();
+            if (actorUserId <= 0) {
+                result.put("status", "Failure");
+                result.put("message", "User not authenticated");
+                return result;
+            }
+            return customFormApplicationService.getTemplateApprovalReminderPreview(applicationId, actorUserId);
+        } catch (Exception ex) {
+            logger.error("Error loading template approval reminder preview: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            return result;
+        }
+    }
+
+    @RequestMapping(value = "/sendTemplateApprovalManualReminder", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> sendTemplateApprovalManualReminder(@RequestBody Map<String, Object> requestBody) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Integer applicationId = toInteger(requestBody.get("applicationId"));
+            Integer userId = toInteger(requestBody.get("userId"));
+            int actorUserId = userId != null && userId > 0 ? userId : commonService.getCurrentLoggedInUser();
+            if (applicationId == null || applicationId <= 0) {
+                result.put("status", "Failure");
+                result.put("message", "Application ID is required");
+                return result;
+            }
+            if (actorUserId <= 0) {
+                result.put("status", "Failure");
+                result.put("message", "User not authenticated");
+                return result;
+            }
+            String subject = requestBody.get("subject") != null ? String.valueOf(requestBody.get("subject")) : "";
+            String body = requestBody.get("body") != null ? String.valueOf(requestBody.get("body")) : "";
+            String status = customFormApplicationService.sendTemplateApprovalManualReminder(applicationId, actorUserId,
+                    subject, body);
+            if (status != null && status.startsWith("Success")) {
+                result.put("status", "Success");
+                result.put("message", "Reminder email sent successfully");
+            } else {
+                result.put("status", "Failure");
+                result.put("message", status != null ? status.replaceFirst("^Failure:\\s*", "") : "Failed to send reminder");
+            }
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error sending template approval reminder: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            return result;
+        }
+    }
+
+    private Integer toInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value).trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
     @RequestMapping(value = "/submitApplication", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> submitApplication(@RequestBody CfgTblCustomFormApplication application,
             HttpServletRequest request,
@@ -541,7 +612,7 @@ public class CustomFormApplicationController {
         logger.debug("approveApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
         return renderEmailActionCommentForm("Approve Application",
                 "Enter your comments (required), then confirm approval.",
-                "/approveApplicationFromEmail", applicationId, userId, request);
+                "/approveApplicationFromEmail", "approve", applicationId, userId, request);
     }
 
     @RequestMapping(value = "/approveApplicationFromEmail", method = RequestMethod.POST, produces = MediaType.TEXT_HTML_VALUE)
@@ -552,6 +623,10 @@ public class CustomFormApplicationController {
             HttpServletResponse response) {
         logger.debug("approveApplicationFromEmailSubmit() - applicationId: " + applicationId + ", userId: " + userId);
         try {
+            String workflowUserNotice = resolveEmailWorkflowUserNotice(applicationId, userId);
+            if (workflowUserNotice != null) {
+                return renderEmailActionResultPage("Already Approved", workflowUserNotice);
+            }
             if (remarks == null || remarks.trim().isEmpty()) {
                 return renderEmailActionErrorPage("Comments required",
                         "Please enter comments before approving. Use your browser back button to return to the form.");
@@ -611,7 +686,7 @@ public class CustomFormApplicationController {
         logger.debug("rejectApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
         return renderEmailActionCommentForm("Reject Application",
                 "Enter your comments (required), then confirm rejection.",
-                "/rejectApplicationFromEmail", applicationId, userId, request);
+                "/rejectApplicationFromEmail", "reject", applicationId, userId, request);
     }
 
     @RequestMapping(value = "/rejectApplicationFromEmail", method = RequestMethod.POST, produces = MediaType.TEXT_HTML_VALUE)
@@ -902,7 +977,7 @@ public class CustomFormApplicationController {
         logger.debug("sendBackApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
         return renderEmailActionCommentForm("Send Back Application",
                 "Enter your comments (required), then confirm send back.", "/sendBackApplicationFromEmail",
-                applicationId, userId, request);
+                "sendBack", applicationId, userId, request);
     }
 
     @RequestMapping(value = "/sendBackApplicationFromEmail", method = RequestMethod.POST, produces = MediaType.TEXT_HTML_VALUE)
@@ -950,7 +1025,7 @@ public class CustomFormApplicationController {
         logger.debug("sendBackToInitiatorFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
         return renderEmailActionCommentForm("Send Back To Initiator",
                 "Enter your comments (required), then confirm send back to initiator.", "/sendBackToInitiatorFromEmail",
-                applicationId, userId, request);
+                "sendBackToInitiator", applicationId, userId, request);
     }
 
     @RequestMapping(value = "/sendBackToInitiatorFromEmail", method = RequestMethod.POST, produces = MediaType.TEXT_HTML_VALUE)
@@ -1255,15 +1330,21 @@ public class CustomFormApplicationController {
         return (com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO) customFormApplicationDAO;
     }
 
-    private String renderEmailActionCommentForm(String title, String subtitle, String actionPath, Integer applicationId,
-            Integer userId, HttpServletRequest request) {
+    private String renderEmailActionCommentForm(String title, String subtitle, String actionPath, String workflowAction,
+            Integer applicationId, Integer userId, HttpServletRequest request) {
+        String workflowUserNotice = resolveEmailWorkflowUserNotice(applicationId, userId);
+        if (workflowUserNotice != null) {
+            return renderEmailActionResultPage("Already Approved", workflowUserNotice);
+        }
         String terminalStateMessage = getEmailActionTerminalStateMessage(applicationId);
         if (terminalStateMessage != null) {
             return renderEmailActionErrorPage("Action Not Available", terminalStateMessage);
         }
         String contextPath = request != null ? request.getContextPath() : "";
         String actionUrl = contextPath + actionPath;
+        String confirmConfigJson = buildEmailWorkflowConfirmConfigJson(workflowAction);
         return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>" + escapeHtml(title) + "</title>"
+                + "<link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css'/>"
                 + "<style>body{font-family:Arial,sans-serif;background:#f5f5f5;padding:30px}"
                 + ".container{background:white;padding:28px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:560px;margin:0 auto}"
                 + "h2{margin:0 0 10px 0;color:#2c3e50;font-size:24px}.subtitle{color:#555;margin-bottom:18px}"
@@ -1271,16 +1352,115 @@ public class CustomFormApplicationController {
                 + "textarea{width:100%;min-height:110px;padding:10px;border:1px solid #d5d5d5;border-radius:6px;resize:vertical;font-size:14px;font-family:Arial,sans-serif;box-sizing:border-box}"
                 + ".hint{color:#888;font-size:12px;margin-top:8px}"
                 + "button{margin-top:18px;background:#1f6feb;color:#fff;border:none;border-radius:6px;padding:10px 18px;font-size:14px;cursor:pointer}"
-                + "button:hover{background:#1558b0}</style></head><body><div class='container'>"
+                + "button:hover{background:#1558b0}"
+                + getEmailWorkflowConfirmStyles()
+                + "</style></head><body><div class='container'>"
                 + "<h2>" + escapeHtml(title) + "</h2>"
                 + "<div class='subtitle'>" + escapeHtml(subtitle) + "</div>"
-                + "<form method='post' action='" + escapeHtml(actionUrl) + "'>"
+                + "<form id='emailActionForm' method='post' action='" + escapeHtml(actionUrl) + "'>"
                 + "<input type='hidden' name='applicationId' value='" + applicationId + "'/>"
                 + "<input type='hidden' name='userId' value='" + userId + "'/>"
                 + "<label for='remarks'>Comments / remarks <span style='color:#c0392b'>*</span></label>"
                 + "<textarea id='remarks' name='remarks' maxlength='2000' required placeholder='Enter comments (required)'></textarea>"
                 + "<div class='hint'>Required. Max 2000 characters.</div>"
-                + "<button type='submit'>Submit</button></form></div></body></html>";
+                + "<button type='submit'>Submit</button></form></div>"
+                + "<script src='https://cdn.jsdelivr.net/npm/sweetalert2@11'></script>"
+                + "<script>window.__emailWorkflowConfirmConfig=" + confirmConfigJson + ";"
+                + "window.__emailActionContextPath='" + escapeHtml(contextPath) + "';</script>"
+                + getEmailWorkflowConfirmScript()
+                + "</body></html>";
+    }
+
+    private String buildEmailWorkflowConfirmConfigJson(String workflowAction) {
+        String title;
+        String text;
+        String confirmButtonText;
+        String confirmButtonColor = "#4361ee";
+        if ("approve".equals(workflowAction)) {
+            title = "Approve application?";
+            text = "Move this application to the next step in the pipeline.";
+            confirmButtonText = "Approve";
+        } else if ("reject".equals(workflowAction)) {
+            title = "Reject application?";
+            text = "This will reject the application. You cannot undo this action.";
+            confirmButtonText = "Reject";
+            confirmButtonColor = "#e7515a";
+        } else if ("sendBack".equals(workflowAction)) {
+            title = "Send back?";
+            text = "Return this application to the previous approver.";
+            confirmButtonText = "Send back";
+        } else if ("sendBackToInitiator".equals(workflowAction)) {
+            title = "Send to initiator?";
+            text = "Return this application to the person who submitted it.";
+            confirmButtonText = "Send to initiator";
+        } else {
+            title = "Confirm action?";
+            text = "Please confirm you want to continue.";
+            confirmButtonText = "Confirm";
+        }
+        return "{"
+                + "\"title\":" + jsonString(title) + ","
+                + "\"text\":" + jsonString(text) + ","
+                + "\"confirmButtonText\":" + jsonString(confirmButtonText) + ","
+                + "\"confirmButtonColor\":" + jsonString(confirmButtonColor)
+                + "}";
+    }
+
+    private String getEmailWorkflowConfirmStyles() {
+        return ".swal2-popup.workflow-confirm-swal{width:22rem!important;max-width:calc(100vw - 2rem)!important;"
+                + "padding:1.25rem 1.35rem 1.1rem!important;border-radius:12px!important;"
+                + "box-shadow:0 18px 40px rgba(15,23,42,0.14)!important}"
+                + ".swal2-popup.workflow-confirm-swal .workflow-confirm-title{font-size:1rem!important;font-weight:600!important;"
+                + "color:#0f172a!important;text-align:left!important;line-height:1.35!important;padding:0!important}"
+                + ".swal2-popup.workflow-confirm-swal .workflow-confirm-body{margin:0.4rem 0 0!important;padding:0!important;"
+                + "text-align:left!important;font-weight:400!important;color:#64748b!important}"
+                + ".swal2-popup.workflow-confirm-swal .workflow-confirm-message{margin:0;font-size:0.8125rem;line-height:1.45}"
+                + ".swal2-popup.workflow-confirm-swal .workflow-confirm-actions{width:100%;margin:1rem 0 0!important;"
+                + "padding:0;gap:0.5rem;justify-content:flex-end!important;flex-wrap:nowrap}"
+                + ".swal2-popup.workflow-confirm-swal .workflow-confirm-primary,.swal2-popup.workflow-confirm-swal .workflow-confirm-cancel{"
+                + "margin:0!important;padding:0.45rem 0.85rem!important;font-size:0.8125rem!important;line-height:1.25rem!important;"
+                + "letter-spacing:0!important;border-radius:8px!important;box-shadow:none!important;min-width:0}"
+                + ".swal2-popup.workflow-confirm-swal .workflow-confirm-cancel{background-color:#fff!important;color:#475569!important;"
+                + "border:1px solid #e2e8f0!important}";
+    }
+
+    private String getEmailWorkflowConfirmScript() {
+        return "<script>(function(){var form=document.getElementById('emailActionForm');"
+                + "if(!form||!window.Swal){return;}"
+                + "var confirmConfig=window.__emailWorkflowConfirmConfig||{};"
+                + "var signatureRequiredMessage='Before approving the document, kindly upload your signature.';"
+                + "var signaturePopupClass={popup:'sweet-alerts workflow-confirm-swal',title:'workflow-confirm-title',"
+                + "htmlContainer:'workflow-confirm-body',actions:'workflow-confirm-actions',"
+                + "confirmButton:'workflow-confirm-primary',cancelButton:'workflow-confirm-cancel'};"
+                + "function showSignatureRequiredAlert(){return Swal.fire({title:'Signature required',"
+                + "html:'<p class=\"workflow-confirm-message\">'+signatureRequiredMessage+'</p>',icon:'warning',"
+                + "confirmButtonText:'OK',customClass:signaturePopupClass});}"
+                + "function actorHasSignature(userId){var base=window.__emailActionContextPath||'';"
+                + "return fetch(base+'/getUserSignaturePath?userId='+encodeURIComponent(userId),{credentials:'same-origin'})"
+                + ".then(function(response){return response.json();})"
+                + ".then(function(payload){return payload&&payload.status==='Success'&&payload.hasSignature===true;})"
+                + ".catch(function(){return false;});}"
+                + "function showActionConfirm(){return Swal.fire({title:confirmConfig.title||'Confirm action?',"
+                + "html:'<p class=\"workflow-confirm-message\">'+(confirmConfig.text||'')+'</p>',"
+                + "showCancelButton:true,confirmButtonText:confirmConfig.confirmButtonText||'Confirm',"
+                + "cancelButtonText:'Cancel',confirmButtonColor:confirmConfig.confirmButtonColor||'#4361ee',"
+                + "reverseButtons:true,focusCancel:true,customClass:signaturePopupClass});}"
+                + "form.addEventListener('submit',function(event){event.preventDefault();"
+                + "var remarks=document.getElementById('remarks');"
+                + "if(!remarks||!remarks.value||!remarks.value.trim()){if(remarks){remarks.reportValidity();}return;}"
+                + "var userIdInput=form.querySelector('input[name=\"userId\"]');"
+                + "var userId=userIdInput?userIdInput.value:'';"
+                + "actorHasSignature(userId).then(function(hasSignature){"
+                + "if(!hasSignature){showSignatureRequiredAlert();return;}"
+                + "showActionConfirm().then(function(result){if(result.isConfirmed){HTMLFormElement.prototype.submit.call(form);}});"
+                + "});});})();</script>";
+    }
+
+    private String jsonString(String value) {
+        if (value == null) {
+            return "\"\"";
+        }
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "") + "\"";
     }
 
     private String renderEmailActionResultPage(String title, String message) {
@@ -1299,6 +1479,68 @@ public class CustomFormApplicationController {
                 + ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}.message{color:#333;font-size:16px;line-height:1.6}</style></head><body>"
                 + "<div class='container'><div class='error'>" + escapeHtml(title) + "</div>"
                 + "<div class='message'>" + escapeHtml(message) + "</div></div></body></html>";
+    }
+
+    private String resolveEmailWorkflowUserNotice(Integer applicationId, Integer userId) {
+        if (applicationId == null || userId == null || userId <= 0) {
+            return null;
+        }
+        try {
+            if (isTemplateBuilderApplication(applicationId)) {
+                return templateDefinitionController.resolveWorkflowUserNotice(applicationId, userId);
+            }
+            CfgTblCustomFormApplication application = customFormApplicationService.getApplicationById(applicationId);
+            if (application != null && hasUserApprovedInApplicationHistory(application, userId)) {
+                return "Already approved by you.";
+            }
+            return null;
+        } catch (Exception ex) {
+            logger.warn("Unable to resolve email workflow notice for applicationId=" + applicationId + ", userId="
+                    + userId + ": " + ex.getMessage());
+            return null;
+        }
+    }
+
+    private boolean hasUserApprovedInApplicationHistory(CfgTblCustomFormApplication application, Integer userId) {
+        if (application == null || userId == null || userId <= 0) {
+            return false;
+        }
+        return historyContainsUserApproval(application.getTxtApprovalHistory(), userId)
+                || historyContainsUserApproval(application.getTxtPriorApprovals(), userId);
+    }
+
+    private boolean historyContainsUserApproval(String rawHistory, Integer userId) {
+        if (rawHistory == null || rawHistory.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            List<Map<String, Object>> history = objectMapper.readValue(rawHistory,
+                    new TypeReference<List<Map<String, Object>>>() {
+                    });
+            for (Map<String, Object> entry : history) {
+                if (entry == null) {
+                    continue;
+                }
+                Integer entryUserId = getIntegerValue(entry.get("approvedBy"));
+                if (entryUserId == null) {
+                    entryUserId = getIntegerValue(entry.get("userId"));
+                }
+                if (entryUserId == null) {
+                    entryUserId = getIntegerValue(entry.get("approverUserId"));
+                }
+                if (entryUserId == null) {
+                    continue;
+                }
+                String action = entry.get("action") != null ? String.valueOf(entry.get("action"))
+                        : (entry.get("status") != null ? String.valueOf(entry.get("status")) : "");
+                if (entryUserId.equals(userId) && "APPROVED".equalsIgnoreCase(action.trim())) {
+                    return true;
+                }
+            }
+        } catch (Exception ex) {
+            logger.warn("Failed to parse approval history for duplicate email notice: " + ex.getMessage());
+        }
+        return false;
     }
 
     private String getEmailActionTerminalStateMessage(Integer applicationId) {
@@ -1380,6 +1622,7 @@ public class CustomFormApplicationController {
         requestBody.put("userId", userId);
         requestBody.put("approverUserId", userId);
         requestBody.put("remarks", remarks != null ? remarks : "");
+        requestBody.put("approvedVia", "EMAIL");
         return requestBody;
     }
 

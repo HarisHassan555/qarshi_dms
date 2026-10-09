@@ -198,6 +198,21 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     }
 
     @Override
+    public java.util.Map<String, Object> getTemplateApprovalReminderPreview(Integer applicationId, Integer actorUserId) {
+        logger.debug("getTemplateApprovalReminderPreview() - applicationId: " + applicationId + ", actorUserId: "
+                + actorUserId);
+        return customFormApplicationDAO.getTemplateApprovalReminderPreview(applicationId, actorUserId);
+    }
+
+    @Override
+    public String sendTemplateApprovalManualReminder(Integer applicationId, Integer actorUserId, String subject,
+            String body) {
+        logger.debug("sendTemplateApprovalManualReminder() - applicationId: " + applicationId + ", actorUserId: "
+                + actorUserId);
+        return customFormApplicationDAO.sendTemplateApprovalManualReminder(applicationId, actorUserId, subject, body);
+    }
+
+    @Override
     public String assignAssetCode(Integer applicationId, String assetCode, Integer userId, String approvedIp) {
         logger.debug("assignAssetCode() - applicationId: " + applicationId + ", userId: " + userId);
         return customFormApplicationDAO.assignAssetCode(applicationId, assetCode, userId, approvedIp);

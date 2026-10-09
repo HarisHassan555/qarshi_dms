@@ -1,0 +1,143 @@
+<div class="modal-backdrop" (click)="close()">
+    <div class="portal-attachments-modal portal-attachments-modal-windows" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+            <h3>Portal Attachments (Completed)</h3>
+            <button type="button" title="Close" (click)="close()">x</button>
+        </div>
+        <div class="portal-attachments-toolbar">
+            <input
+                #portalSearchInput
+                type="text"
+                class="form-input portal-attachments-search"
+                placeholder="Search by file, form code, or template..."
+                [value]="searchText" />
+            <div class="portal-view-toggle" role="group" aria-label="Portal attachment view mode">
+                <button
+                    type="button"
+                    class="portal-view-toggle-btn"
+                    [class.is-active]="viewMode === 'details'"
+                    title="Details view"
+                    (click)="setViewMode('details')">
+                    <icon-layout-grid class="h-4 w-4"></icon-layout-grid>
+                    <span>Details</span>
+                </button>
+                <button
+                    type="button"
+                    class="portal-view-toggle-btn"
+                    [class.is-active]="viewMode === 'list'"
+                    title="List view"
+                    (click)="setViewMode('list')">
+                    <icon-list-check class="h-4 w-4"></icon-list-check>
+                    <span>List</span>
+                </button>
+            </div>
+        </div>
+        <div class="portal-attachments-loading" *ngIf="loading">Loading completed portal files...</div>
+        <div class="portal-attachments-empty" *ngIf="!loading && filteredItems.length === 0">
+            No completed portal documents found. Completed applications with a saved PDF will appear here.
+        </div>
+        <div class="portal-attachments-grid" *ngIf="!loading && filteredItems.length > 0 && viewMode === 'details'">
+            <div
+                class="portal-file-card"
+                *ngFor="let item of filteredItems"
+                [class.is-selected]="isSelected(item)">
+                <div class="portal-file-icon" [class.is-image]="isImageFile(item.fileName)" aria-hidden="true">
+                    <icon-gallery *ngIf="isImageFile(item.fileName)" class="h-10 w-10"></icon-gallery>
+                    <icon-file *ngIf="!isImageFile(item.fileName)" class="h-10 w-10"></icon-file>
+                </div>
+                <div class="portal-file-name" [title]="item.fileName">{{ item.fileName }}</div>
+                <div class="portal-file-meta" [title]="(item.templateName || 'Template') + ' · ' + (item.formCode || ('App #' + item.applicationId))">
+                    {{ item.templateName || 'Template' }} · {{ item.formCode || ('App #' + item.applicationId) }}
+                </div>
+                <div class="portal-file-actions">
+                    <label class="portal-file-select" (click)="$event.stopPropagation()">
+                        <input
+                            type="checkbox"
+                            [checked]="isSelected(item)"
+                            [disabled]="importing"
+                            (change)="toggleSelection(item, $event)" />
+                        <span>Select</span>
+                    </label>
+                    <button
+                        type="button"
+                        class="portal-file-view-btn"
+                        title="View file"
+                        [disabled]="previewLoading"
+                        (click)="previewItem(item, $event)">
+                        <icon-eye class="h-4 w-4"></icon-eye>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="portal-attachments-list-view" *ngIf="!loading && filteredItems.length > 0 && viewMode === 'list'">
+            <div
+                class="portal-file-row"
+                *ngFor="let item of filteredItems"
+                [class.is-selected]="isSelected(item)">
+                <label class="portal-file-select portal-file-select-compact" (click)="$event.stopPropagation()">
+                    <input
+                        type="checkbox"
+                        [checked]="isSelected(item)"
+                        [disabled]="importing"
+                        (change)="toggleSelection(item, $event)" />
+                </label>
+                <div class="portal-file-row-icon" [class.is-image]="isImageFile(item.fileName)" aria-hidden="true">
+                    <icon-gallery *ngIf="isImageFile(item.fileName)" class="h-5 w-5"></icon-gallery>
+                    <icon-file *ngIf="!isImageFile(item.fileName)" class="h-5 w-5"></icon-file>
+                </div>
+                <div class="portal-file-row-main">
+                    <div class="portal-file-name" [title]="item.fileName">{{ item.fileName }}</div>
+                    <div class="portal-file-meta">
+                        {{ item.templateName || 'Template' }} · {{ item.formCode || ('App #' + item.applicationId) }}
+                        · {{ item.fieldLabel || 'Attachment' }}
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    class="portal-file-view-btn"
+                    title="View file"
+                    [disabled]="previewLoading"
+                    (click)="previewItem(item, $event)">
+                    <icon-eye class="h-4 w-4"></icon-eye>
+                </button>
+            </div>
+        </div>
+        <div class="portal-attachments-footer">
+            <div class="portal-attachments-selected-count">{{ selectedCount }} selected</div>
+            <div class="portal-attachments-footer-actions">
+                <button type="button" class="btn btn-secondary" (click)="close()">Cancel</button>
+                <button
+                    type="button"
+                    class="btn btn-primary"
+                    [disabled]="selectedCount === 0 || importing"
+                    (click)="openSelected()">
+                    {{ importing ? 'Adding...' : 'Open' }}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-backdrop portal-preview-backdrop" *ngIf="showPreview" (click)="closePreview()">
+    <div class="portal-preview-modal" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+            <h3>{{ previewName || 'File preview' }}</h3>
+            <button type="button" title="Close" (click)="closePreview()">x</button>
+        </div>
+        <div class="portal-preview-body">
+            <div *ngIf="previewLoading" class="portal-attachments-loading">Loading preview...</div>
+            <p *ngIf="!previewLoading && previewError" class="portal-preview-error">{{ previewError }}</p>
+            <iframe
+                *ngIf="!previewLoading && !previewError && previewUrl && previewIsPdf"
+                class="portal-preview-frame"
+                title="Portal file preview"
+                [src]="previewUrl">
+            </iframe>
+            <img
+                *ngIf="!previewLoading && !previewError && previewUrl && !previewIsPdf"
+                class="portal-preview-image"
+                [src]="previewUrl"
+                [alt]="previewName || 'Attachment preview'" />
+        </div>
+    </div>
+</div>

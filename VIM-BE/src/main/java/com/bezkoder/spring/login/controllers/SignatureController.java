@@ -3,6 +3,7 @@ package com.bezkoder.spring.login.controllers;
 import com.bezkoder.spring.login.admin.bll.services.ICommonService;
 import com.bezkoder.spring.login.admin.bll.services.IUserService;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
+import com.bezkoder.spring.login.admin.utility.common.SignatureStorageUtil;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -360,9 +361,11 @@ public class SignatureController {
                 return ResponseEntity.badRequest().body(result);
             }
 
+            String storedPath = user.getTxtSignaturePath() != null ? user.getTxtSignaturePath() : "";
+            boolean hasSignature = SignatureStorageUtil.hasStoredSignatureFile(storedPath);
             result.put("status", "Success");
-            result.put("signaturePath", user.getTxtSignaturePath() != null ? user.getTxtSignaturePath() : "");
-            result.put("hasSignature", user.getTxtSignaturePath() != null && !user.getTxtSignaturePath().isEmpty());
+            result.put("signaturePath", storedPath);
+            result.put("hasSignature", hasSignature);
             result.put("txtDepartmentName", user.getTxtDepartmentName() != null ? user.getTxtDepartmentName() : "");
             result.put("txtDesignation", user.getTxtDesignation() != null ? user.getTxtDesignation() : "");
             return ResponseEntity.ok(result);

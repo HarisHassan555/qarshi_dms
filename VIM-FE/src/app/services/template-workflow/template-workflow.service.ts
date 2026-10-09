@@ -19,6 +19,7 @@ export interface SavedTemplateDefinition {
     backendForm?: any;
     visibilityUserIds?: number[];
     isActive?: boolean;
+    isDraft?: boolean;
 }
 
 export interface TemplateDefinitionSummaryResponse {
@@ -64,10 +65,16 @@ export class TemplateWorkflowService {
         };
     }
 
-    saveTemplate(payload: any, existingId?: string): Observable<SavedTemplateDefinition> {
+    saveTemplate(payload: any, existingId?: string, options?: { asDraft?: boolean }): Observable<SavedTemplateDefinition> {
+        const asDraft = options?.asDraft === true;
         const convention = this.parseCodeConvention(payload.codeConvention || 'TPL-0000');
         const formId = this.normalizeBackendId(existingId || payload.id);
-        const backendPayload = this.buildBackendFormPayload(payload, convention, formId);
+        const normalizedPayload = {
+            ...payload,
+            isDraft: asDraft,
+            isActive: asDraft ? false : payload.isActive !== false
+        };
+        const backendPayload = this.buildBackendFormPayload(normalizedPayload, convention, formId, asDraft);
         const endpoint = backendPayload.serFormId ? 'updateCustomForm' : 'addNewCustomForm';
 
         return this.http.post<any>(urls.API_URL + endpoint, backendPayload).pipe(
@@ -76,7 +83,7 @@ export class TemplateWorkflowService {
                 if (!response || response.status !== 'Success' || !formId) {
                     throw new Error(response?.message || 'Template could not be saved');
                 }
-                return this.saveTemplateDefinition(payload, convention, formId).pipe(
+                return this.saveTemplateDefinition(normalizedPayload, convention, formId).pipe(
                     switchMap(() => this.getTemplate(String(formId)))
                 );
             }),
@@ -99,7 +106,13 @@ export class TemplateWorkflowService {
         );
     }
 
-    getTemplateSummaries(page = 0, pageSize = 10, search = '', userId?: number | null): Observable<TemplateDefinitionSummaryResponse> {
+    getTemplateSummaries(
+        page = 0,
+        pageSize = 10,
+        search = '',
+        userId?: number | null,
+        draftsOnly = false
+    ): Observable<TemplateDefinitionSummaryResponse> {
         const resolvedUserId = userId ?? this.getCurrentUserId();
         const params = new URLSearchParams();
         params.set('page', String(Math.max(0, page)));
@@ -109,6 +122,9 @@ export class TemplateWorkflowService {
         }
         if (search.trim()) {
             params.set('search', search.trim());
+        }
+        if (draftsOnly) {
+            params.set('draftsOnly', 'true');
         }
 
         return this.http.get<any>(urls.API_URL + 'getTemplateDefinitionSummaries?' + params.toString()).pipe(
@@ -213,7 +229,8 @@ export class TemplateWorkflowService {
         const nextPayload = this.applyTemplateMetadata(template?.payload || {}, {
             userIds: Array.isArray(template?.visibilityUserIds) ? template.visibilityUserIds : [],
             formId: template?.id,
-            isActive
+            isActive,
+            isDraft: isActive ? false : (template?.isDraft === true || template?.payload?.isDraft === true)
         });
         const definitionPayload = {
             serFormId: Number(template.id),
@@ -263,6 +280,30 @@ export class TemplateWorkflowService {
         return this.http.get<any>(urls.API_URL + 'getTemplatePendingApprovals?' + params.toString());
     }
 
+    getCompletedTemplatePortalAttachments(page = 0, pageSize = 50, search = ''): Observable<any> {
+        const params = new URLSearchParams({
+            page: String(page),
+            pageSize: String(pageSize)
+        });
+        if (search && search.trim()) {
+            params.set('search', search.trim());
+        }
+        return this.http.get<any>(urls.API_URL + 'getCompletedTemplatePortalAttachments?' + params.toString());
+    }
+
+    getCompletedTemplatePortalAttachmentContent(
+        applicationId: number | string,
+        fieldId: string,
+        attachmentIndex: number
+    ): Observable<any> {
+        const params = new URLSearchParams({
+            applicationId: String(applicationId),
+            fieldId: String(fieldId || ''),
+            attachmentIndex: String(attachmentIndex)
+        });
+        return this.http.get<any>(urls.API_URL + 'getCompletedTemplatePortalAttachmentContent?' + params.toString());
+    }
+
     getTemplateApprovedApplications(userId: number, page = 0, pageSize = 10, search = ''): Observable<any> {
         const params = new URLSearchParams();
         params.set('userId', String(userId || 0));
@@ -280,11 +321,52 @@ export class TemplateWorkflowService {
         );
     }
 
+    saveTemplateDraft(
+        template: SavedTemplateDefinition,
+        values: Record<string, any>,
+        userPipeline: any[] = [],
+        options?: { applicationId?: number | string | null; formCode?: string | null }
+    ): Observable<{ applicationId: number; formCode: string }> {
+        const normalizedValues = this.normalizeApplicationValuesForStorage(values);
+        const applicationData = {
+            ...normalizedValues,
+            templateValues: normalizedValues,
+            footerFields: userPipeline,
+            templatePayload: template.payload
+        };
+        const applicationId = Number(options?.applicationId);
+        const payload: any = {
+            serFormId: Number(template.id),
+            txtFormCode: options?.formCode || null,
+            txtApplicationData: JSON.stringify(applicationData),
+            serSubmittedBy: this.getCurrentUserId(),
+            blIsActive: true,
+            blIsDeleted: false,
+            blnStatus: true
+        };
+        if (Number.isFinite(applicationId) && applicationId > 0) {
+            payload.serApplicationId = applicationId;
+        }
+
+        return this.http.post<any>(urls.API_URL + 'saveTemplateApplicationDraft', payload).pipe(
+            map((response) => {
+                if (!response || response.status !== 'Success') {
+                    throw new Error(response?.message || 'Draft could not be saved');
+                }
+                return {
+                    applicationId: Number(response.applicationId),
+                    formCode: String(response.formCode || options?.formCode || '')
+                };
+            })
+        );
+    }
+
     submitTemplate(
         template: SavedTemplateDefinition,
         values: Record<string, any>,
         userPipeline: any[] = [],
-        codeOverride?: string
+        codeOverride?: string,
+        applicationId?: number | string | null
     ): Observable<TemplateSubmission> {
         const normalizedValues = this.normalizeApplicationValuesForStorage(values);
         const applicationData = {
@@ -293,7 +375,8 @@ export class TemplateWorkflowService {
             footerFields: userPipeline,
             templatePayload: template.payload
         };
-        const payload = {
+        const numericApplicationId = Number(applicationId);
+        const payload: any = {
             serFormId: Number(template.id),
             txtFormCode: codeOverride || null,
             txtApplicationData: JSON.stringify(applicationData),
@@ -305,6 +388,9 @@ export class TemplateWorkflowService {
             blnStatus: true,
             deferEmail: true
         };
+        if (Number.isFinite(numericApplicationId) && numericApplicationId > 0) {
+            payload.serApplicationId = numericApplicationId;
+        }
 
         return this.http.post<any>(urls.API_URL + 'submitTemplateApplication', payload).pipe(
             map((response) => {
@@ -358,13 +444,33 @@ export class TemplateWorkflowService {
         return this.http.post<any>(urls.API_URL + 'sendTemplatePostApprovalEmails?applicationId=' + encodeURIComponent(String(applicationId)), {});
     }
 
-    getApplication(applicationId: string | number): Observable<any> {
-        return this.http.get<any>(urls.API_URL + 'getTemplateApplicationById?applicationId=' + encodeURIComponent(String(applicationId)));
+    getApplication(applicationId: string | number, userId?: number | null): Observable<any> {
+        let url = urls.API_URL + 'getTemplateApplicationById?applicationId=' + encodeURIComponent(String(applicationId));
+        if (userId != null && Number(userId) > 0) {
+            url += '&userId=' + encodeURIComponent(String(userId));
+        }
+        return this.http.get<any>(url);
     }
 
     downloadTemplateApplicationPdf(applicationId: string | number): Observable<Blob> {
         return this.http.get(urls.API_URL + 'downloadTemplateApplicationPdf?applicationId=' + encodeURIComponent(String(applicationId)), {
             responseType: 'blob'
+        });
+    }
+
+    getTemplateApprovalReminderPreview(applicationId: string | number, userId: number): Observable<any> {
+        const params = new URLSearchParams();
+        params.set('applicationId', String(applicationId));
+        params.set('userId', String(userId));
+        return this.http.get<any>(urls.API_URL + 'getTemplateApprovalReminderPreview?' + params.toString());
+    }
+
+    sendTemplateApprovalManualReminder(applicationId: string | number, userId: number, subject: string, body: string): Observable<any> {
+        return this.http.post<any>(urls.API_URL + 'sendTemplateApprovalManualReminder', {
+            applicationId,
+            userId,
+            subject,
+            body
         });
     }
 
@@ -404,6 +510,12 @@ export class TemplateWorkflowService {
                 return response;
             })
         );
+    }
+
+    getTemplateApprovalLocationByIp(ip: string) {
+        return this.http.get<any>(urls.API_URL + 'getTemplateApprovalLocationByIp', {
+            params: { ip: ip || '' }
+        });
     }
 
     approveTemplateApplication(applicationId: string | number, remarks: string, approverUserId?: number | null, deferEmail = false) {
@@ -495,7 +607,8 @@ export class TemplateWorkflowService {
         const normalizedTemplatePayload = this.applyTemplateMetadata(templatePayload, {
             userIds: visibilityUserIds,
             formId,
-            isActive: this.extractTemplateIsActive(payload)
+            isActive: this.extractTemplateIsActive(payload),
+            isDraft: payload?.isDraft === true
         });
 
         const definitionPayload = {
@@ -516,17 +629,18 @@ export class TemplateWorkflowService {
         );
     }
 
-    private buildBackendFormPayload(payload: any, convention: TemplateCodeConvention, existingId?: string): any {
+    private buildBackendFormPayload(payload: any, convention: TemplateCodeConvention, existingId?: string, asDraft = false): any {
         const fields = Array.isArray(payload.fields) ? payload.fields : [];
+        const publishActive = !asDraft && payload.isActive !== false;
         return {
             ...(existingId ? { serFormId: Number(existingId) } : {}),
             txtFormName: payload.name || 'Untitled Template',
             txtFormDescription: 'template-builder',
             txtConventionPrefix: convention.prefix,
             txtFormCode: convention.pattern,
-            blIsActive: true,
+            blIsActive: publishActive,
             blIsDeleted: false,
-            blnStatus: true,
+            blnStatus: publishActive,
             txtUserIds: null,
             cfgTblCustomFormFields: fields.map((field: any, index: number) => ({
                     txtFieldLabel: field.label,
@@ -557,6 +671,7 @@ export class TemplateWorkflowService {
 
         const visibilityUserIds = this.extractVisibilityUserIds(payload);
         const isActive = this.extractTemplateIsActive(payload, definition);
+        const isDraft = payload?.isDraft === true;
         const convention = this.parseCodeConvention(payload.codeConvention || definition.txtCodeConvention || 'TPL-0000');
         payload = {
             ...payload,
@@ -568,6 +683,7 @@ export class TemplateWorkflowService {
             visibleUserIds: visibilityUserIds,
             visibilityUserIds,
             isActive,
+            isDraft,
             backendDefinition: definition
         };
 
@@ -580,7 +696,8 @@ export class TemplateWorkflowService {
             payload,
             backendForm: definition,
             visibilityUserIds,
-            isActive
+            isActive,
+            isDraft
         };
     }
 
@@ -594,6 +711,7 @@ export class TemplateWorkflowService {
             summary?.visibilityUserIds ?? summary?.visibleUserIds ?? summary?.selectedUsers
         );
         const isActive = summary?.isActive === false ? false : this.extractTemplateIsActive(summary);
+        const isDraft = summary?.isDraft === true;
 
         return {
             id: String(summary.serFormId),
@@ -604,7 +722,8 @@ export class TemplateWorkflowService {
             payload: null,
             backendForm: summary,
             visibilityUserIds,
-            isActive
+            isActive,
+            isDraft
         };
     }
 
@@ -618,6 +737,7 @@ export class TemplateWorkflowService {
             ...payload,
             name: newTemplateName,
             isActive: template?.isActive !== false,
+            isDraft: false,
             visibleUserIds: Array.isArray(template?.visibilityUserIds) ? [...template.visibilityUserIds] : [],
             visibilityUserIds: Array.isArray(template?.visibilityUserIds) ? [...template.visibilityUserIds] : []
         };
@@ -838,12 +958,13 @@ export class TemplateWorkflowService {
         return true;
     }
 
-    private applyTemplateMetadata(payload: any, options: { userIds: number[]; formId?: string | number; isActive: boolean }): any {
-        const { userIds, formId, isActive } = options;
+    private applyTemplateMetadata(payload: any, options: { userIds: number[]; formId?: string | number; isActive: boolean; isDraft?: boolean }): any {
+        const { userIds, formId, isActive, isDraft } = options;
         return {
             ...payload,
             ...(formId != null ? { id: String(formId) } : {}),
             isActive,
+            isDraft: isDraft === true,
             blIsActive: isActive,
             blnStatus: isActive,
             visibleUserIds: [...userIds],

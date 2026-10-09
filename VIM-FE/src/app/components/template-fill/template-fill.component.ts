@@ -173,7 +173,11 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     isSendingTestEmail = false;
     testEmailMessage = '';
     isSubmitting = false;
+    isSavingDraft = false;
     showAttachmentsModal = false;
+    showPortalAttachmentModal = false;
+    private portalAttachmentTargetField: TemplateField | null = null;
+    private attachmentSourceByFieldId: { [fieldId: string]: 'computer' | 'portal' | '' } = {};
     activeInlineWordEditorFieldId: string | null = null;
     readonly wordEditor = WORD_EDITOR_CKEDITOR;
     readonly wordEditorConfig = WORD_EDITOR_CKEDITOR_CONFIG;
@@ -251,6 +255,19 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
 
     get isEditingExistingApplication(): boolean {
         return !!this.editingApplication?.serApplicationId;
+    }
+
+    get isDraftApplication(): boolean {
+        return String(this.editingApplication?.txtStatus || '').toUpperCase() === 'DRAFT';
+    }
+
+    get isSentBackForEdit(): boolean {
+        if (!this.editingApplication || this.isDraftApplication) {
+            return false;
+        }
+        const status = String(this.editingApplication?.txtStatus || '').toUpperCase();
+        const currentLevel = Number(this.editingApplication?.intCurrentApprovalLevel);
+        return status === 'PENDING' && Number.isFinite(currentLevel) && currentLevel < 0;
     }
 
     private async resolveInitialApplicationCode(): Promise<string> {
@@ -541,6 +558,56 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         }, []);
     }
 
+    getAttachmentSource(fieldId: string): 'computer' | 'portal' | '' {
+        return this.attachmentSourceByFieldId[fieldId] || '';
+    }
+
+    onAttachmentSourceChanged(field: TemplateField, source: 'computer' | 'portal' | ''): void {
+        this.attachmentSourceByFieldId[field.id] = source || '';
+        if (source === 'portal' && this.canCurrentStepFillField(field)) {
+            this.openPortalAttachmentModal(field);
+        }
+    }
+
+    openPortalAttachmentModal(field: TemplateField): void {
+        if (!this.canCurrentStepFillField(field)) {
+            return;
+        }
+        this.attachmentSourceByFieldId[field.id] = 'portal';
+        this.portalAttachmentTargetField = field;
+        this.showPortalAttachmentModal = true;
+    }
+
+    closePortalAttachmentModal(): void {
+        this.showPortalAttachmentModal = false;
+        this.portalAttachmentTargetField = null;
+    }
+
+    onPortalFilesSelected(payloads: AttachmentPayload[]): void {
+        const field = this.portalAttachmentTargetField;
+        if (!field || !payloads?.length) {
+            return;
+        }
+        const currentPayloads = this.getAttachmentPayloads(field);
+        const nextBytes = this.getAttachmentBytes(currentPayloads) + this.getAttachmentBytes(payloads);
+        if (nextBytes > TemplateFillComponent.MAX_ATTACHMENT_FIELD_BYTES) {
+            this.notificationService.showMessage(
+                `This attachment field is using ${(nextBytes / (1024 * 1024)).toFixed(2)} MB. Each attachment field can hold up to 5 MB independently.`,
+                'danger'
+            );
+            return;
+        }
+        this.setAttachmentPayloads(field, [...currentPayloads, ...payloads]);
+        this.onPanelValueChanged();
+        this.notificationService.showMessage(
+            payloads.length === 1
+                ? `Added ${payloads[0].fileName} from portal.`
+                : `Added ${payloads.length} files from portal.`,
+            'success'
+        );
+        this.closePortalAttachmentModal();
+    }
+
     async onAttachmentChange(field: TemplateField, event: Event): Promise<void> {
         const input = event.target as HTMLInputElement;
         const files = input?.files ? Array.from(input.files) : [];
@@ -820,8 +887,58 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         return '';
     }
 
+    async saveAsDraft(): Promise<void> {
+        if (!this.savedTemplate || this.isSavingDraft || this.isSubmitting) {
+            return;
+        }
+        (this.template?.fields || []).forEach((field: TemplateField) => {
+            if (field.type === 'word_editor' && field.placement) {
+                this.values[field.id] = this.acceptedWordEditorValues[field.id] || '';
+            }
+        });
+
+        this.isSavingDraft = true;
+        const allowedValues = this.getAllowedSubmissionValues();
+        const userPipeline = this.hasIndividualPipelineFooter() ? this.getNormalizedUserPipeline() : [];
+
+        try {
+            const draft = await firstValueFrom(this.templateWorkflowService.saveTemplateDraft(
+                this.savedTemplate,
+                allowedValues,
+                userPipeline,
+                {
+                    applicationId: this.editingApplication?.serApplicationId,
+                    formCode: this.editingApplication?.txtFormCode || this.generatedApplicationCode
+                }
+            ));
+            this.generatedApplicationCode = draft.formCode || this.generatedApplicationCode;
+            this.submittedCode = this.generatedApplicationCode;
+            this.editingApplication = {
+                ...(this.editingApplication || {}),
+                serApplicationId: draft.applicationId,
+                serFormId: Number(this.savedTemplate.id),
+                txtFormCode: this.generatedApplicationCode,
+                txtStatus: 'DRAFT',
+                serSubmittedBy: this.getCurrentUserId()
+            };
+            const templateRouteId = this.routeTemplateId || this.savedTemplate.id;
+            await this.router.navigate(['/template-fill', templateRouteId], {
+                queryParams: { applicationId: draft.applicationId },
+                replaceUrl: true
+            });
+            this.notificationService.showMessage(
+                `Draft saved with code ${this.generatedApplicationCode}.`,
+                'success'
+            );
+        } catch (error: any) {
+            this.notificationService.showMessage(error?.message || 'Draft could not be saved.', 'danger');
+        } finally {
+            this.isSavingDraft = false;
+        }
+    }
+
     async submitTemplate(): Promise<void> {
-        if (!this.savedTemplate || this.isSubmitting) {
+        if (!this.savedTemplate || this.isSubmitting || this.isSavingDraft) {
             return;
         }
         (this.template?.fields || []).forEach((field: TemplateField) => {
@@ -847,7 +964,44 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
 
         try {
             const userPipeline = this.hasIndividualPipelineFooter() ? this.getNormalizedUserPipeline() : [];
-            if (this.isEditingExistingApplication) {
+            if (this.isDraftApplication) {
+                const submission = await firstValueFrom(this.templateWorkflowService.submitTemplate(
+                    this.savedTemplate,
+                    allowedValues,
+                    userPipeline,
+                    this.editingApplication?.txtFormCode || this.generatedApplicationCode,
+                    this.editingApplication?.serApplicationId
+                ));
+                this.submittedCode = submission.code || this.generatedApplicationCode;
+                this.generatedApplicationCode = this.submittedCode;
+                this.initiatorSignatureApproved = true;
+
+                const filename = `${this.sanitizeFilename(this.template?.name || 'template-form')}_${this.submittedCode || submission.id}.pdf`;
+                const pdfBlob = await this.renderTemplatePreviewPdfBlob();
+                const pdfResponse: any = await firstValueFrom(this.templateWorkflowService.updateTemplateApplicationPdf(
+                    submission.id,
+                    pdfBlob,
+                    filename
+                ));
+                if (!pdfResponse || pdfResponse.status !== 'Success') {
+                    throw new Error(pdfResponse?.message || 'PDF could not be attached to application');
+                }
+
+                const emailResponse: any = await firstValueFrom(this.templateWorkflowService.sendTemplatePostApprovalEmails(
+                    submission.id,
+                    pdfBlob,
+                    pdfBlob,
+                    filename
+                ));
+                if (!emailResponse || emailResponse.status !== 'Success') {
+                    throw new Error(emailResponse?.message || 'Approval email could not be sent');
+                }
+                this.notificationService.showMessage('Template application submitted successfully.', 'success');
+                this.router.navigate(['/my-application', submission.id]);
+                return;
+            }
+
+            if (this.isSentBackForEdit) {
                 await firstValueFrom(this.templateWorkflowService.updateTemplateApplication(
                     this.editingApplication,
                     allowedValues,
@@ -938,14 +1092,14 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         const submittedBy = Number(application?.serSubmittedBy || 0);
         const currentLevel = Number(application?.intCurrentApprovalLevel);
         const status = String(application?.txtStatus || '').toUpperCase();
+        const isDraft = status === 'DRAFT';
+        const isSentBack = status === 'PENDING' && Number.isFinite(currentLevel) && currentLevel < 0;
+        const isOwner = currentUserId != null && submittedBy === currentUserId;
         const canEdit = currentUserId != null
-            && submittedBy === currentUserId
-            && status === 'PENDING'
-            && Number.isFinite(currentLevel)
-            && currentLevel < 0;
+            && (isDraft ? (isOwner || this.isCurrentUserAdmin()) : (isOwner && isSentBack));
 
         if (!canEdit) {
-            throw new Error('This application is not available for initiator editing.');
+            throw new Error('This application is not available for editing.');
         }
 
         const formId = String(application?.serFormId || fallbackTemplateId || '');
@@ -953,6 +1107,9 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         this.template = this.savedTemplate?.payload || null;
         this.editingApplication = application;
         this.generatedApplicationCode = String(application?.txtFormCode || '');
+        if (isDraft && this.generatedApplicationCode) {
+            this.submittedCode = this.generatedApplicationCode;
+        }
 
         const applicationData = this.parseApplicationData(application?.txtApplicationData);
         const templateValues = applicationData?.templateValues || {};
@@ -1627,6 +1784,15 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             return Number.isFinite(userId) && userId > 0 ? userId : null;
         } catch {
             return null;
+        }
+    }
+
+    private isCurrentUserAdmin(): boolean {
+        try {
+            const user = JSON.parse(localStorage.getItem('user') || 'null');
+            return this.isAdminUser(user);
+        } catch {
+            return false;
         }
     }
 

@@ -3,8 +3,6 @@ import { Router } from '@angular/router';
 import { finalize } from 'rxjs';
 import { NotificationService } from 'src/app/NotificationService';
 import { TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
-import { resolveApplicationTitle } from 'src/app/utils/application-title.util';
-
 interface TemplatePendingApplication {
     serApplicationId?: number;
     serFormId?: number;
@@ -13,7 +11,6 @@ interface TemplatePendingApplication {
     intCurrentApprovalLevel?: number;
     dteCreatedDate?: string;
     templateName?: string;
-    txtApplicationData?: string;
     applicationTitle?: string;
 }
 
@@ -258,8 +255,7 @@ export class TemplatePendingApprovalsComponent implements OnInit, OnDestroy {
             intCurrentApprovalLevel: application?.intCurrentApprovalLevel,
             dteCreatedDate: application?.dteCreatedDate,
             templateName: application?.templateName || 'Template',
-            txtApplicationData: application?.txtApplicationData,
-            applicationTitle: resolveApplicationTitle(application)
+            applicationTitle: application?.applicationTitle || ''
         };
     }
 

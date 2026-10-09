@@ -62,6 +62,10 @@ public interface ICfgTblCustomFormApplicationDAO {
 
     String refreshTemplateApplicationPdfFromStage0(Integer applicationId);
 
+    java.util.Map<String, Object> getTemplateApprovalReminderPreview(Integer applicationId, Integer actorUserId);
+
+    String sendTemplateApprovalManualReminder(Integer applicationId, Integer actorUserId, String subject, String body);
+
     String assignAssetCode(Integer applicationId, String assetCode, Integer userId, String approvedIp);
 
     String assignPrCode(Integer applicationId, String prCode, Integer userId, String approvedIp);

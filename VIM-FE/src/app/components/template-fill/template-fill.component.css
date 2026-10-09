@@ -468,6 +468,339 @@
     cursor: pointer;
 }
 
+.attachment-source-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.attachment-source-select {
+    min-width: 180px;
+    max-width: 240px;
+}
+
+.attachment-computer-input {
+    display: none;
+}
+
+.portal-attachments-modal {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
+    display: flex;
+    flex-direction: column;
+    max-height: min(80vh, 720px);
+    overflow: hidden;
+    padding: 20px 22px 16px;
+    width: min(720px, 94vw);
+}
+
+.portal-attachments-modal-windows {
+    width: min(920px, 96vw);
+}
+
+.portal-attachments-modal .modal-header {
+    margin-bottom: 16px;
+    padding: 0;
+}
+
+.portal-attachments-modal .modal-header h3 {
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.35;
+    padding-right: 12px;
+}
+
+.portal-attachments-modal .modal-header button {
+    align-items: center;
+    border-radius: 8px;
+    display: inline-flex;
+    height: 32px;
+    justify-content: center;
+    width: 32px;
+}
+
+.portal-attachments-modal .modal-header button:hover {
+    background: #f1f5f9;
+}
+
+.portal-attachments-toolbar {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 0 0 14px;
+}
+
+.portal-attachments-search {
+    flex: 1 1 240px;
+    min-width: 180px;
+}
+
+.portal-view-toggle {
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+}
+
+.portal-view-toggle-btn {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 8px;
+    color: #64748b;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 600;
+    gap: 6px;
+    padding: 7px 10px;
+}
+
+.portal-view-toggle-btn.is-active {
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    color: #1d4ed8;
+}
+
+.portal-view-toggle-btn:hover:not(.is-active) {
+    color: #334155;
+}
+
+.portal-attachments-list-view {
+    display: grid;
+    gap: 8px;
+    overflow: auto;
+    padding: 0 0 8px;
+}
+
+.portal-file-row {
+    align-items: center;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    padding: 10px 12px;
+}
+
+.portal-file-row.is-selected {
+    background: #eff6ff;
+    border-color: #60a5fa;
+}
+
+.portal-file-row-icon {
+    align-items: center;
+    background: #eef2ff;
+    border-radius: 8px;
+    color: #1d4ed8;
+    display: inline-flex;
+    height: 36px;
+    justify-content: center;
+    width: 36px;
+}
+
+.portal-file-row-icon.is-image {
+    background: #ecfdf5;
+    color: #0f766e;
+}
+
+.portal-file-row-icon ::ng-deep svg {
+    height: 18px;
+    width: 18px;
+}
+
+.portal-file-row-main {
+    min-width: 0;
+}
+
+.portal-file-select-compact {
+    margin: 0;
+}
+
+.portal-attachments-loading,
+.portal-attachments-empty {
+    color: #64748b;
+    font-size: 14px;
+    padding: 24px 4px;
+}
+
+.portal-attachments-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    overflow: auto;
+    padding: 0 0 8px;
+}
+
+.portal-file-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    padding: 12px;
+}
+
+.portal-file-card.is-selected {
+    background: #eff6ff;
+    border-color: #60a5fa;
+    box-shadow: inset 0 0 0 1px #93c5fd;
+}
+
+.portal-file-icon {
+    align-items: center;
+    background: linear-gradient(180deg, #fff 0%, #e8eef8 100%);
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    color: #1d4ed8;
+    display: flex;
+    height: 84px;
+    justify-content: center;
+}
+
+.portal-file-icon.is-image {
+    color: #0f766e;
+    background: linear-gradient(180deg, #fff 0%, #e6f7f4 100%);
+}
+
+.portal-file-icon ::ng-deep svg {
+    height: 40px;
+    width: 40px;
+}
+
+.portal-file-name,
+.portal-file-meta {
+    color: #0f172a;
+    font-size: 12px;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.portal-file-name {
+    font-weight: 700;
+}
+
+.portal-file-meta {
+    color: #64748b;
+    font-size: 11px;
+}
+
+.portal-file-actions {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+    margin-top: auto;
+}
+
+.portal-file-select {
+    align-items: center;
+    color: #334155;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 12px;
+    gap: 6px;
+    margin: 0;
+}
+
+.portal-file-view-btn {
+    align-items: center;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    color: #334155;
+    cursor: pointer;
+    display: inline-flex;
+    height: 30px;
+    justify-content: center;
+    padding: 0;
+    width: 30px;
+}
+
+.portal-file-view-btn:hover:not(:disabled) {
+    background: #eff6ff;
+    border-color: #93c5fd;
+    color: #1d4ed8;
+}
+
+.portal-file-view-btn:disabled {
+    cursor: wait;
+    opacity: 0.6;
+}
+
+.portal-attachments-footer {
+    align-items: center;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    margin-top: 8px;
+    padding: 14px 0 4px;
+}
+
+.portal-attachments-selected-count {
+    color: #64748b;
+    font-size: 13px;
+}
+
+.portal-attachments-footer-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.portal-preview-backdrop {
+    z-index: 1300;
+}
+
+.portal-preview-modal {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.3);
+    display: flex;
+    flex-direction: column;
+    max-height: min(88vh, 860px);
+    overflow: hidden;
+    padding: 20px 22px 16px;
+    width: min(960px, 96vw);
+}
+
+.portal-preview-modal .modal-header {
+    margin-bottom: 16px;
+}
+
+.portal-preview-body {
+    min-height: 420px;
+    padding: 0;
+}
+
+.portal-preview-frame,
+.portal-preview-image {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    display: block;
+    height: min(70vh, 640px);
+    object-fit: contain;
+    width: 100%;
+}
+
+.portal-preview-error {
+    color: #b91c1c;
+    font-size: 14px;
+    margin: 0;
+    padding: 24px 4px;
+}
+
 .attachment-list {
     display: grid;
     gap: 8px;

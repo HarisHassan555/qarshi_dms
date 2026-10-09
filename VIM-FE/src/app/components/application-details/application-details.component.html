@@ -15,11 +15,13 @@
                     <icon-circle-check class="w-4 h-4" />
                     Approve
                 </button>
+                <!-- TEMP: Reject hidden per client request
                 <button (click)="openRejectModal()" class="btn btn-danger gap-2"
                     [disabled]="isApproving || isRejecting || isSendingBack || isSendingBackToInitiator">
                     <icon-x class="w-4 h-4" />
                     Reject
                 </button>
+                -->
                 <button (click)="openSendBackModal()" class="btn btn-warning gap-2"
                     [disabled]="isApproving || isRejecting || isSendingBack || isSendingBackToInitiator">
                     <icon-arrow-backward class="w-4 h-4" />

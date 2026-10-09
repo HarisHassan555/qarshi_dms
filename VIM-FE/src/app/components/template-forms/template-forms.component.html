@@ -1,8 +1,26 @@
 <div>
     <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
         <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
-            <div class="flex items-center gap-2">
+            <div class="flex flex-col gap-3">
                 <h5 class="text-xl font-bold dark:text-white-light">Digital Document List</h5>
+                <div *ngIf="isAdmin" class="inline-flex rounded-md border border-[#e0e6ed] p-0.5 dark:border-[#1b2e4b]" role="tablist">
+                    <button
+                        type="button"
+                        class="btn btn-sm"
+                        [class.btn-primary]="listMode === 'published'"
+                        [class.btn-outline-primary]="listMode !== 'published'"
+                        (click)="setListMode('published')">
+                        Published
+                    </button>
+                    <button
+                        type="button"
+                        class="btn btn-sm"
+                        [class.btn-primary]="listMode === 'drafts'"
+                        [class.btn-outline-primary]="listMode !== 'drafts'"
+                        (click)="setListMode('drafts')">
+                        Drafts
+                    </button>
+                </div>
             </div>
             <div class="ltr:ml-auto rtl:mr-auto flex gap-2 flex-wrap">
                 <div *ngIf="isAdmin">
@@ -11,10 +29,16 @@
                         Duplicate Form
                     </a>
                 </div>
-                <div *ngIf="isAdmin">
+                <div *ngIf="isAdmin && !isDraftList">
                     <a (click)="addTemplate()" class="btn btn-primary gap-2">
                         <icon-plus />
                         Add New Digital Document
+                    </a>
+                </div>
+                <div *ngIf="isAdmin && isDraftList">
+                    <a (click)="addTemplate()" class="btn btn-primary gap-2">
+                        <icon-plus />
+                        New Draft in Builder
                     </a>
                 </div>
                 <div>
@@ -62,7 +86,7 @@
                 <ng-template slot="status" let-value="data">
                     <span
                         class="badge"
-                        [ngClass]="value.isActive === false ? 'badge-outline-danger' : 'badge-outline-success'">
+                        [ngClass]="getStatusBadgeClass(value)">
                         {{ getStatusSummary(value) }}
                     </span>
                 </ng-template>
@@ -77,25 +101,40 @@
                     <span>{{ value.updatedAt | date:'short' }}</span>
                 </ng-template>
                 <ng-template slot="actions" let-value="data">
-                    <div class="flex items-center justify-center gap-4">
-                        <a
+                    <div class="template-list-actions">
+                        <button
+                            *ngIf="isAdmin && !isDraftList"
+                            type="button"
+                            class="btn btn-sm"
+                            [class.btn-outline-success]="value.isActive === false"
+                            [class.btn-outline-danger]="value.isActive !== false"
+                            [disabled]="togglingTemplateStatusId === value.id"
+                            (click)="toggleTemplateStatus(value)">
+                            {{ togglingTemplateStatusId === value.id
+                                ? 'Updating...'
+                                : (value.isActive === false ? 'Activate' : 'Deactivate') }}
+                        </button>
+                        <button
+                            *ngIf="isAdmin && !isDraftList"
+                            type="button"
+                            class="btn btn-sm btn-outline-warning"
+                            (click)="openVisibilityModal(value)">
+                            Visibility
+                        </button>
+                        <button
                             *ngIf="isAdmin"
-                            (click)="toggleTemplateStatus(value)"
-                            [class.pointer-events-none]="togglingTemplateStatusId === value.id"
-                            [class.opacity-50]="togglingTemplateStatusId === value.id"
-                            [title]="value.isActive === false ? 'Activate Digital Document' : 'Mark Digital Document Inactive'">
-                            <icon-eye class="h-4.5 w-4.5" *ngIf="value.isActive === false"></icon-eye>
-                            <icon-x-circle class="h-4.5 w-4.5" *ngIf="value.isActive !== false"></icon-x-circle>
-                        </a>
-                        <a *ngIf="isAdmin" (click)="openVisibilityModal(value)" class="hover:text-warning" title="Manage Visibility">
-                            <icon-settings class="h-4.5 w-4.5" />
-                        </a>
-                        <a *ngIf="isAdmin" (click)="editTemplate(value)" class="hover:text-info" title="Edit Digital Document">
-                            <icon-edit class="h-4.5 w-4.5" />
-                        </a>
-                        <a (click)="fillTemplate(value)" class="hover:text-primary" title="Open Digital Document">
-                            <icon-arrow-forward class="h-4.5 w-4.5" />
-                        </a>
+                            type="button"
+                            class="btn btn-sm btn-outline-info"
+                            (click)="editTemplate(value)">
+                            {{ isDraftList ? 'Continue' : 'Edit' }}
+                        </button>
+                        <button
+                            *ngIf="!isDraftList"
+                            type="button"
+                            class="btn btn-sm btn-outline-primary"
+                            (click)="fillTemplate(value)">
+                            Open
+                        </button>
                     </div>
                 </ng-template>
             </ng-datatable>
@@ -125,7 +164,8 @@
         <div class="px-5 pb-5" *ngIf="!loadError && !isLoading && getDisplayedTemplates().length === 0">
             <div class="rounded-md border border-[#e0e6ed] bg-white p-5 dark:border-[#1b2e4b] dark:bg-[#1b2e4b]">
                 <p class="text-center text-gray-600 dark:text-gray-400">
-                    <span *ngIf="!search && isAdmin">No digital documents saved yet. Click "Add New Digital Document" to create your first document.</span>
+                    <span *ngIf="!search && isAdmin && isDraftList">No document drafts yet. Use Save as Draft in the builder, or start a new draft here.</span>
+                    <span *ngIf="!search && isAdmin && !isDraftList">No digital documents saved yet. Click "Add New Digital Document" to create your first document.</span>
                     <span *ngIf="!search && !isAdmin">No digital documents are currently visible to you.</span>
                     <span *ngIf="search">No digital documents found matching your search.</span>
                 </p>

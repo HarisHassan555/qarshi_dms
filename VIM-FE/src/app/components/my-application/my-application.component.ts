@@ -140,6 +140,12 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     pageSize = 10;
     totalApplications = 0;
     isDownloadingWithLogsPdf = false;
+    showReminderModal = false;
+    isReminderLoading = false;
+    isReminderSending = false;
+    reminderToDisplay = '';
+    reminderSubject = '';
+    reminderBody = '';
     showApprovalLogsCsvModal = false;
     availableApprovalLogCsvColumns: ApprovalLogCsvColumn[] = [];
     selectedApprovalLogCsvColumns: ApprovalLogCsvColumn[] = [];
@@ -712,6 +718,8 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     getStatusBadgeClass(status: string | undefined): string {
         if (!status) return 'badge-outline-secondary';
         switch (status.toUpperCase()) {
+            case 'DRAFT':
+                return 'badge-outline-secondary';
             case 'PENDING':
                 return 'badge-outline-warning';
             case 'APPROVED':
@@ -809,11 +817,114 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         const submittedBy = Number(application?.serSubmittedBy || 0);
         const status = String(application?.txtStatus || '').toUpperCase();
         const currentLevel = Number(application?.intCurrentApprovalLevel);
-        return currentUserId != null
-            && submittedBy === currentUserId
+        if (currentUserId == null) {
+            return false;
+        }
+        if (status === 'DRAFT') {
+            return submittedBy === currentUserId || this.isCurrentUserAdmin();
+        }
+        return submittedBy === currentUserId
             && status === 'PENDING'
             && Number.isFinite(currentLevel)
             && currentLevel < 0;
+    }
+
+    isDepartmentApplicationView(): boolean {
+        return this.route.snapshot.queryParamMap.get('from') === 'department-application';
+    }
+
+    canSendReminder(application: MyTemplateApplication | null): boolean {
+        if (!application || this.isDepartmentApplicationView()) {
+            return false;
+        }
+        const currentUserId = this.getCurrentUserId();
+        const submittedBy = Number(application?.serSubmittedBy || 0);
+        if (currentUserId == null || submittedBy !== currentUserId) {
+            return false;
+        }
+        const status = String(application?.txtStatus || '').toUpperCase();
+        return !['DRAFT', 'REJECTED', 'APPROVED', 'COMPLETED'].includes(status);
+    }
+
+    openReminderModal(): void {
+        const application = this.selectedApplication;
+        const userId = this.getCurrentUserId();
+        if (!application?.serApplicationId || !userId || !this.canSendReminder(application)) {
+            return;
+        }
+        this.showReminderModal = true;
+        this.isReminderLoading = true;
+        this.reminderToDisplay = '';
+        this.reminderSubject = '';
+        this.reminderBody = '';
+        this.templateWorkflowService.getTemplateApprovalReminderPreview(application.serApplicationId, userId).subscribe({
+            next: (response: any) => {
+                this.isReminderLoading = false;
+                if (response?.status !== 'Success') {
+                    this.notificationService.showMessage(response?.message || 'Reminder details could not be loaded.', 'danger');
+                    this.showReminderModal = false;
+                    return;
+                }
+                this.reminderToDisplay = response?.toDisplay || '';
+                this.reminderSubject = response?.subject || '';
+                this.reminderBody = response?.defaultBody || '';
+            },
+            error: (error) => {
+                this.isReminderLoading = false;
+                this.showReminderModal = false;
+                this.notificationService.showMessage(
+                    'Reminder details could not be loaded: ' + (error.error?.message || error.message),
+                    'danger'
+                );
+            }
+        });
+    }
+
+    closeReminderModal(): void {
+        if (this.isReminderSending) {
+            return;
+        }
+        this.showReminderModal = false;
+    }
+
+    sendReminderEmail(): void {
+        const application = this.selectedApplication;
+        const userId = this.getCurrentUserId();
+        if (!application?.serApplicationId || !userId || this.isReminderSending) {
+            return;
+        }
+        const subject = (this.reminderSubject || '').trim();
+        const body = (this.reminderBody || '').trim();
+        if (!subject) {
+            this.notificationService.showMessage('Email subject is required.', 'warning');
+            return;
+        }
+        if (!body) {
+            this.notificationService.showMessage('Email message is required.', 'warning');
+            return;
+        }
+        this.isReminderSending = true;
+        this.templateWorkflowService.sendTemplateApprovalManualReminder(
+            application.serApplicationId,
+            userId,
+            subject,
+            body
+        ).pipe(finalize(() => this.isReminderSending = false)).subscribe({
+            next: (response: any) => {
+                if (response?.status !== 'Success') {
+                    this.notificationService.showMessage(response?.message || 'Reminder could not be sent.', 'danger');
+                    return;
+                }
+                this.notificationService.showMessage(response?.message || 'Reminder email sent successfully.', 'success');
+                this.showReminderModal = false;
+            },
+            error: (error) => {
+                this.notificationService.showMessage(
+                    'Reminder could not be sent: ' + (error.error?.message || error.message),
+                    'danger'
+                );
+            }
+        });
     }
 
     getRadioOptionPlacements(field: TemplateField): RadioOptionPlacement[] {
@@ -2183,6 +2294,22 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             return user?.serUserId || user?.userId || user?.id || null;
         } catch {
             return null;
+        }
+    }
+
+    private isCurrentUserAdmin(): boolean {
+        try {
+            const user = JSON.parse(localStorage.getItem('user') || 'null');
+            const role = String(
+                user?.cfgTblRole?.txtRoleName ||
+                user?.cfgTblRole?.txtRoleCode ||
+                user?.txtrole ||
+                user?.roleName ||
+                ''
+            ).trim().toUpperCase();
+            return role === 'ADMIN' || role === 'ROLE_ADMIN' || role.includes('ADMIN');
+        } catch {
+            return false;
         }
     }
 

@@ -87,13 +87,42 @@
                     </label>
                 </div>
                 <div *ngIf="isAttachmentField(field)" class="attachment-field-panel">
-                    <input
-                        [id]="field.id"
-                        type="file"
-                        multiple
-                        accept=".pdf,.webp,.png,.jpeg,.jpg,application/pdf,image/webp,image/png,image/jpeg"
-                        [disabled]="!canCurrentStepEditField(field)"
-                        (change)="onAttachmentChange(field, $event)" />
+                    <div class="attachment-source-row">
+                        <select
+                            class="form-select attachment-source-select"
+                            [disabled]="!canCurrentStepEditField(field)"
+                            [ngModel]="getAttachmentSource(field.id)"
+                            (ngModelChange)="onAttachmentSourceChanged(field, $event)">
+                            <option value="">Select source</option>
+                            <option value="computer">From Computer</option>
+                            <option value="portal">From Portal</option>
+                        </select>
+                        <input
+                            [id]="field.id"
+                            #computerAttachmentInput
+                            type="file"
+                            multiple
+                            class="attachment-computer-input"
+                            accept=".pdf,.webp,.png,.jpeg,.jpg,application/pdf,image/webp,image/png,image/jpeg"
+                            [disabled]="!canCurrentStepEditField(field)"
+                            (change)="onAttachmentChange(field, $event)" />
+                        <button
+                            *ngIf="getAttachmentSource(field.id) === 'computer'"
+                            type="button"
+                            class="btn btn-sm btn-outline-primary"
+                            [disabled]="!canCurrentStepEditField(field)"
+                            (click)="computerAttachmentInput.click()">
+                            Choose files
+                        </button>
+                        <button
+                            *ngIf="getAttachmentSource(field.id) === 'portal'"
+                            type="button"
+                            class="btn btn-sm btn-outline-primary"
+                            [disabled]="!canCurrentStepEditField(field)"
+                            (click)="openPortalAttachmentModal(field)">
+                            Browse portal files
+                        </button>
+                    </div>
                     <div class="attachment-list" *ngIf="getAttachmentPayloads(field).length > 0">
                         <div class="attachment-item" *ngFor="let attachment of getAttachmentPayloads(field); let index = index">
                             <button type="button" class="attachment-link-button" (click)="viewAttachment(attachment)">
@@ -137,7 +166,9 @@
                             {{ isActing ? 'Working...' : 'Approve' }}
                         </button>
                         <div class="secondary-actions">
+                            <!-- TEMP: Reject hidden per client request
                             <button type="button" class="btn btn-danger" [disabled]="isActing" (click)="reject(approvalRemarks.value)">Reject</button>
+                            -->
                             <button type="button" class="btn btn-outline" [disabled]="isActing" (click)="sendBack(approvalRemarks.value)">Send Back</button>
                             <button type="button" class="btn btn-outline" [disabled]="isActing" (click)="sendBackToInitiator(approvalRemarks.value)">To Initiator</button>
                         </div>
@@ -390,6 +421,18 @@
                                 <span class="label">Type</span>
                                 <span class="value">{{ tile.type }}</span>
                             </div>
+                            <div class="approval-node-row">
+                                <span class="label">IP Address</span>
+                                <span class="value">{{ tile.ipAddress }}</span>
+                            </div>
+                            <div class="approval-node-row approval-node-actions" *ngIf="canShowViewLocationButton(tile)">
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-primary approval-location-button"
+                                    (click)="openApprovalLocationModal(tile)">
+                                    View Location
+                                </button>
+                            </div>
                         </div>
                     </article>
                     <div *ngIf="tileIndex < progressTilesCache.length - 1" class="approval-arrow">
@@ -450,6 +493,33 @@
     </div>
 </div>
 
+<div class="log-csv-modal-backdrop" *ngIf="showLocationModal" (click)="closeApprovalLocationModal()">
+    <div class="approval-location-modal" (click)="$event.stopPropagation()">
+        <div class="log-csv-modal-header">
+            <div>
+                <h3>Approval Location</h3>
+                <p *ngIf="locationModalLabel">{{ locationModalLabel }}</p>
+                <p *ngIf="!locationModalLabel">Approximate location based on the approver IP address.</p>
+            </div>
+            <button type="button" class="log-csv-close" (click)="closeApprovalLocationModal()">x</button>
+        </div>
+        <div class="approval-location-modal-body">
+            <div *ngIf="locationModalLoading" class="approval-location-loading">Loading map...</div>
+            <p *ngIf="!locationModalLoading && locationModalError" class="approval-location-error">{{ locationModalError }}</p>
+            <div
+                *ngIf="!locationModalLoading && !locationModalError && locationMapUrl"
+                class="approval-location-map-frame"
+                aria-hidden="false">
+                <iframe
+                    title="Approval location map"
+                    class="approval-location-iframe"
+                    [src]="locationMapUrl">
+                </iframe>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal-backdrop" *ngIf="showAttachmentsModal" (click)="closeAttachmentsModal()">
     <div class="attachments-modal" (click)="$event.stopPropagation()">
         <div class="modal-header">
@@ -469,6 +539,12 @@
         </div>
     </div>
 </div>
+
+<app-portal-attachments-picker
+    *ngIf="showPortalAttachmentModal"
+    (closed)="closePortalAttachmentModal()"
+    (filesSelected)="onPortalFilesSelected($event)">
+</app-portal-attachments-picker>
 
 <div class="log-csv-modal-backdrop" *ngIf="showApprovalLogsCsvModal" (click)="closeApprovalLogsCsvModal()">
     <div class="log-csv-modal" (click)="$event.stopPropagation()">

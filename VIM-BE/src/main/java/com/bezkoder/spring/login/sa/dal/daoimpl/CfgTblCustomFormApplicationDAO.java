@@ -26,6 +26,7 @@ import java.util.Properties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import java.util.Map;
+import java.util.HashMap;
 import java.io.ByteArrayOutputStream;
 import java.awt.image.BufferedImage;
 import javax.imageio.ImageIO;
@@ -2938,9 +2939,10 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             }
 
             String approverSignaturePath = approverUser.getTxtSignaturePath();
-            if (approverSignaturePath == null || approverSignaturePath.trim().isEmpty()) {
+            if (!com.bezkoder.spring.login.admin.utility.common.SignatureStorageUtil
+                    .hasStoredSignatureFile(approverSignaturePath)) {
                 entityManager.getTransaction().rollback();
-                return "Failure: Signature not uploaded. Please upload your signature before approving.";
+                return "Failure: Before approving the document, kindly upload your signature.";
             }
 
             // Short-circuit post-PO vendor edit: independent Technical Expert review (not pipeline level 1).
@@ -5975,6 +5977,321 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             }
         }
         return recipientIds;
+    }
+
+    @Override
+    public Map<String, Object> getTemplateApprovalReminderPreview(Integer applicationId, Integer actorUserId) {
+        Map<String, Object> result = new HashMap<>();
+        EntityManager entityManager = getEntityManager();
+        try {
+            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+            String validationError = validateTemplateManualReminderRequest(entityManager, application, actorUserId);
+            if (validationError != null) {
+                result.put("status", "Failure");
+                result.put("message", validationError);
+                return result;
+            }
+
+            CfgTblCustomForm form = resolveApplicationForm(entityManager, application);
+            List<Map<String, Object>> recipients = buildTemplateManualReminderRecipientDetails(entityManager,
+                    application, form);
+            if (recipients.isEmpty()) {
+                result.put("status", "Failure");
+                result.put("message", "No current-step approver with an email address was found for this application.");
+                return result;
+            }
+
+            result.put("status", "Success");
+            result.put("recipients", recipients);
+            result.put("toDisplay", formatTemplateManualReminderToDisplay(recipients));
+            result.put("subject", buildTemplateManualReminderSubject(application, form));
+            result.put("defaultBody", buildTemplateManualReminderDefaultBody(application));
+            return result;
+        } catch (Exception e) {
+            log.error("Error building template approval reminder preview for appId={}: {}", applicationId,
+                    e.getMessage(), e);
+            result.put("status", "Failure");
+            result.put("message", e.getMessage() != null ? e.getMessage() : "Failed to load reminder preview");
+            return result;
+        } finally {
+            if (entityManager.isOpen()) {
+                entityManager.close();
+            }
+        }
+    }
+
+    @Override
+    public String sendTemplateApprovalManualReminder(Integer applicationId, Integer actorUserId, String subject,
+            String body) {
+        EntityManager entityManager = getEntityManager();
+        try {
+            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+            String validationError = validateTemplateManualReminderRequest(entityManager, application, actorUserId);
+            if (validationError != null) {
+                return "Failure: " + validationError;
+            }
+
+            String trimmedSubject = subject != null ? subject.trim() : "";
+            String trimmedBody = body != null ? body.trim() : "";
+            if (trimmedSubject.isEmpty()) {
+                return "Failure: Email subject is required";
+            }
+            if (trimmedBody.isEmpty()) {
+                return "Failure: Email message is required";
+            }
+
+            CfgTblCustomForm form = resolveApplicationForm(entityManager, application);
+            List<Map<String, Object>> recipients = buildTemplateManualReminderRecipientDetails(entityManager,
+                    application, form);
+            if (recipients.isEmpty()) {
+                return "Failure: No current-step approver with an email address was found for this application.";
+            }
+
+            List<String> recipientEmails = new java.util.ArrayList<>();
+            for (Map<String, Object> recipient : recipients) {
+                String email = recipient.get("email") != null ? String.valueOf(recipient.get("email")).trim() : "";
+                if (!email.isEmpty()) {
+                    recipientEmails.add(email);
+                }
+            }
+            if (recipientEmails.isEmpty()) {
+                return "Failure: No valid recipient email addresses were found";
+            }
+
+            String htmlBody = wrapTemplateManualReminderHtml(trimmedBody, application, form);
+            emailService.sendHtmlEmail(recipientEmails, trimmedSubject, htmlBody);
+
+            logManualApprovalReminder(entityManager, application, actorUserId, trimmedSubject, recipientEmails.size());
+            return "Success";
+        } catch (Exception e) {
+            log.error("Error sending manual template approval reminder for appId={}: {}", applicationId,
+                    e.getMessage(), e);
+            return "Failure: " + (e.getMessage() != null ? e.getMessage() : "Failed to send reminder email");
+        } finally {
+            if (entityManager.isOpen()) {
+                entityManager.close();
+            }
+        }
+    }
+
+    private CfgTblCustomForm resolveApplicationForm(EntityManager entityManager,
+            CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return null;
+        }
+        CfgTblCustomForm form = application.getCfgTblCustomForm();
+        if (form == null && application.getSerFormId() != null) {
+            form = entityManager.find(CfgTblCustomForm.class, application.getSerFormId());
+        }
+        return form;
+    }
+
+    private String validateTemplateManualReminderRequest(EntityManager entityManager,
+            CfgTblCustomFormApplication application,
+            Integer actorUserId) {
+        if (actorUserId == null || actorUserId <= 0) {
+            return "User not authenticated";
+        }
+        if (application == null) {
+            return "Application not found";
+        }
+        Map<String, Object> appData = parseApplicationData(application);
+        if (!isTemplateBuilderApplication(appData)) {
+            return "Reminder is only available for digital template applications";
+        }
+        if (application.getSerSubmittedBy() == null || !application.getSerSubmittedBy().equals(actorUserId)) {
+            return "Only the initiator can send a reminder for this application";
+        }
+        String status = application.getTxtStatus() != null
+                ? application.getTxtStatus().trim().toUpperCase(Locale.ROOT)
+                : "";
+        if (status.isEmpty() || "DRAFT".equals(status) || "REJECTED".equals(status) || "APPROVED".equals(status)
+                || "COMPLETED".equals(status)) {
+            return "Reminder cannot be sent for applications in status " + (status.isEmpty() ? "UNKNOWN" : status);
+        }
+        return null;
+    }
+
+    private java.util.Set<Integer> resolveTemplateManualReminderRecipientUserIds(EntityManager entityManager,
+            CfgTblCustomFormApplication application,
+            CfgTblCustomForm form) {
+        java.util.Set<Integer> recipientIds = new java.util.LinkedHashSet<>();
+        if (application == null) {
+            return recipientIds;
+        }
+        Map<String, Object> appData = parseApplicationData(application);
+        String status = application.getTxtStatus() != null ? application.getTxtStatus().trim() : "";
+
+        if ("OPINION_PENDING".equalsIgnoreCase(status)) {
+            Map<String, Object> opinionRequest = getActiveTemplateOpinionRequest(appData);
+            Integer opinionUserId = safeInt(opinionRequest.get("requestedFrom"),
+                    safeInt(opinionRequest.get("opinionUserId"), null));
+            if (opinionUserId != null && opinionUserId > 0) {
+                recipientIds.add(opinionUserId);
+            }
+            return recipientIds;
+        }
+
+        if (form == null) {
+            addCurrentApproverFallback(application, recipientIds);
+            return recipientIds;
+        }
+
+        List<Map<String, Object>> templatePipelines = loadEffectiveApprovalPipeline(application, form, entityManager);
+        int templateReminderLevel = Math.max(0, currentLevelSafe(application) - 2);
+        if (templatePipelines == null || templatePipelines.isEmpty()
+                || templateReminderLevel < 0 || templateReminderLevel >= templatePipelines.size()) {
+            addCurrentApproverFallback(application, recipientIds);
+            return recipientIds;
+        }
+
+        int templatePipelineIndex = resolveTemplateNotificationPipelineIndex(application, templateReminderLevel, status);
+        if (templatePipelineIndex < 0 || templatePipelineIndex >= templatePipelines.size()) {
+            templatePipelineIndex = templateReminderLevel;
+        }
+        Map<String, Object> templatePipeline = templatePipelines.get(templatePipelineIndex);
+        if (templatePipeline == null) {
+            addCurrentApproverFallback(application, recipientIds);
+            return recipientIds;
+        }
+
+        recipientIds.addAll(resolveTemplatePipelineRecipientIds(entityManager, application, templatePipeline));
+        recipientIds.removeIf(userId -> userId == null || userId <= 0);
+        if (isTemplateBuilderApplication(appData)) {
+            final int pipelineIndex = templatePipelineIndex;
+            recipientIds.removeIf(userId -> {
+                CfgTblUser user = entityManager.find(CfgTblUser.class, userId);
+                return user != null
+                        && templateApproverAlreadyActedForCurrentStep(application, templatePipeline, pipelineIndex, user);
+            });
+        }
+        if (recipientIds.isEmpty()) {
+            addCurrentApproverFallback(application, recipientIds);
+        }
+        return recipientIds;
+    }
+
+    private void addCurrentApproverFallback(CfgTblCustomFormApplication application,
+            java.util.Set<Integer> recipientIds) {
+        Integer currentApprover = application.getSerCurrentApprover();
+        if (currentApprover != null && currentApprover > 0) {
+            recipientIds.add(currentApprover);
+        }
+    }
+
+    private List<Map<String, Object>> buildTemplateManualReminderRecipientDetails(EntityManager entityManager,
+            CfgTblCustomFormApplication application,
+            CfgTblCustomForm form) {
+        List<Map<String, Object>> recipients = new java.util.ArrayList<>();
+        java.util.Set<Integer> recipientIds = resolveTemplateManualReminderRecipientUserIds(entityManager, application,
+                form);
+        for (Integer userId : recipientIds) {
+            if (userId == null || userId <= 0) {
+                continue;
+            }
+            CfgTblUser user = entityManager.find(CfgTblUser.class, userId);
+            if (user == null) {
+                continue;
+            }
+            String email = user.getTxtAddress();
+            if (email == null || email.trim().isEmpty()) {
+                continue;
+            }
+            Map<String, Object> recipient = new HashMap<>();
+            recipient.put("userId", userId);
+            recipient.put("name", user.getTxtUserName() != null ? user.getTxtUserName() : "");
+            recipient.put("email", email.trim());
+            recipients.add(recipient);
+        }
+        return recipients;
+    }
+
+    private String formatTemplateManualReminderToDisplay(List<Map<String, Object>> recipients) {
+        if (recipients == null || recipients.isEmpty()) {
+            return "";
+        }
+        List<String> parts = new java.util.ArrayList<>();
+        for (Map<String, Object> recipient : recipients) {
+            String name = recipient.get("name") != null ? String.valueOf(recipient.get("name")).trim() : "";
+            String email = recipient.get("email") != null ? String.valueOf(recipient.get("email")).trim() : "";
+            if (name.isEmpty() && email.isEmpty()) {
+                continue;
+            }
+            parts.add(name.isEmpty() ? email : name + " <" + email + ">");
+        }
+        return String.join(", ", parts);
+    }
+
+    private String buildTemplateManualReminderSubject(CfgTblCustomFormApplication application, CfgTblCustomForm form) {
+        String formName = getResolvedFormName(form);
+        String formCode = application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A";
+        String status = application.getTxtStatus() != null ? application.getTxtStatus() : "";
+        int displayLevel = Math.max(1, currentLevelSafe(application) + 2);
+        return "Reminder: " + formName + " "
+                + resolveTemplateApproverNotificationSubjectSuffix(status, displayLevel) + " - " + formCode;
+    }
+
+    private String buildTemplateManualReminderDefaultBody(CfgTblCustomFormApplication application) {
+        String formCode = application.getTxtFormCode() != null ? application.getTxtFormCode().trim() : "your application";
+        return "This is a friendly reminder to review and take action on application " + formCode
+                + ". Please sign in to the portal to approve or respond.";
+    }
+
+    private String wrapTemplateManualReminderHtml(String body, CfgTblCustomFormApplication application,
+            CfgTblCustomForm form) {
+        String formName = escapeHtml(getResolvedFormName(form));
+        String formCode = escapeHtml(application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
+        String escapedBody = escapeHtml(body).replace("\r\n", "\n").replace("\n", "<br>");
+        return "<html><body style=\"font-family:Arial,sans-serif;font-size:14px;color:#111827;\">"
+                + "<p>" + escapedBody + "</p>"
+                + "<p style=\"margin-top:16px;color:#4b5563;\"><strong>Application:</strong> " + formName
+                + " (" + formCode + ")</p>"
+                + "</body></html>";
+    }
+
+    private void logManualApprovalReminder(EntityManager entityManager,
+            CfgTblCustomFormApplication application,
+            Integer actorUserId,
+            String subject,
+            int recipientCount) {
+        if (entityManager == null || application == null) {
+            return;
+        }
+        boolean startedHere = false;
+        try {
+            if (!entityManager.getTransaction().isActive()) {
+                entityManager.getTransaction().begin();
+                startedHere = true;
+            }
+            CfgTblAppActivityLog activityLog = new CfgTblAppActivityLog();
+            activityLog.setTxtActionType("MANUAL_APPROVAL_REMINDER");
+            activityLog.setTxtStatus("SUCCESS");
+            activityLog.setTxtMessage("Manual approval reminder email sent by initiator");
+            activityLog.setTxtEntityType("APPLICATION");
+            activityLog.setSerEntityId(application.getSerApplicationId());
+            activityLog.setSerUserId(actorUserId);
+            activityLog.setDteCreatedDate(commonService.getCurrentTimeStamp_new());
+
+            Map<String, Object> payload = new java.util.LinkedHashMap<>();
+            payload.put("applicationId", application.getSerApplicationId());
+            payload.put("initiatorUserId", actorUserId);
+            payload.put("subject", subject);
+            payload.put("status", application.getTxtStatus());
+            payload.put("currentLevel", application.getIntCurrentApprovalLevel());
+            payload.put("recipientCount", recipientCount);
+            activityLog.setTxtPayload(new ObjectMapper().writeValueAsString(payload));
+
+            entityManager.persist(activityLog);
+            if (startedHere && entityManager.getTransaction().isActive()) {
+                entityManager.getTransaction().commit();
+            }
+        } catch (Exception e) {
+            if (startedHere && entityManager.getTransaction().isActive()) {
+                entityManager.getTransaction().rollback();
+            }
+            log.warn("Failed to log manual approval reminder for appId={}: {}",
+                    application.getSerApplicationId(), e.getMessage());
+        }
     }
 
     public String refreshTemplateApplicationPdfFromStage0(Integer applicationId) {
@@ -14365,7 +14682,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 html.append("<!--[if !mso]><!-- -->");
                 html.append("<a href='").append(approveUrl).append("' style='display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;background-color:#27ae60;color:#ffffff !important;'>Approve Application</a>");
                 html.append("<!--<![endif]-->");
-                
+                /*
+                 * TEMP: Reject email button hidden per client request
                 html.append("<!--[if mso]>");
                 html.append("<v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='").append(rejectUrl).append("' style='height:44px;v-text-anchor:middle;width:180px;' arcsize='12%' strokecolor='#e74c3c' fillcolor='#e74c3c'>");
                 html.append("<w:anchorlock/><center style='color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:600;'>Reject Application</center>");
@@ -14374,6 +14692,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 html.append("<!--[if !mso]><!-- -->");
                 html.append("<a href='").append(rejectUrl).append("' style='display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;background-color:#e74c3c;color:#ffffff !important;'>Reject Application</a>");
                 html.append("<!--<![endif]-->");
+                 */
             }
             if (canSendBack) {
                 html.append("<!--[if mso]>");

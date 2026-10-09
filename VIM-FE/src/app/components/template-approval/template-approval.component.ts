@@ -1,7 +1,9 @@
 import { ChangeDetectorRef, Component, ElementRef, HostListener, OnDestroy, OnInit } from '@angular/core';
-import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { DomSanitizer, SafeHtml, SafeResourceUrl } from '@angular/platform-browser';
+import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
+import Swal from 'sweetalert2';
 import { NotificationService } from 'src/app/NotificationService';
 import { ApplicationPdfService } from 'src/app/services/application-pdf/application-pdf.service';
 import { SavedTemplateDefinition, TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
@@ -84,6 +86,10 @@ interface ProgressTile {
     approver: string;
     approvedAt: string;
     remarks: string;
+    ipAddress: string;
+    approvalLatitude?: number | null;
+    approvalLongitude?: number | null;
+    approvalLocationLabel?: string;
     rawDate?: Date | null;
 }
 
@@ -124,6 +130,7 @@ interface AttachmentListItem {
 }
 
 const TEMPLATE_APPROVAL_HIDE_CKEDITOR_BADGE_CLASS = 'template-fill-hide-ckeditor-badge';
+const SIGNATURE_REQUIRED_MESSAGE = 'Before approving the document, kindly upload your signature.';
 
 @Component({
     selector: 'app-template-approval',
@@ -168,6 +175,14 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     allUsers: any[] = [];
     selectedOpinionUserId: number | null = null;
     showAttachmentsModal = false;
+    showPortalAttachmentModal = false;
+    private portalAttachmentTargetField: TemplateField | null = null;
+    private attachmentSourceByFieldId: { [fieldId: string]: 'computer' | 'portal' | '' } = {};
+    showLocationModal = false;
+    locationModalLoading = false;
+    locationModalError = '';
+    locationModalLabel = '';
+    locationMapUrl: SafeResourceUrl | null = null;
     readonly wordEditor = WORD_EDITOR_CKEDITOR;
     readonly wordEditorConfig = WORD_EDITOR_CKEDITOR_CONFIG;
     activeInlineWordEditorFieldId: string | null = null;
@@ -208,6 +223,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         private applicationPdfService: ApplicationPdfService,
         private templateWorkflowService: TemplateWorkflowService,
         private userService: UserService,
+        private http: HttpClient,
         private cdr: ChangeDetectorRef
     ) { }
 
@@ -220,7 +236,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         }
 
         try {
-            this.application = await firstValueFrom(this.templateWorkflowService.getApplication(applicationId));
+            this.application = await firstValueFrom(
+                this.templateWorkflowService.getApplication(applicationId, this.getCurrentUserId())
+            );
             if (!this.application?.serApplicationId || !this.application?.serFormId) {
                 throw new Error('Template application not found');
             }
@@ -672,6 +690,61 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return attachments.length > 0 ? attachments.map((attachment) => attachment.fileName).join(', ') : '';
     }
 
+    getAttachmentSource(fieldId: string): 'computer' | 'portal' | '' {
+        return this.attachmentSourceByFieldId[fieldId] || '';
+    }
+
+    onAttachmentSourceChanged(field: TemplateField, source: 'computer' | 'portal' | ''): void {
+        this.attachmentSourceByFieldId[field.id] = source || '';
+        if (source === 'portal' && this.canCurrentStepEditField(field)) {
+            this.openPortalAttachmentModal(field);
+        }
+    }
+
+    openPortalAttachmentModal(field: TemplateField): void {
+        if (!this.canCurrentStepEditField(field)) {
+            return;
+        }
+        this.attachmentSourceByFieldId[field.id] = 'portal';
+        this.portalAttachmentTargetField = field;
+        this.showPortalAttachmentModal = true;
+    }
+
+    closePortalAttachmentModal(): void {
+        this.showPortalAttachmentModal = false;
+        this.portalAttachmentTargetField = null;
+    }
+
+    onPortalFilesSelected(payloads: AttachmentPayload[]): void {
+        const field = this.portalAttachmentTargetField;
+        if (!field || !payloads?.length) {
+            return;
+        }
+        const currentPayloads = this.getAttachmentPayloads(field);
+        const nextBytes = this.getAttachmentBytes(currentPayloads) + this.getAttachmentBytes(payloads);
+        if (nextBytes > TemplateApprovalComponent.MAX_ATTACHMENT_FIELD_BYTES) {
+            this.notificationService.showMessage(
+                `This attachment field is using ${(nextBytes / (1024 * 1024)).toFixed(2)} MB. Each attachment field can hold up to 5 MB independently.`,
+                'danger'
+            );
+            return;
+        }
+        this.values = {
+            ...this.values,
+            [field.id]: [...currentPayloads, ...payloads]
+        };
+        this.patchApplicationDataValue(field.id, this.values[field.id]);
+        this.refreshAttachmentDerivedState();
+        this.onPanelValueChanged(field);
+        this.notificationService.showMessage(
+            payloads.length === 1
+                ? `Added ${payloads[0].fileName} from portal.`
+                : `Added ${payloads.length} files from portal.`,
+            'success'
+        );
+        this.closePortalAttachmentModal();
+    }
+
     async onAttachmentChange(field: TemplateField, event: Event): Promise<void> {
         const input = event.target as HTMLInputElement;
         const files = input?.files ? Array.from(input.files) : [];
@@ -882,12 +955,24 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (!this.validateRemarks('Please enter comments or remarks before approving')) {
             return;
         }
+        if (!(await this.ensureActorSignatureUploaded())) {
+            return;
+        }
+        if (!(await this.confirmWorkflowAction('approve'))) {
+            return;
+        }
         await this.performAction('approve');
     }
 
     async reject(remarksValue?: string): Promise<void> {
         this.syncRemarks(remarksValue);
         if (!this.validateRemarks('Please provide a rejection reason')) {
+            return;
+        }
+        if (!(await this.ensureActorSignatureUploaded())) {
+            return;
+        }
+        if (!(await this.confirmWorkflowAction('reject'))) {
             return;
         }
         await this.performAction('reject');
@@ -898,6 +983,12 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (!this.validateRemarks('Please provide remarks for sending back the application')) {
             return;
         }
+        if (!(await this.ensureActorSignatureUploaded())) {
+            return;
+        }
+        if (!(await this.confirmWorkflowAction('sendBack'))) {
+            return;
+        }
         await this.performAction('sendBack');
     }
 
@@ -906,11 +997,20 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (!this.validateRemarks('Please provide remarks for sending back to initiator')) {
             return;
         }
+        if (!(await this.ensureActorSignatureUploaded())) {
+            return;
+        }
+        if (!(await this.confirmWorkflowAction('sendBackToInitiator'))) {
+            return;
+        }
         await this.performAction('sendBackToInitiator');
     }
 
     async resubmitToPipeline(remarksValue?: string): Promise<void> {
         this.syncRemarks(remarksValue);
+        if (!(await this.ensureActorSignatureUploaded())) {
+            return;
+        }
         if (!this.application?.serApplicationId || this.isActing) {
             return;
         }
@@ -926,7 +1026,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 throw new Error(response?.message || 'Application could not be resubmitted');
             }
 
-            this.application = await firstValueFrom(this.templateWorkflowService.getApplication(this.application.serApplicationId));
+            this.application = await firstValueFrom(
+                this.templateWorkflowService.getApplication(this.application.serApplicationId, this.getCurrentUserId())
+            );
             const approverStep = this.getPipelineStepForApplication(this.application);
             const initiatorStep = this.getInitiatorPipelineStep();
             const approverPdfBlob = await this.renderTemplatePreviewPdfBlobForStep(approverStep);
@@ -963,6 +1065,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (!this.validateRemarks('Please provide remarks for the opinion request')) {
             return;
         }
+        if (!(await this.ensureActorSignatureUploaded())) {
+            return;
+        }
         if (!this.application?.serApplicationId || this.isActing) {
             return;
         }
@@ -989,6 +1094,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     async submitOpinion(action: 'approve' | 'reject', remarksValue?: string): Promise<void> {
         this.syncRemarks(remarksValue);
         if (!this.validateRemarks('Please provide remarks for your opinion')) {
+            return;
+        }
+        if (!(await this.ensureActorSignatureUploaded())) {
             return;
         }
         if (!this.application?.serApplicationId || this.isActing) {
@@ -1163,6 +1271,99 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         ).trim();
     }
 
+    private async ensureActorSignatureUploaded(): Promise<boolean> {
+        const userId = this.getCurrentUserId();
+        if (!userId) {
+            this.notificationService.showMessage('Unable to verify your user session. Please sign in again.', 'danger');
+            return false;
+        }
+
+        try {
+            const response = await firstValueFrom(
+                this.http.get<any>(`${urls.API_URL}getUserSignaturePath`, { params: { userId: String(userId) } })
+            );
+            if (response?.status === 'Success' && response?.hasSignature) {
+                return true;
+            }
+        } catch {
+            // Fall through to prompt; backend also enforces signature on submit.
+        }
+
+        const result = await Swal.fire({
+            title: 'Signature required',
+            html: `<p class="workflow-confirm-message">${SIGNATURE_REQUIRED_MESSAGE}</p>`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Upload signature',
+            cancelButtonText: 'Close',
+            reverseButtons: true,
+            focusCancel: true,
+            customClass: {
+                popup: 'sweet-alerts workflow-confirm-swal',
+                title: 'workflow-confirm-title',
+                htmlContainer: 'workflow-confirm-body',
+                actions: 'workflow-confirm-actions',
+                confirmButton: 'workflow-confirm-primary',
+                cancelButton: 'workflow-confirm-cancel',
+            },
+        });
+        if (result.isConfirmed) {
+            await this.router.navigate(['/signature']);
+        }
+        return false;
+    }
+
+    private async confirmWorkflowAction(
+        action: 'approve' | 'reject' | 'sendBack' | 'sendBackToInitiator'
+    ): Promise<boolean> {
+        const configs: Record<
+            'approve' | 'reject' | 'sendBack' | 'sendBackToInitiator',
+            { title: string; text: string; confirmButtonText: string; confirmButtonColor?: string }
+        > = {
+            approve: {
+                title: 'Approve application?',
+                text: 'Move this application to the next step in the pipeline.',
+                confirmButtonText: 'Approve',
+            },
+            reject: {
+                title: 'Reject application?',
+                text: 'This will reject the application. You cannot undo this action.',
+                confirmButtonText: 'Reject',
+                confirmButtonColor: '#e7515a',
+            },
+            sendBack: {
+                title: 'Send back?',
+                text: 'Return this application to the previous approver.',
+                confirmButtonText: 'Send back',
+            },
+            sendBackToInitiator: {
+                title: 'Send to initiator?',
+                text: 'Return this application to the person who submitted it.',
+                confirmButtonText: 'Send to initiator',
+            },
+        };
+        const { title, text, confirmButtonText, confirmButtonColor } = configs[action];
+        const result = await Swal.fire({
+            title,
+            html: `<p class="workflow-confirm-message">${text}</p>`,
+            showCancelButton: true,
+            confirmButtonText,
+            cancelButtonText: 'Cancel',
+            confirmButtonColor,
+            reverseButtons: true,
+            focusCancel: true,
+            customClass: {
+                popup: 'sweet-alerts workflow-confirm-swal',
+                title: 'workflow-confirm-title',
+                htmlContainer: 'workflow-confirm-body',
+                actions: 'workflow-confirm-actions',
+                confirmButton: 'workflow-confirm-primary',
+                cancelButton: 'workflow-confirm-cancel',
+            },
+        });
+        return result.isConfirmed;
+    }
+
     private async performAction(action: 'approve' | 'reject' | 'sendBack' | 'sendBackToInitiator'): Promise<void> {
         if (!this.application?.serApplicationId || this.isActing) {
             return;
@@ -1196,7 +1397,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 throw new Error(response?.message || 'Action could not be completed');
             }
             if (action === 'approve') {
-                this.application = await firstValueFrom(this.templateWorkflowService.getApplication(this.application.serApplicationId));
+                this.application = await firstValueFrom(
+                    this.templateWorkflowService.getApplication(this.application.serApplicationId, this.getCurrentUserId())
+                );
                 const approverStep = this.getPipelineStepForApplication(this.application);
                 this.previewStepOverride = actingStep;
                 this.refreshDerivedState();
@@ -1222,10 +1425,18 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             this.notificationService.showMessage(response.message || 'Action completed successfully.', 'success');
             await this.redirectToPendingApprovals();
         } catch (error: any) {
-            this.notificationService.showMessage(error?.error?.message || error?.message || 'Action could not be completed.', 'danger');
+            const message = error?.error?.message || error?.message || 'Action could not be completed.';
+            this.notificationService.showMessage(
+                message,
+                this.isOrAlreadyApprovedMessage(message) ? 'warning' : 'danger'
+            );
         } finally {
             this.isActing = false;
         }
+    }
+
+    private isOrAlreadyApprovedMessage(message: string | null | undefined): boolean {
+        return (message || '').toLowerCase().includes('already approved by');
     }
 
     private async redirectToPendingApprovals(): Promise<void> {
@@ -1251,7 +1462,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             this.template,
             this.userPipeline
         ));
-        this.application = await firstValueFrom(this.templateWorkflowService.getApplication(this.application.serApplicationId));
+        this.application = await firstValueFrom(
+            this.templateWorkflowService.getApplication(this.application.serApplicationId, this.getCurrentUserId())
+        );
         this.refreshDerivedState();
         if (refreshPdf) {
             const pdfBlob = await this.renderTemplatePreviewPdfBlob();
@@ -1440,6 +1653,10 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             return '';
         }
         if (!this.isCurrentPendingApprover(application)) {
+            const workflowNotice = String(application?.workflowUserNotice || '').trim();
+            if (workflowNotice) {
+                return workflowNotice;
+            }
             return 'This approval step is currently assigned to another user. This application is read-only for you.';
         }
         return '';
@@ -2149,8 +2366,160 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             approver: this.getStepApproverName(step, history, slot.user),
             approvedAt: this.getHistoryDate(history),
             remarks: history?.remarks || history?.comments || history?.txtRemarks || '--',
+            ipAddress: this.getHistoryIpAddress(history),
+            approvalLatitude: this.getHistoryLatitude(history),
+            approvalLongitude: this.getHistoryLongitude(history),
+            approvalLocationLabel: this.getHistoryLocationLabel(history),
             rawDate: this.getHistoryDateObject(history)
         };
+    }
+
+    canShowViewLocationButton(tile: ProgressTile): boolean {
+        if (!tile || tile.status !== 'APPROVED') {
+            return false;
+        }
+        if (this.hasStoredApprovalCoordinates(tile)) {
+            return true;
+        }
+        const ip = String(tile.ipAddress || '').trim();
+        return ip.length > 0 && ip !== '--';
+    }
+
+    async openApprovalLocationModal(tile: ProgressTile): Promise<void> {
+        this.showLocationModal = true;
+        this.locationModalLoading = true;
+        this.locationModalError = '';
+        this.locationModalLabel = tile.approvalLocationLabel || '';
+        this.locationMapUrl = null;
+
+        try {
+            const storedLatitude = Number(tile.approvalLatitude);
+            const storedLongitude = Number(tile.approvalLongitude);
+            if (this.isUsableMapCoordinate(storedLatitude, storedLongitude)) {
+                this.applyLocationMap(storedLatitude, storedLongitude);
+                return;
+            }
+
+            const ip = String(tile.ipAddress || '').trim();
+            if (!ip || ip === '--' || this.isPrivateOrLocalIp(ip)) {
+                this.locationModalError = 'Location is not available for local or private network addresses.';
+                return;
+            }
+
+            const response = await firstValueFrom(this.templateWorkflowService.getTemplateApprovalLocationByIp(ip));
+            if (!response || response.status !== 'Success') {
+                this.locationModalError = response?.message || 'Could not resolve location for this IP address.';
+                return;
+            }
+            const latitude = Number(response.latitude);
+            const longitude = Number(response.longitude);
+            if (!this.isUsableMapCoordinate(latitude, longitude)) {
+                this.locationModalError = 'Location coordinates are not available for this approval.';
+                return;
+            }
+            if (response.locationLabel) {
+                this.locationModalLabel = String(response.locationLabel);
+            }
+            this.applyLocationMap(latitude, longitude);
+        } catch (error: any) {
+            this.locationModalError = error?.error?.message || error?.message || 'Failed to load approval location.';
+        } finally {
+            this.locationModalLoading = false;
+            this.cdr.markForCheck();
+        }
+    }
+
+    closeApprovalLocationModal(): void {
+        this.showLocationModal = false;
+        this.locationModalLoading = false;
+        this.locationModalError = '';
+        this.locationModalLabel = '';
+        this.locationMapUrl = null;
+    }
+
+    private hasStoredApprovalCoordinates(tile: ProgressTile): boolean {
+        return this.isUsableMapCoordinate(Number(tile.approvalLatitude), Number(tile.approvalLongitude));
+    }
+
+    private isUsableMapCoordinate(latitude: number, longitude: number): boolean {
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+            return false;
+        }
+        if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+            return false;
+        }
+        return !(Math.abs(latitude) < 1 && Math.abs(longitude) < 1);
+    }
+
+    private applyLocationMap(latitude: number, longitude: number): void {
+        if (!this.isUsableMapCoordinate(latitude, longitude)) {
+            this.locationModalError = 'Location coordinates are not available for this approval.';
+            return;
+        }
+        const url = this.buildOpenStreetMapEmbedUrl(latitude, longitude);
+        this.locationMapUrl = this.sanitizer.bypassSecurityTrustResourceUrl(url);
+    }
+
+    private buildOpenStreetMapEmbedUrl(latitude: number, longitude: number): string {
+        const delta = 0.08;
+        const minLon = longitude - delta;
+        const minLat = latitude - delta;
+        const maxLon = longitude + delta;
+        const maxLat = latitude + delta;
+        return `https://www.openstreetmap.org/export/embed.html?bbox=${minLon},${minLat},${maxLon},${maxLat}&layer=mapnik&marker=${latitude},${longitude}`;
+    }
+
+    private isPrivateOrLocalIp(ip: string): boolean {
+        const normalized = String(ip || '').trim().toLowerCase();
+        if (!normalized || normalized === '--') {
+            return true;
+        }
+        if (normalized === 'localhost' || normalized === '::1' || normalized === '0:0:0:0:0:0:0:1') {
+            return true;
+        }
+        if (normalized.startsWith('::ffff:127.') || normalized.startsWith('::ffff:10.')
+            || normalized.startsWith('::ffff:192.168.')) {
+            return true;
+        }
+        if (normalized.startsWith('127.') || normalized.startsWith('10.')
+            || normalized.startsWith('192.168.')) {
+            return true;
+        }
+        if (normalized.startsWith('172.')) {
+            const second = Number(normalized.split('.')[1]);
+            if (Number.isFinite(second) && second >= 16 && second <= 31) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private getHistoryLatitude(history: any): number | null {
+        const value = history?.approvalLatitude ?? history?.latitude ?? history?.lat;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    private getHistoryLongitude(history: any): number | null {
+        const value = history?.approvalLongitude ?? history?.longitude ?? history?.lon;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    private getHistoryLocationLabel(history: any): string {
+        const label = history?.approvalLocationLabel ?? history?.locationLabel;
+        return label != null && String(label).trim() ? String(label).trim() : '';
+    }
+
+    private getHistoryIpAddress(history: any): string {
+        if (!history) {
+            return '--';
+        }
+        const ip = history?.approvedIp ?? history?.ipAddress ?? history?.ip;
+        if (ip != null && String(ip).trim()) {
+            return String(ip).trim();
+        }
+        return '--';
     }
 
     private getProgressApproverSlots(step: PipelineStep, stepLevel: number): ProgressApproverSlot[] {

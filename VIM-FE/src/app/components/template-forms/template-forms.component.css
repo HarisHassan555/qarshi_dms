@@ -178,6 +178,19 @@
     margin-top: 2px;
 }
 
+.template-list-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    min-width: 14rem;
+}
+
+.template-list-actions .btn {
+    white-space: nowrap;
+}
+
 .visibility-remove-btn {
     background: #ffffff;
     border: 1px solid #cbd5e1;

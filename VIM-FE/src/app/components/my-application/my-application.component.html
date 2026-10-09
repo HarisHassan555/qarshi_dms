@@ -117,6 +117,13 @@
                 <button type="button" class="btn btn-outline-primary" [disabled]="isDownloadingWithLogsPdf" (click)="downloadApplicationWithLogsPdf(application)">
                     {{ isDownloadingWithLogsPdf ? 'Downloading...' : 'Download PDF With Logs' }}
                 </button>
+                <button
+                    *ngIf="canSendReminder(application)"
+                    type="button"
+                    class="btn btn-outline-warning"
+                    (click)="openReminderModal()">
+                    Send Reminder
+                </button>
                 <button *ngIf="canEditApplication(application)" type="button" class="btn btn-primary" (click)="editApplication(application)">
                     Edit & Resubmit
                 </button>
@@ -375,6 +382,41 @@
         </ng-container>
     </div>
 </ng-template>
+
+<div class="log-csv-modal-backdrop" *ngIf="showReminderModal" (click)="closeReminderModal()">
+    <div class="log-csv-modal reminder-email-modal" (click)="$event.stopPropagation()">
+        <div class="log-csv-modal-header">
+            <div>
+                <h3>Send Reminder</h3>
+                <p>Email the current step approver using the same SMTP configuration as workflow notifications.</p>
+            </div>
+            <button type="button" class="log-csv-close" (click)="closeReminderModal()" [disabled]="isReminderSending">x</button>
+        </div>
+        <div class="reminder-email-modal-body" *ngIf="!isReminderLoading">
+            <label class="reminder-field">
+                <span>To</span>
+                <input type="text" class="form-input" [value]="reminderToDisplay" readonly />
+            </label>
+            <label class="reminder-field">
+                <span>Subject</span>
+                <input type="text" class="form-input" [(ngModel)]="reminderSubject" [disabled]="isReminderSending" />
+            </label>
+            <label class="reminder-field">
+                <span>Body</span>
+                <textarea class="form-textarea reminder-body-input" rows="8" [(ngModel)]="reminderBody" [disabled]="isReminderSending"></textarea>
+            </label>
+        </div>
+        <div class="reminder-email-loading" *ngIf="isReminderLoading">
+            Loading reminder details...
+        </div>
+        <div class="log-csv-modal-footer">
+            <button type="button" class="btn btn-outline-danger" (click)="closeReminderModal()" [disabled]="isReminderSending">Cancel</button>
+            <button type="button" class="btn btn-primary" (click)="sendReminderEmail()" [disabled]="isReminderLoading || isReminderSending">
+                {{ isReminderSending ? 'Sending...' : 'Send Reminder' }}
+            </button>
+        </div>
+    </div>
+</div>
 
 <div class="log-csv-modal-backdrop" *ngIf="showApprovalLogsCsvModal" (click)="closeApprovalLogsCsvModal()">
     <div class="log-csv-modal" (click)="$event.stopPropagation()">

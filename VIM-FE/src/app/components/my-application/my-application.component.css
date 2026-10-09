@@ -424,6 +424,40 @@
     margin: 0 auto;
 }
 
+.reminder-email-modal {
+    max-width: 640px;
+}
+
+.reminder-email-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 0 20px 20px;
+}
+
+.reminder-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.reminder-field span {
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+}
+
+.reminder-body-input {
+    min-height: 180px;
+    resize: vertical;
+}
+
+.reminder-email-loading {
+    padding: 24px 20px;
+    text-align: center;
+    color: #6b7280;
+}
+
 .log-csv-modal-backdrop {
     position: fixed;
     inset: 0;

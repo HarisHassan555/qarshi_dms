@@ -11,14 +11,22 @@
             <button *ngIf="hasAnyAttachments" type="button" class="btn btn-outline" (click)="openAttachmentsModal()">
                 View Attachments
             </button>
-            <button *ngIf="savedTemplate" type="button" class="btn btn-primary" [disabled]="isSubmitting" (click)="submitTemplate()">
-                {{ isSubmitting ? 'Saving...' : (isEditingExistingApplication ? 'Resubmit' : 'Submit') }}
+            <button *ngIf="savedTemplate" type="button" class="btn btn-outline" [disabled]="isSubmitting || isSavingDraft" (click)="saveAsDraft()">
+                {{ isSavingDraft ? 'Saving draft...' : 'Save as Draft' }}
+            </button>
+            <button *ngIf="savedTemplate" type="button" class="btn btn-primary" [disabled]="isSubmitting || isSavingDraft" (click)="submitTemplate()">
+                {{ isSubmitting ? 'Saving...' : (isSentBackForEdit ? 'Resubmit' : 'Submit') }}
             </button>
         </div>
     </div>
 
     <div *ngIf="submittedCode" class="submission-code">
-        Submitted with code <strong>{{ submittedCode }}</strong>
+        <ng-container *ngIf="isDraftApplication; else submittedCodeBanner">
+            Draft saved with code <strong>{{ submittedCode }}</strong>
+        </ng-container>
+        <ng-template #submittedCodeBanner>
+            Submitted with code <strong>{{ submittedCode }}</strong>
+        </ng-template>
     </div>
 
     <div *ngIf="!template" class="empty-template">
@@ -72,13 +80,42 @@
                     </label>
                 </div>
                 <div *ngIf="isAttachmentField(field)" class="attachment-field-panel">
-                    <input
-                        [id]="field.id"
-                        type="file"
-                        multiple
-                        accept=".pdf,.webp,.png,.jpeg,.jpg,application/pdf,image/webp,image/png,image/jpeg"
-                        [disabled]="!canCurrentStepFillField(field)"
-                        (change)="onAttachmentChange(field, $event)" />
+                    <div class="attachment-source-row">
+                        <select
+                            class="form-select attachment-source-select"
+                            [disabled]="!canCurrentStepFillField(field)"
+                            [ngModel]="getAttachmentSource(field.id)"
+                            (ngModelChange)="onAttachmentSourceChanged(field, $event)">
+                            <option value="">Select source</option>
+                            <option value="computer">From Computer</option>
+                            <option value="portal">From Portal</option>
+                        </select>
+                        <input
+                            [id]="field.id"
+                            #computerAttachmentInput
+                            type="file"
+                            multiple
+                            class="attachment-computer-input"
+                            accept=".pdf,.webp,.png,.jpeg,.jpg,application/pdf,image/webp,image/png,image/jpeg"
+                            [disabled]="!canCurrentStepFillField(field)"
+                            (change)="onAttachmentChange(field, $event)" />
+                        <button
+                            *ngIf="getAttachmentSource(field.id) === 'computer'"
+                            type="button"
+                            class="btn btn-sm btn-outline-primary"
+                            [disabled]="!canCurrentStepFillField(field)"
+                            (click)="computerAttachmentInput.click()">
+                            Choose files
+                        </button>
+                        <button
+                            *ngIf="getAttachmentSource(field.id) === 'portal'"
+                            type="button"
+                            class="btn btn-sm btn-outline-primary"
+                            [disabled]="!canCurrentStepFillField(field)"
+                            (click)="openPortalAttachmentModal(field)">
+                            Browse portal files
+                        </button>
+                    </div>
                     <div class="attachment-list" *ngIf="getAttachmentPayloads(field).length > 0">
                         <div class="attachment-item" *ngFor="let attachment of getAttachmentPayloads(field); let index = index">
                             <button type="button" class="attachment-link-button" (click)="viewAttachment(attachment)">
@@ -384,3 +421,9 @@
         </div>
     </div>
 </div>
+
+<app-portal-attachments-picker
+    *ngIf="showPortalAttachmentModal"
+    (closed)="closePortalAttachmentModal()"
+    (filesSelected)="onPortalFilesSelected($event)">
+</app-portal-attachments-picker>
