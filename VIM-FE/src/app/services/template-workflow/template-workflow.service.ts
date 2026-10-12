@@ -586,6 +586,22 @@ export class TemplateWorkflowService {
         });
     }
 
+    holdTemplateApplication(applicationId: string | number, remarks: string) {
+        return this.http.post<any>(urls.API_URL + 'holdTemplateApplication', {
+            applicationId: Number(applicationId),
+            userId: this.getCurrentUserId(),
+            remarks: remarks || ''
+        });
+    }
+
+    unholdTemplateApplication(applicationId: string | number, remarks: string = '') {
+        return this.http.post<any>(urls.API_URL + 'unholdTemplateApplication', {
+            applicationId: Number(applicationId),
+            userId: this.getCurrentUserId(),
+            remarks: remarks || ''
+        });
+    }
+
     sendTemplateTestEmailPdf(recipients: string[], subject: string, bodyHtml: string, pdfBlob: Blob, filename: string) {
         const formData = new FormData();
         formData.append('recipients', JSON.stringify(recipients || []));

@@ -146,7 +146,7 @@ const TEMPLATE_FILL_HIDE_CKEDITOR_BADGE_CLASS = 'template-fill-hide-ckeditor-bad
     styleUrls: ['./template-fill.component.css']
 })
 export class TemplateFillComponent implements OnInit, OnDestroy {
-    private static readonly MAX_ATTACHMENT_FIELD_BYTES = 5 * 1024 * 1024;
+    private static readonly DEFAULT_MAX_ATTACHMENT_MB = 5;
     private static readonly TABLE_MIN_COLUMN_WIDTH = 56;
     private static readonly TABLE_MIN_ROW_HEIGHT = 36;
     private static readonly TABLE_VERTICAL_CHROME_HEIGHT = 36;
@@ -590,11 +590,9 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         }
         const currentPayloads = this.getAttachmentPayloads(field);
         const nextBytes = this.getAttachmentBytes(currentPayloads) + this.getAttachmentBytes(payloads);
-        if (nextBytes > TemplateFillComponent.MAX_ATTACHMENT_FIELD_BYTES) {
-            this.notificationService.showMessage(
-                `This attachment field is using ${(nextBytes / (1024 * 1024)).toFixed(2)} MB. Each attachment field can hold up to 5 MB independently.`,
-                'danger'
-            );
+        const maxBytes = this.getMaxAttachmentFieldBytes();
+        if (nextBytes > maxBytes) {
+            this.notificationService.showMessage(this.buildAttachmentLimitMessage(nextBytes, maxBytes), 'danger');
             return;
         }
         this.setAttachmentPayloads(field, [...currentPayloads, ...payloads]);
@@ -626,11 +624,9 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         const currentPayloads = this.getAttachmentPayloads(field);
         const fieldBytes = this.getAttachmentBytes(currentPayloads)
             + files.reduce((sum, file) => sum + (Number(file.size) || 0), 0);
-        if (fieldBytes > TemplateFillComponent.MAX_ATTACHMENT_FIELD_BYTES) {
-            this.notificationService.showMessage(
-                `This attachment field is using ${(fieldBytes / (1024 * 1024)).toFixed(2)} MB. Each attachment field can hold up to 5 MB independently.`,
-                'danger'
-            );
+        const maxBytes = this.getMaxAttachmentFieldBytes();
+        if (fieldBytes > maxBytes) {
+            this.notificationService.showMessage(this.buildAttachmentLimitMessage(fieldBytes, maxBytes), 'danger');
             input.value = '';
             return;
         }
@@ -931,7 +927,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 'success'
             );
         } catch (error: any) {
-            this.notificationService.showMessage(error?.message || 'Draft could not be saved.', 'danger');
+            const backendMessage = error?.error?.message || error?.message || 'Draft could not be saved.';
+            this.notificationService.showMessage(backendMessage, 'danger');
         } finally {
             this.isSavingDraft = false;
         }
@@ -1174,6 +1171,29 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             ...this.values,
             [field.id]: this.normalizeExistingAttachmentPayloads(attachments)
         };
+    }
+
+    private getMaxAttachmentFieldMb(): number {
+        try {
+            const user = JSON.parse(localStorage.getItem('user') || 'null');
+            const configured = Number(user?.numMaxAttachmentMb);
+            if (Number.isFinite(configured) && configured > 0) {
+                return Math.floor(configured);
+            }
+        } catch {
+            // fall through to default
+        }
+        return TemplateFillComponent.DEFAULT_MAX_ATTACHMENT_MB;
+    }
+
+    private getMaxAttachmentFieldBytes(): number {
+        return this.getMaxAttachmentFieldMb() * 1024 * 1024;
+    }
+
+    private buildAttachmentLimitMessage(actualBytes: number, maxBytes: number): string {
+        const actualMb = (actualBytes / (1024 * 1024)).toFixed(2);
+        const maxMb = Math.max(1, Math.round(maxBytes / (1024 * 1024)));
+        return `These files are about ${actualMb} MB. Your account allows up to ${maxMb} MB per attachment field. Please remove some files or choose smaller ones.`;
     }
 
     private getAttachmentBytes(attachments: AttachmentPayload[]): number {

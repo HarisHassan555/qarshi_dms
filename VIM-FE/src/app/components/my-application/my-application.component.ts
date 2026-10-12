@@ -712,6 +712,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         if (value === 'APPROVED') return 'status-approved';
         if (value === 'REJECTED') return 'status-rejected';
         if (value === 'OPINION_PENDING') return 'status-opinion';
+        if (value === 'HOLD') return 'status-pending';
         return 'status-pending';
     }
 
@@ -721,6 +722,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             case 'DRAFT':
                 return 'badge-outline-secondary';
             case 'PENDING':
+            case 'HOLD':
                 return 'badge-outline-warning';
             case 'APPROVED':
                 return 'badge-outline-success';

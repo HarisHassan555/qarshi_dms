@@ -302,6 +302,7 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			if (isBlank(CfgTblUser.getTxtSignaturePath())) CfgTblUser.setTxtSignaturePath(existingUser.getTxtSignaturePath());
 			if (isBlank(CfgTblUser.getTxtDepartmentName())) CfgTblUser.setTxtDepartmentName(existingUser.getTxtDepartmentName());
 			if (isBlank(CfgTblUser.getTxtDesignation())) CfgTblUser.setTxtDesignation(existingUser.getTxtDesignation());
+			if (CfgTblUser.getNumMaxAttachmentMb() == null) CfgTblUser.setNumMaxAttachmentMb(existingUser.getNumMaxAttachmentMb());
 
 			CfgTblUser.setCfgTblRole(resolveRole(entityManager, CfgTblUser.getCfgTblRole(), existingUser.getCfgTblRole()));
 			CfgTblUser.setCfgTblManager(resolveManager(entityManager, CfgTblUser.getCfgTblManager(), existingUser.getCfgTblManager()));

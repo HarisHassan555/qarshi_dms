@@ -127,6 +127,39 @@
     width: 100%;
 }
 
+.hold-banner {
+    background: #fff8e6;
+    border: 1px solid #f2d6a2;
+    border-radius: 8px;
+    color: #7a4d00;
+    margin: 10px 0 12px;
+    padding: 10px 12px;
+}
+
+.hold-banner strong {
+    display: block;
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+
+.hold-banner p {
+    font-size: 12px;
+    line-height: 1.4;
+    margin: 0;
+    white-space: pre-wrap;
+}
+
+.remarks-hint {
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.35;
+    margin: 6px 0 0;
+}
+
+.hold-action-btn {
+    margin-top: 10px;
+}
+
 .opinion-request-box {
     border-top: 1px solid #e2e8f0;
     display: grid;

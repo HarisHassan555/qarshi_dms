@@ -71,6 +71,7 @@ export class UserListComponent implements OnInit {
       cfgTblCustomer: this.fb.group({
         serCustomerId: ['']
       }),
+      numMaxAttachmentMb: [5],
       blnStatus: [true],
     });
     const userJson = localStorage.getItem('user');
@@ -170,6 +171,7 @@ export class UserListComponent implements OnInit {
       cfgTblCustomer: {
         serCustomerId: ''
       },
+      numMaxAttachmentMb: 5,
       blnStatus: true
     });
     this.blnStatus = true;
@@ -201,6 +203,7 @@ export class UserListComponent implements OnInit {
       cfgTblCustomer: {
         serCustomerId: user?.cfgTblCustomer?.serCustomerId || ''
       },
+      numMaxAttachmentMb: this.resolveMaxAttachmentMb(user?.numMaxAttachmentMb),
       blnStatus: user?.blnStatus ?? true
     });
     this.modal.open();
@@ -238,17 +241,38 @@ export class UserListComponent implements OnInit {
     }
     this.userService
       .save(payload).subscribe((response: any) => {
-        let data = typeof response === 'string' ? JSON.parse(response) : response;
-        if (data.status === 'Success') {
+        const status = this.resolveSaveStatus(response);
+        if (status === 'Success') {
           this.notificationService.showMessage('Record saved successfully', 'success');
           this.isSubmit = false;
           this.form.reset();
           this.modal.close();
           this.getUsers();
+        } else if (status === 'AX') {
+          this.notificationService.showMessage('User already exists with the same details', 'danger');
         } else {
           this.notificationService.showMessage('Error occurred while saving', 'danger');
         }
       });
+  }
+
+  private resolveSaveStatus(response: any): string {
+    if (response == null) {
+      return 'Failure';
+    }
+    if (typeof response === 'string') {
+      const trimmed = response.trim();
+      if (trimmed === 'Success' || trimmed === 'Failure' || trimmed === 'AX') {
+        return trimmed;
+      }
+      try {
+        const parsed = JSON.parse(trimmed);
+        return String(parsed?.status || trimmed);
+      } catch {
+        return trimmed;
+      }
+    }
+    return String(response?.status || 'Failure');
   }
 
   getDisplayedUsers(): any[] {
@@ -396,8 +420,17 @@ export class UserListComponent implements OnInit {
       txtLoginName: (formValue?.txtLoginName || '').toString().trim(),
       txtDepartmentName: selectedDepartment?.txtDepartmentName || '',
       txtDesignation: (formValue?.txtDesignation || '').toString().trim(),
+      numMaxAttachmentMb: this.resolveMaxAttachmentMb(formValue?.numMaxAttachmentMb),
       blnStatus: !!formValue?.blnStatus
     };
+  }
+
+  private resolveMaxAttachmentMb(value: any): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return 5;
+    }
+    return Math.min(Math.floor(parsed), 100);
   }
 
   private isLoginNameDuplicate(loginName: string, currentUserId?: number): boolean {

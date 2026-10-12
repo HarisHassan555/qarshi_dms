@@ -139,7 +139,7 @@ const SIGNATURE_REQUIRED_MESSAGE = 'Before approving the document, kindly upload
 })
 export class TemplateApprovalComponent implements OnInit, OnDestroy {
     private static readonly INDIVIDUAL_FOOTER_MIN_HEIGHT = 136;
-    private static readonly MAX_ATTACHMENT_FIELD_BYTES = 5 * 1024 * 1024;
+    private static readonly DEFAULT_MAX_ATTACHMENT_MB = 5;
     private static readonly ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
         'application/pdf',
         'image/webp',
@@ -212,6 +212,8 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     opinionPending = false;
     opinionRequesterName = 'Current approver';
     opinionPendingWithName = 'Selected user';
+    holdPending = false;
+    holdReason = '';
     individualFooterSectionsCache: any[] = [];
 
     constructor(
@@ -357,7 +359,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     canCurrentStepEditField(field: TemplateField): boolean {
-        if (this.isOpinionPending()) {
+        if (this.isOnHold() || this.isOpinionPending()) {
             return false;
         }
         if (field.type === 'application_code' || this.isDynamicApprovalDataField(field)) {
@@ -416,7 +418,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     isInitiatorResubmissionStep(application: any = this.application): boolean {
-        if (!application || this.isOpinionPending()) {
+        if (!application || this.isOpinionPending() || this.isOnHold(application)) {
             return false;
         }
         const currentUserId = Number(this.getCurrentUserId() || 0);
@@ -425,7 +427,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             return false;
         }
         const status = String(application?.txtStatus || '').toUpperCase();
-        if (status === 'REJECTED' || status === 'APPROVED' || status === 'COMPLETED') {
+        if (status === 'REJECTED' || status === 'APPROVED' || status === 'COMPLETED' || status === 'HOLD') {
             return false;
         }
         const currentLevel = Number(application?.intCurrentApprovalLevel || 0);
@@ -722,11 +724,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         }
         const currentPayloads = this.getAttachmentPayloads(field);
         const nextBytes = this.getAttachmentBytes(currentPayloads) + this.getAttachmentBytes(payloads);
-        if (nextBytes > TemplateApprovalComponent.MAX_ATTACHMENT_FIELD_BYTES) {
-            this.notificationService.showMessage(
-                `This attachment field is using ${(nextBytes / (1024 * 1024)).toFixed(2)} MB. Each attachment field can hold up to 5 MB independently.`,
-                'danger'
-            );
+        const maxBytes = this.getMaxAttachmentFieldBytes();
+        if (nextBytes > maxBytes) {
+            this.notificationService.showMessage(this.buildAttachmentLimitMessage(nextBytes, maxBytes), 'danger');
             return;
         }
         this.values = {
@@ -763,11 +763,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         const currentPayloads = this.getAttachmentPayloads(field);
         const fieldBytes = this.getAttachmentBytes(currentPayloads)
             + files.reduce((sum, file) => sum + (Number(file.size) || 0), 0);
-        if (fieldBytes > TemplateApprovalComponent.MAX_ATTACHMENT_FIELD_BYTES) {
-            this.notificationService.showMessage(
-                `This attachment field is using ${(fieldBytes / (1024 * 1024)).toFixed(2)} MB. Each attachment field can hold up to 5 MB independently.`,
-                'danger'
-            );
+        const maxBytes = this.getMaxAttachmentFieldBytes();
+        if (fieldBytes > maxBytes) {
+            this.notificationService.showMessage(this.buildAttachmentLimitMessage(fieldBytes, maxBytes), 'danger');
             input.value = '';
             return;
         }
@@ -1125,6 +1123,86 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return this.opinionPending;
     }
 
+    isOnHold(application: any = this.application): boolean {
+        if (application === this.application) {
+            return this.holdPending;
+        }
+        return String(application?.txtStatus || '').toUpperCase() === 'HOLD';
+    }
+
+    getHoldReason(): string {
+        return this.holdReason || 'No reason provided';
+    }
+
+    async holdApplication(remarksValue?: string): Promise<void> {
+        if (!this.application?.serApplicationId || this.isActing || this.isOnHold()) {
+            return;
+        }
+        const reason = String(remarksValue ?? this.remarks ?? '').trim();
+        if (!reason) {
+            this.notificationService.showMessage('Please enter a Hold reason in Remarks before putting this application on Hold.', 'danger');
+            return;
+        }
+        if (!(await this.confirmWorkflowAction('hold'))) {
+            return;
+        }
+        this.remarks = reason;
+        this.isActing = true;
+        try {
+            const response: any = await firstValueFrom(
+                this.templateWorkflowService.holdTemplateApplication(this.application.serApplicationId, reason)
+            );
+            if (!response || response.status !== 'Success') {
+                throw new Error(response?.message || 'Could not put application on Hold');
+            }
+            this.notificationService.showMessage(response.message || 'Application put on Hold.', 'success');
+            this.application = await firstValueFrom(
+                this.templateWorkflowService.getApplication(this.application.serApplicationId, this.getCurrentUserId())
+            );
+            this.refreshDerivedState();
+            this.rebuildPreviewHtml();
+        } catch (error: any) {
+            this.notificationService.showMessage(
+                error?.error?.message || error?.message || 'Could not put application on Hold.',
+                'danger'
+            );
+        } finally {
+            this.isActing = false;
+        }
+    }
+
+    async unholdApplication(remarksValue?: string): Promise<void> {
+        if (!this.application?.serApplicationId || this.isActing || !this.isOnHold()) {
+            return;
+        }
+        if (!(await this.confirmWorkflowAction('unhold'))) {
+            return;
+        }
+        const note = String(remarksValue ?? this.remarks ?? '').trim();
+        this.isActing = true;
+        try {
+            const response: any = await firstValueFrom(
+                this.templateWorkflowService.unholdTemplateApplication(this.application.serApplicationId, note)
+            );
+            if (!response || response.status !== 'Success') {
+                throw new Error(response?.message || 'Could not take application off Hold');
+            }
+            this.notificationService.showMessage(response.message || 'Application taken off Hold.', 'success');
+            this.application = await firstValueFrom(
+                this.templateWorkflowService.getApplication(this.application.serApplicationId, this.getCurrentUserId())
+            );
+            this.refreshDerivedState();
+            this.rebuildPreviewHtml();
+        } catch (error: any) {
+            this.notificationService.showMessage(
+                error?.error?.message || error?.message || 'Could not take application off Hold.',
+                'danger'
+            );
+        } finally {
+            this.isActing = false;
+        }
+    }
+
     getOpinionRequesterName(): string {
         return this.opinionRequesterName;
     }
@@ -1314,10 +1392,10 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     private async confirmWorkflowAction(
-        action: 'approve' | 'reject' | 'sendBack' | 'sendBackToInitiator'
+        action: 'approve' | 'reject' | 'sendBack' | 'sendBackToInitiator' | 'hold' | 'unhold'
     ): Promise<boolean> {
         const configs: Record<
-            'approve' | 'reject' | 'sendBack' | 'sendBackToInitiator',
+            'approve' | 'reject' | 'sendBack' | 'sendBackToInitiator' | 'hold' | 'unhold',
             { title: string; text: string; confirmButtonText: string; confirmButtonColor?: string }
         > = {
             approve: {
@@ -1340,6 +1418,17 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 title: 'Send to initiator?',
                 text: 'Return this application to the person who submitted it.',
                 confirmButtonText: 'Send to initiator',
+            },
+            hold: {
+                title: 'Put application on Hold?',
+                text: 'Workflow actions will be paused. Hold time can be excluded from assessment scoring when a valid reason is recorded.',
+                confirmButtonText: 'Put on Hold',
+                confirmButtonColor: '#e2a03f',
+            },
+            unhold: {
+                title: 'Take application off Hold?',
+                text: 'The application will resume at the same approval step.',
+                confirmButtonText: 'Unhold',
             },
         };
         const { title, text, confirmButtonText, confirmButtonColor } = configs[action];
@@ -1552,12 +1641,14 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         this.opinionPending = this.computeIsOpinionPending();
         this.opinionRequesterName = this.applicationDataCache?.templateOpinionRequest?.requestedByName || 'Current approver';
         this.opinionPendingWithName = this.resolveOpinionPendingWithName();
+        this.holdPending = this.computeIsOnHold();
+        this.holdReason = this.resolveHoldReason();
         this.currentStep = this.previewStepOverride !== undefined
             ? this.previewStepOverride
             : this.getPipelineStepForApplication(this.application);
         this.pipelineStepsCache = this.buildPipelineStepsCache();
         this.canEditCurrentStep = this.computeCanCurrentUserEditCurrentStep(this.application);
-        this.canTakeWorkflowActions = this.canEditCurrentStep;
+        this.canTakeWorkflowActions = this.canEditCurrentStep || this.canCurrentUserUnhold();
         this.readOnlyStepMessage = this.computeReadOnlyStepMessage(this.application);
         this.individualFooterSectionsCache = Array.isArray(this.userPipeline) ? this.userPipeline : [];
         this.editableFieldsCache = this.computeEditableFields();
@@ -1598,6 +1689,27 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         const request = this.applicationDataCache?.templateOpinionRequest;
         return String(this.application?.txtStatus || '').toUpperCase() === 'OPINION_PENDING'
             && (request?.active === true || String(request?.active).toLowerCase() === 'true');
+    }
+
+    private computeIsOnHold(): boolean {
+        return String(this.application?.txtStatus || '').toUpperCase() === 'HOLD';
+    }
+
+    private resolveHoldReason(): string {
+        const holdState = this.applicationDataCache?.templateHoldState;
+        return String(holdState?.reason || this.application?.txtRemarks || '').trim();
+    }
+
+    private canCurrentUserUnhold(): boolean {
+        if (!this.computeIsOnHold()) {
+            return false;
+        }
+        const currentUserId = Number(this.getCurrentUserId() || 0);
+        const heldBy = Number(this.applicationDataCache?.templateHoldState?.heldBy || 0);
+        if (Number.isFinite(heldBy) && heldBy > 0 && heldBy === currentUserId) {
+            return true;
+        }
+        return this.isCurrentPendingApprover(this.application);
     }
 
     private resolveOpinionPendingWithName(): string {
@@ -1646,6 +1758,12 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (!application) {
             return 'This application is available in read-only mode.';
         }
+        if (this.computeIsOnHold() && this.canCurrentUserUnhold()) {
+            return 'This application is on Hold. Take it off Hold to continue approval actions.';
+        }
+        if (this.computeIsOnHold()) {
+            return 'This application is on Hold and is read-only for you.';
+        }
         if (this.opinionPending && !this.isCurrentOpinionUser(application)) {
             return 'Opinion is currently assigned to another user. This application is read-only for you.';
         }
@@ -1663,7 +1781,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     private computeIsInitiatorResubmissionStep(application: any = this.application): boolean {
-        if (!application || this.opinionPending) {
+        if (!application || this.opinionPending || this.computeIsOnHold()) {
             return false;
         }
         const currentUserId = Number(this.getCurrentUserId() || 0);
@@ -1672,7 +1790,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             return false;
         }
         const status = String(application?.txtStatus || '').toUpperCase();
-        if (status === 'REJECTED' || status === 'APPROVED' || status === 'COMPLETED') {
+        if (status === 'REJECTED' || status === 'APPROVED' || status === 'COMPLETED' || status === 'HOLD') {
             return false;
         }
         const currentLevel = Number(application?.intCurrentApprovalLevel || 0);
@@ -1695,7 +1813,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     private computeEditableFields(): TemplateField[] {
-        if (this.opinionPending || !this.canEditCurrentStep) {
+        if (this.holdPending || this.opinionPending || !this.canEditCurrentStep) {
             return [];
         }
         return (this.template?.fields || []).filter((field: TemplateField) =>
@@ -2929,6 +3047,29 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             normalized.push({ fileName, mimeType, dataUrl, base64 });
         }
         return normalized;
+    }
+
+    private getMaxAttachmentFieldMb(): number {
+        try {
+            const user = JSON.parse(localStorage.getItem('user') || 'null');
+            const configured = Number(user?.numMaxAttachmentMb);
+            if (Number.isFinite(configured) && configured > 0) {
+                return Math.floor(configured);
+            }
+        } catch {
+            // fall through to default
+        }
+        return TemplateApprovalComponent.DEFAULT_MAX_ATTACHMENT_MB;
+    }
+
+    private getMaxAttachmentFieldBytes(): number {
+        return this.getMaxAttachmentFieldMb() * 1024 * 1024;
+    }
+
+    private buildAttachmentLimitMessage(actualBytes: number, maxBytes: number): string {
+        const actualMb = (actualBytes / (1024 * 1024)).toFixed(2);
+        const maxMb = Math.max(1, Math.round(maxBytes / (1024 * 1024)));
+        return `These files are about ${actualMb} MB. Your account allows up to ${maxMb} MB per attachment field. Please remove some files or choose smaller ones.`;
     }
 
     private getAttachmentBytes(attachments: AttachmentPayload[]): number {

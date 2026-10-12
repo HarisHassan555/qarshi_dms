@@ -219,13 +219,15 @@
                 [(ngModel)]="selectedVisibilityUserIds"
                 [multiple]="true"
                 [clearable]="true"
+                [searchable]="true"
                 [closeOnSelect]="false"
+                appendTo="body"
                 dropdownPosition="bottom"
                 placeholder="Search and select individual users">
                 <ng-template ng-label-tmp let-item="item" let-clear="clear">
                     <div class="visibility-ng-chip">
                         <span>{{ item.name }}</span>
-                        <button type="button" class="visibility-ng-chip-remove" (click)="clear(item)" aria-label="Remove user">x</button>
+                        <button type="button" class="visibility-ng-chip-remove" (mousedown)="$event.preventDefault(); $event.stopPropagation()" (click)="clear(item); $event.preventDefault(); $event.stopPropagation()" aria-label="Remove user">x</button>
                     </div>
                 </ng-template>
                 <ng-template ng-option-tmp let-item="item">

@@ -150,10 +150,30 @@
             </div>
 
             <div class="approval-actions">
-                <label for="approval-remarks">Remarks *</label>
-                <textarea id="approval-remarks" #approvalRemarks [value]="remarks" [disabled]="!canTakeWorkflowActions" placeholder="Enter remarks before action"></textarea>
+                <label for="approval-remarks">{{ holdPending ? 'Remarks (optional for Unhold)' : 'Remarks *' }}</label>
+                <textarea
+                    id="approval-remarks"
+                    #approvalRemarks
+                    [value]="remarks"
+                    [disabled]="!canTakeWorkflowActions"
+                    [placeholder]="holdPending ? 'Optional note when taking off Hold' : 'Same remarks box is used for Approve and Put on Hold (required)'"></textarea>
+                <p class="remarks-hint" *ngIf="!holdPending && canTakeWorkflowActions && !opinionPending">
+                    Use this remarks box for Approve and for Put on Hold.
+                </p>
+
+                <div class="hold-banner" *ngIf="holdPending">
+                    <strong>On Hold</strong>
+                    <p>{{ getHoldReason() }}</p>
+                </div>
 
                 <ng-container *ngIf="canTakeWorkflowActions; else readOnlyActions">
+                <ng-container *ngIf="holdPending; else notOnHoldActions">
+                    <button type="button" class="btn btn-success full-width" [disabled]="isActing" (click)="unholdApplication(approvalRemarks.value)">
+                        {{ isActing ? 'Working...' : 'Unhold' }}
+                    </button>
+                </ng-container>
+
+                <ng-template #notOnHoldActions>
                 <ng-container *ngIf="!opinionPending; else opinionActions">
                     <ng-container *ngIf="isInitiatorResubmissionStep(); else approvalActions">
                         <button type="button" class="btn btn-primary full-width" [disabled]="isActing" (click)="resubmitToPipeline(approvalRemarks.value)">
@@ -173,6 +193,10 @@
                             <button type="button" class="btn btn-outline" [disabled]="isActing" (click)="sendBackToInitiator(approvalRemarks.value)">To Initiator</button>
                         </div>
 
+                        <button type="button" class="btn btn-warning full-width hold-action-btn" [disabled]="isActing" (click)="holdApplication(approvalRemarks.value)">
+                            Put on Hold
+                        </button>
+
                         <div class="opinion-request-box">
                             <label for="opinion-user">Request Opinion From</label>
                             <select id="opinion-user" [(ngModel)]="selectedOpinionUserId">
@@ -187,7 +211,7 @@
                         </div>
                     </ng-template>
                 </ng-container>
-                </ng-container>
+                </ng-template>
 
                 <ng-template #opinionActions>
                     <div class="secondary-actions opinion-actions">
@@ -199,10 +223,11 @@
                         </button>
                     </div>
                 </ng-template>
+                </ng-container>
 
                 <ng-template #readOnlyActions>
                     <div class="step-rights-note">
-                        Workflow actions are unavailable because this step is not currently assigned to you.
+                        {{ readOnlyStepMessage || 'Workflow actions are unavailable because this step is not currently assigned to you.' }}
                     </div>
                 </ng-template>
             </div>

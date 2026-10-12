@@ -98,7 +98,8 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
                   .antMatchers("/{path:[^\\.]*}", "/**/{path:[^\\.]*}").permitAll()
                   .antMatchers("/login", "/getloginCustomer", "/allMenu", "/resources/**", "/updatePasswordReconfirm").permitAll()
                   .antMatchers("/getSignature", "/getUserSignaturePath").permitAll()
-                  .antMatchers("/approveApplicationFromEmail", "/rejectApplicationFromEmail", "/sendBackApplicationFromEmail", "/sendBackToInitiatorFromEmail").permitAll()
+                  .antMatchers("/approveApplicationFromEmail", "/rejectApplicationFromEmail", "/sendBackApplicationFromEmail", "/sendBackToInitiatorFromEmail",
+                          "/holdTemplateApplicationFromEmail", "/unholdTemplateApplicationFromEmail").permitAll()
                   .anyRequest().authenticated()
         );
     

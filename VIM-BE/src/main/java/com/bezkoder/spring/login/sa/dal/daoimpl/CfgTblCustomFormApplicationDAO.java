@@ -51,7 +51,8 @@ import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 @Repository
 public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicationDAO {
     private static final String DEPARTMENT_ADMIN_ROLE = "department_admin";
-    private static final long MAX_TOTAL_ATTACHMENT_BYTES = 5L * 1024L * 1024L; // 5 MB combined
+    private static final int DEFAULT_MAX_ATTACHMENT_MB = 5;
+    private static final long MAX_TOTAL_ATTACHMENT_BYTES = 5L * 1024L * 1024L; // fallback combined default
     private static final java.util.Set<String> ALLOWED_ATTACHMENT_MIME_TYPES = new java.util.HashSet<>(
             java.util.Arrays.asList("application/pdf", "image/webp", "image/png", "image/jpeg"));
     /** Non-CAPF notification emails: render each PDF page as an inline image (same visual as multi-page preview). */
@@ -5486,6 +5487,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 + application.getSerApplicationId() + "&userId=" + next.userId;
         String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
                 + application.getSerApplicationId() + "&userId=" + next.userId;
+        String[] holdUrls = resolveTemplateEmailHoldActionUrls(application, next.userId, application.getTxtStatus());
         String html = generateApprovalEmailHtml(
                 next.name != null ? next.name : "User",
                 sequenceIndex + 1,
@@ -5498,6 +5500,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 rejectUrl,
                 sendBackUrl,
                 sendBackToInitiatorUrl,
+                holdUrls[0],
+                holdUrls[1],
                 application.getTxtApprovalHistory(),
                 getBaseUrl());
         sendEmailWithSpecificPdf(java.util.Arrays.asList(next.email), subject, html, application, form, false, pdfBytes,
@@ -5555,6 +5559,9 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                         + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
                 String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
                         + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
+                String[] holdUrls = isTemplateBuilderApplication
+                        ? resolveTemplateEmailHoldActionUrls(application, recipient.getSerUserId(), effectiveStatus)
+                        : new String[] { null, null };
                 String html = generateApprovalEmailHtml(
                         recipient.getTxtUserName() != null ? recipient.getTxtUserName() : "User",
                         displayLevel,
@@ -5567,6 +5574,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                         rejectUrl,
                         sendBackUrl,
                         sendBackToInitiatorUrl,
+                        holdUrls[0],
+                        holdUrls[1],
                         historyJson,
                         getBaseUrl());
                 sendEmailWithSpecificPdf(java.util.Arrays.asList(recipient.getTxtAddress()), subject, html, application,
@@ -5649,6 +5658,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
             String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
                     + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
+            String[] holdUrls = resolveTemplateEmailHoldActionUrls(application, recipient.getSerUserId(), effectiveStatus);
             String html = generateApprovalEmailHtml(
                     recipient.getTxtUserName() != null ? recipient.getTxtUserName() : "User",
                     displayLevel,
@@ -5661,6 +5671,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     rejectUrl,
                     sendBackUrl,
                     sendBackToInitiatorUrl,
+                    holdUrls[0],
+                    holdUrls[1],
                     resolveTemplateNotificationHistoryJson(application),
                     getBaseUrl());
             sendEmailWithSpecificPdf(java.util.Arrays.asList(recipient.getTxtAddress()), subject, html, application,
@@ -12648,17 +12660,72 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             return null;
         }
         try {
+            int maxMb = resolveCurrentUserMaxAttachmentMb();
+            long maxBytes = maxMb * 1024L * 1024L;
             ObjectMapper mapper = new ObjectMapper();
             Object root = mapper.readValue(rawApplicationDataJson, Object.class);
-            long totalBytes = estimateAttachmentBytesRecursively(root);
-            if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
-                return "Combined attachment size exceeds 5 MB";
+
+            // Template apps store field values under templateValues — validate per attachment field.
+            if (root instanceof Map<?, ?>) {
+                Object templateValuesObj = ((Map<?, ?>) root).get("templateValues");
+                if (templateValuesObj instanceof Map<?, ?>) {
+                    Map<?, ?> templateValues = (Map<?, ?>) templateValuesObj;
+                    if (!templateValues.isEmpty()) {
+                        for (Map.Entry<?, ?> entry : templateValues.entrySet()) {
+                            Object value = entry.getValue();
+                            if (!(value instanceof List<?>)) {
+                                continue;
+                            }
+                            List<?> list = (List<?>) value;
+                            if (list.isEmpty() || !(list.get(0) instanceof Map<?, ?>)) {
+                                continue;
+                            }
+                            if (!isAttachmentPayloadMap((Map<?, ?>) list.get(0))) {
+                                continue;
+                            }
+                            long fieldBytes = 0L;
+                            for (Object item : list) {
+                                if (item instanceof Map<?, ?>) {
+                                    fieldBytes += estimateAttachmentBytesFromPayloadMap((Map<?, ?>) item);
+                                }
+                            }
+                            if (fieldBytes > maxBytes) {
+                                return String.format(java.util.Locale.US,
+                                        "These files are about %.2f MB. Your account allows up to %d MB per attachment field. Please remove some files or choose smaller ones.",
+                                        fieldBytes / (1024.0 * 1024.0), maxMb);
+                            }
+                        }
+                        return null;
+                    }
+                }
+            }
+
+            long totalBytes = estimateAttachmentBytesRecursively(root, maxBytes);
+            if (totalBytes > maxBytes) {
+                return String.format(java.util.Locale.US,
+                        "Combined attachment size is about %.2f MB. Your account allows up to %d MB total. Please remove some files or choose smaller ones.",
+                        totalBytes / (1024.0 * 1024.0), maxMb);
             }
             return null;
         } catch (Exception e) {
             log.warn("Attachment-size validation skipped due to parse error: {}", e.getMessage());
             return null;
         }
+    }
+
+    private int resolveCurrentUserMaxAttachmentMb() {
+        try {
+            Integer userId = commonService.getCurrentLoggedInUser();
+            if (userId != null && userId > 0) {
+                CfgTblUser user = commonService.getCurrentUser(userId);
+                if (user != null && user.getNumMaxAttachmentMb() != null && user.getNumMaxAttachmentMb() > 0) {
+                    return user.getNumMaxAttachmentMb();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Could not resolve current user max attachment MB: {}", e.getMessage());
+        }
+        return DEFAULT_MAX_ATTACHMENT_MB;
     }
 
     private String validateAttachmentPayloadTypes(String rawApplicationDataJson) {
@@ -12810,9 +12877,14 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
     }
 
     private long estimateAttachmentBytesRecursively(Object value) {
+        return estimateAttachmentBytesRecursively(value, MAX_TOTAL_ATTACHMENT_BYTES);
+    }
+
+    private long estimateAttachmentBytesRecursively(Object value, long maxBytes) {
         if (value == null) {
             return 0L;
         }
+        long limit = maxBytes > 0L ? maxBytes : MAX_TOTAL_ATTACHMENT_BYTES;
         if (value instanceof Map<?, ?>) {
             Map<?, ?> map = (Map<?, ?>) value;
             long directAttachmentBytes = estimateAttachmentBytesFromPayloadMap(map);
@@ -12821,8 +12893,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             }
             long nestedTotal = 0L;
             for (Object nested : map.values()) {
-                nestedTotal += estimateAttachmentBytesRecursively(nested);
-                if (nestedTotal > MAX_TOTAL_ATTACHMENT_BYTES) {
+                nestedTotal += estimateAttachmentBytesRecursively(nested, limit);
+                if (nestedTotal > limit) {
                     return nestedTotal;
                 }
             }
@@ -12831,8 +12903,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         if (value instanceof List<?>) {
             long total = 0L;
             for (Object item : (List<?>) value) {
-                total += estimateAttachmentBytesRecursively(item);
-                if (total > MAX_TOTAL_ATTACHMENT_BYTES) {
+                total += estimateAttachmentBytesRecursively(item, limit);
+                if (total > limit) {
                     return total;
                 }
             }
@@ -14558,6 +14630,39 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackUrl,
             String sendBackToInitiatorUrl,
             String approvalHistoryJson, String baseUrl) {
+        return generateApprovalEmailHtml(recipientName, level, applicationCode, formName, status, remarks,
+                showActionButtons, approveUrl, rejectUrl, sendBackUrl, sendBackToInitiatorUrl,
+                null, null, approvalHistoryJson, baseUrl);
+    }
+
+    private String[] resolveTemplateEmailHoldActionUrls(CfgTblCustomFormApplication application, Integer recipientUserId,
+            String effectiveStatus) {
+        if (application == null || recipientUserId == null || application.getSerApplicationId() == null) {
+            return new String[] { null, null };
+        }
+        String normalized = effectiveStatus != null ? effectiveStatus.trim().toUpperCase(Locale.ROOT) : "";
+        String baseUrl = getBaseUrl();
+        int applicationId = application.getSerApplicationId();
+        if ("HOLD".equals(normalized)) {
+            return new String[] {
+                    null,
+                    baseUrl + "/unholdTemplateApplicationFromEmail?applicationId=" + applicationId + "&userId="
+                            + recipientUserId };
+        }
+        if ("IN_PROGRESS".equals(normalized) || "PENDING".equals(normalized)) {
+            return new String[] {
+                    baseUrl + "/holdTemplateApplicationFromEmail?applicationId=" + applicationId + "&userId="
+                            + recipientUserId,
+                    null };
+        }
+        return new String[] { null, null };
+    }
+
+    private String generateApprovalEmailHtml(String recipientName, Integer level, String applicationCode,
+            String formName, String status, String remarks,
+            boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackUrl,
+            String sendBackToInitiatorUrl, String holdUrl, String unholdUrl,
+            String approvalHistoryJson, String baseUrl) {
         StringBuilder html = new StringBuilder();
         html.append("<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
         // Outlook-compatible styles with fallbacks
@@ -14665,11 +14770,14 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             html.append("</table>");
         }
 
-        boolean canApproveReject = showActionButtons && approveUrl != null && rejectUrl != null;
-        boolean canSendBack = showActionButtons && sendBackUrl != null;
-        boolean canSendBackToInitiator = showActionButtons && sendBackToInitiatorUrl != null;
+        boolean onHold = "HOLD".equalsIgnoreCase(status != null ? status.trim() : "");
+        boolean canApproveReject = showActionButtons && !onHold && approveUrl != null && rejectUrl != null;
+        boolean canSendBack = showActionButtons && !onHold && sendBackUrl != null;
+        boolean canSendBackToInitiator = showActionButtons && !onHold && sendBackToInitiatorUrl != null;
+        boolean canHold = showActionButtons && !onHold && holdUrl != null;
+        boolean canUnhold = showActionButtons && onHold && unholdUrl != null;
 
-        if (showActionButtons && (canApproveReject || canSendBack || canSendBackToInitiator)) {
+        if (showActionButtons && (canApproveReject || canSendBack || canSendBackToInitiator || canHold || canUnhold)) {
             // Button container using table for Outlook
             html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:30px 0;'>");
             html.append("<tr><td align='center' style='padding:10px 20px;'>");
@@ -14712,6 +14820,26 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 html.append("<![endif]-->");
                 html.append("<!--[if !mso]><!-- -->");
                 html.append("<a href='").append(sendBackToInitiatorUrl).append("' style='display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;background-color:#c0392b;color:#ffffff !important;white-space:nowrap;min-width:270px;box-sizing:border-box;'>Send Back to Initiator</a>");
+                html.append("<!--<![endif]-->");
+            }
+            if (canHold) {
+                html.append("<!--[if mso]>");
+                html.append("<v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='").append(holdUrl).append("' style='height:44px;v-text-anchor:middle;width:170px;' arcsize='12%' strokecolor='#e67e22' fillcolor='#e67e22'>");
+                html.append("<w:anchorlock/><center style='color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:600;'>Put on Hold</center>");
+                html.append("</v:roundrect>");
+                html.append("<![endif]-->");
+                html.append("<!--[if !mso]><!-- -->");
+                html.append("<a href='").append(holdUrl).append("' style='display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;background-color:#e67e22;color:#ffffff !important;'>Put on Hold</a>");
+                html.append("<!--<![endif]-->");
+            }
+            if (canUnhold) {
+                html.append("<!--[if mso]>");
+                html.append("<v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='").append(unholdUrl).append("' style='height:44px;v-text-anchor:middle;width:150px;' arcsize='12%' strokecolor='#27ae60' fillcolor='#27ae60'>");
+                html.append("<w:anchorlock/><center style='color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:600;'>Unhold</center>");
+                html.append("</v:roundrect>");
+                html.append("<![endif]-->");
+                html.append("<!--[if !mso]><!-- -->");
+                html.append("<a href='").append(unholdUrl).append("' style='display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;background-color:#27ae60;color:#ffffff !important;'>Unhold</a>");
                 html.append("<!--<![endif]-->");
             }
             html.append("</td></tr>");

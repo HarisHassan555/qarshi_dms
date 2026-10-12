@@ -383,6 +383,9 @@ public class CfgTblUser implements Serializable {
 	@Column(name="txt_designation")
 	private String txtDesignation;
 
+	@Column(name="num_max_attachment_mb")
+	private Integer numMaxAttachmentMb;
+
 	public String getTxtSignaturePath() {
 		return txtSignaturePath;
 	}
@@ -405,5 +408,13 @@ public class CfgTblUser implements Serializable {
 
 	public void setTxtDesignation(String txtDesignation) {
 		this.txtDesignation = txtDesignation;
+	}
+
+	public Integer getNumMaxAttachmentMb() {
+		return numMaxAttachmentMb;
+	}
+
+	public void setNumMaxAttachmentMb(Integer numMaxAttachmentMb) {
+		this.numMaxAttachmentMb = numMaxAttachmentMb;
 	}
 }

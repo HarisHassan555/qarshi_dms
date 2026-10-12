@@ -233,6 +233,8 @@ export class TemplatePendingApprovalsComponent implements OnInit, OnDestroy {
             case 'IN_PROGRESS':
             case 'OPINION_PENDING':
                 return 'badge-outline-info';
+            case 'HOLD':
+                return 'badge-outline-warning';
             default:
                 return 'badge-outline-secondary';
         }

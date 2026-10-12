@@ -27,6 +27,7 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
     selectedTemplateForVisibility: SavedTemplateDefinition | null = null;
     selectedVisibilityUserIds: number[] = [];
     selectedVisibilityDepartmentIds: number[] = [];
+    visibilityUserOptions: Array<{ id: number; name: string; roleName: string }> = [];
     savingVisibility = false;
     duplicatingTemplate = false;
     togglingTemplateStatusId = '';
@@ -141,9 +142,11 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
         this.userService.getUsers().subscribe({
             next: (users: any) => {
                 this.allUsers = Array.isArray(users) ? users : [];
+                this.refreshVisibilityUserOptions();
             },
             error: () => {
                 this.allUsers = [];
+                this.visibilityUserOptions = [];
             }
         });
     }
@@ -280,6 +283,7 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
         this.selectedTemplateForVisibility = template;
         this.selectedVisibilityUserIds = Array.isArray(template.visibilityUserIds) ? [...template.visibilityUserIds] : [];
         this.selectedVisibilityDepartmentIds = [];
+        this.refreshVisibilityUserOptions();
         this.visibilityModal?.open();
     }
 
@@ -371,8 +375,8 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
         return Math.min(this.totalTemplates, (this.page + 1) * this.pageSize);
     }
 
-    get visibilityUserOptions(): Array<{ id: number; name: string; roleName: string }> {
-        return this.allUsers
+    private refreshVisibilityUserOptions(): void {
+        this.visibilityUserOptions = this.allUsers
             .map((user) => ({
                 id: this.getUserId(user),
                 name: this.getUserDisplayName(user),

@@ -678,6 +678,108 @@ public class CustomFormApplicationController {
         }
     }
 
+    @RequestMapping(value = "/holdTemplateApplicationFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
+    public String holdTemplateApplicationFromEmail(@RequestParam Integer applicationId,
+            @RequestParam Integer userId,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("holdTemplateApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
+        if (!isTemplateBuilderApplication(applicationId)) {
+            return renderEmailActionErrorPage("Action Not Available",
+                    "Put on Hold is only available for template applications.");
+        }
+        return renderEmailActionCommentForm("Put Application on Hold",
+                "Enter the reason for Hold (required), then confirm.",
+                "/holdTemplateApplicationFromEmail", "hold", applicationId, userId, request);
+    }
+
+    @RequestMapping(value = "/holdTemplateApplicationFromEmail", method = RequestMethod.POST, produces = MediaType.TEXT_HTML_VALUE)
+    public String holdTemplateApplicationFromEmailSubmit(@RequestParam Integer applicationId,
+            @RequestParam Integer userId,
+            @RequestParam(required = false) String remarks,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("holdTemplateApplicationFromEmailSubmit() - applicationId: " + applicationId + ", userId: " + userId);
+        try {
+            if (!isTemplateBuilderApplication(applicationId)) {
+                return renderEmailActionErrorPage("Action Not Available",
+                        "Put on Hold is only available for template applications.");
+            }
+            if (remarks == null || remarks.trim().isEmpty()) {
+                return renderEmailActionErrorPage("Reason required",
+                        "Please enter a Hold reason. Use your browser back button to return to the form.");
+            }
+            Map<String, Object> requestBody = buildTemplateEmailActionRequest(applicationId, userId, remarks.trim());
+            Map<String, Object> result = templateDefinitionController.holdTemplateApplication(requestBody, request,
+                    response);
+            if ("Success".equals(result.get("status"))) {
+                try {
+                    customFormApplicationService.sendTemplatePostApprovalEmails(applicationId);
+                } catch (Exception emailEx) {
+                    logger.warn("Template email hold succeeded but follow-up emails failed for applicationId="
+                            + applicationId + ": " + emailEx.getMessage(), emailEx);
+                }
+                return renderEmailActionResultPage("Application on Hold",
+                        "The application has been put on Hold.");
+            }
+            return renderEmailActionErrorPage("Hold Failed",
+                    String.valueOf(result.getOrDefault("message", "Failed to put application on Hold")));
+        } catch (Exception ex) {
+            logger.error("Error holding template application from email: " + ex.getMessage(), ex);
+            return renderEmailActionErrorPage("Error", "An error occurred: " + ex.getMessage());
+        }
+    }
+
+    @RequestMapping(value = "/unholdTemplateApplicationFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
+    public String unholdTemplateApplicationFromEmail(@RequestParam Integer applicationId,
+            @RequestParam Integer userId,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("unholdTemplateApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
+        if (!isTemplateBuilderApplication(applicationId)) {
+            return renderEmailActionErrorPage("Action Not Available",
+                    "Unhold is only available for template applications.");
+        }
+        return renderEmailActionCommentForm("Remove Hold",
+                "Optional comments, then confirm to resume the workflow.",
+                "/unholdTemplateApplicationFromEmail", "unhold", applicationId, userId, request, false);
+    }
+
+    @RequestMapping(value = "/unholdTemplateApplicationFromEmail", method = RequestMethod.POST, produces = MediaType.TEXT_HTML_VALUE)
+    public String unholdTemplateApplicationFromEmailSubmit(@RequestParam Integer applicationId,
+            @RequestParam Integer userId,
+            @RequestParam(required = false) String remarks,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("unholdTemplateApplicationFromEmailSubmit() - applicationId: " + applicationId + ", userId: "
+                + userId);
+        try {
+            if (!isTemplateBuilderApplication(applicationId)) {
+                return renderEmailActionErrorPage("Action Not Available",
+                        "Unhold is only available for template applications.");
+            }
+            String finalRemarks = remarks != null ? remarks.trim() : "";
+            Map<String, Object> requestBody = buildTemplateEmailActionRequest(applicationId, userId, finalRemarks);
+            Map<String, Object> result = templateDefinitionController.unholdTemplateApplication(requestBody, request,
+                    response);
+            if ("Success".equals(result.get("status"))) {
+                try {
+                    customFormApplicationService.sendTemplatePostApprovalEmails(applicationId);
+                } catch (Exception emailEx) {
+                    logger.warn("Template email unhold succeeded but follow-up emails failed for applicationId="
+                            + applicationId + ": " + emailEx.getMessage(), emailEx);
+                }
+                return renderEmailActionResultPage("Hold Removed",
+                        "The application has been taken off Hold.");
+            }
+            return renderEmailActionErrorPage("Unhold Failed",
+                    String.valueOf(result.getOrDefault("message", "Failed to remove Hold")));
+        } catch (Exception ex) {
+            logger.error("Error unholding template application from email: " + ex.getMessage(), ex);
+            return renderEmailActionErrorPage("Error", "An error occurred: " + ex.getMessage());
+        }
+    }
+
     @RequestMapping(value = "/rejectApplicationFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
     public String rejectApplicationFromEmail(@RequestParam Integer applicationId,
             @RequestParam Integer userId,
@@ -1332,11 +1434,17 @@ public class CustomFormApplicationController {
 
     private String renderEmailActionCommentForm(String title, String subtitle, String actionPath, String workflowAction,
             Integer applicationId, Integer userId, HttpServletRequest request) {
+        return renderEmailActionCommentForm(title, subtitle, actionPath, workflowAction, applicationId, userId, request,
+                true);
+    }
+
+    private String renderEmailActionCommentForm(String title, String subtitle, String actionPath, String workflowAction,
+            Integer applicationId, Integer userId, HttpServletRequest request, boolean remarksRequired) {
         String workflowUserNotice = resolveEmailWorkflowUserNotice(applicationId, userId);
         if (workflowUserNotice != null) {
             return renderEmailActionResultPage("Already Approved", workflowUserNotice);
         }
-        String terminalStateMessage = getEmailActionTerminalStateMessage(applicationId);
+        String terminalStateMessage = getEmailActionTerminalStateMessage(applicationId, workflowAction);
         if (terminalStateMessage != null) {
             return renderEmailActionErrorPage("Action Not Available", terminalStateMessage);
         }
@@ -1360,9 +1468,15 @@ public class CustomFormApplicationController {
                 + "<form id='emailActionForm' method='post' action='" + escapeHtml(actionUrl) + "'>"
                 + "<input type='hidden' name='applicationId' value='" + applicationId + "'/>"
                 + "<input type='hidden' name='userId' value='" + userId + "'/>"
-                + "<label for='remarks'>Comments / remarks <span style='color:#c0392b'>*</span></label>"
-                + "<textarea id='remarks' name='remarks' maxlength='2000' required placeholder='Enter comments (required)'></textarea>"
-                + "<div class='hint'>Required. Max 2000 characters.</div>"
+                + "<label for='remarks'>Comments / remarks"
+                + (remarksRequired ? " <span style='color:#c0392b'>*</span>" : "")
+                + "</label>"
+                + "<textarea id='remarks' name='remarks' maxlength='2000'"
+                + (remarksRequired ? " required placeholder='Enter comments (required)'" : " placeholder='Optional comments'")
+                + "></textarea>"
+                + "<div class='hint'>"
+                + (remarksRequired ? "Required. Max 2000 characters." : "Optional. Max 2000 characters.")
+                + "</div>"
                 + "<button type='submit'>Submit</button></form></div>"
                 + "<script src='https://cdn.jsdelivr.net/npm/sweetalert2@11'></script>"
                 + "<script>window.__emailWorkflowConfirmConfig=" + confirmConfigJson + ";"
@@ -1393,6 +1507,16 @@ public class CustomFormApplicationController {
             title = "Send to initiator?";
             text = "Return this application to the person who submitted it.";
             confirmButtonText = "Send to initiator";
+        } else if ("hold".equals(workflowAction)) {
+            title = "Put on Hold?";
+            text = "Pause this application until external assessment is complete. Approvers are not penalized while on Hold.";
+            confirmButtonText = "Put on Hold";
+            confirmButtonColor = "#e67e22";
+        } else if ("unhold".equals(workflowAction)) {
+            title = "Remove Hold?";
+            text = "Resume the approval workflow for this application.";
+            confirmButtonText = "Unhold";
+            confirmButtonColor = "#27ae60";
         } else {
             title = "Confirm action?";
             text = "Please confirm you want to continue.";
@@ -1544,6 +1668,10 @@ public class CustomFormApplicationController {
     }
 
     private String getEmailActionTerminalStateMessage(Integer applicationId) {
+        return getEmailActionTerminalStateMessage(applicationId, null);
+    }
+
+    private String getEmailActionTerminalStateMessage(Integer applicationId, String workflowAction) {
         if (applicationId == null) {
             return "Application ID is required.";
         }
@@ -1558,6 +1686,23 @@ public class CustomFormApplicationController {
             }
             if ("APPROVED".equalsIgnoreCase(status) || "COMPLETED".equalsIgnoreCase(status)) {
                 return "This application has already been completed. No further actions are allowed.";
+            }
+            if ("HOLD".equalsIgnoreCase(status)) {
+                if ("unhold".equals(workflowAction)) {
+                    return null;
+                }
+                if ("hold".equals(workflowAction)) {
+                    return "This application is already on Hold.";
+                }
+                return "This application is on Hold. Unhold it before approve, send back, or other workflow actions.";
+            }
+            if ("hold".equals(workflowAction)) {
+                if (!"IN_PROGRESS".equalsIgnoreCase(status) && !"PENDING".equalsIgnoreCase(status)) {
+                    return "Only in-progress or pending applications can be put on Hold.";
+                }
+            }
+            if ("unhold".equals(workflowAction)) {
+                return "This application is not on Hold.";
             }
             return null;
         } catch (Exception ex) {

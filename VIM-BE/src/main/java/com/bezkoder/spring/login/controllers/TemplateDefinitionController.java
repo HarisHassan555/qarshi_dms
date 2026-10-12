@@ -43,6 +43,8 @@ import java.util.Set;
 
 @RestController
 public class TemplateDefinitionController {
+    private static final int DEFAULT_MAX_ATTACHMENT_MB = 5;
+
     private final Logger logger = LogManager.getLogger(TemplateDefinitionController.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -84,6 +86,7 @@ public class TemplateDefinitionController {
             }
 
             enrichTemplateApplicationPayload(application, definition);
+            assertTemplateAttachmentFieldSizeLimit(application.getTxtApplicationData(), actorUserId);
 
             Integer applicationId = application.getSerApplicationId();
             CfgTblCustomFormApplication target;
@@ -138,6 +141,15 @@ public class TemplateDefinitionController {
             result.put("applicationId", application.getSerApplicationId());
             result.put("formCode", application.getTxtFormCode());
             return result;
+        } catch (IllegalArgumentException ex) {
+            logTemplateAction("FORM_DRAFT_SAVE", request, application != null ? application.getSerApplicationId() : null,
+                    "FAILURE", ex.getMessage(),
+                    buildTemplateApplicationPayload(application, "FORM_DRAFT_SAVE", null), ex.getMessage());
+            logger.warn("Draft save rejected: " + ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            return result;
         } catch (Exception ex) {
             logTemplateAction("FORM_DRAFT_SAVE", request, application != null ? application.getSerApplicationId() : null,
                     "FAILURE", ex.getMessage(),
@@ -179,6 +191,7 @@ public class TemplateDefinitionController {
             if (application.getSerSubmittedBy() == null && actorUserId > 0) {
                 application.setSerSubmittedBy(actorUserId);
             }
+            assertTemplateAttachmentFieldSizeLimit(application.getTxtApplicationData(), actorUserId);
             if (application.getTxtFormCode() == null || application.getTxtFormCode().trim().isEmpty()) {
                 application.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, null));
             } else {
@@ -823,6 +836,130 @@ public class TemplateDefinitionController {
         }
     }
 
+    @Transactional
+    @RequestMapping(value = "/holdTemplateApplication", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> holdTemplateApplication(@RequestBody Map<String, Object> requestBody,
+                                                       HttpServletRequest request,
+                                                       HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            CfgTblCustomFormApplication application = loadTemplateApplication(toInteger(requestBody.get("applicationId")));
+            ensureTemplateApplicationActionable(application);
+            Integer actorId = toInteger(requestBody.get("userId"));
+            String reason = valueAsString(requestBody.get("remarks"));
+            if (reason == null || reason.trim().isEmpty()) {
+                throw new IllegalArgumentException("Hold reason is required");
+            }
+            String status = valueAsString(application.getTxtStatus()).trim().toUpperCase(Locale.ROOT);
+            if (!"IN_PROGRESS".equals(status) && !"PENDING".equals(status)) {
+                throw new IllegalStateException("Only in-progress or pending template applications can be put on Hold");
+            }
+            TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
+            TemplateStep currentStep = context.stepAt(safeLevel(application));
+            assertActorAuthorizedForTemplateStep(application, context, currentStep, actorId,
+                    "You are not authorized to hold this template application");
+
+            Map<String, Object> appData = parseMap(application.getTxtApplicationData());
+            Map<String, Object> holdState = new HashMap<>();
+            holdState.put("active", true);
+            holdState.put("previousStatus", application.getTxtStatus());
+            holdState.put("previousLevel", application.getIntCurrentApprovalLevel());
+            holdState.put("previousApprover", application.getSerCurrentApprover());
+            holdState.put("reason", reason.trim());
+            holdState.put("heldBy", actorId);
+            holdState.put("heldDate", now().toString());
+            appData.put("templateHoldState", holdState);
+            application.setTxtApplicationData(writeJson(appData));
+
+            appendTemplateHistory(application, currentStep, actorId, "HOLD", reason.trim(),
+                    displayLevelForIndex(safeLevel(application)));
+            application.setTxtStatus("HOLD");
+            application.setTxtRemarks(reason.trim());
+            touchTemplateApplication(application, actorId);
+            entityManager.merge(application);
+            entityManager.flush();
+            logTemplateAction("HOLD", request, application.getSerApplicationId(), "SUCCESS",
+                    "Template application put on Hold",
+                    buildTemplateApplicationPayload(application, "HOLD", reason.trim()), null);
+            return success("Application put on Hold successfully");
+        } catch (Exception ex) {
+            logTemplateAction("HOLD", request, toInteger(requestBody.get("applicationId")), "FAILURE",
+                    ex.getMessage(), buildTemplateRequestPayload(requestBody, "HOLD"), ex.getMessage());
+            return failure(result, response, "Error holding template application", ex);
+        }
+    }
+
+    @Transactional
+    @RequestMapping(value = "/unholdTemplateApplication", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> unholdTemplateApplication(@RequestBody Map<String, Object> requestBody,
+                                                         HttpServletRequest request,
+                                                         HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            CfgTblCustomFormApplication application = loadTemplateApplication(toInteger(requestBody.get("applicationId")));
+            Integer actorId = toInteger(requestBody.get("userId"));
+            String remarks = valueAsString(requestBody.get("remarks"));
+            String status = valueAsString(application.getTxtStatus()).trim().toUpperCase(Locale.ROOT);
+            if (!"HOLD".equals(status)) {
+                throw new IllegalStateException("Application is not on Hold");
+            }
+
+            Map<String, Object> appData = parseMap(application.getTxtApplicationData());
+            Map<String, Object> holdState = asMap(appData.get("templateHoldState"));
+            if (!Boolean.TRUE.equals(holdState.get("active"))
+                    && !"true".equalsIgnoreCase(String.valueOf(holdState.get("active")))) {
+                throw new IllegalStateException("No active Hold state found for this application");
+            }
+
+            TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
+            int resumeLevelIndex = safeLevel(application);
+            TemplateStep currentStep = context.stepAt(resumeLevelIndex);
+            Integer heldBy = toInteger(holdState.get("heldBy"));
+            boolean isHolder = heldBy != null && heldBy.equals(actorId);
+            if (!isHolder) {
+                assertActorAuthorizedForTemplateStep(application, context, currentStep, actorId,
+                        "You are not authorized to unhold this template application");
+            }
+
+            String previousStatus = valueAsString(holdState.get("previousStatus"));
+            if (previousStatus == null || previousStatus.trim().isEmpty()) {
+                previousStatus = "IN_PROGRESS";
+            }
+            Integer previousLevel = toInteger(holdState.get("previousLevel"));
+            Integer previousApprover = toInteger(holdState.get("previousApprover"));
+
+            String unholdRemarks = (remarks != null && !remarks.trim().isEmpty())
+                    ? remarks.trim()
+                    : "Application taken off Hold";
+            appendTemplateHistory(application, currentStep, actorId, "UNHOLD", unholdRemarks,
+                    displayLevelForIndex(resumeLevelIndex));
+
+            holdState.put("active", false);
+            holdState.put("unheldBy", actorId);
+            holdState.put("unheldDate", now().toString());
+            holdState.put("unholdRemarks", unholdRemarks);
+            appData.put("templateHoldState", holdState);
+            application.setTxtApplicationData(writeJson(appData));
+            application.setTxtStatus(previousStatus.trim().toUpperCase(Locale.ROOT));
+            if (previousLevel != null) {
+                application.setIntCurrentApprovalLevel(previousLevel);
+            }
+            application.setSerCurrentApprover(previousApprover);
+            application.setTxtRemarks(unholdRemarks);
+            touchTemplateApplication(application, actorId);
+            entityManager.merge(application);
+            entityManager.flush();
+            logTemplateAction("UNHOLD", request, application.getSerApplicationId(), "SUCCESS",
+                    "Template application taken off Hold",
+                    buildTemplateApplicationPayload(application, "UNHOLD", unholdRemarks), null);
+            return success("Application taken off Hold successfully");
+        } catch (Exception ex) {
+            logTemplateAction("UNHOLD", request, toInteger(requestBody.get("applicationId")), "FAILURE",
+                    ex.getMessage(), buildTemplateRequestPayload(requestBody, "UNHOLD"), ex.getMessage());
+            return failure(result, response, "Error unholding template application", ex);
+        }
+    }
+
     @RequestMapping(value = "/getAllTemplateDefinitions", method = RequestMethod.GET)
     public List<TemplateDefinition> getAllTemplateDefinitions(@RequestParam(required = false) Integer userId,
                                                               HttpServletResponse response) {
@@ -1033,6 +1170,7 @@ public class TemplateDefinitionController {
             List<String> pendingStatuses = java.util.Arrays.asList(
                     "PENDING",
                     "IN_PROGRESS",
+                    "HOLD",
                     "OPINION_PENDING",
                     "CEO_PENDING",
                     "ASSET_PENDING",
@@ -1611,6 +1749,7 @@ public class TemplateDefinitionController {
         Map<String, Object> result = new HashMap<>();
         try {
             CfgTblCustomFormApplication application = loadTemplateApplication(toInteger(requestBody.get("applicationId")));
+            ensureTemplateApplicationActionable(application);
             Integer actorId = toInteger(requestBody.get("userId"));
             String remarks = valueAsString(requestBody.get("remarks"));
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
@@ -1989,6 +2128,10 @@ public class TemplateDefinitionController {
         }
         if ("APPROVED".equals(status) || "COMPLETED".equals(status)) {
             throw new IllegalStateException("Application is already completed. No further actions are allowed.");
+        }
+        if ("HOLD".equals(status)) {
+            throw new IllegalStateException(
+                    "Application is on Hold. Unhold it before approve, reject, send back, or other workflow actions.");
         }
     }
 
@@ -2760,6 +2903,7 @@ public class TemplateDefinitionController {
 
         existing.setTxtApplicationData(incoming.getTxtApplicationData());
         enrichTemplateApplicationPayload(existing, definition);
+        assertTemplateAttachmentFieldSizeLimit(existing.getTxtApplicationData(), actorUserId);
         if (existing.getTxtFormCode() == null || existing.getTxtFormCode().trim().isEmpty()) {
             existing.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, incoming.getTxtFormCode()));
         } else {
@@ -2968,6 +3112,113 @@ public class TemplateDefinitionController {
         } catch (Exception ex) {
             return new HashMap<>();
         }
+    }
+
+    private void assertTemplateAttachmentFieldSizeLimit(String applicationDataRaw, int userId) {
+        String message = validateTemplateAttachmentFieldSizeLimit(applicationDataRaw, userId);
+        if (message != null) {
+            throw new IllegalArgumentException(message);
+        }
+    }
+
+    private String validateTemplateAttachmentFieldSizeLimit(String applicationDataRaw, int userId) {
+        if (applicationDataRaw == null || applicationDataRaw.trim().isEmpty()) {
+            return null;
+        }
+        int maxMb = resolveUserMaxAttachmentMb(userId);
+        long maxBytes = maxMb * 1024L * 1024L;
+        Map<String, Object> appData = parseMap(applicationDataRaw);
+        Map<String, Object> values = asMap(appData.get("templateValues"));
+        if (values.isEmpty()) {
+            values = appData;
+        }
+        for (Map.Entry<String, Object> entry : values.entrySet()) {
+            String key = entry.getKey();
+            if (key == null) {
+                continue;
+            }
+            if ("templateValues".equals(key) || "footerFields".equals(key) || "templatePayload".equals(key)) {
+                continue;
+            }
+            Object value = entry.getValue();
+            if (!(value instanceof List<?>)) {
+                continue;
+            }
+            List<?> list = (List<?>) value;
+            if (list.isEmpty() || !(list.get(0) instanceof Map<?, ?>)) {
+                continue;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> firstAttachment = (Map<String, Object>) list.get(0);
+            if (!looksLikeAttachmentPayload(firstAttachment)) {
+                continue;
+            }
+            long fieldBytes = 0L;
+            for (Object item : list) {
+                if (!(item instanceof Map<?, ?>)) {
+                    continue;
+                }
+                fieldBytes += estimateAttachmentBytesFromPayloadMap((Map<?, ?>) item);
+            }
+            if (fieldBytes > maxBytes) {
+                double actualMb = fieldBytes / (1024.0 * 1024.0);
+                return String.format(Locale.US,
+                        "These files are about %.2f MB. Your account allows up to %d MB per attachment field. Please remove some files or choose smaller ones.",
+                        actualMb, maxMb);
+            }
+        }
+        return null;
+    }
+
+    private int resolveUserMaxAttachmentMb(int userId) {
+        if (userId <= 0) {
+            return DEFAULT_MAX_ATTACHMENT_MB;
+        }
+        // Use a separate EntityManager via commonService so a missing DB column
+        // (num_max_attachment_mb) cannot mark this request's transaction rollback-only.
+        try {
+            CfgTblUser user = commonService.getCurrentUser(userId);
+            if (user != null && user.getNumMaxAttachmentMb() != null && user.getNumMaxAttachmentMb() > 0) {
+                return user.getNumMaxAttachmentMb();
+            }
+        } catch (Exception ex) {
+            logger.warn("Could not resolve max attachment MB for user " + userId + ": " + ex.getMessage());
+        }
+        return DEFAULT_MAX_ATTACHMENT_MB;
+    }
+
+    private long estimateAttachmentBytesFromPayloadMap(Map<?, ?> map) {
+        if (map == null || map.isEmpty()) {
+            return 0L;
+        }
+        Object encodedObj = map.get("base64");
+        if (encodedObj == null || String.valueOf(encodedObj).trim().isEmpty()) {
+            encodedObj = map.get("dataUrl");
+        }
+        if (encodedObj == null) {
+            return 0L;
+        }
+        String payload = String.valueOf(encodedObj).trim();
+        if (payload.startsWith("data:")) {
+            int commaIndex = payload.indexOf(',');
+            if (commaIndex < 0 || commaIndex >= payload.length() - 1) {
+                return 0L;
+            }
+            payload = payload.substring(commaIndex + 1);
+        }
+        payload = payload.replaceAll("\\s+", "");
+        if (payload.isEmpty()) {
+            return 0L;
+        }
+        int padding = 0;
+        if (payload.endsWith("==")) {
+            padding = 2;
+        } else if (payload.endsWith("=")) {
+            padding = 1;
+        }
+        long length = payload.length();
+        long decoded = (length * 3L) / 4L - padding;
+        return Math.max(0L, decoded);
     }
 
     private List<Map<String, Object>> extractCompletedPortalAttachmentMetas(Integer applicationId,
