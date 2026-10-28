@@ -1,11 +1,11 @@
 <div class="container mx-auto p-5 pl-0">
     <div class="panel border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg p-4">
-        <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center justify-between mb-4" data-tour="roles-header">
             <h5 class="text-2xl font-bold dark:text-white">Role Management</h5>
             <button type="button" class="btn btn-primary" (click)="openAddModal()">Add New Role</button>
         </div>
 
-        <div class="mb-4">
+        <div class="mb-4" data-tour="roles-search">
             <input
                 type="text"
                 class="form-input max-w-md"
@@ -15,7 +15,7 @@
             />
         </div>
 
-        <div class="table-responsive" *ngIf="!loading; else loadingTpl">
+        <div class="table-responsive" *ngIf="!loading; else loadingTpl" data-tour="roles-grid">
             <table class="table-hover min-w-full bg-white border border-gray-300 rounded-lg">
                 <thead>
                     <tr>
@@ -63,13 +63,13 @@
 </div>
 
 <div class="rm-backdrop" *ngIf="showEditModal">
-    <div class="rm-modal" style="width: min(700px, 100%);">
-        <div class="flex items-center justify-between mb-3 border-b pb-2">
+    <div class="rm-modal" style="width: min(700px, 100%);" data-tour="roles-edit-modal">
+        <div class="flex items-center justify-between mb-3 border-b pb-2" data-tour="roles-edit-header">
             <h5 class="text-xl font-semibold">Edit Role: {{ editingRole?.txtRoleName }}</h5>
             <button type="button" class="btn btn-outline-danger btn-sm" (click)="closeEditModal()">X</button>
         </div>
 
-        <form [formGroup]="editForm" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <form [formGroup]="editForm" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" data-tour="roles-edit-details">
             <div>
                 <label class="font-semibold text-sm">Role Name</label>
                 <input class="form-input mt-1" formControlName="txtRoleName" />
@@ -86,7 +86,7 @@
             </div>
         </form>
 
-        <div class="max-h-[380px] overflow-auto border rounded-lg p-4 bg-gray-50 dark:bg-gray-900/20">
+        <div class="max-h-[380px] overflow-auto border rounded-lg p-4 bg-gray-50 dark:bg-gray-900/20" data-tour="roles-edit-permissions">
             <div class="mb-3 font-bold text-gray-700 dark:text-gray-300">Assign Menu and Submenu Permissions</div>
             <div *ngFor="let menu of menus" class="mb-4 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg p-3 shadow-sm">
                 <label class="flex items-center gap-2 font-bold cursor-pointer text-primary">
@@ -113,7 +113,7 @@
             </div>
         </div>
 
-        <div class="flex justify-end gap-3 mt-5 pt-3 border-t">
+        <div class="flex justify-end gap-3 mt-5 pt-3 border-t" data-tour="roles-edit-actions">
             <button type="button" class="btn btn-outline-secondary" (click)="closeEditModal()">Cancel</button>
             <button type="button" class="btn btn-primary" [disabled]="saving" (click)="updateRole()">
                 <icon-save *ngIf="!saving" class="w-4 h-4 mr-2" />
@@ -124,13 +124,13 @@
 </div>
 
 <div class="rm-backdrop" *ngIf="showModal">
-    <div class="rm-modal">
-        <div class="flex items-center justify-between mb-3">
+    <div class="rm-modal" data-tour="roles-add-modal">
+        <div class="flex items-center justify-between mb-3" data-tour="roles-add-header">
             <h5 class="text-xl font-semibold">Add New Role</h5>
             <button type="button" class="btn btn-outline-danger btn-sm" (click)="closeAddModal()">X</button>
         </div>
 
-        <form [formGroup]="roleForm" class="mb-4">
+        <form [formGroup]="roleForm" class="mb-4" data-tour="roles-add-name">
             <label class="font-semibold">Role Name</label>
             <input class="form-input mt-1" formControlName="roleName" placeholder="Enter role name" />
             <div class="text-danger text-xs mt-1" *ngIf="roleForm.get('roleName')?.invalid && roleForm.get('roleName')?.touched">
@@ -138,7 +138,7 @@
             </div>
         </form>
 
-        <div class="max-h-[360px] overflow-auto border rounded p-3">
+        <div class="max-h-[360px] overflow-auto border rounded p-3" data-tour="roles-add-permissions">
             <div class="mb-3 font-semibold">Show Menu and Submenu</div>
             <div *ngFor="let menu of menus" class="mb-4 border rounded p-2">
                 <label class="flex items-center gap-2 font-semibold">
@@ -165,7 +165,7 @@
             </div>
         </div>
 
-        <div class="flex justify-end gap-2 mt-4">
+        <div class="flex justify-end gap-2 mt-4" data-tour="roles-add-actions">
             <button type="button" class="btn btn-outline-secondary" (click)="closeAddModal()">Cancel</button>
             <button type="button" class="btn btn-primary" [disabled]="saving" (click)="saveRole()">
                 <icon-save *ngIf="!saving" class="w-4 h-4 mr-2" />

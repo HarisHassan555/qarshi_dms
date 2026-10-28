@@ -14,6 +14,8 @@ public interface IUserService {
 	
 	String addNewUser(CfgTblUser cfgTblUser);
 
+	String suggestLoginName(String employeeId, String fullName);
+
 	boolean getUserByProperty(String property, String value, String mode, String oldValue);
 	
 	String deleteUser(List<String> usersId);
@@ -25,6 +27,8 @@ public interface IUserService {
 	String generateUserNo(String type);
 
 	CfgTblUser getUserById(Integer userId);
+
+	CfgTblUser getEnrichedUserById(Integer userId);
 	
 	List<CfgTblUser> searchUser(CfgTblUser user);
 	

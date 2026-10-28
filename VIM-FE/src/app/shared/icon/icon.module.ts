@@ -41,6 +41,14 @@ import { IconBitcoinComponent } from './icon-bitcoin';
 import { IconBoltComponent } from './icon-bolt';
 import { IconBookComponent } from './icon-book';
 import { IconBookmarkComponent } from './icon-bookmark';
+import { IconBrandCopyLinkComponent } from './icon-brand-copy-link';
+import { IconBrandEmailComponent } from './icon-brand-email';
+import { IconBrandLinkedinComponent } from './icon-brand-linkedin';
+import { IconBrandMoreComponent } from './icon-brand-more';
+import { IconBrandOutlookComponent } from './icon-brand-outlook';
+import { IconBrandTeamsComponent } from './icon-brand-teams';
+import { IconBrandVelocityComponent } from './icon-brand-velocity';
+import { IconBrandWhatsappComponent } from './icon-brand-whatsapp';
 import { IconBoxComponent } from './icon-box';
 import { IconCalendarComponent } from './icon-calendar';
 import { IconCameraComponent } from './icon-camera';
@@ -207,6 +215,14 @@ import { IconCodeFileComponent } from 'src/app/shared/icon/icon-code-file';
         IconBoltComponent,
         IconBookComponent,
         IconBookmarkComponent,
+        IconBrandCopyLinkComponent,
+        IconBrandEmailComponent,
+        IconBrandLinkedinComponent,
+        IconBrandMoreComponent,
+        IconBrandOutlookComponent,
+        IconBrandTeamsComponent,
+        IconBrandVelocityComponent,
+        IconBrandWhatsappComponent,
         IconBoxComponent,
         IconCalendarComponent,
         IconCameraComponent,
@@ -372,6 +388,14 @@ import { IconCodeFileComponent } from 'src/app/shared/icon/icon-code-file';
         IconBoltComponent,
         IconBookComponent,
         IconBookmarkComponent,
+        IconBrandCopyLinkComponent,
+        IconBrandEmailComponent,
+        IconBrandLinkedinComponent,
+        IconBrandMoreComponent,
+        IconBrandOutlookComponent,
+        IconBrandTeamsComponent,
+        IconBrandVelocityComponent,
+        IconBrandWhatsappComponent,
         IconBoxComponent,
         IconCalendarComponent,
         IconCameraComponent,

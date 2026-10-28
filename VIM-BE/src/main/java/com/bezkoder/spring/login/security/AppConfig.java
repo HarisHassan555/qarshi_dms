@@ -1,17 +1,12 @@
 package com.bezkoder.spring.login.security;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.web.embedded.undertow.UndertowServletWebServerFactory;
 import org.springframework.boot.web.servlet.server.ServletWebServerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import org.springframework.scheduling.concurrent.ConcurrentTaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
-
-import javax.annotation.PreDestroy;
 
 @EnableScheduling
 @Configuration
@@ -28,15 +23,15 @@ public class AppConfig {
     }*/
 
 
-    @Autowired
-    private ThreadPoolTaskScheduler taskScheduler;
-
-    @PreDestroy
-    public void cleanup() {
-        if (taskScheduler != null) {
-            taskScheduler.shutdown();
-            System.out.println("Task Scheduler has been shut down gracefully.");
-        }
+    @Bean(destroyMethod = "shutdown")
+    public ThreadPoolTaskScheduler taskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(4);
+        scheduler.setThreadNamePrefix("velocity-scheduled-");
+        scheduler.setWaitForTasksToCompleteOnShutdown(true);
+        scheduler.setAwaitTerminationSeconds(30);
+        scheduler.initialize();
+        return scheduler;
     }
 
     @Bean

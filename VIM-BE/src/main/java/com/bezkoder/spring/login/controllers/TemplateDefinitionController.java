@@ -1,6 +1,9 @@
 package com.bezkoder.spring.login.controllers;
 
 import com.bezkoder.spring.login.admin.bll.services.ICommonService;
+import com.bezkoder.spring.login.admin.bll.services.IMenuService;
+import com.bezkoder.spring.login.admin.dal.entities.CfgTblSubMenu;
+import com.bezkoder.spring.login.admin.dal.entities.CfgTblSubMenuRole;
 import com.bezkoder.spring.login.sa.bll.services.ICustomFormApplicationService;
 import com.bezkoder.spring.login.sa.bll.services.IAppActivityLogService;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblRole;
@@ -10,15 +13,19 @@ import com.bezkoder.spring.login.admin.utility.common.RequestMetadataUtil;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApplication;
 import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 import com.bezkoder.spring.login.sa.dal.entities.TemplateDefinition;
+import com.bezkoder.spring.login.sa.bll.dto.UserDelegationOnBehalfListItemDto;
+import com.bezkoder.spring.login.sa.bll.services.IUserDelegationService;
+import com.bezkoder.spring.login.sa.bll.services.IWorkflowThresholdRuleApplyService;
+import com.bezkoder.spring.login.notification.bll.TemplateWorkflowNotificationService;
 import com.bezkoder.spring.login.sa.bll.servicesimpl.TemplateEmailDispatchService;
+import com.bezkoder.spring.login.sa.bll.servicesimpl.TemplateWorkflowCommandService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -29,7 +36,6 @@ import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.transaction.Transactional;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -44,6 +50,7 @@ import java.util.Set;
 @RestController
 public class TemplateDefinitionController {
     private static final int DEFAULT_MAX_ATTACHMENT_MB = 5;
+    private static final String ALL_APPLICATIONS_SUBMENU_URL = "all-applications";
 
     private final Logger logger = LogManager.getLogger(TemplateDefinitionController.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -64,7 +71,22 @@ public class TemplateDefinitionController {
     private TemplateEmailDispatchService templateEmailDispatchService;
 
     @Autowired
+    private TemplateWorkflowCommandService templateWorkflowCommandService;
+
+    @Autowired
+    private TemplateWorkflowNotificationService templateWorkflowNotificationService;
+
+    @Autowired
     private IpGeolocationService ipGeolocationService;
+
+    @Autowired
+    private IUserDelegationService userDelegationService;
+
+    @Autowired
+    private IWorkflowThresholdRuleApplyService workflowThresholdRuleApplyService;
+
+    @Autowired
+    private IMenuService menuService;
 
     @Transactional
     @RequestMapping(value = "/saveTemplateApplicationDraft", method = RequestMethod.POST, headers = "Accept=application/json", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
@@ -86,6 +108,7 @@ public class TemplateDefinitionController {
             }
 
             enrichTemplateApplicationPayload(application, definition);
+            applySubmitInitiatorAndDelegate(application, definition, actorUserId);
             assertTemplateAttachmentFieldSizeLimit(application.getTxtApplicationData(), actorUserId);
 
             Integer applicationId = application.getSerApplicationId();
@@ -100,6 +123,9 @@ public class TemplateDefinitionController {
                     throw new IllegalArgumentException("Only draft applications can be updated as draft");
                 }
                 target.setTxtApplicationData(application.getTxtApplicationData());
+                if (application.getSerSubmittedBy() != null && application.getSerSubmittedBy() > 0) {
+                    target.setSerSubmittedBy(application.getSerSubmittedBy());
+                }
                 if (target.getTxtFormCode() == null || target.getTxtFormCode().trim().isEmpty()) {
                     target.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, application.getTxtFormCode()));
                 }
@@ -187,10 +213,9 @@ public class TemplateDefinitionController {
             }
 
             enrichTemplateApplicationPayload(application, definition);
+            workflowThresholdRuleApplyService.applyActiveRulesOnSubmit(application);
             int actorUserId = commonService.getCurrentLoggedInUser();
-            if (application.getSerSubmittedBy() == null && actorUserId > 0) {
-                application.setSerSubmittedBy(actorUserId);
-            }
+            applySubmitInitiatorAndDelegate(application, definition, actorUserId);
             assertTemplateAttachmentFieldSizeLimit(application.getTxtApplicationData(), actorUserId);
             if (application.getTxtFormCode() == null || application.getTxtFormCode().trim().isEmpty()) {
                 application.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, null));
@@ -206,9 +231,11 @@ public class TemplateDefinitionController {
 
             applyTemplateSubmitWorkflowState(application, request);
             entityManager.persist(application);
+            entityManager.flush();
             logTemplateAction("FORM_SUBMIT", request, application.getSerApplicationId(), "SUCCESS",
                     "Template application submitted successfully",
                     buildTemplateApplicationPayload(application, "FORM_SUBMIT", null), null);
+            templateWorkflowNotificationService.notifySubmitted(application, actorUserId);
 
             result.put("status", "Success");
             result.put("message", "Template application submitted successfully");
@@ -240,7 +267,7 @@ public class TemplateDefinitionController {
             result.put("serApplicationId", application.getSerApplicationId());
             result.put("serFormId", application.getSerFormId());
             result.put("txtFormCode", application.getTxtFormCode());
-            result.put("txtApplicationData", application.getTxtApplicationData());
+            result.put("txtApplicationData", sanitizeApplicationDataJson(application.getTxtApplicationData()));
             result.put("txtStatus", application.getTxtStatus());
             result.put("intCurrentApprovalLevel", application.getIntCurrentApprovalLevel());
             result.put("serSubmittedBy", application.getSerSubmittedBy());
@@ -629,29 +656,29 @@ public class TemplateDefinitionController {
         try {
             CfgTblCustomFormApplication application = loadTemplateApplication(toInteger(requestBody.get("applicationId")));
             ensureTemplateApplicationActionable(application);
-            Integer actorId = toInteger(requestBody.get("userId"));
             String remarks = valueAsString(requestBody.get("remarks"));
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
             int currentLevel = safeLevel(application);
             TemplateStep currentStep = context.stepAt(currentLevel);
-            assertActorAuthorizedForTemplateStep(application, context, currentStep, actorId,
+            TemplateWorkflowActor actor = resolveTemplateWorkflowActor(requestBody, application, context, currentStep,
                     "You are not authorized to send back this template application");
-            ensureActorHasUploadedSignature(actorId);
+            ensureActorHasUploadedSignature(actor.performedBy);
             int targetLevel = Math.max(0, currentLevel - 1);
             TemplateStep targetStep = context.stepAt(targetLevel);
-            appendTemplateHistory(application, currentStep, actorId, "SENT_BACK", remarks, displayLevelForIndex(targetLevel));
+            appendTemplateHistory(application, currentStep, actor.performedBy, actor.onBehalfOf, "SENT_BACK", remarks, displayLevelForIndex(targetLevel));
             application.setTxtApprovalHistory(writeJson(activeTemplateHistory(parseHistory(application.getTxtApprovalHistory()))));
             application.setTxtStatus("IN_PROGRESS");
             application.setIntCurrentApprovalLevel(displayLevelForIndex(targetLevel));
             application.setSerCurrentApprover(firstApproverId(targetStep));
             application.setTxtRemarks(remarks);
-            touchTemplateApplication(application, actorId);
+            touchTemplateApplication(application, actor.performedBy);
             entityManager.merge(application);
             entityManager.flush();
             logTemplateAction("SEND_BACK", request, application.getSerApplicationId(), "SUCCESS",
                     "Template application sent back successfully",
                     buildTemplateApplicationPayload(application, "SEND_BACK", remarks), null);
             queueTemplatePostApprovalEmails(application.getSerApplicationId(), "template send-back notification", true);
+            templateWorkflowNotificationService.notifySentBack(application, actor.performedBy, remarks);
             return success("Application sent back successfully");
         } catch (Exception ex) {
             logTemplateAction("SEND_BACK", request, toInteger(requestBody.get("applicationId")), "FAILURE",
@@ -669,20 +696,19 @@ public class TemplateDefinitionController {
         try {
             CfgTblCustomFormApplication application = loadTemplateApplication(toInteger(requestBody.get("applicationId")));
             ensureTemplateApplicationActionable(application);
-            Integer actorId = toInteger(requestBody.get("userId"));
             String remarks = valueAsString(requestBody.get("remarks"));
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
             TemplateStep currentStep = context.stepAt(safeLevel(application));
-            assertActorAuthorizedForTemplateStep(application, context, currentStep, actorId,
+            TemplateWorkflowActor actor = resolveTemplateWorkflowActor(requestBody, application, context, currentStep,
                     "You are not authorized to send back this template application");
-            ensureActorHasUploadedSignature(actorId);
-            appendTemplateHistory(application, currentStep, actorId, "SENT_BACK_TO_INITIATOR", remarks, 1);
+            ensureActorHasUploadedSignature(actor.performedBy);
+            appendTemplateHistory(application, currentStep, actor.performedBy, actor.onBehalfOf, "SENT_BACK_TO_INITIATOR", remarks, 1);
             application.setTxtApprovalHistory(writeJson(activeTemplateHistory(parseHistory(application.getTxtApprovalHistory()))));
             application.setTxtStatus("PENDING");
             application.setIntCurrentApprovalLevel(1);
             application.setSerCurrentApprover(application.getSerSubmittedBy());
             application.setTxtRemarks(remarks);
-            touchTemplateApplication(application, actorId);
+            touchTemplateApplication(application, actor.performedBy);
             entityManager.merge(application);
             entityManager.flush();
             logTemplateAction("SEND_BACK", request, application.getSerApplicationId(), "SUCCESS",
@@ -690,6 +716,7 @@ public class TemplateDefinitionController {
                     buildTemplateApplicationPayload(application, "SEND_BACK_TO_INITIATOR", remarks), null);
             queueTemplatePostApprovalEmails(application.getSerApplicationId(),
                     "template send-back-to-initiator notification", true);
+            templateWorkflowNotificationService.notifySentBackToInitiator(application, actor.performedBy, remarks);
             return success("Application sent back to initiator successfully");
         } catch (Exception ex) {
             logTemplateAction("SEND_BACK", request, toInteger(requestBody.get("applicationId")), "FAILURE",
@@ -713,6 +740,7 @@ public class TemplateDefinitionController {
                 throw new IllegalArgumentException("Only the initiator can resubmit this template application");
             }
             ensureActorHasUploadedSignature(actorId);
+            workflowThresholdRuleApplyService.applyActiveRulesOnSubmit(application);
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
             TemplateStep firstStep = context.stepAt(0);
             String clientIp = RequestMetadataUtil.resolveClientIp(request);
@@ -725,9 +753,11 @@ public class TemplateDefinitionController {
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
             entityManager.merge(application);
+            entityManager.flush();
             logTemplateAction("RESUBMIT_INITIATOR", request, application.getSerApplicationId(), "SUCCESS",
                     "Template application resubmitted by initiator",
                     buildTemplateApplicationPayload(application, "RESUBMITTED_BY_INITIATOR", remarks), null);
+            templateWorkflowNotificationService.notifyResubmitted(application, actorId, remarks);
             return success("Application resubmitted successfully");
         } catch (Exception ex) {
             logTemplateAction("RESUBMIT_INITIATOR", request, toInteger(requestBody.get("applicationId")), "FAILURE",
@@ -775,12 +805,12 @@ public class TemplateDefinitionController {
             application.setSerCurrentApprover(opinionUserId);
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
-            entityManager.merge(application);
             logTemplateAction("REQUEST_OPINION", request, application.getSerApplicationId(), "SUCCESS",
                     "Template application sent for opinion successfully",
                     buildTemplateApplicationPayload(application, "OPINION_REQUESTED", remarks), null);
-            queueTemplatePostApprovalEmails(application.getSerApplicationId(),
-                    "template opinion request notification");
+            templateWorkflowCommandService.mergeAndQueuePostApprovalEmails(application,
+                    "template opinion request notification", false);
+            templateWorkflowNotificationService.notifyOpinionRequested(application, actorId, opinionUserId, remarks);
             return success("Application sent for opinion successfully");
         } catch (Exception ex) {
             logTemplateAction("REQUEST_OPINION", request, toInteger(requestBody.get("applicationId")), "FAILURE",
@@ -821,13 +851,13 @@ public class TemplateDefinitionController {
             application.setSerCurrentApprover(toInteger(opinion.get("requestedBy")));
             application.setTxtRemarks(remarks);
             touchTemplateApplication(application, actorId);
-            entityManager.merge(application);
             logTemplateAction("SUBMIT_OPINION", request, application.getSerApplicationId(), "SUCCESS",
                     "Template opinion submitted successfully",
                     buildTemplateApplicationPayload(application,
                             "reject".equalsIgnoreCase(action) ? "OPINION_REJECTED" : "OPINION_APPROVED", remarks), null);
-            queueTemplatePostApprovalEmails(application.getSerApplicationId(),
-                    "template opinion submission notification");
+            templateWorkflowCommandService.mergeAndQueuePostApprovalEmails(application,
+                    "template opinion submission notification", false);
+            templateWorkflowNotificationService.notifyOpinionSubmitted(application, actorId, action, remarks);
             return success("Opinion submitted successfully");
         } catch (Exception ex) {
             logTemplateAction("SUBMIT_OPINION", request, toInteger(requestBody.get("applicationId")), "FAILURE",
@@ -845,7 +875,6 @@ public class TemplateDefinitionController {
         try {
             CfgTblCustomFormApplication application = loadTemplateApplication(toInteger(requestBody.get("applicationId")));
             ensureTemplateApplicationActionable(application);
-            Integer actorId = toInteger(requestBody.get("userId"));
             String reason = valueAsString(requestBody.get("remarks"));
             if (reason == null || reason.trim().isEmpty()) {
                 throw new IllegalArgumentException("Hold reason is required");
@@ -856,7 +885,7 @@ public class TemplateDefinitionController {
             }
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
             TemplateStep currentStep = context.stepAt(safeLevel(application));
-            assertActorAuthorizedForTemplateStep(application, context, currentStep, actorId,
+            TemplateWorkflowActor actor = resolveTemplateWorkflowActor(requestBody, application, context, currentStep,
                     "You are not authorized to hold this template application");
 
             Map<String, Object> appData = parseMap(application.getTxtApplicationData());
@@ -866,21 +895,22 @@ public class TemplateDefinitionController {
             holdState.put("previousLevel", application.getIntCurrentApprovalLevel());
             holdState.put("previousApprover", application.getSerCurrentApprover());
             holdState.put("reason", reason.trim());
-            holdState.put("heldBy", actorId);
+            holdState.put("heldBy", actor.performedBy);
             holdState.put("heldDate", now().toString());
             appData.put("templateHoldState", holdState);
             application.setTxtApplicationData(writeJson(appData));
 
-            appendTemplateHistory(application, currentStep, actorId, "HOLD", reason.trim(),
+            appendTemplateHistory(application, currentStep, actor.performedBy, actor.onBehalfOf, "HOLD", reason.trim(),
                     displayLevelForIndex(safeLevel(application)));
             application.setTxtStatus("HOLD");
             application.setTxtRemarks(reason.trim());
-            touchTemplateApplication(application, actorId);
+            touchTemplateApplication(application, actor.performedBy);
             entityManager.merge(application);
             entityManager.flush();
             logTemplateAction("HOLD", request, application.getSerApplicationId(), "SUCCESS",
                     "Template application put on Hold",
                     buildTemplateApplicationPayload(application, "HOLD", reason.trim()), null);
+            templateWorkflowNotificationService.notifyHold(application, actor.performedBy, reason.trim());
             return success("Application put on Hold successfully");
         } catch (Exception ex) {
             logTemplateAction("HOLD", request, toInteger(requestBody.get("applicationId")), "FAILURE",
@@ -898,6 +928,9 @@ public class TemplateDefinitionController {
         try {
             CfgTblCustomFormApplication application = loadTemplateApplication(toInteger(requestBody.get("applicationId")));
             Integer actorId = toInteger(requestBody.get("userId"));
+            if (actorId == null || actorId <= 0) {
+                actorId = commonService.getCurrentLoggedInUser();
+            }
             String remarks = valueAsString(requestBody.get("remarks"));
             String status = valueAsString(application.getTxtStatus()).trim().toUpperCase(Locale.ROOT);
             if (!"HOLD".equals(status)) {
@@ -915,11 +948,11 @@ public class TemplateDefinitionController {
             int resumeLevelIndex = safeLevel(application);
             TemplateStep currentStep = context.stepAt(resumeLevelIndex);
             Integer heldBy = toInteger(holdState.get("heldBy"));
-            boolean isHolder = heldBy != null && heldBy.equals(actorId);
-            if (!isHolder) {
-                assertActorAuthorizedForTemplateStep(application, context, currentStep, actorId,
-                        "You are not authorized to unhold this template application");
-            }
+            boolean isHolder = heldBy != null && actorId != null && heldBy.equals(actorId);
+            TemplateWorkflowActor actor = isHolder
+                    ? new TemplateWorkflowActor(actorId, null)
+                    : resolveTemplateWorkflowActor(requestBody, application, context, currentStep,
+                    "You are not authorized to unhold this template application");
 
             String previousStatus = valueAsString(holdState.get("previousStatus"));
             if (previousStatus == null || previousStatus.trim().isEmpty()) {
@@ -931,11 +964,11 @@ public class TemplateDefinitionController {
             String unholdRemarks = (remarks != null && !remarks.trim().isEmpty())
                     ? remarks.trim()
                     : "Application taken off Hold";
-            appendTemplateHistory(application, currentStep, actorId, "UNHOLD", unholdRemarks,
+            appendTemplateHistory(application, currentStep, actor.performedBy, actor.onBehalfOf, "UNHOLD", unholdRemarks,
                     displayLevelForIndex(resumeLevelIndex));
 
             holdState.put("active", false);
-            holdState.put("unheldBy", actorId);
+            holdState.put("unheldBy", actor.performedBy);
             holdState.put("unheldDate", now().toString());
             holdState.put("unholdRemarks", unholdRemarks);
             appData.put("templateHoldState", holdState);
@@ -946,12 +979,13 @@ public class TemplateDefinitionController {
             }
             application.setSerCurrentApprover(previousApprover);
             application.setTxtRemarks(unholdRemarks);
-            touchTemplateApplication(application, actorId);
+            touchTemplateApplication(application, actor.performedBy);
             entityManager.merge(application);
             entityManager.flush();
             logTemplateAction("UNHOLD", request, application.getSerApplicationId(), "SUCCESS",
                     "Template application taken off Hold",
                     buildTemplateApplicationPayload(application, "UNHOLD", unholdRemarks), null);
+            templateWorkflowNotificationService.notifyUnhold(application, actor.performedBy, unholdRemarks);
             return success("Application taken off Hold successfully");
         } catch (Exception ex) {
             logTemplateAction("UNHOLD", request, toInteger(requestBody.get("applicationId")), "FAILURE",
@@ -1011,7 +1045,7 @@ public class TemplateDefinitionController {
                 if (!draftListRequested && isDraft) {
                     continue;
                 }
-                Map<String, Object> summary = toTemplateDefinitionSummary(definition);
+                Map<String, Object> summary = toTemplateDefinitionSummary(definition, userId);
                 if (matchesTemplateSummarySearch(summary, searchText)) {
                     summaries.add(summary);
                 }
@@ -1042,6 +1076,7 @@ public class TemplateDefinitionController {
     @RequestMapping(value = "/getTemplateDefinitionByFormId", method = RequestMethod.GET)
     public TemplateDefinition getTemplateDefinitionByFormId(@RequestParam Integer formId,
                                                             @RequestParam(required = false) Integer userId,
+                                                            @RequestParam(required = false, defaultValue = "true") Boolean includeBackground,
                                                             HttpServletResponse response) {
         try {
             List<TemplateDefinition> matches = entityManager.createQuery(
@@ -1055,7 +1090,9 @@ public class TemplateDefinitionController {
             }
             TemplateDefinition definition = matches.get(0);
             if (canAccessTemplateDefinition(definition, userId)) {
-                return sanitizeTemplateDefinitionResponse(definition);
+                TemplateDefinition sanitized = sanitizeTemplateDefinitionResponse(definition, Boolean.TRUE.equals(includeBackground));
+                applyListingAccessMetadata(sanitized, definition, userId);
+                return sanitized;
             }
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             return null;
@@ -1063,6 +1100,44 @@ public class TemplateDefinitionController {
             logger.error("Error fetching template definition: " + ex.getMessage(), ex);
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return null;
+        }
+    }
+
+    @RequestMapping(value = "/getTemplateDefinitionBackground", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> getTemplateDefinitionBackground(@RequestParam Integer formId,
+                                                               @RequestParam(required = false) Integer userId,
+                                                               HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<TemplateDefinition> matches = entityManager.createQuery(
+                    "SELECT t FROM TemplateDefinition t WHERE t.serFormId = :formId AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false)",
+                    TemplateDefinition.class)
+                    .setParameter("formId", formId)
+                    .setMaxResults(1)
+                    .getResultList();
+            if (matches.isEmpty()) {
+                result.put("status", "Failure");
+                result.put("message", "Template not found");
+                return result;
+            }
+            TemplateDefinition definition = matches.get(0);
+            if (!canAccessTemplateDefinition(definition, userId)) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                result.put("status", "Failure");
+                result.put("message", "Access denied");
+                return result;
+            }
+            Map<String, Object> payload = parseMap(definition.getTxtTemplatePayload());
+            Object background = payload.get("background");
+            result.put("status", "Success");
+            result.put("background", background);
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error fetching template background: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            return result;
         }
     }
 
@@ -1135,7 +1210,6 @@ public class TemplateDefinitionController {
                 item.put("serSubmittedBy", row[5]);
                 item.put("dteCreatedDate", row[6]);
                 item.put("templateName", row[7]);
-                item.put("txtApplicationData", getApplicationDataById(toInteger(row[0])));
                 items.add(item);
             }
 
@@ -1150,6 +1224,439 @@ public class TemplateDefinitionController {
             result.put("items", java.util.Collections.emptyList());
             result.put("total", 0);
             result.put("message", ex.getMessage());
+            return result;
+        }
+    }
+
+    @RequestMapping(value = "/getAuditAllTemplateApplications", method = RequestMethod.GET)
+    public Map<String, Object> getAuditAllTemplateApplications(@RequestParam Integer userId,
+                                                               @RequestParam(defaultValue = "0") Integer page,
+                                                               @RequestParam(defaultValue = "10") Integer pageSize,
+                                                               @RequestParam(required = false) String search,
+                                                               @RequestParam(required = false) Integer departmentId,
+                                                               @RequestParam(required = false) String departmentIds,
+                                                               @RequestParam(required = false) Integer serFormId,
+                                                               @RequestParam(required = false) String serFormIds,
+                                                               @RequestParam(required = false) String status,
+                                                               @RequestParam(required = false) String statuses,
+                                                               @RequestParam(required = false) String submittedByUserIds,
+                                                               @RequestParam(required = false) String dateFrom,
+                                                               @RequestParam(required = false) String dateTo,
+                                                               HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            int actorId = userId != null && userId > 0 ? userId : commonService.getCurrentLoggedInUser();
+            if (!hasAllApplicationsAuditAccess(actorId)) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                result.put("status", "Failure");
+                result.put("message", "You do not have permission to view all applications.");
+                result.put("items", java.util.Collections.emptyList());
+                result.put("total", 0);
+                return result;
+            }
+
+            int safePage = page == null || page < 0 ? 0 : page;
+            int safePageSize = pageSize == null ? 10 : Math.max(1, Math.min(pageSize, 100));
+            String searchText = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+            boolean hasSearch = !searchText.isEmpty();
+
+            List<Integer> departmentIdFilter = mergeIntegerCsvFilter(departmentIds, departmentId);
+            List<Integer> serFormIdFilter = mergeIntegerCsvFilter(serFormIds, serFormId);
+            List<String> statusFilter = mergeStatusCsvFilter(statuses, status);
+            List<Integer> submittedByFilter = splitIntegerCsvParam(submittedByUserIds);
+            String fromDate = normalizeDateParam(dateFrom);
+            String toDate = normalizeDateParam(dateTo);
+
+            StringBuilder whereClause = new StringBuilder(
+                    "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
+                            "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) ");
+            if (!departmentIdFilter.isEmpty()) {
+                whereClause.append("AND u.hrTblDepartment.serDepartmentId IN :departmentIds ");
+            }
+            if (!serFormIdFilter.isEmpty()) {
+                whereClause.append("AND a.serFormId IN :serFormIds ");
+            }
+            if (!statusFilter.isEmpty()) {
+                whereClause.append("AND UPPER(COALESCE(a.txtStatus, '')) IN :statusFilters ");
+            }
+            if (!submittedByFilter.isEmpty()) {
+                whereClause.append("AND a.serSubmittedBy IN :submittedByUserIds ");
+            }
+            if (fromDate != null) {
+                whereClause.append("AND a.dteCreatedDate >= :auditFromDate ");
+            }
+            if (toDate != null) {
+                whereClause.append("AND a.dteCreatedDate <= :auditToDate ");
+            }
+            if (hasSearch) {
+                whereClause.append("AND (LOWER(COALESCE(a.txtFormCode, '')) LIKE :search " +
+                        "OR LOWER(COALESCE(a.txtStatus, '')) LIKE :search " +
+                        "OR LOWER(COALESCE(t.txtTemplateName, '')) LIKE :search " +
+                        "OR LOWER(COALESCE(u.txtUserName, '')) LIKE :search " +
+                        "OR LOWER(COALESCE(u.txtDepartmentName, '')) LIKE :search) ");
+            }
+
+            String where = whereClause.toString();
+            javax.persistence.Query countQuery = entityManager.createQuery(
+                    "SELECT COUNT(a.serApplicationId) " +
+                            "FROM CfgTblCustomFormApplication a " +
+                            "INNER JOIN TemplateDefinition t ON t.serFormId = a.serFormId " +
+                            "LEFT JOIN CfgTblUser u ON u.serUserId = a.serSubmittedBy " +
+                            where);
+            bindAuditAllApplicationsParams(countQuery, departmentIdFilter, serFormIdFilter, statusFilter,
+                    submittedByFilter, fromDate, toDate, hasSearch, searchText);
+
+            Long total = (Long) countQuery.getSingleResult();
+
+            javax.persistence.Query rowQuery = entityManager.createQuery(
+                    "SELECT a.serApplicationId, a.serFormId, a.txtFormCode, a.txtStatus, " +
+                            "a.intCurrentApprovalLevel, a.serSubmittedBy, a.dteCreatedDate, t.txtTemplateName, " +
+                            "COALESCE(u.txtUserName, ''), COALESCE(u.txtDepartmentName, '') " +
+                            "FROM CfgTblCustomFormApplication a " +
+                            "INNER JOIN TemplateDefinition t ON t.serFormId = a.serFormId " +
+                            "LEFT JOIN CfgTblUser u ON u.serUserId = a.serSubmittedBy " +
+                            where +
+                            "ORDER BY a.dteCreatedDate DESC");
+            bindAuditAllApplicationsParams(rowQuery, departmentIdFilter, serFormIdFilter, statusFilter,
+                    submittedByFilter, fromDate, toDate, hasSearch, searchText);
+
+            @SuppressWarnings("unchecked")
+            List<Object[]> rows = rowQuery
+                    .setFirstResult(safePage * safePageSize)
+                    .setMaxResults(safePageSize)
+                    .getResultList();
+
+            List<Map<String, Object>> items = new ArrayList<>();
+            for (Object[] row : rows) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("serApplicationId", row[0]);
+                item.put("serFormId", row[1]);
+                item.put("txtFormCode", row[2]);
+                item.put("txtStatus", row[3]);
+                item.put("intCurrentApprovalLevel", row[4]);
+                item.put("serSubmittedBy", row[5]);
+                item.put("dteCreatedDate", row[6]);
+                item.put("templateName", row[7]);
+                item.put("submittedByUserName", row[8]);
+                item.put("submittedDepartmentName", row[9]);
+                items.add(item);
+            }
+
+            result.put("status", "Success");
+            result.put("items", items);
+            result.put("total", total == null ? 0 : total);
+            result.put("page", safePage);
+            result.put("pageSize", safePageSize);
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error fetching audit all template applications: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("status", "Failure");
+            result.put("items", java.util.Collections.emptyList());
+            result.put("total", 0);
+            result.put("message", ex.getMessage());
+            return result;
+        }
+    }
+
+    @RequestMapping(value = "/getAuditAllApplicationsFilterOptions", method = RequestMethod.GET)
+    public Map<String, Object> getAuditAllApplicationsFilterOptions(@RequestParam Integer userId,
+                                                                    HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            int actorId = userId != null && userId > 0 ? userId : commonService.getCurrentLoggedInUser();
+            if (!hasAllApplicationsAuditAccess(actorId)) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                result.put("status", "Failure");
+                result.put("message", "You do not have permission to view all applications.");
+                return result;
+            }
+
+            @SuppressWarnings("unchecked")
+            List<Object[]> departmentRows = entityManager.createQuery(
+                    "SELECT DISTINCT d.serDepartmentId, d.txtDepartmentName " +
+                            "FROM CfgTblCustomFormApplication a " +
+                            "INNER JOIN CfgTblUser u ON u.serUserId = a.serSubmittedBy " +
+                            "INNER JOIN HrTblDepartment d ON d.serDepartmentId = u.hrTblDepartment.serDepartmentId " +
+                            "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
+                            "AND (d.blIsDeleted IS NULL OR d.blIsDeleted = false) " +
+                            "ORDER BY d.txtDepartmentName ASC")
+                    .getResultList();
+            List<Map<String, Object>> departments = new ArrayList<>();
+            for (Object[] row : departmentRows) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("serDepartmentId", row[0]);
+                item.put("txtDepartmentName", row[1]);
+                departments.add(item);
+            }
+
+            @SuppressWarnings("unchecked")
+            List<Object[]> templateRows = entityManager.createQuery(
+                    "SELECT DISTINCT t.serFormId, t.txtTemplateName " +
+                            "FROM CfgTblCustomFormApplication a " +
+                            "INNER JOIN TemplateDefinition t ON t.serFormId = a.serFormId " +
+                            "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
+                            "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) " +
+                            "ORDER BY t.txtTemplateName ASC")
+                    .getResultList();
+            List<Map<String, Object>> templates = new ArrayList<>();
+            for (Object[] row : templateRows) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("serFormId", row[0]);
+                item.put("templateName", row[1]);
+                templates.add(item);
+            }
+
+            @SuppressWarnings("unchecked")
+            List<String> statuses = entityManager.createQuery(
+                    "SELECT DISTINCT UPPER(COALESCE(a.txtStatus, '')) " +
+                            "FROM CfgTblCustomFormApplication a " +
+                            "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
+                            "AND COALESCE(a.txtStatus, '') <> '' " +
+                            "ORDER BY 1 ASC",
+                    String.class)
+                    .getResultList();
+
+            @SuppressWarnings("unchecked")
+            List<Object[]> submitterRows = entityManager.createQuery(
+                    "SELECT DISTINCT u.serUserId, COALESCE(u.txtUserName, CONCAT('User ', u.serUserId)) " +
+                            "FROM CfgTblCustomFormApplication a " +
+                            "INNER JOIN CfgTblUser u ON u.serUserId = a.serSubmittedBy " +
+                            "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
+                            "AND (u.blIsDeleted IS NULL OR u.blIsDeleted = false) " +
+                            "ORDER BY 2 ASC")
+                    .getResultList();
+            List<Map<String, Object>> submitters = new ArrayList<>();
+            for (Object[] row : submitterRows) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("serUserId", row[0]);
+                item.put("txtUserName", row[1]);
+                submitters.add(item);
+            }
+
+            result.put("status", "Success");
+            result.put("departments", departments);
+            result.put("templates", templates);
+            result.put("statuses", statuses);
+            result.put("submitters", submitters);
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error loading audit all applications filter options: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            return result;
+        }
+    }
+
+    private void bindAuditAllApplicationsParams(javax.persistence.Query query,
+                                                List<Integer> departmentIds,
+                                                List<Integer> serFormIds,
+                                                List<String> statusFilters,
+                                                List<Integer> submittedByUserIds,
+                                                String fromDate,
+                                                String toDate,
+                                                boolean hasSearch,
+                                                String searchText) {
+        if (departmentIds != null && !departmentIds.isEmpty()) {
+            query.setParameter("departmentIds", departmentIds);
+        }
+        if (serFormIds != null && !serFormIds.isEmpty()) {
+            query.setParameter("serFormIds", serFormIds);
+        }
+        if (statusFilters != null && !statusFilters.isEmpty()) {
+            query.setParameter("statusFilters", statusFilters);
+        }
+        if (submittedByUserIds != null && !submittedByUserIds.isEmpty()) {
+            query.setParameter("submittedByUserIds", submittedByUserIds);
+        }
+        if (fromDate != null) {
+            query.setParameter("auditFromDate", Timestamp.valueOf(fromDate + " 00:00:00"));
+        }
+        if (toDate != null) {
+            query.setParameter("auditToDate", Timestamp.valueOf(toDate + " 23:59:59"));
+        }
+        if (hasSearch) {
+            query.setParameter("search", "%" + searchText + "%");
+        }
+    }
+
+    private List<Integer> mergeIntegerCsvFilter(String csv, Integer legacySingle) {
+        List<Integer> values = splitIntegerCsvParam(csv);
+        if (values.isEmpty() && legacySingle != null && legacySingle > 0) {
+            values.add(legacySingle);
+        }
+        return values;
+    }
+
+    private List<String> mergeStatusCsvFilter(String csv, String legacySingle) {
+        List<String> values = new ArrayList<>();
+        for (String part : splitCsvParam(csv)) {
+            values.add(part.toUpperCase(Locale.ROOT));
+        }
+        if (values.isEmpty() && legacySingle != null && !legacySingle.trim().isEmpty()) {
+            values.add(legacySingle.trim().toUpperCase(Locale.ROOT));
+        }
+        return values;
+    }
+
+    private List<Integer> splitIntegerCsvParam(String value) {
+        List<Integer> ids = new ArrayList<>();
+        for (String part : splitCsvParam(value)) {
+            try {
+                int parsed = Integer.parseInt(part);
+                if (parsed > 0 && !ids.contains(parsed)) {
+                    ids.add(parsed);
+                }
+            } catch (NumberFormatException ignored) {
+                // skip invalid token
+            }
+        }
+        return ids;
+    }
+
+    private boolean hasAllApplicationsAuditAccess(int userId) {
+        if (userId <= 0) {
+            return false;
+        }
+        CfgTblUser user = commonService.getCurrentUser(userId);
+        if (user == null || user.getCfgTblRole() == null) {
+            return false;
+        }
+        if (isAdminRoleName(user.getCfgTblRole().getTxtRoleName())) {
+            return true;
+        }
+        Long roleId = Long.valueOf(user.getCfgTblRole().getSerRoleId());
+        List<CfgTblSubMenuRole> permissions = menuService.getAllSubMenuRole(roleId, Long.valueOf(userId));
+        if (permissions == null || permissions.isEmpty()) {
+            return false;
+        }
+        for (CfgTblSubMenuRole permission : permissions) {
+            if (!isSubMenuPermissionEnabled(permission)) {
+                continue;
+            }
+            CfgTblSubMenu subMenu = permission.getCfgTblSubMenu();
+            if (subMenu == null || !matchesAllApplicationsSubMenuUrl(subMenu.getTxtSubMenuUrl())) {
+                continue;
+            }
+            if (Boolean.TRUE.equals(permission.getBlIsview()) || Boolean.TRUE.equals(permission.getBlIsNewView())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean matchesAllApplicationsSubMenuUrl(String url) {
+        if (url == null) {
+            return false;
+        }
+        String normalized = url.trim().replaceAll("^/+", "").toLowerCase(Locale.ROOT);
+        return ALL_APPLICATIONS_SUBMENU_URL.equals(normalized);
+    }
+
+    private boolean isSubMenuPermissionEnabled(CfgTblSubMenuRole permission) {
+        if (permission == null || Boolean.TRUE.equals(permission.getBlIsDeleted())) {
+            return false;
+        }
+        if (!Boolean.TRUE.equals(permission.getBlIsEnabled())) {
+            return false;
+        }
+        return Boolean.TRUE.equals(permission.getBlIsActive()) || Boolean.TRUE.equals(permission.getBlnStatus());
+    }
+
+    private boolean isAdminRoleName(String roleName) {
+        if (roleName == null) {
+            return false;
+        }
+        String normalized = roleName.trim().toUpperCase(Locale.ROOT);
+        return normalized.contains("ADMIN");
+    }
+
+    @RequestMapping(value = "/searchVelocityReports", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> searchVelocityReports(@RequestParam(defaultValue = "0") Integer page,
+                                                     @RequestParam(defaultValue = "50") Integer pageSize,
+                                                     @RequestParam(required = false) String search,
+                                                     @RequestParam(required = false) String sort,
+                                                     @RequestParam(required = false) String statuses,
+                                                     @RequestParam(required = false) String types,
+                                                     @RequestParam(required = false) String departments,
+                                                     @RequestParam(required = false) String uploadedBy,
+                                                     @RequestParam(required = false) String dateFrom,
+                                                     @RequestParam(required = false) String dateTo,
+                                                     @RequestParam(required = false) String amountMin,
+                                                     @RequestParam(required = false) String amountMax,
+                                                     @RequestParam(defaultValue = "true") Boolean all,
+                                                     HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        long started = System.currentTimeMillis();
+        try {
+            int safePage = page == null || page < 0 ? 0 : page;
+            int safePageSize = pageSize == null ? 50 : Math.max(1, Math.min(pageSize, 200));
+            String searchText = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+            String sortKey = sort == null || sort.trim().isEmpty() ? "relevance" : sort.trim().toLowerCase(Locale.ROOT);
+
+            Set<String> statusFilter = splitCsvParam(statuses);
+            Set<String> typeFilter = splitCsvParam(types);
+            Set<String> departmentFilter = splitCsvParam(departments);
+            Set<String> uploadedByFilter = splitCsvParam(uploadedBy);
+
+            Double minAmount = parseDoubleParam(amountMin);
+            Double maxAmount = parseDoubleParam(amountMax);
+            String fromDate = normalizeDateParam(dateFrom);
+            String toDate = normalizeDateParam(dateTo);
+
+            int actorUserId = commonService.getCurrentLoggedInUser();
+            boolean scopeAll = Boolean.TRUE.equals(all);
+
+            VelocityReportQuery listQuery = buildVelocityReportQuery(
+                    scopeAll, actorUserId, searchText, statusFilter, typeFilter,
+                    departmentFilter, uploadedByFilter, fromDate, toDate);
+            Long totalCount = countVelocityReportRows(listQuery);
+            int total = totalCount == null ? 0 : totalCount.intValue();
+
+            @SuppressWarnings("unchecked")
+            List<Object[]> rows = (List<Object[]>) createVelocityReportListQuery(listQuery, sortKey)
+                    .setFirstResult(safePage * safePageSize)
+                    .setMaxResults(safePageSize)
+                    .getResultList();
+
+            List<Map<String, Object>> pageItems = new ArrayList<>();
+            for (Object[] row : rows) {
+                Map<String, Object> item = mapVelocityReportRow(row);
+                if (item == null) {
+                    continue;
+                }
+                double amount = extractReportAmount(null, String.valueOf(item.getOrDefault("text", "")));
+                item.put("amount", amount);
+                if (minAmount != null && amount < minAmount) {
+                    continue;
+                }
+                if (maxAmount != null && amount > maxAmount) {
+                    continue;
+                }
+                pageItems.add(item);
+            }
+
+            Map<String, Map<String, Integer>> facetCounts = loadVelocityReportFacetCounts(
+                    scopeAll, actorUserId, searchText, statusFilter, typeFilter,
+                    departmentFilter, uploadedByFilter, fromDate, toDate);
+
+            result.put("status", "Success");
+            result.put("items", pageItems);
+            result.put("total", total);
+            result.put("page", safePage);
+            result.put("pageSize", safePageSize);
+            result.put("facetCounts", facetCounts);
+            result.put("elapsedMs", System.currentTimeMillis() - started);
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error searching velocity reports: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("status", "Failure");
+            result.put("items", java.util.Collections.emptyList());
+            result.put("total", 0);
+            result.put("message", ex.getMessage());
+            result.put("elapsedMs", System.currentTimeMillis() - started);
             return result;
         }
     }
@@ -1364,7 +1871,6 @@ public class TemplateDefinitionController {
                 item.put("dteCreatedDate", row[6]);
                 item.put("myApprovalDate", getLatestTemplateApprovalDate(row[7], userId));
                 item.put("templateName", row[8]);
-                item.put("txtApplicationData", getApplicationDataById(toInteger(row[0])));
                 matchedItems.add(item);
             }
 
@@ -1476,7 +1982,33 @@ public class TemplateDefinitionController {
         return matches.isEmpty() ? null : matches.get(0);
     }
 
-    private TemplateDefinition sanitizeTemplateDefinitionResponse(TemplateDefinition definition) {
+    private Map<String, Object> resolveApplicationTemplatePayload(Map<String, Object> appData,
+                                                                  String templatePayloadJson,
+                                                                  TemplateDefinition definition) {
+        Map<String, Object> templatePayload = asMap(appData.get("templatePayload"));
+        if (templatePayload.isEmpty() && templatePayloadJson != null && !templatePayloadJson.trim().isEmpty()) {
+            templatePayload = parseMap(templatePayloadJson);
+        }
+        if (templatePayload.isEmpty() && definition != null) {
+            templatePayload = parseMap(definition.getTxtTemplatePayload());
+        }
+        return templatePayload;
+    }
+
+    private boolean hasTemplateApprovalPipeline(Map<String, Object> templatePayload) {
+        if (templatePayload == null || templatePayload.isEmpty()) {
+            return false;
+        }
+        for (Map<String, Object> rawStep : asListOfMaps(templatePayload.get("pipeline"))) {
+            String type = valueAsString(rawStep.get("type"));
+            if (type != null && !type.isEmpty() && !"initiator".equalsIgnoreCase(type)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private TemplateDefinition sanitizeTemplateDefinitionResponse(TemplateDefinition definition, boolean includeBackground) {
         if (definition == null) {
             return null;
         }
@@ -1485,7 +2017,7 @@ public class TemplateDefinitionController {
         copy.setSerFormId(definition.getSerFormId());
         copy.setTxtTemplateName(definition.getTxtTemplateName());
         copy.setTxtCodeConvention(definition.getTxtCodeConvention());
-        copy.setTxtTemplatePayload(sanitizeTemplatePayloadJson(definition.getTxtTemplatePayload()));
+        copy.setTxtTemplatePayload(sanitizeTemplatePayloadJson(definition.getTxtTemplatePayload(), includeBackground));
         copy.setBlIsActive(definition.getBlIsActive());
         copy.setBlIsDeleted(definition.getBlIsDeleted());
         copy.setBlnStatus(definition.getBlnStatus());
@@ -1496,7 +2028,72 @@ public class TemplateDefinitionController {
         return copy;
     }
 
-    private Map<String, Object> toTemplateDefinitionSummary(TemplateDefinition definition) {
+    private void applyListingAccessMetadata(TemplateDefinition target, TemplateDefinition definition, Integer userId) {
+        if (target == null || definition == null || userId == null || userId <= 0 || definition.getSerFormId() == null) {
+            return;
+        }
+        ListingAccessMetadata metadata = resolveListingAccessMetadata(definition, userId);
+        target.setHasOwnAccess(metadata.hasOwnAccess);
+        target.setHasDelegatedAccess(metadata.hasDelegatedAccess);
+        target.setDelegationOnBehalfOf(metadata.onBehalfParties);
+        target.setListingAccess(metadata.listingAccess);
+    }
+
+    private void putListingAccessMetadata(Map<String, Object> summary, TemplateDefinition definition, Integer userId) {
+        if (summary == null || definition == null || userId == null || userId <= 0 || definition.getSerFormId() == null) {
+            return;
+        }
+        ListingAccessMetadata metadata = resolveListingAccessMetadata(definition, userId);
+        summary.put("hasOwnAccess", metadata.hasOwnAccess);
+        summary.put("hasDelegatedAccess", metadata.hasDelegatedAccess);
+        summary.put("delegationOnBehalfOf", metadata.onBehalfParties);
+        summary.put("listingAccess", metadata.listingAccess);
+    }
+
+    private ListingAccessMetadata resolveListingAccessMetadata(TemplateDefinition definition, Integer userId) {
+        boolean hasOwnAccess = hasPersonalTemplateVisibility(definition, userId);
+        boolean hasDelegatedAccess = userDelegationService.canDelegateAccessTemplateDefinition(userId, definition);
+        List<Map<String, Object>> onBehalfParties = new ArrayList<>();
+        if (hasDelegatedAccess) {
+            for (UserDelegationOnBehalfListItemDto party : userDelegationService.getDelegationOnBehalfForTemplate(
+                    userId, definition.getSerFormId())) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("serOnBehalfUserId", party.getSerOnBehalfUserId());
+                row.put("onBehalfUserName", party.getOnBehalfUserName());
+                onBehalfParties.add(row);
+            }
+        }
+        String listingAccess;
+        if (hasOwnAccess && hasDelegatedAccess) {
+            listingAccess = "BOTH";
+        } else if (hasDelegatedAccess) {
+            listingAccess = "DELEGATION";
+        } else if (hasOwnAccess) {
+            listingAccess = "OWN";
+        } else {
+            listingAccess = "NONE";
+        }
+        return new ListingAccessMetadata(hasOwnAccess, hasDelegatedAccess, onBehalfParties, listingAccess);
+    }
+
+    private static final class ListingAccessMetadata {
+        private final boolean hasOwnAccess;
+        private final boolean hasDelegatedAccess;
+        private final List<Map<String, Object>> onBehalfParties;
+        private final String listingAccess;
+
+        private ListingAccessMetadata(boolean hasOwnAccess,
+                                      boolean hasDelegatedAccess,
+                                      List<Map<String, Object>> onBehalfParties,
+                                      String listingAccess) {
+            this.hasOwnAccess = hasOwnAccess;
+            this.hasDelegatedAccess = hasDelegatedAccess;
+            this.onBehalfParties = onBehalfParties;
+            this.listingAccess = listingAccess;
+        }
+    }
+
+    private Map<String, Object> toTemplateDefinitionSummary(TemplateDefinition definition, Integer userId) {
         Map<String, Object> summary = new LinkedHashMap<>();
         Set<Integer> visibleUserIds = extractVisibleUserIds(definition);
         boolean isActive = isTemplateDefinitionActive(definition);
@@ -1518,6 +2115,7 @@ public class TemplateDefinitionController {
         summary.put("selectedUsers", new ArrayList<>(visibleUserIds));
         summary.put("isActive", isActive);
         summary.put("isDraft", isDraft);
+        putListingAccessMetadata(summary, definition, userId);
         return summary;
     }
 
@@ -1536,14 +2134,73 @@ public class TemplateDefinitionController {
     }
 
     private String sanitizeTemplatePayloadJson(String rawPayload) {
+        return sanitizeTemplatePayloadJson(rawPayload, true);
+    }
+
+    private String sanitizeTemplatePayloadJson(String rawPayload, boolean includeBackground) {
         if (rawPayload == null || rawPayload.trim().isEmpty()) {
             return rawPayload;
         }
         try {
             Map<String, Object> payload = parseMap(rawPayload);
+            if (!includeBackground) {
+                payload = slimBackgroundInTemplatePayload(payload);
+            }
             return writeJson(stripAttachmentPayloads(payload, new ArrayList<>()));
         } catch (Exception ex) {
             logger.warn("Failed to sanitize template payload response: " + ex.getMessage());
+            return rawPayload;
+        }
+    }
+
+    private Map<String, Object> slimBackgroundInTemplatePayload(Map<String, Object> payload) {
+        if (payload == null || payload.isEmpty()) {
+            return payload;
+        }
+        Object backgroundValue = payload.get("background");
+        if (!(backgroundValue instanceof Map<?, ?>)) {
+            return payload;
+        }
+        Map<?, ?> source = (Map<?, ?>) backgroundValue;
+        Map<String, Object> slim = new LinkedHashMap<>();
+        copyIfPresent(source, slim, "name");
+        copyIfPresent(source, slim, "type");
+        copyIfPresent(source, slim, "mimeType");
+        copyIfPresent(source, slim, "pageCount");
+        slim.put("deferred", true);
+        payload.put("background", slim);
+        return payload;
+    }
+
+    private static void copyIfPresent(Map<?, ?> source, Map<String, Object> target, String key) {
+        if (source.containsKey(key) && source.get(key) != null) {
+            target.put(key, source.get(key));
+        }
+    }
+
+    private String sanitizeApplicationDataJson(String rawPayload) {
+        if (rawPayload == null || rawPayload.trim().isEmpty()) {
+            return rawPayload;
+        }
+        try {
+            Map<String, Object> payload = parseMap(rawPayload);
+            Map<String, Object> templatePayload = asMap(payload.get("templatePayload"));
+            if (!templatePayload.isEmpty()) {
+                Map<String, Object> slimTemplatePayload = new LinkedHashMap<>();
+                if (templatePayload.get("pipeline") != null) {
+                    slimTemplatePayload.put("pipeline", templatePayload.get("pipeline"));
+                }
+                if (templatePayload.get("fields") != null) {
+                    slimTemplatePayload.put("fields", templatePayload.get("fields"));
+                }
+                if (templatePayload.get("page") != null) {
+                    slimTemplatePayload.put("page", templatePayload.get("page"));
+                }
+                payload.put("templatePayload", slimTemplatePayload);
+            }
+            return writeJson(stripAttachmentPayloads(payload, new ArrayList<>()));
+        } catch (Exception ex) {
+            logger.warn("Failed to sanitize application data response: " + ex.getMessage());
             return rawPayload;
         }
     }
@@ -1632,6 +2289,13 @@ public class TemplateDefinitionController {
         if (!isTemplateDefinitionActive(definition)) {
             return false;
         }
+        if (hasPersonalTemplateVisibility(definition, userId)) {
+            return true;
+        }
+        return userId != null && userDelegationService.canDelegateAccessTemplateDefinition(userId, definition);
+    }
+
+    private boolean hasPersonalTemplateVisibility(TemplateDefinition definition, Integer userId) {
         Set<Integer> visibleUserIds = extractVisibleUserIds(definition);
         if (visibleUserIds.isEmpty()) {
             return true;
@@ -1750,17 +2414,16 @@ public class TemplateDefinitionController {
         try {
             CfgTblCustomFormApplication application = loadTemplateApplication(toInteger(requestBody.get("applicationId")));
             ensureTemplateApplicationActionable(application);
-            Integer actorId = toInteger(requestBody.get("userId"));
             String remarks = valueAsString(requestBody.get("remarks"));
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
             TemplateStep currentStep = context.stepAt(safeLevel(application));
-            assertActorAuthorizedForTemplateStep(application, context, currentStep, actorId,
+            TemplateWorkflowActor actor = resolveTemplateWorkflowActor(requestBody, application, context, currentStep,
                     "You are not authorized to act on this template application");
-            ensureActorHasUploadedSignature(actorId);
+            ensureActorHasUploadedSignature(actor.performedBy);
 
             String approvedIp = RequestMetadataUtil.resolveClientIp(request);
             String approvedVia = resolveTemplateApprovalVia(requestBody);
-            appendTemplateHistory(application, currentStep, actorId, action, remarks,
+            appendTemplateHistory(application, currentStep, actor.performedBy, actor.onBehalfOf, action, remarks,
                     displayLevelForIndex(safeLevel(application)), approvedIp, approvedVia);
             if ("REJECTED".equals(action)) {
                 application.setTxtStatus("REJECTED");
@@ -1782,7 +2445,7 @@ public class TemplateDefinitionController {
             }
 
             application.setTxtRemarks(remarks);
-            touchTemplateApplication(application, actorId);
+            touchTemplateApplication(application, actor.performedBy);
             entityManager.merge(application);
             entityManager.flush();
             logTemplateAction("REJECTED".equals(action) ? "REJECT" : "APPROVE", request,
@@ -1793,6 +2456,19 @@ public class TemplateDefinitionController {
             if ("REJECTED".equals(action)) {
                 queueTemplatePostApprovalEmails(application.getSerApplicationId(),
                         "template rejection notification", true);
+                templateWorkflowNotificationService.notifyRejected(application, actor.performedBy, remarks);
+            } else {
+                templateWorkflowNotificationService.notifyApproved(application, actor.performedBy, remarks);
+                if ("APPROVED".equals(action)) {
+                    if (isEmailTemplateWorkflowAction(requestBody)) {
+                        templateWorkflowCommandService.mergeAndQueuePostApprovalEmails(application,
+                                "template email approval notification", true);
+                    } else if (!isPortalDeferredEmailWorkflow(requestBody)) {
+                        templateWorkflowCommandService.mergeAndQueuePostApprovalEmails(application,
+                                "template approval notification", true);
+                    }
+                    // Portal approval (deferEmail): PDF + queue via updateApplicationPdf?queuePostApprovalEmails=true
+                }
             }
             return success("REJECTED".equals(action) ? "Application rejected successfully" : "Application approved successfully");
         } catch (Exception ex) {
@@ -1862,19 +2538,7 @@ public class TemplateDefinitionController {
         if (applicationId == null) {
             return;
         }
-        Runnable sendEmails = () -> {
-            templateEmailDispatchService.queuePostApprovalEmails(applicationId, contextLabel, refreshPdfBeforeEmail);
-        };
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    sendEmails.run();
-                }
-            });
-            return;
-        }
-        sendEmails.run();
+        templateEmailDispatchService.queuePostApprovalEmails(applicationId, contextLabel, refreshPdfBeforeEmail);
     }
 
     private boolean hasUserApprovedTemplateLevel(Integer applicationId, Integer userId, Integer level) {
@@ -2142,8 +2806,10 @@ public class TemplateDefinitionController {
     private TemplateWorkflowContext buildTemplateWorkflowContext(CfgTblCustomFormApplication application,
                                                                 String templatePayloadJson) {
         Map<String, Object> appData = parseMap(application.getTxtApplicationData());
+        TemplateDefinition definition = findByFormId(application.getSerFormId());
+        Map<String, Object> templatePayload = resolveApplicationTemplatePayload(appData, templatePayloadJson, definition);
         List<TemplateStep> footerSteps = buildFooterWorkflowSteps(appData, application);
-        if (!footerSteps.isEmpty()) {
+        if (!footerSteps.isEmpty() && !hasTemplateApprovalPipeline(templatePayload)) {
             TemplateWorkflowContext footerContext = new TemplateWorkflowContext();
             for (TemplateStep step : footerSteps) {
                 step.level = footerContext.steps.size();
@@ -2157,14 +2823,6 @@ public class TemplateDefinitionController {
                 footerContext.initiator.approverIds.add(application.getSerSubmittedBy());
             }
             return footerContext;
-        }
-        TemplateDefinition definition = findByFormId(application.getSerFormId());
-        Map<String, Object> templatePayload = asMap(appData.get("templatePayload"));
-        if (templatePayload.isEmpty() && templatePayloadJson != null && !templatePayloadJson.trim().isEmpty()) {
-            templatePayload = parseMap(templatePayloadJson);
-        }
-        if (templatePayload.isEmpty() && definition != null) {
-            templatePayload = parseMap(definition.getTxtTemplatePayload());
         }
         List<Map<String, Object>> rawSteps = asListOfMaps(templatePayload.get("pipeline"));
         TemplateWorkflowContext context = new TemplateWorkflowContext();
@@ -2508,6 +3166,54 @@ public class TemplateDefinitionController {
         throw new IllegalArgumentException(defaultMessage);
     }
 
+    private static final class TemplateWorkflowActor {
+        private final int performedBy;
+        private final Integer onBehalfOf;
+
+        private TemplateWorkflowActor(int performedBy, Integer onBehalfOf) {
+            this.performedBy = performedBy;
+            this.onBehalfOf = onBehalfOf;
+        }
+    }
+
+    private TemplateWorkflowActor resolveTemplateWorkflowActor(Map<String, Object> requestBody,
+            CfgTblCustomFormApplication application,
+            TemplateWorkflowContext context,
+            TemplateStep currentStep,
+            String defaultMessage) {
+        Integer performedBy = toInteger(requestBody.get("userId"));
+        if (performedBy == null || performedBy <= 0) {
+            performedBy = commonService.getCurrentLoggedInUser();
+        }
+        if (performedBy == null || performedBy <= 0) {
+            throw new IllegalArgumentException("You must be logged in to perform this action");
+        }
+
+        Integer onBehalfOf = toInteger(requestBody.get("onBehalfOfUserId"));
+        if (onBehalfOf != null && (onBehalfOf <= 0 || onBehalfOf.equals(performedBy))) {
+            onBehalfOf = null;
+        }
+
+        if (isAuthorizedForTemplateStep(currentStep, performedBy)) {
+            return new TemplateWorkflowActor(performedBy, null);
+        }
+
+        if (onBehalfOf != null && isAdminUser(performedBy)) {
+            if (!isAuthorizedForTemplateStep(currentStep, onBehalfOf)
+                    && !pendingApproverIdsForCurrentStep(application).contains(onBehalfOf)) {
+                throw new IllegalArgumentException("Selected approver is not assigned to the current workflow step");
+            }
+            String orMessage = resolveOrAlreadyApprovedMessage(application, context, onBehalfOf);
+            if (orMessage != null) {
+                throw new IllegalArgumentException(orMessage);
+            }
+            return new TemplateWorkflowActor(performedBy, onBehalfOf);
+        }
+
+        assertActorAuthorizedForTemplateStep(application, context, currentStep, performedBy, defaultMessage);
+        return new TemplateWorkflowActor(performedBy, null);
+    }
+
     private String resolveOrAlreadyApprovedMessage(CfgTblCustomFormApplication application,
             TemplateWorkflowContext context,
             Integer actorId) {
@@ -2684,15 +3390,45 @@ public class TemplateDefinitionController {
         return deferEmail ? "TEMPLATE_PORTAL_DEFER_EMAIL" : "SYSTEM";
     }
 
+    private boolean isEmailTemplateWorkflowAction(Map<String, Object> requestBody) {
+        if (requestBody == null) {
+            return false;
+        }
+        String approvedVia = valueAsString(requestBody.get("approvedVia"));
+        return approvedVia != null && "EMAIL".equalsIgnoreCase(approvedVia.trim());
+    }
+
+    private boolean isPortalDeferredEmailWorkflow(Map<String, Object> requestBody) {
+        if (requestBody == null) {
+            return false;
+        }
+        return Boolean.TRUE.equals(requestBody.get("deferEmail"))
+                || "true".equalsIgnoreCase(String.valueOf(requestBody.get("deferEmail")));
+    }
+
     private void appendTemplateHistory(CfgTblCustomFormApplication application, TemplateStep step, Integer actorId,
                                        String action, String remarks, Integer targetLevel) {
-        appendTemplateHistory(application, step, actorId, action, remarks, targetLevel, null, null);
+        appendTemplateHistory(application, step, actorId, null, action, remarks, targetLevel, null, null);
+    }
+
+    private void appendTemplateHistory(CfgTblCustomFormApplication application, TemplateStep step, Integer performedBy,
+                                       Integer onBehalfOf, String action, String remarks, Integer targetLevel) {
+        appendTemplateHistory(application, step, performedBy, onBehalfOf, action, remarks, targetLevel, null, null);
     }
 
     private void appendTemplateHistory(CfgTblCustomFormApplication application, TemplateStep step, Integer actorId,
                                        String action, String remarks, Integer targetLevel, String approvedIp,
                                        String approvedVia) {
-        CfgTblUser user = actorId != null ? entityManager.find(CfgTblUser.class, actorId) : null;
+        appendTemplateHistory(application, step, actorId, null, action, remarks, targetLevel, approvedIp, approvedVia);
+    }
+
+    private void appendTemplateHistory(CfgTblCustomFormApplication application, TemplateStep step, Integer performedBy,
+                                       Integer onBehalfOf, String action, String remarks, Integer targetLevel,
+                                       String approvedIp, String approvedVia) {
+        Integer workflowApproverId = onBehalfOf != null ? onBehalfOf : performedBy;
+        CfgTblUser workflowUser = workflowApproverId != null ? entityManager.find(CfgTblUser.class, workflowApproverId) : null;
+        CfgTblUser performedUser = performedBy != null ? entityManager.find(CfgTblUser.class, performedBy) : null;
+        boolean delegated = onBehalfOf != null && performedBy != null && !onBehalfOf.equals(performedBy);
         Map<String, Object> entry = new HashMap<>();
         Integer displayLevel = step != null
                 ? ("initiator".equalsIgnoreCase(step.type) ? 1 : step.level + 2)
@@ -2709,14 +3445,26 @@ public class TemplateDefinitionController {
         entry.put("role", step != null ? step.name : "");
         entry.put("departmentName", step != null ? step.name : "");
         entry.put("remarks", remarks != null ? remarks : "");
-        entry.put("approvedBy", actorId);
-        entry.put("userId", actorId);
-        entry.put("approverName", user != null ? user.getTxtUserName() : "");
-        entry.put("signaturePath", user != null ? user.getTxtSignaturePath() : "");
-        entry.put("txtDepartmentName", user != null ? user.getTxtDepartmentName() : "");
-        entry.put("userDepartmentName", user != null ? user.getTxtDepartmentName() : "");
-        entry.put("designation", user != null ? user.getTxtDesignation() : "");
-        entry.put("txtDesignation", user != null ? user.getTxtDesignation() : "");
+        entry.put("approvedBy", workflowApproverId);
+        entry.put("userId", workflowApproverId);
+        entry.put("approverName", workflowUser != null ? workflowUser.getTxtUserName() : "");
+        if (delegated) {
+            entry.put("performedBy", performedBy);
+            entry.put("performedByName", performedUser != null ? performedUser.getTxtUserName() : "");
+            entry.put("onBehalfOf", onBehalfOf);
+            entry.put("onBehalfOfName", workflowUser != null ? workflowUser.getTxtUserName() : "");
+            entry.put("signaturePath", performedUser != null ? performedUser.getTxtSignaturePath() : "");
+            entry.put("txtDepartmentName", performedUser != null ? performedUser.getTxtDepartmentName() : "");
+            entry.put("userDepartmentName", performedUser != null ? performedUser.getTxtDepartmentName() : "");
+            entry.put("designation", performedUser != null ? performedUser.getTxtDesignation() : "");
+            entry.put("txtDesignation", performedUser != null ? performedUser.getTxtDesignation() : "");
+        } else {
+            entry.put("signaturePath", workflowUser != null ? workflowUser.getTxtSignaturePath() : "");
+            entry.put("txtDepartmentName", workflowUser != null ? workflowUser.getTxtDepartmentName() : "");
+            entry.put("userDepartmentName", workflowUser != null ? workflowUser.getTxtDepartmentName() : "");
+            entry.put("designation", workflowUser != null ? workflowUser.getTxtDesignation() : "");
+            entry.put("txtDesignation", workflowUser != null ? workflowUser.getTxtDesignation() : "");
+        }
         entry.put("approvedDate", now().toString());
         if (approvedIp != null && !approvedIp.trim().isEmpty()) {
             entry.put("approvedIp", approvedIp.trim());
@@ -2735,8 +3483,13 @@ public class TemplateDefinitionController {
     }
 
     private void appendSubmissionHistory(CfgTblCustomFormApplication application, HttpServletRequest request) {
-        Integer submittedBy = application.getSerSubmittedBy();
-        CfgTblUser user = submittedBy != null ? entityManager.find(CfgTblUser.class, submittedBy) : null;
+        Integer initiatorId = application.getSerSubmittedBy();
+        CfgTblUser initiator = initiatorId != null ? entityManager.find(CfgTblUser.class, initiatorId) : null;
+        Integer delegateId = resolveSubmittedByDelegateUserId(application);
+        boolean delegatedSubmit = delegateId != null && delegateId > 0
+                && initiatorId != null && initiatorId > 0
+                && !delegateId.equals(initiatorId);
+        CfgTblUser delegate = delegatedSubmit ? entityManager.find(CfgTblUser.class, delegateId) : null;
         Map<String, Object> entry = new HashMap<>();
         entry.put("action", "SUBMITTED");
         entry.put("status", "SUBMITTED");
@@ -2748,15 +3501,26 @@ public class TemplateDefinitionController {
         entry.put("stepType", "initiator");
         entry.put("role", "Submission");
         entry.put("departmentName", "Submission");
-        entry.put("remarks", "Submitted application");
-        entry.put("approvedBy", submittedBy);
-        entry.put("userId", submittedBy);
-        entry.put("approverName", user != null ? user.getTxtUserName() : "Initiator");
-        entry.put("signaturePath", user != null ? user.getTxtSignaturePath() : "");
-        entry.put("txtDepartmentName", user != null ? user.getTxtDepartmentName() : "");
-        entry.put("userDepartmentName", user != null ? user.getTxtDepartmentName() : "");
-        entry.put("designation", user != null ? user.getTxtDesignation() : "");
-        entry.put("txtDesignation", user != null ? user.getTxtDesignation() : "");
+        String initiatorName = initiator != null ? initiator.getTxtUserName() : "Initiator";
+        String delegateName = delegate != null ? delegate.getTxtUserName() : "";
+        if (delegatedSubmit) {
+            entry.put("remarks", "Submitted by " + valueAsString(delegateName) + " on behalf of " + valueAsString(initiatorName));
+            entry.put("delegated", true);
+            entry.put("performedBy", delegateId);
+            entry.put("performedByName", delegateName);
+            entry.put("onBehalfOf", initiatorId);
+            entry.put("onBehalfOfName", initiatorName);
+        } else {
+            entry.put("remarks", "Submitted application");
+        }
+        entry.put("approvedBy", initiatorId);
+        entry.put("userId", initiatorId);
+        entry.put("approverName", initiatorName);
+        entry.put("signaturePath", initiator != null ? initiator.getTxtSignaturePath() : "");
+        entry.put("txtDepartmentName", initiator != null ? initiator.getTxtDepartmentName() : "");
+        entry.put("userDepartmentName", initiator != null ? initiator.getTxtDepartmentName() : "");
+        entry.put("designation", initiator != null ? initiator.getTxtDesignation() : "");
+        entry.put("txtDesignation", initiator != null ? initiator.getTxtDesignation() : "");
         entry.put("approvedDate", application.getDteCreatedDate() != null ? application.getDteCreatedDate().toString() : now().toString());
         String clientIp = RequestMetadataUtil.resolveClientIp(request);
         if (clientIp != null && !clientIp.trim().isEmpty()) {
@@ -2827,6 +3591,73 @@ public class TemplateDefinitionController {
                 || "initiator".equalsIgnoreCase(stepId)
                 || "submission".equals(role)
                 || (level != null && level == 1 && "resubmitted_by_initiator".equalsIgnoreCase(action));
+    }
+
+    private void applySubmitInitiatorAndDelegate(CfgTblCustomFormApplication application,
+                                                 TemplateDefinition definition,
+                                                 int actorUserId) {
+        if (application == null || definition == null || actorUserId <= 0) {
+            throw new IllegalArgumentException("You must be logged in to submit this application");
+        }
+        Map<String, Object> appData = parseMap(application.getTxtApplicationData());
+        Integer delegateFromPayload = toInteger(appData.get("submittedByDelegateUserId"));
+        Integer requestedInitiator = application.getSerSubmittedBy();
+        if (requestedInitiator == null || requestedInitiator <= 0) {
+            requestedInitiator = toInteger(appData.get("onBehalfOfUserId"));
+        }
+        boolean onBehalfMode = "on_behalf".equalsIgnoreCase(valueAsString(appData.get("fillAccessMode")))
+                || (delegateFromPayload != null && delegateFromPayload > 0
+                && requestedInitiator != null && requestedInitiator > 0
+                && !delegateFromPayload.equals(requestedInitiator));
+        if (onBehalfMode) {
+            if (delegateFromPayload == null || delegateFromPayload <= 0) {
+                delegateFromPayload = actorUserId;
+            }
+            if (!delegateFromPayload.equals(actorUserId)) {
+                throw new IllegalArgumentException("Invalid delegation submit context");
+            }
+            if (requestedInitiator == null || requestedInitiator <= 0) {
+                throw new IllegalArgumentException("On-behalf user is required");
+            }
+            if (!canDelegateSubmitOnBehalf(actorUserId, requestedInitiator, definition)) {
+                throw new IllegalArgumentException(
+                        "You are not delegated to submit this form on behalf of the selected user");
+            }
+            application.setSerSubmittedBy(requestedInitiator);
+            appData.put("fillAccessMode", "on_behalf");
+            appData.put("onBehalfOfUserId", requestedInitiator);
+            appData.put("submittedByDelegateUserId", actorUserId);
+        } else {
+            application.setSerSubmittedBy(actorUserId);
+            appData.put("fillAccessMode", "self");
+            appData.remove("onBehalfOfUserId");
+            appData.remove("submittedByDelegateUserId");
+        }
+        application.setTxtApplicationData(writeJson(appData));
+        if (application.getSerCreatedUser() == null) {
+            application.setSerCreatedUser(actorUserId);
+        }
+    }
+
+    private boolean canDelegateSubmitOnBehalf(Integer delegateUserId, Integer onBehalfUserId, TemplateDefinition definition) {
+        if (delegateUserId == null || delegateUserId <= 0 || onBehalfUserId == null || onBehalfUserId <= 0
+                || definition == null || definition.getSerFormId() == null) {
+            return false;
+        }
+        for (UserDelegationOnBehalfListItemDto party : userDelegationService.getDelegationOnBehalfForTemplate(
+                delegateUserId, definition.getSerFormId())) {
+            if (party != null && onBehalfUserId.equals(party.getSerOnBehalfUserId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Integer resolveSubmittedByDelegateUserId(CfgTblCustomFormApplication application) {
+        if (application == null || application.getTxtApplicationData() == null) {
+            return null;
+        }
+        return toInteger(parseMap(application.getTxtApplicationData()).get("submittedByDelegateUserId"));
     }
 
     private void enrichTemplateApplicationPayload(CfgTblCustomFormApplication application, TemplateDefinition definition) {
@@ -2902,7 +3733,12 @@ public class TemplateDefinitionController {
         assertCanEditTemplateDraft(existing, actorUserId);
 
         existing.setTxtApplicationData(incoming.getTxtApplicationData());
+        if (incoming.getSerSubmittedBy() != null && incoming.getSerSubmittedBy() > 0) {
+            existing.setSerSubmittedBy(incoming.getSerSubmittedBy());
+        }
         enrichTemplateApplicationPayload(existing, definition);
+        workflowThresholdRuleApplyService.applyActiveRulesOnSubmit(existing);
+        applySubmitInitiatorAndDelegate(existing, definition, actorUserId);
         assertTemplateAttachmentFieldSizeLimit(existing.getTxtApplicationData(), actorUserId);
         if (existing.getTxtFormCode() == null || existing.getTxtFormCode().trim().isEmpty()) {
             existing.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, incoming.getTxtFormCode()));
@@ -2913,10 +3749,12 @@ public class TemplateDefinitionController {
         existing.setSerModifiedUser(actorUserId);
         applyTemplateSubmitWorkflowState(existing, request);
         entityManager.merge(existing);
+        entityManager.flush();
 
         logTemplateAction("FORM_SUBMIT", request, existing.getSerApplicationId(), "SUCCESS",
                 "Template application submitted from draft",
                 buildTemplateApplicationPayload(existing, "FORM_SUBMIT", null), null);
+        templateWorkflowNotificationService.notifySubmitted(existing, actorUserId);
 
         result.put("status", "Success");
         result.put("message", "Template application submitted successfully");
@@ -2941,6 +3779,10 @@ public class TemplateDefinitionController {
         }
         Integer submittedBy = application.getSerSubmittedBy();
         if (submittedBy != null && submittedBy.equals(actorUserId)) {
+            return;
+        }
+        Integer delegateUserId = resolveSubmittedByDelegateUserId(application);
+        if (delegateUserId != null && delegateUserId.equals(actorUserId)) {
             return;
         }
         throw new IllegalArgumentException("You are not authorized to edit this draft");
@@ -3469,6 +4311,573 @@ public class TemplateDefinitionController {
         if (id != null && id > 0) {
             ids.add(id);
         }
+    }
+
+    private static final String VELOCITY_REPORT_JOIN =
+            " FROM CfgTblCustomFormApplication a " +
+                    "INNER JOIN TemplateDefinition t ON t.serFormId = a.serFormId " +
+                    "LEFT JOIN CfgTblUser u ON u.serUserId = a.serSubmittedBy ";
+
+    private static class VelocityReportQuery {
+        private final StringBuilder where = new StringBuilder();
+        private final Map<String, Object> params = new HashMap<>();
+
+        private VelocityReportQuery() {
+            where.append("WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) ")
+                    .append("AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) ");
+        }
+    }
+
+    private VelocityReportQuery buildVelocityReportQuery(boolean scopeAll,
+                                                         int actorUserId,
+                                                         String searchText,
+                                                         Set<String> statusFilter,
+                                                         Set<String> typeFilter,
+                                                         Set<String> departmentFilter,
+                                                         Set<String> uploadedByFilter,
+                                                         String fromDate,
+                                                         String toDate) {
+        VelocityReportQuery query = new VelocityReportQuery();
+        if (!scopeAll) {
+            query.where.append("AND a.serSubmittedBy = :actorUserId ");
+            query.params.put("actorUserId", actorUserId);
+        }
+        appendVelocityReportSearchToWhere(query, searchText);
+        if (!typeFilter.isEmpty()) {
+            query.where.append("AND t.txtTemplateName IN :reportTypes ");
+            query.params.put("reportTypes", typeFilter);
+        }
+        Set<String> rawStatuses = expandStatusFilterForSql(statusFilter);
+        if (!rawStatuses.isEmpty()) {
+            query.where.append("AND UPPER(COALESCE(a.txtStatus, '')) IN :reportStatuses ");
+            query.params.put("reportStatuses", rawStatuses);
+        }
+        if (!departmentFilter.isEmpty()) {
+            query.where.append("AND COALESCE(u.txtDepartmentName, '') IN :reportDepartments ");
+            query.params.put("reportDepartments", departmentFilter);
+        }
+        if (!uploadedByFilter.isEmpty()) {
+            query.where.append("AND COALESCE(u.txtUserName, CONCAT('User ', a.serSubmittedBy)) IN :reportUploaders ");
+            query.params.put("reportUploaders", uploadedByFilter);
+        }
+        if (fromDate != null) {
+            query.where.append("AND a.dteCreatedDate >= :reportFromDate ");
+            query.params.put("reportFromDate", Timestamp.valueOf(fromDate + " 00:00:00"));
+        }
+        if (toDate != null) {
+            query.where.append("AND a.dteCreatedDate <= :reportToDate ");
+            query.params.put("reportToDate", Timestamp.valueOf(toDate + " 23:59:59"));
+        }
+        return query;
+    }
+
+    private void appendVelocityReportSearchToWhere(VelocityReportQuery query, String searchText) {
+        if (searchText == null || searchText.isEmpty()) {
+            return;
+        }
+        java.util.regex.Matcher phraseMatcher = java.util.regex.Pattern.compile("\"([^\"]+)\"").matcher(searchText);
+        int phraseIndex = 0;
+        while (phraseMatcher.find()) {
+            String phrase = phraseMatcher.group(1).toLowerCase(Locale.ROOT);
+            if (phrase.isEmpty()) {
+                continue;
+            }
+            String param = "reportPhrase" + phraseIndex++;
+            query.where.append("AND (LOWER(COALESCE(a.txtFormCode, '')) LIKE :").append(param)
+                    .append(" OR LOWER(COALESCE(a.txtStatus, '')) LIKE :").append(param)
+                    .append(" OR LOWER(COALESCE(t.txtTemplateName, '')) LIKE :").append(param)
+                    .append(" OR LOWER(COALESCE(a.txtRemarks, '')) LIKE :").append(param)
+                    .append(" OR LOWER(COALESCE(a.txtApplicationData, '')) LIKE :").append(param)
+                    .append(") ");
+            query.params.put(param, "%" + phrase + "%");
+        }
+        String remaining = searchText.replaceAll("\"[^\"]+\"", " ").trim();
+        if (remaining.isEmpty()) {
+            return;
+        }
+        String[] tokens = remaining.split("\\s+");
+        int tokenIndex = 0;
+        for (String token : tokens) {
+            if (token.isEmpty() || token.startsWith("-")) {
+                continue;
+            }
+            int colon = token.indexOf(':');
+            if (colon > 0 && colon < token.length() - 1) {
+                token = token.substring(colon + 1);
+            }
+            if (token.isEmpty()) {
+                continue;
+            }
+            String param = "reportTok" + tokenIndex++;
+            query.where.append("AND (LOWER(COALESCE(a.txtFormCode, '')) LIKE :").append(param)
+                    .append(" OR LOWER(COALESCE(a.txtStatus, '')) LIKE :").append(param)
+                    .append(" OR LOWER(COALESCE(t.txtTemplateName, '')) LIKE :").append(param)
+                    .append(" OR LOWER(COALESCE(a.txtRemarks, '')) LIKE :").append(param)
+                    .append(" OR LOWER(COALESCE(a.txtApplicationData, '')) LIKE :").append(param)
+                    .append(") ");
+            query.params.put(param, "%" + token.toLowerCase(Locale.ROOT) + "%");
+        }
+    }
+
+    private Set<String> expandStatusFilterForSql(Set<String> statusFilter) {
+        Set<String> expanded = new LinkedHashSet<>();
+        for (String status : statusFilter) {
+            if (status == null || status.trim().isEmpty()) {
+                continue;
+            }
+            String lower = status.trim().toLowerCase(Locale.ROOT);
+            if ("approved".equals(lower)) {
+                expanded.add("APPROVED");
+                expanded.add("COMPLETED");
+            } else if ("rejected".equals(lower)) {
+                expanded.add("REJECTED");
+            } else if ("draft".equals(lower)) {
+                expanded.add("DRAFT");
+            } else if ("pending".equals(lower)) {
+                expanded.add("PENDING");
+                expanded.add("OPINION_PENDING");
+                expanded.add("CEO_PENDING");
+                expanded.add("ASSET_PENDING");
+                expanded.add("PR_PENDING");
+                expanded.add("PO_PENDING");
+                expanded.add("PO_VENDOR_TE_PENDING");
+                expanded.add("HOLD");
+            } else if ("in progress".equals(lower)) {
+                expanded.add("IN_PROGRESS");
+            } else {
+                expanded.add(status.trim().toUpperCase(Locale.ROOT));
+            }
+        }
+        return expanded;
+    }
+
+    private void bindVelocityReportParams(javax.persistence.Query query, VelocityReportQuery reportQuery) {
+        for (Map.Entry<String, Object> entry : reportQuery.params.entrySet()) {
+            query.setParameter(entry.getKey(), entry.getValue());
+        }
+    }
+
+    private Long countVelocityReportRows(VelocityReportQuery reportQuery) {
+        javax.persistence.Query countQuery = entityManager.createQuery(
+                "SELECT COUNT(a.serApplicationId) " + VELOCITY_REPORT_JOIN + reportQuery.where);
+        bindVelocityReportParams(countQuery, reportQuery);
+        return (Long) countQuery.getSingleResult();
+    }
+
+    private javax.persistence.Query createVelocityReportListQuery(VelocityReportQuery reportQuery, String sortKey) {
+        String orderBy = " ORDER BY a.dteCreatedDate DESC";
+        if ("date-asc".equals(sortKey)) {
+            orderBy = " ORDER BY a.dteCreatedDate ASC";
+        }
+        String jpql = "SELECT a.serApplicationId, a.serFormId, a.txtFormCode, a.txtStatus, a.serSubmittedBy, " +
+                "a.dteCreatedDate, t.txtTemplateName, a.txtPdfName, a.txtRemarks, " +
+                "CASE WHEN a.blbPdfData IS NULL THEN false ELSE true END, " +
+                "COALESCE(u.txtUserName, ''), COALESCE(u.txtDepartmentName, '') " +
+                VELOCITY_REPORT_JOIN + reportQuery.where + orderBy;
+        javax.persistence.Query listQuery = entityManager.createQuery(jpql);
+        bindVelocityReportParams(listQuery, reportQuery);
+        return listQuery;
+    }
+
+    private Map<String, Object> mapVelocityReportRow(Object[] row) {
+        Integer applicationId = toInteger(row[0]);
+        if (applicationId == null || applicationId <= 0) {
+            return null;
+        }
+        String formCode = row[2] == null ? "" : String.valueOf(row[2]).trim();
+        String status = row[3] == null ? "" : String.valueOf(row[3]).trim();
+        Integer submittedBy = toInteger(row[4]);
+        String templateName = row[6] == null ? "Template" : String.valueOf(row[6]).trim();
+        String pdfName = row[7] == null ? "" : String.valueOf(row[7]).trim();
+        String remarks = row[8] == null ? "" : String.valueOf(row[8]);
+        boolean hasPdf = Boolean.TRUE.equals(row[9]) || "true".equalsIgnoreCase(String.valueOf(row[9]));
+        String submitterName = row[10] == null || String.valueOf(row[10]).trim().isEmpty()
+                ? resolveUserDisplayName(null, submittedBy)
+                : String.valueOf(row[10]).trim();
+        String departmentName = row[11] == null ? "" : String.valueOf(row[11]).trim();
+        String uploadedAt = formatReportDate(row[5]);
+        String filename = resolveReportFilename(formCode, applicationId, pdfName, hasPdf);
+        String snippet = buildReportListSnippet(formCode, templateName, remarks);
+        String displayStatus = humanizeReportStatus(status);
+
+        Map<String, Object> item = new HashMap<>();
+        item.put("id", "app-" + applicationId);
+        item.put("serApplicationId", applicationId);
+        item.put("serFormId", toInteger(row[1]));
+        item.put("filename", filename);
+        item.put("mimeType", hasPdf ? "application/pdf" : "application/octet-stream");
+        item.put("type", templateName);
+        item.put("templateName", templateName);
+        item.put("department", departmentName);
+        item.put("uploadedBy", submitterName);
+        item.put("uploadedAt", uploadedAt);
+        item.put("amount", 0D);
+        item.put("status", displayStatus);
+        item.put("txtStatus", status);
+        item.put("text", snippet);
+        item.put("hasPdf", hasPdf);
+        item.put("txtFormCode", formCode);
+        return item;
+    }
+
+    private Map<String, Map<String, Integer>> loadVelocityReportFacetCounts(boolean scopeAll,
+                                                                            int actorUserId,
+                                                                            String searchText,
+                                                                            Set<String> statusFilter,
+                                                                            Set<String> typeFilter,
+                                                                            Set<String> departmentFilter,
+                                                                            Set<String> uploadedByFilter,
+                                                                            String fromDate,
+                                                                            String toDate) {
+        Map<String, Map<String, Integer>> facetCounts = new HashMap<>();
+        VelocityReportQuery typeFacetQuery = buildVelocityReportQuery(
+                scopeAll, actorUserId, searchText, statusFilter, java.util.Collections.emptySet(),
+                departmentFilter, uploadedByFilter, fromDate, toDate);
+        facetCounts.put("type", runVelocityReportFacetGroup(
+                "SELECT t.txtTemplateName, COUNT(a.serApplicationId) " + VELOCITY_REPORT_JOIN + typeFacetQuery.where
+                        + " GROUP BY t.txtTemplateName ORDER BY COUNT(a.serApplicationId) DESC",
+                typeFacetQuery, 40));
+
+        VelocityReportQuery statusFacetQuery = buildVelocityReportQuery(
+                scopeAll, actorUserId, searchText, java.util.Collections.emptySet(), typeFilter,
+                departmentFilter, uploadedByFilter, fromDate, toDate);
+        Map<String, Integer> statusCounts = new LinkedHashMap<>();
+        Map<String, Integer> rawStatusCounts = runVelocityReportFacetGroup(
+                "SELECT a.txtStatus, COUNT(a.serApplicationId) " + VELOCITY_REPORT_JOIN + statusFacetQuery.where
+                        + " GROUP BY a.txtStatus ORDER BY COUNT(a.serApplicationId) DESC",
+                statusFacetQuery, 0);
+        for (Map.Entry<String, Integer> entry : rawStatusCounts.entrySet()) {
+            String label = humanizeReportStatus(entry.getKey());
+            statusCounts.put(label, statusCounts.getOrDefault(label, 0) + entry.getValue());
+        }
+        facetCounts.put("status", statusCounts);
+
+        VelocityReportQuery departmentFacetQuery = buildVelocityReportQuery(
+                scopeAll, actorUserId, searchText, statusFilter, typeFilter,
+                java.util.Collections.emptySet(), uploadedByFilter, fromDate, toDate);
+        facetCounts.put("department", runVelocityReportFacetGroup(
+                "SELECT COALESCE(u.txtDepartmentName, ''), COUNT(a.serApplicationId) " + VELOCITY_REPORT_JOIN
+                        + departmentFacetQuery.where
+                        + " GROUP BY COALESCE(u.txtDepartmentName, '') ORDER BY COUNT(a.serApplicationId) DESC",
+                departmentFacetQuery, 40));
+
+        VelocityReportQuery uploaderFacetQuery = buildVelocityReportQuery(
+                scopeAll, actorUserId, searchText, statusFilter, typeFilter,
+                departmentFilter, java.util.Collections.emptySet(), fromDate, toDate);
+        facetCounts.put("uploadedBy", runVelocityReportFacetGroup(
+                "SELECT COALESCE(u.txtUserName, CONCAT('User ', a.serSubmittedBy)), COUNT(a.serApplicationId) "
+                        + VELOCITY_REPORT_JOIN + uploaderFacetQuery.where
+                        + " GROUP BY COALESCE(u.txtUserName, CONCAT('User ', a.serSubmittedBy)) "
+                        + "ORDER BY COUNT(a.serApplicationId) DESC",
+                uploaderFacetQuery, 25));
+        return facetCounts;
+    }
+
+    private Map<String, Integer> runVelocityReportFacetGroup(String jpql,
+                                                             VelocityReportQuery reportQuery,
+                                                             int maxEntries) {
+        javax.persistence.Query query = entityManager.createQuery(jpql);
+        bindVelocityReportParams(query, reportQuery);
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = query.getResultList();
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (Object[] row : rows) {
+            String key = row[0] == null ? "" : String.valueOf(row[0]).trim();
+            if (key.isEmpty()) {
+                continue;
+            }
+            Integer count = toInteger(row[1]);
+            counts.put(key, count == null ? 0 : count);
+            if (maxEntries > 0 && counts.size() >= maxEntries) {
+                break;
+            }
+        }
+        return counts;
+    }
+
+    private Set<String> splitCsvParam(String value) {
+        Set<String> set = new LinkedHashSet<>();
+        if (value == null || value.trim().isEmpty()) {
+            return set;
+        }
+        for (String part : value.split(",")) {
+            String trimmed = part == null ? "" : part.trim();
+            if (!trimmed.isEmpty()) {
+                set.add(trimmed);
+            }
+        }
+        return set;
+    }
+
+    private Double parseDoubleParam(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(value.trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private String normalizeDateParam(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private Map<Integer, CfgTblUser> loadUsersByIds(Set<Integer> userIds) {
+        Map<Integer, CfgTblUser> usersById = new HashMap<>();
+        if (userIds == null || userIds.isEmpty()) {
+            return usersById;
+        }
+        @SuppressWarnings("unchecked")
+        List<CfgTblUser> users = entityManager.createQuery(
+                        "SELECT u FROM CfgTblUser u WHERE u.serUserId IN :ids")
+                .setParameter("ids", userIds)
+                .getResultList();
+        for (CfgTblUser user : users) {
+            if (user != null && user.getSerUserId() != null) {
+                usersById.put(user.getSerUserId(), user);
+            }
+        }
+        return usersById;
+    }
+
+    private String resolveUserDisplayName(CfgTblUser user, Integer userId) {
+        if (user != null && user.getTxtUserName() != null && !user.getTxtUserName().trim().isEmpty()) {
+            return user.getTxtUserName().trim();
+        }
+        return userId == null || userId <= 0 ? "Unknown" : ("User " + userId);
+    }
+
+    private String resolveUserDepartmentName(CfgTblUser user) {
+        if (user == null) {
+            return "";
+        }
+        String direct = user.getTxtDepartmentName();
+        if (direct != null && !direct.trim().isEmpty()) {
+            return direct.trim();
+        }
+        HrTblDepartment department = user.getHrTblDepartment();
+        if (department != null && department.getTxtDepartmentName() != null) {
+            return department.getTxtDepartmentName().trim();
+        }
+        return "";
+    }
+
+    private String formatReportDate(Object createdDate) {
+        if (createdDate instanceof Timestamp) {
+            return ((Timestamp) createdDate).toLocalDateTime().toLocalDate().toString();
+        }
+        if (createdDate == null) {
+            return "";
+        }
+        String text = String.valueOf(createdDate).trim();
+        if (text.length() >= 10) {
+            return text.substring(0, 10);
+        }
+        return text;
+    }
+
+    private String resolveReportFilename(String formCode, Integer applicationId, String pdfName, boolean hasPdf) {
+        if (pdfName != null && !pdfName.trim().isEmpty()) {
+            return pdfName.trim();
+        }
+        String safeCode = formCode == null || formCode.trim().isEmpty()
+                ? ("APP-" + applicationId)
+                : formCode.trim();
+        return hasPdf ? safeCode + ".pdf" : safeCode;
+    }
+
+    private String buildReportTextSnippet(String remarks, String applicationDataJson) {
+        StringBuilder builder = new StringBuilder();
+        if (remarks != null && !remarks.trim().isEmpty()) {
+            builder.append(remarks.trim()).append(' ');
+        }
+        if (applicationDataJson != null && !applicationDataJson.trim().isEmpty()) {
+            String flattened = applicationDataJson
+                    .replaceAll("[\"{}\\[\\]:,]", " ")
+                    .replaceAll("\\s+", " ")
+                    .trim();
+            builder.append(flattened);
+        }
+        String snippet = builder.toString().trim();
+        if (snippet.length() > 600) {
+            return snippet.substring(0, 600);
+        }
+        return snippet;
+    }
+
+    private String buildReportListSnippet(String formCode, String templateName, String remarks) {
+        StringBuilder builder = new StringBuilder();
+        if (formCode != null && !formCode.trim().isEmpty()) {
+            builder.append(formCode.trim());
+        }
+        if (templateName != null && !templateName.trim().isEmpty()) {
+            if (builder.length() > 0) {
+                builder.append(" · ");
+            }
+            builder.append(templateName.trim());
+        }
+        if (remarks != null && !remarks.trim().isEmpty()) {
+            if (builder.length() > 0) {
+                builder.append(" — ");
+            }
+            builder.append(remarks.trim());
+        }
+        String snippet = builder.toString().trim();
+        if (snippet.length() > 320) {
+            return snippet.substring(0, 320) + "…";
+        }
+        return snippet;
+    }
+
+    private double extractReportAmount(String applicationDataJson, String remarks) {
+        String combined = (applicationDataJson == null ? "" : applicationDataJson) + " " + (remarks == null ? "" : remarks);
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("(?i)(?:amount|total|grand\\s*total|price|value)\\D{0,12}(\\d{1,12}(?:\\.\\d+)?)")
+                .matcher(combined);
+        if (matcher.find()) {
+            try {
+                return Double.parseDouble(matcher.group(1));
+            } catch (NumberFormatException ignored) {
+                return 0D;
+            }
+        }
+        return 0D;
+    }
+
+    private String humanizeReportStatus(String status) {
+        if (status == null || status.trim().isEmpty()) {
+            return "Pending";
+        }
+        String normalized = status.trim().toUpperCase(Locale.ROOT);
+        if ("APPROVED".equals(normalized) || "COMPLETED".equals(normalized)) {
+            return "Approved";
+        }
+        if ("REJECTED".equals(normalized)) {
+            return "Rejected";
+        }
+        if ("DRAFT".equals(normalized)) {
+            return "Draft";
+        }
+        if (normalized.contains("PENDING")) {
+            return "Pending";
+        }
+        if ("IN_PROGRESS".equals(normalized)) {
+            return "In Progress";
+        }
+        return status.trim();
+    }
+
+    private boolean matchesReportSearchText(String haystack, String searchText) {
+        if (searchText == null || searchText.isEmpty()) {
+            return true;
+        }
+        if (haystack == null || haystack.isEmpty()) {
+            return false;
+        }
+        String remaining = searchText;
+        java.util.regex.Matcher phraseMatcher = java.util.regex.Pattern.compile("\"([^\"]+)\"").matcher(remaining);
+        while (phraseMatcher.find()) {
+            String phrase = phraseMatcher.group(1).toLowerCase(Locale.ROOT);
+            if (!phrase.isEmpty() && !haystack.contains(phrase)) {
+                return false;
+            }
+        }
+        remaining = remaining.replaceAll("\"[^\"]+\"", " ").trim();
+        if (remaining.isEmpty()) {
+            return true;
+        }
+        String[] tokens = remaining.split("\\s+");
+        for (String token : tokens) {
+            if (token.isEmpty() || token.startsWith("-")) {
+                continue;
+            }
+            int colon = token.indexOf(':');
+            if (colon > 0 && colon < token.length() - 1) {
+                token = token.substring(colon + 1);
+            }
+            if (!token.isEmpty() && !haystack.contains(token.toLowerCase(Locale.ROOT))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void sortVelocityReportItems(List<Map<String, Object>> items, String sortKey, String searchText) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        if ("date-asc".equals(sortKey)) {
+            items.sort((left, right) -> String.valueOf(left.getOrDefault("uploadedAt", ""))
+                    .compareTo(String.valueOf(right.getOrDefault("uploadedAt", ""))));
+            return;
+        }
+        if ("date-desc".equals(sortKey)) {
+            items.sort((left, right) -> String.valueOf(right.getOrDefault("uploadedAt", ""))
+                    .compareTo(String.valueOf(left.getOrDefault("uploadedAt", ""))));
+            return;
+        }
+        if ("amount-asc".equals(sortKey)) {
+            items.sort((left, right) -> Double.compare(toDouble(left.get("amount")), toDouble(right.get("amount"))));
+            return;
+        }
+        if ("amount-desc".equals(sortKey)) {
+            items.sort((left, right) -> Double.compare(toDouble(right.get("amount")), toDouble(left.get("amount"))));
+            return;
+        }
+        if (searchText != null && !searchText.isEmpty()) {
+            items.sort((left, right) -> {
+                String leftName = String.valueOf(left.getOrDefault("filename", ""));
+                String rightName = String.valueOf(right.getOrDefault("filename", ""));
+                return leftName.compareToIgnoreCase(rightName);
+            });
+        }
+    }
+
+    private double toDouble(Object value) {
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        }
+        if (value == null) {
+            return 0D;
+        }
+        try {
+            return Double.parseDouble(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            return 0D;
+        }
+    }
+
+    private Map<String, Map<String, Integer>> buildVelocityReportFacetCounts(List<Map<String, Object>> items) {
+        Map<String, Integer> typeCounts = new LinkedHashMap<>();
+        Map<String, Integer> departmentCounts = new LinkedHashMap<>();
+        Map<String, Integer> uploadedByCounts = new LinkedHashMap<>();
+        Map<String, Integer> statusCounts = new LinkedHashMap<>();
+        for (Map<String, Object> item : items) {
+            incrementFacetCount(typeCounts, String.valueOf(item.getOrDefault("type", "")));
+            incrementFacetCount(departmentCounts, String.valueOf(item.getOrDefault("department", "")));
+            incrementFacetCount(uploadedByCounts, String.valueOf(item.getOrDefault("uploadedBy", "")));
+            incrementFacetCount(statusCounts, String.valueOf(item.getOrDefault("status", "")));
+        }
+        Map<String, Map<String, Integer>> facetCounts = new HashMap<>();
+        facetCounts.put("type", typeCounts);
+        facetCounts.put("department", departmentCounts);
+        facetCounts.put("uploadedBy", uploadedByCounts);
+        facetCounts.put("status", statusCounts);
+        return facetCounts;
+    }
+
+    private void incrementFacetCount(Map<String, Integer> counts, String value) {
+        String key = value == null ? "" : value.trim();
+        if (key.isEmpty()) {
+            return;
+        }
+        counts.put(key, counts.getOrDefault(key, 0) + 1);
     }
 
     private static class TemplateWorkflowContext {

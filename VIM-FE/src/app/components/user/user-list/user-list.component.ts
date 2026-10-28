@@ -1,8 +1,10 @@
-import { Component, OnInit, ViewChild } from '@angular/core';
+import { ChangeDetectorRef, Component, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 import { AbstractControl, FormBuilder, FormGroup, ValidationErrors, Validators } from '@angular/forms';
 import { NotificationService } from 'src/app/NotificationService';
 import { CustomerService } from 'src/app/services/customer/customer.service';
 import { DepartmentService } from 'src/app/services/department/department.service';
+import { OrgStructureService } from 'src/app/services/org-structure/org-structure.service';
 import { UserService } from 'src/app/services/user/user.service';
 import { map, Observable, of } from "rxjs";
 import { PermissionService } from "../../../services/shared-data/permission-service";
@@ -12,7 +14,7 @@ import { PermissionService } from "../../../services/shared-data/permission-serv
   templateUrl: './user-list.component.html',
   styleUrls: ['./user-list.component.css']
 })
-export class UserListComponent implements OnInit {
+export class UserListComponent implements OnInit, OnDestroy {
   @ViewChild('datatable') datatable: any;
   @ViewChild('modal') modal: any;
   search = '';
@@ -26,13 +28,27 @@ export class UserListComponent implements OnInit {
   passwordPolicies: any;
   customers: any;
   departments: any[] = [];
+  organizations: any[] = [];
+  subareas: any[] = [];
+  divisions: any[] = [];
+  filteredSubareas: any[] = [];
+  filteredDivisions: any[] = [];
+  filteredDepartments: any[] = [];
+  loginNameEditedManually = false;
+  profilePicturePreview: string | null = null;
+  profilePictureBase64: string | null = null;
+  private profilePhotoBlobUrls: Record<number, string> = {};
+  private profilePhotoSafeUrls: Record<number, SafeUrl> = {};
   isRoleVendor = false;
   isRoleAdmin = false;
 
   cols = [
-    { field: 'txtUserName', title: 'Name' },
+    { field: 'txtUserName', title: 'Name', width: '220px' },
     { field: 'txtLoginName', title: 'Login Name', width: '180px' },
     { field: 'txtCnic', title: 'Employee ID', width: '160px' },
+    { field: 'txtOrganizationName', title: 'Organization', width: '160px' },
+    { field: 'txtSubareaName', title: 'Sub Area', width: '140px' },
+    { field: 'txtDivisionName', title: 'Division', width: '140px' },
     { field: 'txtDepartmentName', title: 'Department', width: '180px' },
     { field: 'txtDesignation', title: 'Designation', width: '180px' },
     { field: 'txtContactNo', title: 'Contact Number', width: '160px' },
@@ -47,9 +63,18 @@ export class UserListComponent implements OnInit {
     private userService: UserService,
     private customerService: CustomerService,
     private departmentService: DepartmentService,
+    private orgStructureService: OrgStructureService,
     private notificationService: NotificationService,
-    private permissionService: PermissionService
+    private permissionService: PermissionService,
+    private sanitizer: DomSanitizer,
+    private cdr: ChangeDetectorRef
   ) { }
+
+  ngOnDestroy(): void {
+    Object.values(this.profilePhotoBlobUrls).forEach((url) => URL.revokeObjectURL(url));
+    this.profilePhotoBlobUrls = {};
+    this.profilePhotoSafeUrls = {};
+  }
 
   ngOnInit() {
     this.form = this.fb.group({
@@ -63,6 +88,9 @@ export class UserListComponent implements OnInit {
         serRoleId: ['', Validators.required]
       }),
       txtContactNo: [''],
+      serOrganizationId: ['', Validators.required],
+      serSubareaId: ['', Validators.required],
+      serDivisionId: ['', Validators.required],
       serDepartmentId: ['', Validators.required],
       txtDesignation: ['', Validators.required],
       cfgTblManager: this.fb.group({
@@ -92,8 +120,23 @@ export class UserListComponent implements OnInit {
       this.getPasswordPolicies();
       this.getCustomers();
       this.getDepartments();
+      this.loadOrgStructure();
     });
 
+  }
+
+  loadOrgStructure(): void {
+    this.orgStructureService.getOrganizations().subscribe((data) => {
+      this.organizations = data || [];
+    });
+    this.orgStructureService.getSubareas().subscribe((data) => {
+      this.subareas = data || [];
+      this.refreshOrgFilters();
+    });
+    this.orgStructureService.getDivisions().subscribe((data) => {
+      this.divisions = data || [];
+      this.refreshOrgFilters();
+    });
   }
 
   getUsers() {
@@ -105,8 +148,67 @@ export class UserListComponent implements OnInit {
           ...user,
           cfgTblRole: this.resolveRoleObject(user?.cfgTblRole)
         }));
+        this.prefetchProfilePhotos(this.users);
         this.filteredUsers = this.getDisplayedUsers();
 
+      });
+  }
+
+  getAvatarLetter(name: string): string {
+    const trimmed = String(name || '').trim();
+    if (!trimmed) {
+      return '?';
+    }
+    return trimmed.charAt(0).toUpperCase();
+  }
+
+  hasProfilePhoto(user: any): boolean {
+    return this.getProfilePhotoUrl(user) != null;
+  }
+
+  getProfilePhotoUrl(user: any): SafeUrl | null {
+    const userId = Number(user?.serUserId);
+    if (!userId) {
+      return null;
+    }
+    if (user?.profilePhotoSafeUrl) {
+      return user.profilePhotoSafeUrl;
+    }
+    const cached = this.profilePhotoSafeUrls[userId];
+    return cached || null;
+  }
+
+  userHasProfilePicturePath(user: any): boolean {
+    const path = String(user?.txtProfilePicturePath || '').trim();
+    return path.length > 0;
+  }
+
+  private prefetchProfilePhotos(users: any[]): void {
+    Object.values(this.profilePhotoBlobUrls).forEach((url) => URL.revokeObjectURL(url));
+    this.profilePhotoBlobUrls = {};
+    this.profilePhotoSafeUrls = {};
+    (users || []).forEach((user) => {
+      user.profilePhotoDisplayUrl = undefined;
+      user.profilePhotoSafeUrl = undefined;
+    });
+
+    (users || [])
+      .filter((user) => this.userHasProfilePicturePath(user) && Number(user?.serUserId) > 0)
+      .forEach((user) => {
+        const userId = Number(user.serUserId);
+        this.userService.loadProfilePictureObjectUrl(userId).subscribe({
+          next: (objectUrl) => {
+            user.profilePhotoDisplayUrl = objectUrl;
+            const safeUrl = this.sanitizer.bypassSecurityTrustUrl(objectUrl);
+            user.profilePhotoSafeUrl = safeUrl;
+            this.profilePhotoBlobUrls[userId] = objectUrl;
+            this.profilePhotoSafeUrls[userId] = safeUrl;
+            this.cdr.markForCheck();
+          },
+          error: () => {
+            /* default avatar in template */
+          },
+        });
       });
   }
 
@@ -146,13 +248,91 @@ export class UserListComponent implements OnInit {
     this.departmentService.getAll()
       .subscribe((data: any) => {
         this.departments = Array.isArray(data) ? data : [];
+        this.refreshOrgFilters();
       });
+  }
+
+  onOrganizationChange(): void {
+    this.form.patchValue({ serSubareaId: '', serDivisionId: '', serDepartmentId: '' });
+    this.refreshOrgFilters();
+  }
+
+  onSubareaChange(): void {
+    this.form.patchValue({ serDivisionId: '', serDepartmentId: '' });
+    this.refreshOrgFilters();
+  }
+
+  onDivisionChange(): void {
+    this.form.patchValue({ serDepartmentId: '' });
+    this.refreshOrgFilters();
+  }
+
+  refreshOrgFilters(): void {
+    const orgId = Number(this.form?.get('serOrganizationId')?.value);
+    const subareaId = Number(this.form?.get('serSubareaId')?.value);
+    const divisionId = Number(this.form?.get('serDivisionId')?.value);
+
+    this.filteredSubareas = (this.subareas || []).filter((s) =>
+      !orgId || Number(s.serOrganizationId) === orgId
+    );
+    this.filteredDivisions = (this.divisions || []).filter((d) =>
+      !subareaId || Number(d.serSubareaId) === subareaId
+    );
+    this.filteredDepartments = (this.departments || []).filter((d) =>
+      !divisionId || Number(d.serDivisionId) === divisionId
+    );
+  }
+
+  onEmployeeIdOrNameChange(): void {
+    if (this.loginNameEditedManually) {
+      return;
+    }
+    const employeeId = String(this.form.get('txtCnic')?.value || '').trim();
+    const fullName = String(this.form.get('txtUserName')?.value || '').trim();
+    if (!employeeId && !fullName) {
+      return;
+    }
+    this.userService.suggestLoginName(employeeId, fullName).subscribe({
+      next: (res) => {
+        if (!this.loginNameEditedManually && res?.loginName) {
+          this.form.patchValue({ txtLoginName: res.loginName });
+        }
+      },
+    });
+  }
+
+  onLoginNameInput(): void {
+    this.loginNameEditedManually = true;
+  }
+
+  onProfilePictureSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files && input.files.length ? input.files[0] : null;
+    if (!file) {
+      this.profilePicturePreview = null;
+      this.profilePictureBase64 = null;
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      this.profilePicturePreview = result;
+      this.profilePictureBase64 = result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  clearProfilePicture(): void {
+    this.profilePicturePreview = null;
+    this.profilePictureBase64 = null;
   }
 
   add() {
     this.isSubmit = false;
     this.isRoleVendor = false;
     this.isRoleAdmin = false;
+    this.loginNameEditedManually = false;
+    this.clearProfilePicture();
     this.form.reset({
       serUserId: '',
       txtUserName: '',
@@ -163,6 +343,9 @@ export class UserListComponent implements OnInit {
         serRoleId: ''
       },
       txtContactNo: '',
+      serOrganizationId: '',
+      serSubareaId: '',
+      serDivisionId: '',
       serDepartmentId: '',
       txtDesignation: '',
       cfgTblManager: {
@@ -175,14 +358,18 @@ export class UserListComponent implements OnInit {
       blnStatus: true
     });
     this.blnStatus = true;
+    this.refreshOrgFilters();
     this.modal.open();
   }
 
   edit(user: any) {
     const roleName = this.getRoleName(user);
     const departmentId = this.resolveDepartmentId(user);
+    const orgCascade = this.resolveOrgCascadeIds(user, departmentId);
 
     this.isSubmit = false;
+    this.loginNameEditedManually = true;
+    this.clearProfilePicture();
     this.isRoleVendor = false;
     this.isRoleAdmin = false;
     this.form.reset({
@@ -195,6 +382,9 @@ export class UserListComponent implements OnInit {
         serRoleId: user?.cfgTblRole?.serRoleId || user?.cfgTblRole || ''
       },
       txtContactNo: user?.txtContactNo || '',
+      serOrganizationId: orgCascade.organizationId || user?.serOrganizationId || '',
+      serSubareaId: orgCascade.subareaId || user?.serSubareaId || '',
+      serDivisionId: orgCascade.divisionId || user?.serDivisionId || '',
       serDepartmentId: departmentId || '',
       txtDesignation: user?.txtDesignation || '',
       cfgTblManager: {
@@ -206,11 +396,48 @@ export class UserListComponent implements OnInit {
       numMaxAttachmentMb: this.resolveMaxAttachmentMb(user?.numMaxAttachmentMb),
       blnStatus: user?.blnStatus ?? true
     });
+    this.refreshOrgFilters();
     this.modal.open();
     this.blnStatus = user?.blnStatus ?? true;
     if (roleName) {
       this.setControlValidations(roleName.toLowerCase());
     }
+  }
+
+  private resolveOrgCascadeIds(user: any, departmentId: number | null): {
+    organizationId: number | null;
+    subareaId: number | null;
+    divisionId: number | null;
+  } {
+    let divisionId = Number(user?.serDivisionId) || null;
+    if (!divisionId && departmentId) {
+      const dept = (this.departments || []).find((d: any) => Number(d.serDepartmentId) === departmentId);
+      divisionId = dept?.serDivisionId ? Number(dept.serDivisionId) : null;
+    }
+    let subareaId = Number(user?.serSubareaId) || null;
+    let organizationId = Number(user?.serOrganizationId) || null;
+    if (divisionId) {
+      const division = (this.divisions || []).find((d: any) => Number(d.serDivisionId) === divisionId);
+      if (division) {
+        subareaId = subareaId || Number(division.serSubareaId) || null;
+        organizationId = organizationId || (division.organizationName
+          ? this.findOrganizationIdByName(division.organizationName)
+          : null);
+      }
+    }
+    if (subareaId && !organizationId) {
+      const sub = (this.subareas || []).find((s: any) => Number(s.serSubareaId) === subareaId);
+      organizationId = sub?.serOrganizationId ? Number(sub.serOrganizationId) : null;
+    }
+    return { organizationId, subareaId, divisionId };
+  }
+
+  private findOrganizationIdByName(name: string): number | null {
+    const needle = String(name || '').trim().toLowerCase();
+    const org = (this.organizations || []).find(
+      (o: any) => String(o.txtOrganizationName || '').trim().toLowerCase() === needle
+    );
+    return org?.serOrganizationId ? Number(org.serOrganizationId) : null;
   }
 
   submit() {
@@ -243,7 +470,11 @@ export class UserListComponent implements OnInit {
       .save(payload).subscribe((response: any) => {
         const status = this.resolveSaveStatus(response);
         if (status === 'Success') {
-          this.notificationService.showMessage('Record saved successfully', 'success');
+          const queued = this.isCredentialEmailQueued(response);
+          const message = queued
+            ? 'User saved. Login credentials are being emailed in the background.'
+            : 'Record saved successfully';
+          this.notificationService.showMessage(message, 'success');
           this.isSubmit = false;
           this.form.reset();
           this.modal.close();
@@ -254,6 +485,24 @@ export class UserListComponent implements OnInit {
           this.notificationService.showMessage('Error occurred while saving', 'danger');
         }
       });
+  }
+
+  private isCredentialEmailQueued(response: any): boolean {
+    if (response == null) {
+      return false;
+    }
+    if (typeof response === 'object') {
+      return String(response?.credentialEmailQueued || '').toLowerCase() === 'true';
+    }
+    if (typeof response === 'string') {
+      try {
+        const parsed = JSON.parse(response.trim());
+        return String(parsed?.credentialEmailQueued || '').toLowerCase() === 'true';
+      } catch {
+        return false;
+      }
+    }
+    return false;
   }
 
   private resolveSaveStatus(response: any): string {
@@ -288,6 +537,9 @@ export class UserListComponent implements OnInit {
         u?.txtUserName,
         u?.txtLoginName,
         u?.txtCnic,
+        u?.txtOrganizationName,
+        u?.txtSubareaName,
+        u?.txtDivisionName,
         departmentName,
         designation,
         u?.txtContactNo,
@@ -401,8 +653,14 @@ export class UserListComponent implements OnInit {
     const selectedDepartment = (this.departments || []).find((department: any) =>
       Number(department?.serDepartmentId) === departmentId
     );
+    const orgId = Number(formValue?.serOrganizationId);
+    const subareaId = Number(formValue?.serSubareaId);
+    const divisionId = Number(formValue?.serDivisionId);
+    const selectedOrg = (this.organizations || []).find((o: any) => Number(o.serOrganizationId) === orgId);
+    const selectedSub = (this.subareas || []).find((s: any) => Number(s.serSubareaId) === subareaId);
+    const selectedDiv = (this.divisions || []).find((d: any) => Number(d.serDivisionId) === divisionId);
 
-    return {
+    const payload: any = {
       ...formValue,
       cfgTblRole: formValue?.cfgTblRole?.serRoleId ? {
         serRoleId: Number(formValue.cfgTblRole.serRoleId)
@@ -419,10 +677,24 @@ export class UserListComponent implements OnInit {
       txtUserName: (formValue?.txtUserName || '').toString().trim(),
       txtLoginName: (formValue?.txtLoginName || '').toString().trim(),
       txtDepartmentName: selectedDepartment?.txtDepartmentName || '',
+      serOrganizationId: orgId > 0 ? orgId : null,
+      serSubareaId: subareaId > 0 ? subareaId : null,
+      serDivisionId: divisionId > 0 ? divisionId : null,
+      txtOrganizationName: selectedOrg?.txtOrganizationName || '',
+      txtSubareaName: selectedSub?.txtSubareaName || '',
+      txtDivisionName: selectedDiv?.txtDivisionName || '',
       txtDesignation: (formValue?.txtDesignation || '').toString().trim(),
       numMaxAttachmentMb: this.resolveMaxAttachmentMb(formValue?.numMaxAttachmentMb),
       blnStatus: !!formValue?.blnStatus
     };
+    delete payload.serDepartmentId;
+    if (this.profilePictureBase64) {
+      payload.profilePictureBase64 = this.profilePictureBase64;
+    }
+    if (!formValue?.serUserId) {
+      payload.sendWelcomeEmail = true;
+    }
+    return payload;
   }
 
   private resolveMaxAttachmentMb(value: any): number {

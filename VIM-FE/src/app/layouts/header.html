@@ -43,41 +43,28 @@
                 </li>
             </ul>
         </div> -->
-        <div
-            class="flex items-center space-x-1.5 ltr:ml-auto rtl:mr-auto rtl:space-x-reverse dark:text-[#d0d2d6] sm:flex-1 ltr:sm:ml-0 sm:rtl:mr-0 lg:space-x-2">
-            <div class="sm:ltr:mr-auto sm:rtl:ml-auto">
-                <!-- <form
-                    class="absolute inset-x-0 top-1/2 z-10 mx-4 hidden -translate-y-1/2 sm:relative sm:top-0 sm:mx-0 sm:block sm:translate-y-0"
-                    [ngClass]="{ '!block': search }"
-                    (submit.prevent)="search = false"
-                >
-                    <div class="relative">
-                        <input
-                            type="text"
-                            class="peer form-input bg-gray-100 placeholder:tracking-widest ltr:pl-9 ltr:pr-9 rtl:pl-9 rtl:pr-9 sm:bg-transparent ltr:sm:pr-4 rtl:sm:pl-4"
-                            placeholder="Search..."
-                        />
-                        <button type="button" class="absolute inset-0 h-9 w-9 appearance-none peer-focus:text-primary ltr:right-auto rtl:left-auto">
-                            <icon-search class="mx-auto" />
-                        </button>
-                        <button
-                            type="button"
-                            class="absolute top-1/2 block -translate-y-1/2 hover:opacity-80 ltr:right-2 rtl:left-2 sm:hidden"
-                            (click)="search = false"
-                        >
-                            <icon-x-circle />
-                        </button>
-                    </div>
-                </form>
+        <nav
+            *ngIf="breadcrumbs.length"
+            class="hidden min-w-0 flex-1 items-center md:flex"
+            aria-label="Breadcrumb">
+            <ol class="flex min-w-0 flex-wrap items-center gap-1 text-sm font-medium text-slate-500 dark:text-slate-400">
+                <li *ngFor="let crumb of breadcrumbs; let last = last; let i = index" class="flex min-w-0 items-center gap-1">
+                    <span *ngIf="i > 0" class="shrink-0 px-0.5 text-slate-400" aria-hidden="true">/</span>
+                    <a
+                        *ngIf="crumb.link && !last"
+                        [routerLink]="crumb.link"
+                        class="truncate hover:text-primary dark:hover:text-primary">
+                        {{ crumb.label }}
+                    </a>
+                    <span *ngIf="!crumb.link || last" class="truncate font-semibold text-slate-800 dark:text-white-light">
+                        {{ crumb.label }}
+                    </span>
+                </li>
+            </ol>
+        </nav>
 
-                <button
-                    type="button"
-                    class="search_btn rounded-full bg-white-light/40 p-2 hover:bg-white-light/90 dark:bg-dark/40 dark:hover:bg-dark/60 sm:hidden"
-                    (click)="search = !search"
-                >
-                    <icon-search class="mx-auto h-4.5 w-4.5 dark:text-[#d0d2d6]" />
-                </button> -->
-            </div>
+        <div
+            class="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-1.5 ltr:ml-auto rtl:mr-auto rtl:space-x-reverse dark:text-[#d0d2d6] sm:gap-2">
             <!-- <div>
                 <a
                     href="javascript:;"
@@ -260,69 +247,85 @@
                 </div>
             </div> -->
 
-            <div class="dropdown shrink-0">
-                <div hlMenu class="!block">
-                    <button type="button" hlMenuButton
-                        class="group relative block rounded-full bg-white-light/40 p-2 hover:bg-white-light/90 hover:text-primary dark:bg-dark/40 dark:hover:bg-dark/60">
-                        <icon-user class="h-5 w-5" />
-                    </button>
-                    <ul *hlMenuItems @toggleAnimation
-                        class="top-11 w-[230px] !py-0 font-semibold text-dark ltr:right-0 rtl:left-0 dark:text-white-dark dark:text-white-light/90">
-                        <li>
-                            <div class="flex items-center px-4 py-4">
-                                <div *ngIf="user" class="truncate">
-                                    <h4 class="text-base">
-                                        {{user.txtUserName}}
-                                        <!-- <span class="rounded bg-success-light px-1 text-xs text-success ltr:ml-2 rtl:ml-2">Pro</span> -->
-                                    </h4>
-                                    <a class="text-black/60 hover:text-primary dark:text-dark-light/60 dark:hover:text-white"
-                                        href="javascript:;">{{user.txtAddress}}</a>
-                                </div>
-                            </div>
-                        </li>
-                        <!-- <li>
-                            <a routerLink="/users/profile" *hlMenuItem="let menuItem" class="dark:hover:text-white">
-                                <icon-user class="h-4.5 w-4.5 shrink-0 ltr:mr-2 rtl:ml-2" />
-
-                                Profile
-                            </a>
-                        </li> -->
-                        <!-- <li>
-                            <a routerLink="/apps/mailbox" *hlMenuItem="let menuItem" class="dark:hover:text-white">
-                                <icon-mail class="h-4.5 w-4.5 shrink-0 ltr:mr-2 rtl:ml-2" />
-
-                                Inbox
-                            </a>
-                        </li> -->
-                        <!-- <li>
-                            <a routerLink="/auth/boxed-lockscreen" *hlMenuItem="let menuItem" class="dark:hover:text-white">
-                                <icon-lock-dots class="h-4.5 w-4.5 shrink-0 ltr:mr-2 rtl:ml-2" />
-
-                                Lock Screen
-                            </a>
-                        </li> -->
-                        <li>
-                            <a routerLink="/signature" *hlMenuItem="let menuItem" class="dark:hover:text-white">
-                                <icon-pencil-paper class="h-4.5 w-4.5 shrink-0 ltr:mr-2 rtl:ml-2" />
-                                Signature
-                            </a>
-                        </li>
-                        <li>
-                            <a routerLink="/change-password" *hlMenuItem="let menuItem" class="dark:hover:text-white">
-                                <icon-lock-dots class="h-4.5 w-4.5 shrink-0 ltr:mr-2 rtl:ml-2" />
-                                Change password
-                            </a>
-                        </li>
-                        <li class="border-t border-white-light dark:border-white-light/10">
-                            <a (click)="doLogout()" *hlMenuItem="let menuItem" class="!py-3 text-danger cursor-pointer">
-                                <icon-logout class="h-4.5 w-4.5 shrink-0 rotate-90 ltr:mr-2 rtl:ml-2" />
-
-                                Sign Out
-                            </a>
-                        </li>
-                    </ul>
+            <div class="navbar-status navbar-status-card" aria-live="polite">
+                <div class="navbar-status-weather">
+                    <div class="navbar-status-weather-row">
+                        <icon-sun *ngIf="weatherKind === 'sun'" class="h-4 w-4 navbar-weather-icon-sun" />
+                        <icon-moon *ngIf="weatherKind === 'moon'" class="h-4 w-4 navbar-weather-icon-moon" />
+                        <div *ngIf="weatherKind === 'cloudy'" class="navbar-weather-partly" aria-hidden="true">
+                            <span class="navbar-weather-partly-sun"></span>
+                            <span class="navbar-weather-partly-cloud"></span>
+                        </div>
+                        <span class="navbar-status-temp">
+                            {{ weatherTemp }}<span class="navbar-status-temp-unit">°C</span>
+                        </span>
+                    </div>
+                    <div class="navbar-status-condition">{{ weatherLabel }}</div>
+                </div>
+                <div class="navbar-status-divider" aria-hidden="true"></div>
+                <div class="navbar-status-clock">
+                    <div class="navbar-status-time-row">
+                        <span class="navbar-status-time">
+                            {{ clockHours }}<span class="navbar-status-colon" [class.dim]="!clockColonLit">:</span>{{ clockMinutes }}
+                        </span>
+                        <span class="navbar-status-seconds">{{ clockSeconds }}</span>
+                        <span class="navbar-status-ampm">{{ clockAmPm }}</span>
+                    </div>
+                    <div class="navbar-status-date">{{ clockDate }}</div>
                 </div>
             </div>
+
+            <button
+                type="button"
+                class="inline-flex items-center rounded-full bg-white-light/40 p-2 text-slate-700 hover:bg-white-light/90 hover:text-primary dark:bg-dark/40 dark:text-[#d0d2d6] dark:hover:bg-dark/60 sm:px-3 sm:py-2"
+                (click)="openProductTour()"
+                title="Digital Walkthrough"
+                aria-label="Digital Walkthrough">
+                <icon-book class="h-4 w-4 sm:ltr:mr-1.5 sm:rtl:ml-1.5" />
+                <span class="hidden text-xs font-semibold sm:inline">Digital Walkthrough</span>
+            </button>
+
+            <button
+                type="button"
+                class="relative rounded-full bg-white-light/40 p-2 hover:bg-white-light/90 hover:text-primary dark:bg-dark/40 dark:hover:bg-dark/60"
+                (click)="openDocumentNotifications()"
+                aria-label="Document notifications"
+                title="Document notifications">
+                <icon-bell class="h-5 w-5" />
+                <span
+                    *ngIf="documentNotificationUnreadTotal > 0"
+                    class="absolute -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold leading-none text-white ltr:-right-0.5 rtl:-left-0.5">
+                    {{ documentNotificationUnreadTotal > 99 ? '99+' : documentNotificationUnreadTotal }}
+                </span>
+            </button>
+
+            <button
+                type="button"
+                class="relative rounded-full bg-white-light/40 p-2 hover:bg-white-light/90 hover:text-primary dark:bg-dark/40 dark:hover:bg-dark/60"
+                (click)="openChat()"
+                aria-label="Messages"
+                title="Messages">
+                <icon-chat-notification class="h-5 w-5" />
+                <span
+                    *ngIf="chatUnreadTotal > 0"
+                    class="absolute -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold leading-none text-white ltr:-right-0.5 rtl:-left-0.5">
+                    {{ chatUnreadTotal > 99 ? '99+' : chatUnreadTotal }}
+                </span>
+            </button>
+
+            <button
+                type="button"
+                class="navbar-profile-btn group relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white-light/40 hover:bg-white-light/90 hover:text-primary dark:bg-dark/40 dark:hover:bg-dark/60"
+                [class.has-photo]="headerShowAvatarImage()"
+                (click)="openProfileDrawer()"
+                aria-label="Open profile">
+                <img
+                    *ngIf="headerShowAvatarImage()"
+                    [src]="headerAvatarUrl()"
+                    alt=""
+                    class="navbar-profile-avatar-img" />
+                <icon-user *ngIf="!headerShowAvatarImage()" class="h-5 w-5" />
+            </button>
         </div>
     </div>
 

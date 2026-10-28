@@ -7,6 +7,7 @@ import com.bezkoder.spring.login.security.services.UserDetailsServiceImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -27,6 +28,15 @@ public class AuthTokenFilter extends OncePerRequestFilter {
   private UserDetailsServiceImpl userDetailsService;
 
   private static final Logger logger = LoggerFactory.getLogger(AuthTokenFilter.class);
+
+  @Override
+  protected boolean shouldNotFilter(HttpServletRequest request) {
+    if (HttpMethod.OPTIONS.matches(request.getMethod())) {
+      return true;
+    }
+    String path = request.getRequestURI();
+    return path != null && (path.contains("/ws/chat") || path.contains("/ws/notifications"));
+  }
 
   @Override
   protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)

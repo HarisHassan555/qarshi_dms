@@ -7,12 +7,20 @@ import { ApplicationPdfService } from 'src/app/services/application-pdf/applicat
 import { SavedTemplateDefinition, TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
 import { urls } from 'src/app/utils/urls';
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
+import { applyWordEditorAlignmentClasses, getTemplateFieldNgStyle } from 'src/app/utils/word-editor-display.util';
+import { normalizeDocumentBodyHtmlForDisplay } from 'src/app/utils/document-body-html.util';
 import {
     resolveDocumentHeaderAddress,
     resolveDocumentHeaderBrandTitle,
     resolveDocumentHeaderLogoPath,
 } from 'src/app/utils/document-header.util';
 import { resolveApplicationTitle } from 'src/app/utils/application-title.util';
+import { confirmTemplatePdfDownloadIfNeeded } from 'src/app/utils/template-pdf-download.util';
+import {
+    buildIndividualFooterTableBands,
+    getIndividualFooterRenderedHeightPx,
+    IndividualFooterTableBand
+} from 'src/app/utils/individual-footer-pipeline.util';
 
 type TemplateFieldType =
     'document_header' | 'document_header_qu' | 'document_header_qf' | 'document_header_qri' | 'document_header_qb'
@@ -121,6 +129,8 @@ interface AttachmentPayload {
     base64: string;
 }
 
+type DetailLoaderStep = 'summary' | 'document' | 'attachments' | 'approval';
+
 @Component({
     selector: 'app-my-application',
     templateUrl: './my-application.component.html',
@@ -131,6 +141,14 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     search = '';
     isLoading = false;
     isDetailsLoading = false;
+    isDetailView = false;
+    isApplicationLoading = false;
+    currentDetailLoader: DetailLoaderStep | null = 'summary';
+    detailDocumentVisible = false;
+    detailAttachmentsVisible = false;
+    backgroundHardcopyLoading = false;
+    private backgroundLoadRequestId = 0;
+    detailApprovalVisible = false;
     applications: MyTemplateApplication[] = [];
     selectedApplication: MyTemplateApplication | null = null;
     selectedTemplate: any = null;
@@ -159,6 +177,14 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     ];
     private searchTimer: ReturnType<typeof setTimeout> | null = null;
     private activeDetailRequestId = 0;
+    private activeDetailApplicationId = 0;
+    private detailRenderToken = 0;
+    private detailTemplateFormId: number | null = null;
+    private detailTemplateInFlight = false;
+    private pendingDetailApplication: any = null;
+    private pendingDetailTemplate: SavedTemplateDefinition | null = null;
+    private detailTemplateError: string | null = null;
+    private detailTemplateMissNotified = false;
     cols = [
         { field: 'txtFormCode', title: 'Application Code' },
         { field: 'applicationTitle', title: 'Title' },
@@ -179,25 +205,46 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     ) { }
 
     ngOnInit(): void {
-        this.loadApplications();
+        const initialApplicationId = Number(this.route.snapshot.paramMap.get('id'));
+        if (!initialApplicationId) {
+            this.loadApplications();
+        }
         this.route.paramMap.subscribe((params) => {
             const applicationId = Number(params.get('id'));
             if (!applicationId) {
                 this.activeDetailRequestId += 1;
+                this.detailRenderToken += 1;
+                this.isDetailView = false;
                 this.isDetailsLoading = false;
+                this.isApplicationLoading = false;
+                this.resetDetailLoadSequence();
                 this.selectApplication(null);
+                if (this.applications.length === 0 && this.totalApplications === 0) {
+                    this.loadApplications();
+                }
                 return;
             }
             this.loadApplicationDetails(applicationId);
         });
+        window.addEventListener('velocity-tour-prepare', this.onTourPrepare);
     }
 
     ngOnDestroy(): void {
+        this.activeDetailRequestId += 1;
+        this.detailRenderToken += 1;
+        window.removeEventListener('velocity-tour-prepare', this.onTourPrepare);
         if (this.searchTimer) {
             clearTimeout(this.searchTimer);
             this.searchTimer = null;
         }
     }
+
+    private onTourPrepare = (event: Event): void => {
+        const action = (event as CustomEvent<{ action?: string }>).detail?.action;
+        if (action === 'my-app-close-detail' && this.selectedApplication) {
+            this.backToList();
+        }
+    };
 
     loadApplications(): void {
         const userId = this.getCurrentUserId();
@@ -312,6 +359,21 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         return Math.min(this.totalApplications, (this.page + 1) * this.pageSize);
     }
 
+    getDetailLoaderMessage(step: DetailLoaderStep | null): string {
+        switch (step) {
+            case 'summary':
+                return 'Loading application...';
+            case 'document':
+                return 'Loading document...';
+            case 'attachments':
+                return 'Loading attachments...';
+            case 'approval':
+                return 'Loading approval progress...';
+            default:
+                return 'Loading...';
+        }
+    }
+
     selectApplication(application: MyTemplateApplication | null): void {
         this.selectedApplication = application;
         this.selectedTemplate = this.buildSelectedTemplate(application);
@@ -321,7 +383,15 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             return;
         }
         this.loadApplicationValues(application);
-        this.safeHtml = this.sanitizer.bypassSecurityTrustHtml(this.getFillHtml(this.selectedTemplate.html || ''));
+        this.safeHtml = '';
+        const html = this.selectedTemplate.html || '';
+        requestAnimationFrame(() => {
+            if (this.selectedApplication !== application) {
+                return;
+            }
+            this.safeHtml = this.sanitizer.bypassSecurityTrustHtml(this.getFillHtml(html));
+        });
+        this.scheduleHardcopyBackgroundLoad(application);
     }
 
     openApplication(application: MyTemplateApplication): void {
@@ -335,9 +405,11 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             });
             return;
         }
-        this.isDetailsLoading = true;
-        this.selectApplication(null);
-        this.router.navigate(['/my-application', application.serApplicationId]);
+        this.prepareDetailView(application);
+        const from = this.isAllApplicationsAuditView() ? 'all-applications' : undefined;
+        this.router.navigate(['/my-application', application.serApplicationId], {
+            queryParams: from ? { from } : undefined,
+        });
     }
 
     editApplication(application: MyTemplateApplication): void {
@@ -352,16 +424,30 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
 
     backToList(): void {
         this.activeDetailRequestId += 1;
+        this.detailRenderToken += 1;
+        this.isDetailView = false;
         this.isDetailsLoading = false;
+        this.isApplicationLoading = false;
+        this.resetDetailLoadSequence();
         const sourcePage = this.route.snapshot.queryParamMap.get('from');
-        const targetRoute = sourcePage === 'department-application' ? '/department-application' : '/my-application';
+        const targetRoute = sourcePage === 'department-application'
+            ? '/department-application'
+            : sourcePage === 'all-applications'
+                ? '/all-applications'
+                : '/my-application';
         this.router.navigate([targetRoute]);
         this.selectApplication(null);
+        if (targetRoute === '/my-application' && this.applications.length === 0) {
+            this.loadApplications();
+        }
     }
 
-    downloadApplicationPdf(application: MyTemplateApplication | null = this.selectedApplication): void {
+    async downloadApplicationPdf(application: MyTemplateApplication | null = this.selectedApplication): Promise<void> {
         if (!application?.serApplicationId) {
             this.notificationService.showMessage('Invalid application ID', 'danger');
+            return;
+        }
+        if (!(await confirmTemplatePdfDownloadIfNeeded(this.templateWorkflowService, application.serApplicationId))) {
             return;
         }
         this.templateWorkflowService.downloadTemplateApplicationPdf(application.serApplicationId).subscribe({
@@ -385,6 +471,9 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
 
         this.isDownloadingWithLogsPdf = true;
         try {
+            if (!(await confirmTemplatePdfDownloadIfNeeded(this.templateWorkflowService, application.serApplicationId))) {
+                return;
+            }
             const filename = `${application.txtFormCode || 'template-application'}_with_logs.pdf`;
             const applicationPdfBlob = await firstValueFrom(
                 this.templateWorkflowService.downloadTemplateApplicationPdf(application.serApplicationId)
@@ -543,58 +632,313 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
 
     private loadApplicationDetails(applicationId: number): void {
         const detailRequestId = ++this.activeDetailRequestId;
-        this.isDetailsLoading = true;
-        this.selectApplication(null);
-        this.templateWorkflowService.getApplication(applicationId).subscribe({
+        this.activeDetailApplicationId = applicationId;
+        const cached = this.applications.find((item) => Number(item.serApplicationId) === Number(applicationId)) || null;
+        this.prepareDetailView(cached);
+        const userId = this.getCurrentUserId();
+        if (cached?.serFormId) {
+            this.requestDetailTemplate(detailRequestId, Number(cached.serFormId), userId);
+        }
+        this.templateWorkflowService.getApplication(applicationId, userId).subscribe({
             next: (application) => {
                 if (detailRequestId !== this.activeDetailRequestId) {
                     return;
                 }
-                this.templateWorkflowService.getTemplate(String(application?.serFormId || '')).subscribe({
-                    next: (template) => {
-                        if (detailRequestId !== this.activeDetailRequestId) {
-                            return;
-                        }
-                        if (!template) {
-                            this.notificationService.showMessage('Template definition could not be found for this application.', 'danger');
-                            this.selectApplication(null);
-                            this.isDetailsLoading = false;
-                            return;
-                        }
-                        const listApplication = this.applications.find((item) => Number(item.serApplicationId) === Number(applicationId));
-                        this.selectApplication({
-                            ...(listApplication || {}),
-                            ...application,
-                            template,
-                            templateName: template.name || listApplication?.templateName || 'Template'
-                        });
-                        this.isDetailsLoading = false;
-                    },
-                    error: (error) => {
-                        if (detailRequestId !== this.activeDetailRequestId) {
-                            return;
-                        }
-                        this.notificationService.showMessage(
-                            'Template definition could not be loaded: ' + (error.error?.message || error.message),
-                            'danger'
-                        );
-                        this.selectApplication(null);
-                        this.isDetailsLoading = false;
-                    }
-                });
+                this.pendingDetailApplication = application;
+                const listApplication = cached
+                    || this.applications.find((item) => Number(item.serApplicationId) === Number(applicationId))
+                    || null;
+                this.selectedApplication = {
+                    ...(listApplication || {}),
+                    ...application,
+                    ...(this.pendingDetailTemplate ? { template: this.pendingDetailTemplate } : {}),
+                    templateName: this.pendingDetailTemplate?.name
+                        || listApplication?.templateName
+                        || application?.templateName
+                        || this.selectedApplication?.templateName
+                        || 'Template'
+                };
+                this.isApplicationLoading = false;
+                this.isDetailsLoading = false;
+                if (this.currentDetailLoader === 'summary') {
+                    this.currentDetailLoader = 'document';
+                }
+                const formId = Number(application?.serFormId);
+                if (formId > 0 && this.detailTemplateFormId !== formId && !this.detailTemplateError) {
+                    this.requestDetailTemplate(detailRequestId, formId, userId);
+                }
+                if (this.detailTemplateError && !this.pendingDetailTemplate) {
+                    this.handleDetailTemplateMiss(detailRequestId, this.detailTemplateError);
+                    return;
+                }
+                this.tryCompleteDetailLoad(detailRequestId, applicationId);
             },
             error: (error) => {
                 if (detailRequestId !== this.activeDetailRequestId) {
                     return;
                 }
-                this.notificationService.showMessage(
-                    'Application details could not be loaded: ' + (error.error?.message || error.message),
-                    'danger'
+                this.failDetailLoad(
+                    'Application details could not be loaded: ' + (error.error?.message || error.message)
                 );
-                this.selectApplication(null);
-                this.isDetailsLoading = false;
             }
         });
+    }
+
+    private prepareDetailView(cached: MyTemplateApplication | null): void {
+        this.isDetailView = true;
+        this.isDetailsLoading = true;
+        this.isApplicationLoading = true;
+        this.resetDetailLoadSequence();
+        this.currentDetailLoader = cached?.serApplicationId ? 'document' : 'summary';
+        this.pendingDetailApplication = null;
+        this.pendingDetailTemplate = null;
+        this.detailTemplateError = null;
+        this.detailTemplateMissNotified = false;
+        this.detailTemplateFormId = null;
+        this.detailTemplateInFlight = false;
+        this.detailRenderToken += 1;
+        this.selectedTemplate = null;
+        this.safeHtml = '';
+        this.values = {};
+        this.selectedApplication = cached;
+    }
+
+    private requestDetailTemplate(requestId: number, formId: number, userId: number | null): void {
+        const normalizedFormId = Number(formId);
+        if (!normalizedFormId) {
+            return;
+        }
+        if (this.detailTemplateFormId === normalizedFormId && (this.detailTemplateInFlight || this.pendingDetailTemplate)) {
+            return;
+        }
+        this.detailTemplateFormId = normalizedFormId;
+        this.pendingDetailTemplate = null;
+        this.detailTemplateInFlight = true;
+        this.templateWorkflowService.getTemplate(String(normalizedFormId), userId, { includeBackground: false }).subscribe({
+            next: (template) => {
+                if (requestId !== this.activeDetailRequestId || this.detailTemplateFormId !== normalizedFormId) {
+                    return;
+                }
+                this.detailTemplateInFlight = false;
+                if (!template) {
+                    this.handleDetailTemplateMiss(requestId, 'Template definition could not be found for this application.');
+                    return;
+                }
+                this.pendingDetailTemplate = template;
+                if (this.selectedApplication) {
+                    this.selectedApplication = {
+                        ...this.selectedApplication,
+                        template,
+                        templateName: template.name || this.selectedApplication.templateName || 'Template'
+                    };
+                }
+                this.tryCompleteDetailLoad(requestId, this.activeDetailApplicationId);
+            },
+            error: (error) => {
+                if (requestId !== this.activeDetailRequestId || this.detailTemplateFormId !== normalizedFormId) {
+                    return;
+                }
+                this.detailTemplateInFlight = false;
+                this.handleDetailTemplateMiss(
+                    requestId,
+                    'Template definition could not be loaded: ' + (error.error?.message || error.message)
+                );
+            }
+        });
+    }
+
+    private handleDetailTemplateMiss(requestId: number, message: string): void {
+        if (requestId !== this.activeDetailRequestId) {
+            return;
+        }
+        this.detailTemplateError = message;
+        if (!this.pendingDetailApplication) {
+            return;
+        }
+        if (this.canRenderEmbeddedDetail() || this.selectedTemplate) {
+            if (!this.detailTemplateMissNotified) {
+                this.detailTemplateMissNotified = true;
+                this.notificationService.showMessage(
+                    'The latest template could not be loaded. Showing the saved application.',
+                    'warning'
+                );
+            }
+            this.tryCompleteDetailLoad(requestId, this.activeDetailApplicationId);
+            return;
+        }
+        this.failDetailLoad(message);
+    }
+
+    private canRenderEmbeddedDetail(): boolean {
+        return !!this.pendingDetailApplication && !!this.getApplicationTemplatePayload(this.pendingDetailApplication);
+    }
+
+    private tryCompleteDetailLoad(requestId: number, applicationId: number): void {
+        if (requestId !== this.activeDetailRequestId || !this.pendingDetailApplication) {
+            return;
+        }
+        if (!this.pendingDetailTemplate && !this.canRenderEmbeddedDetail()) {
+            return;
+        }
+        const application = this.pendingDetailApplication;
+        const template = this.pendingDetailTemplate;
+        const renderToken = ++this.detailRenderToken;
+        requestAnimationFrame(() => {
+            if (renderToken !== this.detailRenderToken || requestId !== this.activeDetailRequestId) {
+                return;
+            }
+            this.finishApplicationDetailLoad(applicationId, application, template);
+        });
+    }
+
+    private failDetailLoad(message: string): void {
+        this.activeDetailRequestId += 1;
+        this.detailRenderToken += 1;
+        this.notificationService.showMessage(message, 'danger');
+        this.isDetailView = false;
+        this.isDetailsLoading = false;
+        this.isApplicationLoading = false;
+        this.resetDetailLoadSequence();
+        this.pendingDetailApplication = null;
+        this.pendingDetailTemplate = null;
+        this.detailTemplateInFlight = false;
+        this.selectApplication(null);
+        const sourcePage = this.route.snapshot.queryParamMap.get('from');
+        const targetRoute = sourcePage === 'department-application'
+            ? '/department-application'
+            : sourcePage === 'all-applications'
+                ? '/all-applications'
+                : '/my-application';
+        if (this.route.snapshot.paramMap.get('id')) {
+            this.router.navigate([targetRoute]);
+        }
+        if (targetRoute === '/my-application' && this.applications.length === 0 && this.totalApplications === 0) {
+            this.loadApplications();
+        }
+    }
+
+    private finishApplicationDetailLoad(
+        applicationId: number,
+        application: any,
+        template: SavedTemplateDefinition | null
+    ): void {
+        const listApplication = this.applications.find((item) => Number(item.serApplicationId) === Number(applicationId));
+        const resolvedTemplate = template || this.pendingDetailTemplate;
+        const mergedApplication: MyTemplateApplication = {
+            ...(listApplication || {}),
+            ...application,
+            ...(resolvedTemplate ? { template: resolvedTemplate } : {}),
+            templateName: resolvedTemplate?.name || listApplication?.templateName || application?.templateName || 'Template',
+        };
+        const renderToken = this.detailRenderToken;
+        this.selectedApplication = mergedApplication;
+        this.isApplicationLoading = false;
+        this.isDetailsLoading = false;
+        if (!this.buildSelectedTemplate(mergedApplication)) {
+            this.failDetailLoad('Template definition could not be found for this application.');
+            return;
+        }
+        if (this.currentDetailLoader === 'summary') {
+            this.currentDetailLoader = 'document';
+        }
+        setTimeout(() => {
+            if (renderToken !== this.detailRenderToken) {
+                return;
+            }
+            this.selectApplication(mergedApplication);
+            if (!this.selectedTemplate) {
+                this.failDetailLoad('Template definition could not be found for this application.');
+                return;
+            }
+            this.detailDocumentVisible = true;
+            this.advanceDetailLoadSequenceAfterDocument(renderToken);
+        }, 0);
+    }
+
+    private resetDetailLoadSequence(): void {
+        this.currentDetailLoader = null;
+        this.detailDocumentVisible = false;
+        this.detailAttachmentsVisible = false;
+        this.detailApprovalVisible = false;
+        this.backgroundHardcopyLoading = false;
+        this.backgroundLoadRequestId += 1;
+    }
+
+    private scheduleHardcopyBackgroundLoad(application: MyTemplateApplication | null): void {
+        const background = this.selectedTemplate?.background;
+        if (!background || !background.deferred) {
+            this.backgroundHardcopyLoading = false;
+            return;
+        }
+        const formId = Number(application?.serFormId || this.selectedApplication?.serFormId || 0);
+        if (!formId) {
+            return;
+        }
+        const requestId = ++this.backgroundLoadRequestId;
+        this.backgroundHardcopyLoading = true;
+        const userId = this.getCurrentUserId();
+        this.templateWorkflowService.getTemplateDefinitionBackground(formId, userId).subscribe({
+            next: (response: any) => {
+                if (requestId !== this.backgroundLoadRequestId || !this.selectedTemplate) {
+                    return;
+                }
+                const loaded = response?.background;
+                if (loaded && typeof loaded === 'object') {
+                    this.selectedTemplate = {
+                        ...this.selectedTemplate,
+                        background: loaded
+                    };
+                    const appTemplate = this.selectedApplication?.template;
+                    if (this.selectedApplication && appTemplate) {
+                        this.selectedApplication = {
+                            ...this.selectedApplication,
+                            template: {
+                                ...appTemplate,
+                                payload: {
+                                    ...(appTemplate.payload || {}),
+                                    background: loaded
+                                }
+                            }
+                        };
+                    }
+                }
+                this.backgroundHardcopyLoading = false;
+            },
+            error: () => {
+                if (requestId === this.backgroundLoadRequestId) {
+                    this.backgroundHardcopyLoading = false;
+                }
+            }
+        });
+    }
+
+    private advanceDetailLoadSequenceAfterDocument(renderToken: number): void {
+        if (renderToken !== this.detailRenderToken) {
+            return;
+        }
+        const hasAttachments = this.getAttachmentFields().length > 0;
+        if (hasAttachments) {
+            this.currentDetailLoader = 'attachments';
+            setTimeout(() => {
+                if (renderToken !== this.detailRenderToken) {
+                    return;
+                }
+                this.detailAttachmentsVisible = true;
+                this.currentDetailLoader = 'approval';
+                setTimeout(() => this.advanceDetailLoadSequenceAfterApproval(renderToken), 0);
+            }, 0);
+            return;
+        }
+        this.currentDetailLoader = 'approval';
+        setTimeout(() => this.advanceDetailLoadSequenceAfterApproval(renderToken), 0);
+    }
+
+    private advanceDetailLoadSequenceAfterApproval(renderToken: number): void {
+        if (renderToken !== this.detailRenderToken) {
+            return;
+        }
+        this.detailApprovalVisible = true;
+        this.currentDetailLoader = null;
     }
 
     private toShallowApplication(application: any): MyTemplateApplication {
@@ -605,10 +949,9 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             txtStatus: application?.txtStatus,
             intCurrentApprovalLevel: application?.intCurrentApprovalLevel,
             dteCreatedDate: application?.dteCreatedDate,
-            txtApplicationData: application?.txtApplicationData,
             serSubmittedBy: application?.serSubmittedBy,
             templateName: application?.templateName || application?.cfgTblCustomForm?.txtFormName || 'Template',
-            applicationTitle: resolveApplicationTitle(application)
+            applicationTitle: application?.applicationTitle || resolveApplicationTitle(application)
         };
     }
 
@@ -815,6 +1158,9 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     }
 
     canEditApplication(application: MyTemplateApplication | null): boolean {
+        if (!application || this.isAllApplicationsAuditView()) {
+            return false;
+        }
         const currentUserId = this.getCurrentUserId();
         const submittedBy = Number(application?.serSubmittedBy || 0);
         const status = String(application?.txtStatus || '').toUpperCase();
@@ -835,8 +1181,16 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         return this.route.snapshot.queryParamMap.get('from') === 'department-application';
     }
 
+    isAllApplicationsAuditView(): boolean {
+        return this.route.snapshot.queryParamMap.get('from') === 'all-applications';
+    }
+
+    isReadOnlyApplicationDetailView(): boolean {
+        return this.isDepartmentApplicationView() || this.isAllApplicationsAuditView();
+    }
+
     canSendReminder(application: MyTemplateApplication | null): boolean {
-        if (!application || this.isDepartmentApplicationView()) {
+        if (!application || this.isReadOnlyApplicationDetailView()) {
             return false;
         }
         const currentUserId = this.getCurrentUserId();
@@ -934,14 +1288,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     }
 
     getInputStyle(field: TemplateField): { [key: string]: string | number } {
-        return {
-            'font-size.px': field.style?.fontSize || 14,
-            'font-family': field.style?.fontFamily || 'Arial, sans-serif',
-            'font-weight': field.style?.bold ? '700' : '400',
-            'font-style': field.style?.italic ? 'italic' : 'normal',
-            'text-decoration': field.style?.underline ? 'underline' : 'none',
-            'text-align': field.style?.textAlign || 'left'
-        };
+        return getTemplateFieldNgStyle(field);
     }
 
     getFieldValueText(field: TemplateField, optionLabel?: string): string {
@@ -976,6 +1323,18 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
 
     getIndividualFooterSections(): any[] {
         const data = this.parseApplicationData(this.selectedApplication?.txtApplicationData);
+        const pipeline = Array.isArray(this.selectedTemplate?.pipeline) ? this.selectedTemplate.pipeline : [];
+        if (data?.workflowPipelineMergedFooter && this.hasTemplateApprovalPipelineSteps(pipeline)) {
+            return pipeline
+                .filter((step: PipelineStep) => step?.type && step.type !== 'initiator')
+                .sort((left: PipelineStep, right: PipelineStep) => (Number(left?.order) || 0) - (Number(right?.order) || 0))
+                .map((step: PipelineStep) => ({
+                    key: step.id,
+                    label: step.name || 'Approver',
+                    order: step.order,
+                    users: Array.isArray((step as any).users) ? (step as any).users : []
+                }));
+        }
         return Array.isArray(data?.footerFields) ? data.footerFields : [];
     }
 
@@ -987,6 +1346,13 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     getIndividualFooterSlots(section: any): any[] {
         const users = Array.isArray(section?.users) ? section.users : [];
         return users.length > 0 ? users : [null];
+    }
+
+    getIndividualFooterBands(): IndividualFooterTableBand[] {
+        return buildIndividualFooterTableBands(
+            this.getIndividualFooterSections(),
+            (section) => this.getIndividualFooterSlots(section)
+        );
     }
 
     getIndividualFooterUserLabel(user: any): SafeHtml {
@@ -1105,7 +1471,12 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         if (field.type !== 'individual_pipeline_footer') {
             return height;
         }
-        return Math.max(height, MyApplicationComponent.INDIVIDUAL_FOOTER_MIN_HEIGHT);
+        const bandCount = this.getIndividualFooterBands().length;
+        return getIndividualFooterRenderedHeightPx(
+            height,
+            bandCount,
+            MyApplicationComponent.INDIVIDUAL_FOOTER_MIN_HEIGHT
+        );
     }
 
     isDynamicSignatureField(field: TemplateField): boolean {
@@ -1195,7 +1566,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             }
             node.replaceWith(this.createInlineValue(doc, field));
         });
-        return doc.body.innerHTML;
+        return normalizeDocumentBodyHtmlForDisplay(doc.body.innerHTML);
     }
 
     private createInlineValue(doc: Document, field: TemplateField): HTMLElement {
@@ -1251,6 +1622,8 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             cell.style.verticalAlign = cell.style.verticalAlign || 'top';
         });
 
+        applyWordEditorAlignmentClasses(qlEditor);
+
         return `<div class="word-editor-value">${qlEditor.outerHTML}</div>`;
     }
 
@@ -1293,7 +1666,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             tileStatus = 'REJECTED';
         } else if (historyAction === 'APPROVED') {
             tileStatus = 'APPROVED';
-        } else if (applicationStatus === 'APPROVED') {
+        } else if (applicationStatus === 'APPROVED' || applicationStatus === 'COMPLETED') {
             tileStatus = 'APPROVED';
         } else if (applicationStatus === 'REJECTED' && stepLevel === currentStepLevel) {
             tileStatus = 'REJECTED';
@@ -1348,6 +1721,9 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     }
 
     private stepRequiresIndividualTiles(step: PipelineStep): boolean {
+        if (String(step.type || '').toLowerCase() === 'individual') {
+            return true;
+        }
         return String(step.approvalMode || '').toUpperCase() === 'AND';
     }
 
@@ -1413,28 +1789,58 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         return Number.isFinite(currentLevel) && currentLevel > expectedLevel;
     }
 
-    private getApprovalEntriesForStep(step: PipelineStep, stepLevel: number): any[] {
+    private getApprovalEntriesForStep(step: PipelineStep, _stepLevel: number): any[] {
+        return this.getWorkflowApprovalHistory().filter((entry) => this.historyEntryMatchesPipelineStep(entry, step));
+    }
+
+    private parseIndividualFooterPipelineStepId(stepId: string): { sectionKey: string; userId: number } | null {
+        const trimmed = String(stepId || '').trim();
+        if (!trimmed) {
+            return null;
+        }
+        const match = trimmed.match(/^(.+)-(\d+)-(\d+)-(\d+)$/);
+        if (!match) {
+            return null;
+        }
+        const userId = Number(match[3]);
+        if (!Number.isFinite(userId) || userId <= 0) {
+            return null;
+        }
+        return { sectionKey: match[1], userId };
+    }
+
+    private historyEntryMatchesPipelineStep(entry: any, step: PipelineStep): boolean {
+        const action = String(entry?.action || entry?.status || '').toUpperCase();
+        if (!['APPROVED', 'REJECTED', 'SENT_BACK', 'SENT_BACK_TO_INITIATOR', 'RESUBMITTED_BY_INITIATOR'].includes(action)) {
+            return false;
+        }
         const stepId = String(step.id || '').trim();
-        return this.getWorkflowApprovalHistory().filter((entry) => {
-            const action = String(entry?.action || entry?.status || '').toUpperCase();
-            if (!['APPROVED', 'REJECTED', 'SENT_BACK', 'SENT_BACK_TO_INITIATOR', 'RESUBMITTED_BY_INITIATOR'].includes(action)) {
-                return false;
-            }
-            const entryStepId = String(entry?.stepId ?? entry?.pipelineStepId ?? entry?.signatureTargetId ?? '').trim();
-            if (entryStepId && stepId) {
-                return entryStepId === stepId;
-            }
-            const rawLevel = this.getRawHistoryLevel(entry);
-            if (rawLevel === 0) {
-                return this.isFirstApprovalStep(step);
-            }
+        const entryStepId = String(entry?.stepId ?? entry?.pipelineStepId ?? entry?.signatureTargetId ?? '').trim();
+        if (entryStepId && stepId && entryStepId === stepId) {
+            return true;
+        }
+        const footerStep = this.parseIndividualFooterPipelineStepId(stepId);
+        if (footerStep && entryStepId && entryStepId === footerStep.sectionKey) {
+            return this.getUserId(entry) === footerStep.userId;
+        }
+        const rawLevel = this.getRawHistoryLevel(entry);
+        if (rawLevel === 0) {
+            return this.isFirstApprovalStep(step);
+        }
+        if (!footerStep) {
             const entryRole = String(entry?.role || entry?.stageName || entry?.stepName || '').trim().toLowerCase();
             const stepName = String(step.name || '').trim().toLowerCase();
             if (entryRole && stepName && entryRole !== stepName) {
                 return false;
             }
+        }
+        if (footerStep && this.getUserId(entry) === footerStep.userId) {
             return this.getLegacyDisplayLevelsForStep(step).includes(rawLevel);
-        });
+        }
+        if (footerStep) {
+            return false;
+        }
+        return this.getLegacyDisplayLevelsForStep(step).includes(rawLevel);
     }
 
     private getInitiatorHistoryEntry(): any {
@@ -2228,14 +2634,24 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     }
 
     private resolveWorkflowPipeline(application: MyTemplateApplication | null, savedTemplate: any, liveTemplate: any): PipelineStep[] {
+        const savedPipeline = Array.isArray(savedTemplate?.pipeline) ? savedTemplate.pipeline : [];
+        const livePipeline = Array.isArray(liveTemplate?.pipeline) ? liveTemplate.pipeline : [];
+        const templatePipeline = savedPipeline.length > 0 ? savedPipeline : livePipeline;
+        if (this.hasTemplateApprovalPipelineSteps(templatePipeline)) {
+            return templatePipeline;
+        }
         const footerPipeline = this.buildFooterWorkflowPipeline(application, savedTemplate, liveTemplate);
         if (footerPipeline.length > 0) {
             return footerPipeline;
         }
-        if (Array.isArray(savedTemplate?.pipeline) && savedTemplate.pipeline.length > 0) {
-            return savedTemplate.pipeline;
+        return templatePipeline;
+    }
+
+    private hasTemplateApprovalPipelineSteps(pipeline: PipelineStep[]): boolean {
+        if (!Array.isArray(pipeline) || pipeline.length === 0) {
+            return false;
         }
-        return Array.isArray(liveTemplate?.pipeline) ? liveTemplate.pipeline : [];
+        return pipeline.some((step) => step?.type && step.type !== 'initiator');
     }
 
     private buildFooterWorkflowPipeline(application: MyTemplateApplication | null, savedTemplate: any, liveTemplate: any): PipelineStep[] {

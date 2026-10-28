@@ -1,9 +1,15 @@
 <div>
     <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
         <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
-            <div class="flex flex-col gap-3">
+            <div class="flex flex-col gap-3" data-tour="template-list-header">
                 <h5 class="text-xl font-bold dark:text-white-light">Digital Document List</h5>
-                <div *ngIf="isAdmin" class="inline-flex rounded-md border border-[#e0e6ed] p-0.5 dark:border-[#1b2e4b]" role="tablist">
+                <p *ngIf="showDelegationAccessView" class="text-sm text-gray-500 dark:text-gray-400 max-w-2xl" data-tour="template-list-delegation-access">
+                    Documents you can open directly are marked
+                    <span class="badge badge-outline-success">My access</span>.
+                    Forms available only through an active delegation are marked
+                    <span class="badge badge-outline-warning">Delegated</span>.
+                </p>
+                <div *ngIf="isAdmin" class="inline-flex rounded-md border border-[#e0e6ed] p-0.5 dark:border-[#1b2e4b]" role="tablist" data-tour="template-list-mode">
                     <button
                         type="button"
                         class="btn btn-sm"
@@ -22,7 +28,7 @@
                     </button>
                 </div>
             </div>
-            <div class="ltr:ml-auto rtl:mr-auto flex gap-2 flex-wrap">
+            <div class="ltr:ml-auto rtl:mr-auto flex gap-2 flex-wrap" data-tour="template-list-toolbar">
                 <div *ngIf="isAdmin">
                     <a (click)="openDuplicateModal()" class="btn btn-outline-primary gap-2">
                         <icon-copy />
@@ -60,10 +66,10 @@
             </div>
         </div>
 
-        <div class="datatable invoice-table" *ngIf="!loadError && !isLoading && getDisplayedTemplates().length > 0">
+        <div class="datatable invoice-table" *ngIf="!loadError && !isLoading && getDisplayedTemplates().length > 0" data-tour="template-list-grid">
             <ng-datatable
                 [rows]="getDisplayedTemplates()"
-                [columns]="cols"
+                [columns]="gridColumns"
                 [hasCheckbox]="false"
                 [pagination]="false"
                 [sortable]="true"
@@ -73,9 +79,26 @@
                 previousArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M15 5L9 12L15 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
                 nextArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M9 5L15 12L9 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'>
                 <ng-template slot="name" let-value="data">
-                    <div class="template-name-cell">
+                    <div
+                        class="template-name-cell"
+                        [class.template-row-own]="showDelegationAccessView && hasOwnListingAccess(value) && !hasDelegatedListingAccess(value)"
+                        [class.template-row-delegated]="showDelegationAccessView && hasDelegatedListingAccess(value) && !hasOwnListingAccess(value)"
+                        [class.template-row-both]="showDelegationAccessView && isBothListingAccess(value)">
                         <strong>{{ getTemplateName(value) }}</strong>
                         <small *ngIf="isAdmin">ID: {{ value.id }}</small>
+                    </div>
+                </ng-template>
+                <ng-template slot="listingAccess" let-value="data">
+                    <div class="listing-access-badges">
+                        <span *ngIf="hasOwnListingAccess(value)" class="badge badge-outline-success">
+                            My access
+                        </span>
+                        <span
+                            *ngIf="hasDelegatedListingAccess(value)"
+                            class="badge badge-outline-warning listing-access-delegated-badge"
+                            [attr.title]="getDelegationOnBehalfTooltip(value)">
+                            {{ getDelegatedAccessBadgeLabel(value) }}
+                        </span>
                     </div>
                 </ng-template>
                 <ng-template slot="codeConvention" let-value="data">
@@ -140,7 +163,7 @@
             </ng-datatable>
         </div>
 
-        <div *ngIf="!loadError && !isLoading && totalTemplates > 0" class="template-pending-pagination px-5 py-3">
+        <div *ngIf="!loadError && !isLoading && totalTemplates > 0" class="template-pending-pagination px-5 py-3" data-tour="template-list-pagination">
             <div class="pagination-summary">
                 Showing {{ pageStart }}-{{ pageEnd }} of {{ totalTemplates }}
             </div>

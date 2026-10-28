@@ -148,7 +148,10 @@ export class ChangePasswordComponent implements OnInit {
 
     request$.subscribe((data: any) => {
       if (data == "Success") {
-        this.notificationService.showMessage('Record saved successfully','success');
+        const emailNote = this.role === 'ADMIN'
+          ? ' Password reset email will be sent to the user.'
+          : ' A confirmation email will be sent to your registered address.';
+        this.notificationService.showMessage('Record saved successfully.' + emailNote, 'success');
         this.isSubmit = false;
         this.form.reset();
         this.isUnmatched = false;

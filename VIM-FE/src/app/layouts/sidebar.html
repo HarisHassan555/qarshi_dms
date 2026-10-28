@@ -1,13 +1,15 @@
 <div [ngClass]="{ 'dark text-white-dark': store.semidark }">
     <nav
         class="sidebar fixed bottom-0 top-0 z-50 h-full min-h-screen w-[260px] shadow-[5px_0_25px_0_rgba(94,92,154,0.1)] transition-all duration-300">
-        <div class="h-full bg-white dark:bg-[#0e1726]">
+        <div class="flex h-full flex-col bg-white dark:bg-[#0e1726]">
             <div class="flex items-center justify-between px-4 py-3">
                 <div class="flex items-center justify-center">
-                    <a routerLink="/" class="main-logo flex shrink-0 items-center">
-                        <img class="ml-[5px] w-16 flex-none" src="assets/images/qarshi-logo.png" alt="" />
+                    <a routerLink="/" class="main-logo flex min-w-0 shrink items-center gap-2">
+                        <img class="ml-[5px] w-16 flex-none" src="assets/images/qarshi-logo.png" alt="Qarshi" />
                         <span
-                            class="align-middle text-2xl font-semibold ltr:ml-1.5 rtl:mr-1.5 dark:text-white-light lg:inline">Qarshi</span>
+                            class="min-w-0 text-base font-semibold leading-snug text-slate-800 dark:text-white-light lg:inline">
+                            Qarshi Workflow
+                        </span>
                     </a>
                 </div>
                 <a href="javascript:;"
@@ -17,17 +19,17 @@
                 </a>
             </div>
 
-            <ng-scrollbar class="relative !h-[calc(100vh-80px)]" appearance="compact">
+            <ng-scrollbar class="sidebar-menu-scroll relative min-h-0 flex-1" appearance="compact">
 
                 <ng-container *ngIf="menus && menus.length > 0 && isDashboardPresent">
                     <ul class="relative space-y-0.5 p-4 py-0 font-semibold">
                         <li class="nav-item">
                             <a routerLink="/Dashboard" class="group" routerLinkActive="active"
+                                [routerLinkActiveOptions]="{ exact: false }"
                                 (click)="toggleMobileMenu()">
                                 <div class="flex items-center">
-                                    <icon-menu-dashboard class="shrink-0 group-hover:!text-primary" />
-                                    <span
-                                        class="text-black ltr:pl-3 rtl:pr-3 dark:text-[#506690] dark:group-hover:text-white-dark">
+                                    <icon-menu-dashboard class="shrink-0 transition-colors duration-200" />
+                                    <span class="ltr:pl-3 rtl:pr-3 transition-colors duration-200">
                                         {{ 'home' | translate }}
                                     </span>
                                 </div>
@@ -45,9 +47,8 @@
                                     [ngClass]="{ active: activeDropdown.includes(menu.menuName) }"
                                     (click)="toggleAccordion(menu.menuName)">
                                     <div class="flex items-center">
-                                        <icon-menu-dashboard class="shrink-0 group-hover:!text-primary" />
-                                        <span
-                                            class="text-black ltr:pl-3 rtl:pr-3 dark:text-[#506690] dark:group-hover:text-white-dark">
+                                        <icon-menu-dashboard class="shrink-0 transition-colors duration-200" />
+                                        <span class="ltr:pl-3 rtl:pr-3 transition-colors duration-200">
                                             {{ menu.menuName }}
                                         </span>
                                     </div>
@@ -62,8 +63,9 @@
                                     <ul class="sub-menu text-gray-500">
                                         <ng-container *ngFor="let sm of menu.subMenus">
                                             <li *ngIf="canViewMenu(sm)">
-                                                <a [routerLink]="sm.subMenuAction" routerLinkActive="active"
-                                                    (click)="toggleMobileMenu()">
+                                                <a [routerLink]="getSubMenuRouterLink(sm.subMenuAction)" routerLinkActive="active"
+                                                    [routerLinkActiveOptions]="{ exact: false }"
+                                                    (click)="onSubMenuNavigate(sm.subMenuAction, $event)">
                                                     {{ getDisplaySubMenuName(sm.subMenuName) }}
                                                 </a>
                                             </li>
@@ -76,7 +78,32 @@
                 </ng-container>
             </ng-scrollbar>
 
-
+            <div class="sidebar-user-footer shrink-0 border-t border-[#ebedf2] p-3 dark:border-[#191e3a]">
+                <button
+                    type="button"
+                    class="sidebar-user-card"
+                    (click)="openProfileDrawer()"
+                    aria-label="Open profile">
+                    <span class="sidebar-user-avatar" [class.has-photo]="sidebarShowAvatarImage()">
+                        <img
+                            *ngIf="sidebarShowAvatarImage()"
+                            [src]="sidebarAvatarUrl()"
+                            alt=""
+                            class="sidebar-user-avatar-img" />
+                        <span *ngIf="!sidebarShowAvatarImage()" class="sidebar-user-avatar-letter">
+                            {{ getSidebarAvatarLetter() }}
+                        </span>
+                    </span>
+                    <span class="sidebar-user-text min-w-0">
+                        <span class="sidebar-user-name truncate">{{ getSidebarDisplayName() }}</span>
+                        <span class="sidebar-user-meta truncate">{{ getSidebarMetaLine() }}</span>
+                    </span>
+                </button>
+                <button type="button" class="sidebar-logout-btn" (click)="doLogout()">
+                    <icon-logout class="h-4 w-4 shrink-0 -rotate-90" />
+                    <span>Sign out</span>
+                </button>
+            </div>
         </div>
     </nav>
 </div>

@@ -1,0 +1,102 @@
+<ng-container *ngIf="open">
+    <div class="profile-drawer-backdrop" (click)="close()" aria-hidden="true"></div>
+    <aside class="profile-drawer profile-drawer-open" role="dialog" aria-label="User profile">
+        <div class="profile-drawer-header">
+            <h3 class="text-lg font-semibold text-dark dark:text-white">My profile</h3>
+            <button type="button" class="profile-drawer-close" (click)="close()" aria-label="Close">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="profile-drawer-body">
+            <div *ngIf="profileLoading" class="py-8 text-center text-sm text-gray-500">Loading profile…</div>
+
+            <ng-container *ngIf="!profileLoading">
+                <div class="profile-drawer-hero">
+                    <div class="profile-drawer-avatar-wrap">
+                        <span class="profile-drawer-avatar" [class.has-photo]="showAvatarImage()">
+                            <img *ngIf="showAvatarImage()" [src]="getAvatarImageUrl()" alt="" class="profile-drawer-avatar-img" />
+                            <span *ngIf="!showAvatarImage()" class="profile-drawer-avatar-letter">{{ getAvatarLetter(profileDisplayName()) }}</span>
+                        </span>
+                        <button
+                            type="button"
+                            class="profile-drawer-avatar-edit"
+                            (click)="triggerProfilePhotoPicker()"
+                            [disabled]="profilePictureUploading"
+                            aria-label="Update profile photo"
+                            title="Update profile photo">
+                            <icon-camera class="h-4 w-4" />
+                        </button>
+                        <input
+                            #profilePhotoInput
+                            type="file"
+                            class="profile-drawer-avatar-input"
+                            accept="image/png,image/jpeg,image/jpg,image/webp"
+                            (change)="onProfilePhotoSelected($event)" />
+                    </div>
+                    <h4 class="mt-3 text-center text-lg font-bold text-dark dark:text-white">{{ profileDisplayName() }}</h4>
+                    <p class="text-center text-sm text-gray-500 dark:text-gray-400">{{ profileField(profileDetails?.txtAddress || user?.txtAddress) }}</p>
+                    <span class="profile-drawer-status" [class.is-active]="profileDetails?.blnStatus === true" [class.is-inactive]="profileDetails?.blnStatus === false">
+                        {{ profileStatusLabel() }}
+                    </span>
+                </div>
+
+                <dl class="profile-drawer-details">
+                    <div class="profile-drawer-row">
+                        <dt>Login name</dt>
+                        <dd>{{ profileField(profileDetails?.txtLoginName) }}</dd>
+                    </div>
+                    <div class="profile-drawer-row">
+                        <dt>Employee ID</dt>
+                        <dd>{{ profileField(profileDetails?.txtCnic) }}</dd>
+                    </div>
+                    <div class="profile-drawer-row">
+                        <dt>Role</dt>
+                        <dd>{{ profileRoleName() }}</dd>
+                    </div>
+                    <div class="profile-drawer-row">
+                        <dt>Designation</dt>
+                        <dd>{{ profileField(profileDetails?.txtDesignation) }}</dd>
+                    </div>
+                    <div class="profile-drawer-row">
+                        <dt>Organization</dt>
+                        <dd>{{ profileField(profileDetails?.txtOrganizationName) }}</dd>
+                    </div>
+                    <div class="profile-drawer-row">
+                        <dt>Sub area</dt>
+                        <dd>{{ profileField(profileDetails?.txtSubareaName) }}</dd>
+                    </div>
+                    <div class="profile-drawer-row">
+                        <dt>Division</dt>
+                        <dd>{{ profileField(profileDetails?.txtDivisionName) }}</dd>
+                    </div>
+                    <div class="profile-drawer-row">
+                        <dt>Department</dt>
+                        <dd>{{ profileDepartmentName() }}</dd>
+                    </div>
+                    <div class="profile-drawer-row">
+                        <dt>Contact</dt>
+                        <dd>{{ profileField(profileDetails?.txtContactNo) }}</dd>
+                    </div>
+                </dl>
+
+                <nav class="profile-drawer-actions">
+                    <button type="button" class="profile-drawer-action" (click)="navigateFromDrawer('signature')">
+                        <icon-pencil-paper class="h-4.5 w-4.5 shrink-0" />
+                        Signature
+                    </button>
+                    <button type="button" class="profile-drawer-action" (click)="navigateFromDrawer('change-password')">
+                        <icon-lock-dots class="h-4.5 w-4.5 shrink-0" />
+                        Change password
+                    </button>
+                    <button type="button" class="profile-drawer-action profile-drawer-action-danger" (click)="logoutFromDrawer()">
+                        <icon-logout class="h-4.5 w-4.5 shrink-0 rotate-90" />
+                        Sign Out
+                    </button>
+                </nav>
+            </ng-container>
+        </div>
+    </aside>
+</ng-container>

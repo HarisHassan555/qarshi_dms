@@ -136,6 +136,71 @@ public class CustomFormApplicationController {
         }
     }
 
+    @RequestMapping(value = "/checkApplicationPdfSignatures", method = RequestMethod.GET)
+    public ResponseEntity<Map<String, Object>> checkApplicationPdfSignatures(@RequestParam Integer applicationId) {
+        logger.debug("checkApplicationPdfSignatures() - applicationId: " + applicationId);
+        try {
+            if (applicationId == null) {
+                return ResponseEntity.badRequest().build();
+            }
+            Map<String, Object> result = customFormApplicationService.checkApplicationPdfSignatures(applicationId);
+            return ResponseEntity.ok(result != null ? result : new HashMap<>());
+        } catch (Exception ex) {
+            logger.error("Error checking application PDF signatures: " + ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @RequestMapping(value = "/getTemplateApplicationPdfBase64", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> getTemplateApplicationPdfBase64(@RequestParam Integer applicationId) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            if (applicationId == null) {
+                result.put("status", "Failure");
+                result.put("message", "applicationId is required");
+                return result;
+            }
+            CfgTblCustomFormApplication application = customFormApplicationService.getApplicationById(applicationId);
+            if (application == null) {
+                result.put("status", "Failure");
+                result.put("message", "Application not found");
+                return result;
+            }
+            byte[] pdfBytes = customFormApplicationService.resolveDownloadablePdf(applicationId);
+            if (pdfBytes == null || pdfBytes.length == 0) {
+                result.put("status", "Failure");
+                result.put("message", "PDF is not available for this application");
+                return result;
+            }
+
+            String fileName = application.getTxtPdfName();
+            if (fileName == null || fileName.trim().isEmpty()) {
+                String code = application.getTxtFormCode() != null && !application.getTxtFormCode().trim().isEmpty()
+                        ? application.getTxtFormCode().trim()
+                        : "template-application-" + applicationId;
+                fileName = code + ".pdf";
+            } else if (!fileName.toLowerCase().endsWith(".pdf")) {
+                fileName = fileName + ".pdf";
+            }
+
+            String pdfMime = application.getTxtPdfMime();
+            if (pdfMime == null || pdfMime.trim().isEmpty()) {
+                pdfMime = "application/pdf";
+            }
+
+            result.put("status", "Success");
+            result.put("fileName", fileName);
+            result.put("mimeType", pdfMime);
+            result.put("base64", java.util.Base64.getEncoder().encodeToString(pdfBytes));
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error loading application PDF as base64: " + ex.getMessage(), ex);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            return result;
+        }
+    }
+
     @RequestMapping(value = "/downloadTemplateApplicationPdf", method = RequestMethod.GET)
     public ResponseEntity<byte[]> downloadTemplateApplicationPdf(@RequestParam Integer applicationId,
             HttpServletRequest request) {
@@ -149,10 +214,7 @@ public class CustomFormApplicationController {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
             }
 
-            byte[] pdfBytes = application.getBlbPdfData();
-            if (pdfBytes == null || pdfBytes.length == 0) {
-                pdfBytes = customFormApplicationService.resolveDownloadablePdf(applicationId);
-            }
+            byte[] pdfBytes = customFormApplicationService.resolveDownloadablePdf(applicationId);
             if (pdfBytes == null || pdfBytes.length == 0) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
             }
@@ -332,10 +394,12 @@ public class CustomFormApplicationController {
             @RequestParam("pdf") MultipartFile pdf,
             @RequestParam(required = false, defaultValue = "false") boolean refreshCapfSignatures,
             @RequestParam(required = false, defaultValue = "false") boolean suppressEditNotification,
+            @RequestParam(required = false, defaultValue = "false") boolean queuePostApprovalEmails,
             HttpServletRequest request,
             HttpServletResponse response) {
         logger.debug("updateApplicationPdf() - applicationId: " + applicationId + ", refreshCapfSignatures="
-                + refreshCapfSignatures + ", suppressEditNotification=" + suppressEditNotification);
+                + refreshCapfSignatures + ", suppressEditNotification=" + suppressEditNotification
+                + ", queuePostApprovalEmails=" + queuePostApprovalEmails);
         Map<String, Object> result = new HashMap<>();
         try {
             if (applicationId == null) {
@@ -354,8 +418,14 @@ public class CustomFormApplicationController {
             String status = customFormApplicationService.updateApplicationPdf(applicationId, pdf.getBytes(), pdfName,
                     pdfMime, refreshCapfSignatures, suppressEditNotification);
             if ("Success".equals(status)) {
+                if (queuePostApprovalEmails) {
+                    templateEmailDispatchService.queuePostApprovalEmails(applicationId,
+                            "template portal post-approval notification");
+                }
                 result.put("status", "Success");
-                result.put("message", "Application PDF updated successfully");
+                result.put("message", queuePostApprovalEmails
+                        ? "Application PDF updated and approval emails queued successfully"
+                        : "Application PDF updated successfully");
             } else {
                 result.put("status", "Failure");
                 result.put("message", status != null && status.startsWith("Failure:") ? status.substring(8)
@@ -604,6 +674,65 @@ public class CustomFormApplicationController {
             return result;
         }
     }
+    @RequestMapping(value = "/opinionApplicationFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
+    public String opinionApplicationFromEmail(@RequestParam Integer applicationId,
+            @RequestParam Integer userId,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("opinionApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
+        if (!isActiveOpinionAssignedToUser(applicationId, userId)) {
+            return renderEmailActionErrorPage("Opinion Not Available",
+                    "This application is not awaiting your opinion, or the opinion request has already been completed.");
+        }
+        return renderEmailOpinionActionForm(applicationId, userId, request);
+    }
+
+    @RequestMapping(value = "/opinionApplicationFromEmail", method = RequestMethod.POST, produces = MediaType.TEXT_HTML_VALUE)
+    public String opinionApplicationFromEmailSubmit(@RequestParam Integer applicationId,
+            @RequestParam Integer userId,
+            @RequestParam(required = false) String opinionAction,
+            @RequestParam(required = false) String remarks,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("opinionApplicationFromEmailSubmit() - applicationId: " + applicationId + ", userId: " + userId);
+        try {
+            if (!isActiveOpinionAssignedToUser(applicationId, userId)) {
+                return renderEmailActionErrorPage("Opinion Not Available",
+                        "This application is not awaiting your opinion, or the opinion request has already been completed.");
+            }
+            if (remarks == null || remarks.trim().isEmpty()) {
+                return renderEmailActionErrorPage("Comments required",
+                        "Please enter comments before submitting your opinion. Use your browser back button to return to the form.");
+            }
+            String action = opinionAction != null ? opinionAction.trim().toLowerCase() : "";
+            if (!"approve".equals(action) && !"reject".equals(action)) {
+                return renderEmailActionErrorPage("Invalid action",
+                        "Please choose Accept or Reject for your opinion.");
+            }
+            String finalRemarks = remarks.trim();
+            if (isTemplateBuilderApplication(applicationId)) {
+                Map<String, Object> requestBody = buildTemplateEmailActionRequest(applicationId, userId, finalRemarks);
+                requestBody.put("action", action);
+                Map<String, Object> result = templateDefinitionController.submitTemplateApplicationOpinion(requestBody,
+                        request, response);
+                if ("Success".equals(result.get("status"))) {
+                    return renderEmailActionResultPage("Opinion Submitted", "Your opinion has been submitted.");
+                }
+                return renderEmailActionErrorPage("Opinion Failed",
+                        String.valueOf(result.getOrDefault("message", "Failed to submit opinion")));
+            }
+            String status = customFormApplicationService.submitApplicationOpinion(applicationId, action, finalRemarks);
+            if ("Success".equals(status)) {
+                return renderEmailActionResultPage("Opinion Submitted", "Your opinion has been submitted.");
+            }
+            return renderEmailActionErrorPage("Opinion Failed",
+                    status != null && status.startsWith("Failure:") ? status.substring(8) : "Failed to submit opinion");
+        } catch (Exception ex) {
+            logger.error("Error submitting opinion from email: " + ex.getMessage(), ex);
+            return renderEmailActionErrorPage("Error", "An error occurred: " + ex.getMessage());
+        }
+    }
+
     @RequestMapping(value = "/approveApplicationFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
     public String approveApplicationFromEmail(@RequestParam Integer applicationId,
             @RequestParam Integer userId,
@@ -647,18 +776,6 @@ public class CustomFormApplicationController {
                 result = templateDefinitionController.approveTemplateApplication(requestBody,
                         request, response);
                 if ("Success".equals(result.get("status"))) {
-                    String pdfRefreshStatus = getCustomFormApplicationDaoImpl()
-                            .refreshTemplateApplicationPdfFromStage0(applicationId);
-                    if (!"Success".equals(pdfRefreshStatus)) {
-                        logger.warn("Template email approval succeeded but PDF refresh failed for applicationId="
-                                + applicationId + ": " + pdfRefreshStatus);
-                    }
-                    try {
-                        customFormApplicationService.sendTemplatePostApprovalEmails(applicationId);
-                    } catch (Exception emailEx) {
-                        logger.warn("Template email approval succeeded but follow-up emails failed for applicationId="
-                                + applicationId + ": " + emailEx.getMessage(), emailEx);
-                    }
                     return renderEmailActionResultPage("Application Approved", "The application has been approved.");
                 }
                 return renderEmailActionErrorPage("Approval Failed",
@@ -713,12 +830,8 @@ public class CustomFormApplicationController {
             Map<String, Object> result = templateDefinitionController.holdTemplateApplication(requestBody, request,
                     response);
             if ("Success".equals(result.get("status"))) {
-                try {
-                    customFormApplicationService.sendTemplatePostApprovalEmails(applicationId);
-                } catch (Exception emailEx) {
-                    logger.warn("Template email hold succeeded but follow-up emails failed for applicationId="
-                            + applicationId + ": " + emailEx.getMessage(), emailEx);
-                }
+                templateEmailDispatchService.queuePostApprovalEmails(applicationId,
+                        "template email hold notification");
                 return renderEmailActionResultPage("Application on Hold",
                         "The application has been put on Hold.");
             }
@@ -763,12 +876,8 @@ public class CustomFormApplicationController {
             Map<String, Object> result = templateDefinitionController.unholdTemplateApplication(requestBody, request,
                     response);
             if ("Success".equals(result.get("status"))) {
-                try {
-                    customFormApplicationService.sendTemplatePostApprovalEmails(applicationId);
-                } catch (Exception emailEx) {
-                    logger.warn("Template email unhold succeeded but follow-up emails failed for applicationId="
-                            + applicationId + ": " + emailEx.getMessage(), emailEx);
-                }
+                templateEmailDispatchService.queuePostApprovalEmails(applicationId,
+                        "template email unhold notification");
                 return renderEmailActionResultPage("Hold Removed",
                         "The application has been taken off Hold.");
             }
@@ -1432,6 +1541,82 @@ public class CustomFormApplicationController {
         return (com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO) customFormApplicationDAO;
     }
 
+    private String renderEmailOpinionActionForm(Integer applicationId, Integer userId, HttpServletRequest request) {
+        String contextPath = request != null ? request.getContextPath() : "";
+        String actionUrl = contextPath + "/opinionApplicationFromEmail";
+        String acceptConfigJson = buildEmailWorkflowConfirmConfigJson("opinionApprove");
+        String rejectConfigJson = buildEmailWorkflowConfirmConfigJson("opinionReject");
+        return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Submit Opinion</title>"
+                + "<link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css'/>"
+                + "<style>body{font-family:Arial,sans-serif;background:#f5f5f5;padding:30px}"
+                + ".container{background:white;padding:28px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:560px;margin:0 auto}"
+                + "h2{margin:0 0 10px 0;color:#2c3e50;font-size:24px}.subtitle{color:#555;margin-bottom:18px}"
+                + "label{display:block;color:#2c3e50;font-weight:600;margin-bottom:8px}"
+                + "textarea{width:100%;min-height:110px;padding:10px;border:1px solid #d5d5d5;border-radius:6px;resize:vertical;font-size:14px;font-family:Arial,sans-serif;box-sizing:border-box}"
+                + ".hint{color:#888;font-size:12px;margin-top:8px}"
+                + ".actions{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}"
+                + "button{border:none;border-radius:6px;padding:10px 18px;font-size:14px;cursor:pointer;font-weight:600}"
+                + ".btn-accept{background:#27ae60;color:#fff}.btn-reject{background:#e74c3c;color:#fff}"
+                + getEmailWorkflowConfirmStyles()
+                + "</style></head><body><div class='container'>"
+                + "<h2>Submit Opinion</h2>"
+                + "<div class='subtitle'>Enter your comments, then accept or reject this opinion request.</div>"
+                + "<form id='emailOpinionForm' method='post' action='" + escapeHtml(actionUrl) + "'>"
+                + "<input type='hidden' name='applicationId' value='" + applicationId + "'/>"
+                + "<input type='hidden' name='userId' value='" + userId + "'/>"
+                + "<input type='hidden' id='opinionAction' name='opinionAction' value=''/>"
+                + "<label for='remarks'>Comments / remarks <span style='color:#c0392b'>*</span></label>"
+                + "<textarea id='remarks' name='remarks' maxlength='2000' required placeholder='Enter comments (required)'></textarea>"
+                + "<div class='hint'>Required. Max 2000 characters.</div>"
+                + "<div class='actions'>"
+                + "<button type='button' class='btn-accept' id='btnOpinionAccept'>Accept</button>"
+                + "<button type='button' class='btn-reject' id='btnOpinionReject'>Reject</button>"
+                + "</div></form></div>"
+                + "<script src='https://cdn.jsdelivr.net/npm/sweetalert2@11'></script>"
+                + "<script>window.__emailOpinionConfirmConfigs={accept:" + acceptConfigJson + ",reject:" + rejectConfigJson + "};"
+                + "window.__emailActionContextPath='" + escapeHtml(contextPath) + "';</script>"
+                + getEmailOpinionConfirmScript()
+                + "</body></html>";
+    }
+
+    private String getEmailOpinionConfirmScript() {
+        return "<script>(function(){var form=document.getElementById('emailOpinionForm');"
+                + "if(!form||!window.Swal){return;}"
+                + "var configs=window.__emailOpinionConfirmConfigs||{};"
+                + "var signatureRequiredMessage='Before approving the document, kindly upload your signature.';"
+                + "var signaturePopupClass={popup:'sweet-alerts workflow-confirm-swal',title:'workflow-confirm-title',"
+                + "htmlContainer:'workflow-confirm-body',actions:'workflow-confirm-actions',"
+                + "confirmButton:'workflow-confirm-primary',cancelButton:'workflow-confirm-cancel'};"
+                + "function showSignatureRequiredAlert(){return Swal.fire({title:'Signature required',"
+                + "html:'<p class=\"workflow-confirm-message\">'+signatureRequiredMessage+'</p>',icon:'warning',"
+                + "confirmButtonText:'OK',customClass:signaturePopupClass});}"
+                + "function actorHasSignature(userId){var base=window.__emailActionContextPath||'';"
+                + "return fetch(base+'/getUserSignaturePath?userId='+encodeURIComponent(userId),{credentials:'same-origin'})"
+                + ".then(function(response){return response.json();})"
+                + ".then(function(payload){return payload&&payload.status==='Success'&&payload.hasSignature===true;})"
+                + ".catch(function(){return false;});}"
+                + "function showActionConfirm(config){return Swal.fire({title:config.title||'Confirm action?',"
+                + "html:'<p class=\"workflow-confirm-message\">'+(config.text||'')+'</p>',"
+                + "showCancelButton:true,confirmButtonText:config.confirmButtonText||'Confirm',"
+                + "cancelButtonText:'Cancel',confirmButtonColor:config.confirmButtonColor||'#4361ee',"
+                + "reverseButtons:true,focusCancel:true,customClass:signaturePopupClass});}"
+                + "function submitOpinion(action){var remarks=document.getElementById('remarks');"
+                + "if(!remarks||!remarks.value||!remarks.value.trim()){if(remarks){remarks.reportValidity();}return;}"
+                + "document.getElementById('opinionAction').value=action;"
+                + "var config=action==='reject'?configs.reject:configs.accept;"
+                + "var userIdInput=form.querySelector('input[name=\"userId\"]');"
+                + "var userId=userIdInput?userIdInput.value:'';"
+                + "actorHasSignature(userId).then(function(hasSignature){"
+                + "if(!hasSignature){showSignatureRequiredAlert();return;}"
+                + "showActionConfirm(config).then(function(result){if(result.isConfirmed){HTMLFormElement.prototype.submit.call(form);}});"
+                + "});}"
+                + "var acceptBtn=document.getElementById('btnOpinionAccept');"
+                + "var rejectBtn=document.getElementById('btnOpinionReject');"
+                + "if(acceptBtn){acceptBtn.addEventListener('click',function(){submitOpinion('approve');});}"
+                + "if(rejectBtn){rejectBtn.addEventListener('click',function(){submitOpinion('reject');});}"
+                + "})();</script>";
+    }
+
     private String renderEmailActionCommentForm(String title, String subtitle, String actionPath, String workflowAction,
             Integer applicationId, Integer userId, HttpServletRequest request) {
         return renderEmailActionCommentForm(title, subtitle, actionPath, workflowAction, applicationId, userId, request,
@@ -1517,6 +1702,16 @@ public class CustomFormApplicationController {
             text = "Resume the approval workflow for this application.";
             confirmButtonText = "Unhold";
             confirmButtonColor = "#27ae60";
+        } else if ("opinionApprove".equals(workflowAction)) {
+            title = "Accept opinion?";
+            text = "Submit your opinion and return the application to the requester.";
+            confirmButtonText = "Accept";
+            confirmButtonColor = "#27ae60";
+        } else if ("opinionReject".equals(workflowAction)) {
+            title = "Reject opinion?";
+            text = "Submit your opinion as reject and return the application to the requester.";
+            confirmButtonText = "Reject";
+            confirmButtonColor = "#e7515a";
         } else {
             title = "Confirm action?";
             text = "Please confirm you want to continue.";
@@ -1809,6 +2004,10 @@ public class CustomFormApplicationController {
                     + ex.getMessage());
             return true;
         }
+    }
+
+    private boolean isActiveOpinionAssignedToUser(Integer applicationId, Integer userId) {
+        return isActiveTemplateOpinionAssignedToUser(applicationId, userId);
     }
 
     private boolean isActiveTemplateOpinionAssignedToUser(Integer applicationId, Integer userId) {

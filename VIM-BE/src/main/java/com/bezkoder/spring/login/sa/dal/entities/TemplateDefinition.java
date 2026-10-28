@@ -10,6 +10,9 @@ import javax.persistence.Id;
 import javax.persistence.Lob;
 import javax.persistence.NamedQuery;
 import javax.persistence.Table;
+import javax.persistence.Transient;
+import java.util.List;
+import java.util.Map;
 
 @Entity
 @Table(name = "tpl_template_definition")
@@ -55,6 +58,18 @@ public class TemplateDefinition implements Serializable {
 
     @Column(name = "ser_modified_user")
     private Integer serModifiedUser;
+
+    @Transient
+    private Boolean hasOwnAccess;
+
+    @Transient
+    private Boolean hasDelegatedAccess;
+
+    @Transient
+    private String listingAccess;
+
+    @Transient
+    private List<Map<String, Object>> delegationOnBehalfOf;
 
     public Integer getSerTemplateId() {
         return serTemplateId;
@@ -150,5 +165,37 @@ public class TemplateDefinition implements Serializable {
 
     public void setSerModifiedUser(Integer serModifiedUser) {
         this.serModifiedUser = serModifiedUser;
+    }
+
+    public Boolean getHasOwnAccess() {
+        return hasOwnAccess;
+    }
+
+    public void setHasOwnAccess(Boolean hasOwnAccess) {
+        this.hasOwnAccess = hasOwnAccess;
+    }
+
+    public Boolean getHasDelegatedAccess() {
+        return hasDelegatedAccess;
+    }
+
+    public void setHasDelegatedAccess(Boolean hasDelegatedAccess) {
+        this.hasDelegatedAccess = hasDelegatedAccess;
+    }
+
+    public String getListingAccess() {
+        return listingAccess;
+    }
+
+    public void setListingAccess(String listingAccess) {
+        this.listingAccess = listingAccess;
+    }
+
+    public List<Map<String, Object>> getDelegationOnBehalfOf() {
+        return delegationOnBehalfOf;
+    }
+
+    public void setDelegationOnBehalfOf(List<Map<String, Object>> delegationOnBehalfOf) {
+        this.delegationOnBehalfOf = delegationOnBehalfOf;
     }
 }

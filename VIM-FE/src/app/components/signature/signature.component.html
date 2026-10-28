@@ -1,12 +1,12 @@
 <div class="panel">
-    <div class="mb-5">
+    <div class="mb-5" data-tour="signature-header">
         <h5 class="text-lg font-semibold dark:text-white-light">Upload Signature</h5>
         <p class="text-gray-500 dark:text-gray-400">Upload your signature image that will be used in department approvals and PDF downloads.</p>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Upload Section -->
-        <div class="panel">
+        <div class="panel" data-tour="signature-upload">
             <h6 class="text-base font-semibold dark:text-white-light mb-4">Upload New Signature</h6>
             
             <div class="mb-4">
@@ -53,7 +53,7 @@
                 </p>
             </div>
 
-            <div class="mb-4 action-buttons">
+            <div class="mb-4 action-buttons" data-tour="signature-actions">
                 <button
                     type="button"
                     class="btn btn-primary"
@@ -75,7 +75,7 @@
         </div>
 
         <!-- Preview Section -->
-        <div class="panel">
+        <div class="panel" data-tour="signature-preview">
             <h6 class="text-base font-semibold dark:text-white-light mb-4">Signature Preview</h6>
             
             <div *ngIf="isLoading && !previewUrl" class="flex items-center justify-center h-64 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
@@ -112,7 +112,7 @@
     </div>
 
     <!-- Instructions -->
-    <div class="panel mt-6">
+    <div class="panel mt-6" data-tour="signature-instructions">
         <h6 class="text-base font-semibold dark:text-white-light mb-3">Instructions</h6>
         <ul class="list-disc list-inside space-y-2 text-sm text-gray-600 dark:text-gray-400">
             <li>Scan your signature on a white background for best results</li>

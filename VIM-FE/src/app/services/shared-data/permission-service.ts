@@ -50,7 +50,7 @@ export class PermissionService {
 
     private moduleSubMenuMap: { [key: string]: string[] } = {
         'Dashboard': [],
-        'Master Data': ['Department', 'Signature'],
+        'Master Data': ['Department', 'Signature', 'Sap Employees', 'Organizations', 'Sub Areas', 'Divisions', 'Workflow Pipelines'],
         'Velocity': [
             'Application',
             'Applications View',
@@ -59,7 +59,7 @@ export class PermissionService {
             'Univer Form Builder',
             'Budget Approval'
         ],
-        'User Management': ['User', 'Password Policy', 'Change Password', 'Permission', 'Role Management', 'Activity Logs']
+        'User Management': ['User', 'Password Policy', 'Change Password', 'Permission', 'Role Management', 'Activity Logs', 'Delegation Management']
     };
 
     constructor(private menuService: MenuService) {}

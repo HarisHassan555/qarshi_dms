@@ -1,0 +1,76 @@
+.user-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 9999px;
+    background: #e2e8f0;
+    color: #334155;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.user-avatar-letter {
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+.user-avatar.has-photo {
+    background: #dbeafe;
+}
+
+.user-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 9999px;
+}
+
+.user-avatar-sm {
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
+.user-avatar-sm .user-avatar-letter {
+    font-size: 0.65rem;
+}
+
+/* ng-select inside modal: avoid clipping and keep panel above dialog */
+:host ::ng-deep .delegation-modal .modal-dialog,
+:host ::ng-deep .delegation-modal .modal-content,
+:host ::ng-deep .delegation-modal .modal-body {
+    overflow: visible;
+}
+
+:host ::ng-deep .delegation-user-select .ng-dropdown-panel {
+    z-index: 200;
+}
+
+:host ::ng-deep .delegation-user-select .ng-dropdown-panel .ng-option {
+    padding-top: 8px;
+    padding-bottom: 8px;
+    line-height: 1.3;
+}
+
+:host ::ng-deep .delegation-user-select.ng-select-single .ng-select-container .ng-value-container .ng-value {
+    display: flex;
+    align-items: center;
+    max-width: calc(100% - 2rem);
+}
+
+:host ::ng-deep .delegation-modal .modal-content .delegation-user-select .ng-value-label,
+:host ::ng-deep .delegation-modal .modal-content .delegation-select-label {
+    color: #0e1726;
+}
+
+:host ::ng-deep .dark .delegation-modal .modal-content .delegation-user-select .ng-value-label,
+:host ::ng-deep .dark .delegation-modal .modal-content .delegation-select-label {
+    color: #e0e6ed;
+}
+
+:host ::ng-deep .delegation-user-select.ng-select-single .ng-select-container .ng-value-container .ng-input {
+    padding-left: 0;
+}

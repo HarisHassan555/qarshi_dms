@@ -1,0 +1,71 @@
+.emp-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 9999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    background: #e2e8f0;
+    color: #334155;
+    flex-shrink: 0;
+}
+
+.emp-avatar.has-photo {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.emp-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 9999px;
+}
+
+.emp-avatar-lg {
+    width: 3rem;
+    height: 3rem;
+    font-size: 0.85rem;
+}
+
+.sap-hcm-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1050;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.sap-hcm-modal {
+    width: min(720px, 100%);
+    max-height: 90vh;
+    overflow: auto;
+    padding: 1.25rem 1.5rem;
+}
+
+.sap-hcm-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 1.25rem;
+    font-size: 0.9rem;
+}
+
+.sap-hcm-detail-grid .label {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+    margin-bottom: 0.15rem;
+}
+
+@media (max-width: 640px) {
+    .sap-hcm-detail-grid {
+        grid-template-columns: 1fr;
+    }
+}

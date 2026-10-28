@@ -183,6 +183,7 @@ public class HrTblDepartmentDAO implements IHrTblDepartmentDAO {
 			managedDepartment.setTxtDepartmentCode(normalizeDepartmentText(HrTblDepartment.getTxtDepartmentCode()));
 			managedDepartment.setTxtDescription(HrTblDepartment.getTxtDescription());
 			managedDepartment.setSerParentDepartmentId(HrTblDepartment.getSerParentDepartmentId());
+			managedDepartment.setSerDivisionId(HrTblDepartment.getSerDivisionId());
 			managedDepartment.setSerDepartmentHeadId(HrTblDepartment.getSerDepartmentHeadId());
 			managedDepartment.setBlnStatus(HrTblDepartment.getBlnStatus());
 			managedDepartment.setBlIsActive(HrTblDepartment.getBlIsActive());

@@ -53,29 +53,34 @@
         </div>
 
         <!-- BEGIN APP SETTING LAUNCHER -->
-        <setting></setting>
+        <setting *ngIf="!isDocumentShareRoute"></setting>
         <!-- END APP SETTING LAUNCHER -->
 
-        <div class="main-container min-h-screen text-black dark:text-white-dark" [ngClass]="[store?.navbar]">
+        <div
+            class="main-container min-h-screen text-black dark:text-white-dark"
+            [ngClass]="[store?.navbar, isDocumentShareRoute ? 'document-share-layout' : '']">
             <!--  BEGIN SIDEBAR  -->
-            <sidebar></sidebar>
+            <sidebar *ngIf="!isDocumentShareRoute"></sidebar>
             <!--  END SIDEBAR  -->
 
-            <div class="main-content flex flex-col min-h-screen">
+            <div class="main-content flex min-h-screen flex-col">
                 <!--  BEGIN TOP NAVBAR  -->
-                <header></header>
+                <header *ngIf="!isDocumentShareRoute"></header>
                 <!--  END TOP NAVBAR  -->
 
                 <!--  BEGIN CONTENT AREA  -->
-                <div class="animation p-6">
+                <div class="animation" [ngClass]="isDocumentShareRoute ? 'p-0' : 'p-6'">
                     <router-outlet></router-outlet>
                 </div>
                 <!--  END CONTENT AREA  -->
 
                 <!-- BEGIN FOOTER -->
-                <footer></footer>
+                <footer *ngIf="!isDocumentShareRoute"></footer>
                 <!-- END FOOTER -->
             </div>
         </div>
+
+        <app-product-tour-shell *ngIf="!isDocumentShareRoute"></app-product-tour-shell>
+        <app-profile-drawer *ngIf="!isDocumentShareRoute"></app-profile-drawer>
     </div>
 </div>

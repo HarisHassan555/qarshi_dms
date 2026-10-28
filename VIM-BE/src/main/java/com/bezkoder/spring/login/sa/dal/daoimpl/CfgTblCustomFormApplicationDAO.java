@@ -14,6 +14,8 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Repository;
 import com.bezkoder.spring.login.admin.bll.services.ICommonService;
 import com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService;
+import com.bezkoder.spring.login.sa.bll.dto.WorkflowEmailRenderRequest;
+import com.bezkoder.spring.login.sa.bll.servicesimpl.WorkflowEmailRenderService;
 import com.bezkoder.spring.login.sa.dal.dao.ICfgTblCustomFormApplicationDAO;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApplication;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm;
@@ -44,6 +46,7 @@ import org.apache.pdfbox.text.TextPosition;
 import java.util.Base64;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblAppActivityLog;
 import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
@@ -106,6 +109,9 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
 
     @Autowired
     private EmailService emailService;
+
+    @Autowired
+    private WorkflowEmailRenderService workflowEmailRenderService;
 
     private static final Logger log = LoggerFactory.getLogger(CfgTblCustomFormApplicationDAO.class);
 
@@ -1873,6 +1879,84 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
         return "PENDING".equals(status) || "REJECTED".equals(status) || "NEW".equals(status);
     }
 
+    /**
+     * Rebuilds the downloadable PDF from the stage-0 snapshot and full approval history so every
+     * approver signature appears (individual footer pipeline and template signature fields).
+     */
+    private byte[] rebuildApplicationPdfForDownload(CfgTblCustomFormApplication application,
+            Map<String, Object> appData) {
+        if (application == null) {
+            return null;
+        }
+        byte[] stored = application.getBlbPdfData();
+        if (stored == null || stored.length == 0) {
+            return null;
+        }
+        if (appData == null) {
+            appData = parseApplicationData(application);
+        }
+
+        byte[] stageZeroPdf = application.getBlbPdfForStage(0);
+        byte[] basePdf = (stageZeroPdf != null && stageZeroPdf.length > 0) ? stageZeroPdf : stored;
+
+        boolean hasFooterFields = !extractFooterFields(appData).isEmpty();
+        boolean hasTemplatePlacementSignatures = templateHasPlacementSignatureFields(appData);
+        if (!hasFooterFields && !hasTemplatePlacementSignatures) {
+            return stored;
+        }
+
+        try {
+            byte[] result = basePdf;
+            if (isTemplateBuilderApplication(appData) && hasTemplatePlacementSignatures) {
+                byte[] templatePdf = applyTemplateApprovalSignaturesToPdf(basePdf, application, appData);
+                if (templatePdf != null && templatePdf.length > 0) {
+                    result = templatePdf;
+                }
+            }
+            if (hasFooterFields) {
+                byte[] footerBase = (stageZeroPdf != null && stageZeroPdf.length > 0) ? stageZeroPdf : basePdf;
+                byte[] footerPdf = applyDynamicFooterSignaturesToPdf(
+                        footerBase,
+                        appData,
+                        application.getTxtApprovalHistory(),
+                        false);
+                if (footerPdf != null && footerPdf.length > 0) {
+                    result = footerPdf;
+                }
+            }
+            return result != null && result.length > 0 ? result : stored;
+        } catch (Exception e) {
+            log.warn("rebuildApplicationPdfForDownload failed for appId={}: {}",
+                    application.getSerApplicationId(), e.getMessage(), e);
+            return stored;
+        }
+    }
+
+    private boolean templateHasPlacementSignatureFields(Map<String, Object> appData) {
+        if (!isTemplateBuilderApplication(appData)) {
+            return false;
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> templatePayload = appData.get("templatePayload") instanceof Map
+                ? (Map<String, Object>) appData.get("templatePayload")
+                : null;
+        if (templatePayload == null || !(templatePayload.get("fields") instanceof List)) {
+            return false;
+        }
+        for (Object raw : (List<?>) templatePayload.get("fields")) {
+            if (!(raw instanceof Map)) {
+                continue;
+            }
+            String type = ((Map<?, ?>) raw).get("type") != null
+                    ? String.valueOf(((Map<?, ?>) raw).get("type")).trim().toLowerCase(Locale.ROOT)
+                    : "";
+            if ("dynamic_signature".equals(type) || "pipeline_signature".equals(type)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public byte[] resolveDownloadablePdf(Integer applicationId) {
         EntityManager entityManager = getEntityManager();
@@ -1887,6 +1971,11 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
             }
 
             if (application.getBlbPdfData() != null && application.getBlbPdfData().length > 0) {
+                Map<String, Object> appData = parseApplicationData(application);
+                byte[] rebuilt = rebuildApplicationPdfForDownload(application, appData);
+                if (rebuilt != null && rebuilt.length > 0) {
+                    return rebuilt;
+                }
                 return application.getBlbPdfData();
             }
 
@@ -1929,6 +2018,107 @@ public class CfgTblCustomFormApplicationDAO implements ICfgTblCustomFormApplicat
                 entityManager.close();
             }
         }
+    }
+
+    @Override
+    public java.util.Map<String, Object> checkApplicationPdfSignatures(Integer applicationId) {
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        java.util.List<java.util.Map<String, Object>> missing = new java.util.ArrayList<>();
+        result.put("allPresent", true);
+        result.put("missing", missing);
+
+        EntityManager entityManager = getEntityManager();
+        try {
+            if (applicationId == null) {
+                return result;
+            }
+            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+            if (application == null) {
+                return result;
+            }
+
+            java.util.Set<Integer> signerIds = collectPdfSignerUserIds(application);
+            if (signerIds.isEmpty()) {
+                return result;
+            }
+
+            Map<Integer, String> signaturePaths = loadUserSignaturePaths(signerIds.toArray(new Integer[0]));
+            for (Integer userId : signerIds) {
+                if (userId == null) {
+                    continue;
+                }
+                String path = signaturePaths.get(userId);
+                boolean fileOk = path != null && !path.trim().isEmpty()
+                        && com.bezkoder.spring.login.admin.utility.common.SignatureStorageUtil
+                                .hasStoredSignatureFile(path);
+                if (fileOk) {
+                    continue;
+                }
+                java.util.Map<String, Object> item = new java.util.HashMap<>();
+                item.put("userId", userId);
+                item.put("userName", resolveUserDisplayName(entityManager, userId));
+                item.put("signaturePath", path != null ? path : "");
+                missing.add(item);
+            }
+
+            result.put("allPresent", missing.isEmpty());
+            result.put("missing", missing);
+            return result;
+        } catch (Exception e) {
+            log.warn("checkApplicationPdfSignatures failed for applicationId={}: {}", applicationId, e.getMessage());
+            return result;
+        } finally {
+            if (entityManager.isOpen()) {
+                entityManager.close();
+            }
+        }
+    }
+
+    private java.util.Set<Integer> collectPdfSignerUserIds(CfgTblCustomFormApplication application) {
+        java.util.Set<Integer> signerIds = new java.util.LinkedHashSet<>();
+        if (application == null) {
+            return signerIds;
+        }
+        List<Map<String, Object>> history = filterActiveTemplateHistoryEntries(
+                parseApprovalHistory(application.getTxtApprovalHistory()));
+        if (history != null) {
+            for (Map<String, Object> entry : history) {
+                if (entry == null) {
+                    continue;
+                }
+                if (!isApprovedEntry(entry) && !isSubmissionHistoryEntryForPdf(entry)) {
+                    continue;
+                }
+                Integer userId = extractApprovalUserId(entry);
+                if (userId != null && userId > 0) {
+                    signerIds.add(userId);
+                }
+            }
+        }
+        return signerIds;
+    }
+
+    private boolean isSubmissionHistoryEntryForPdf(Map<String, Object> entry) {
+        if (entry == null) {
+            return false;
+        }
+        String action = entry.get("action") != null ? String.valueOf(entry.get("action")).trim().toUpperCase(Locale.ROOT)
+                : "";
+        return "SUBMITTED".equals(action) || "RESUBMITTED_BY_INITIATOR".equals(action);
+    }
+
+    private String resolveUserDisplayName(EntityManager em, Integer userId) {
+        if (userId == null) {
+            return "User";
+        }
+        try {
+            CfgTblUser user = em.find(CfgTblUser.class, userId);
+            if (user != null && user.getTxtUserName() != null && !user.getTxtUserName().trim().isEmpty()) {
+                return user.getTxtUserName().trim();
+            }
+        } catch (Exception ignore) {
+        }
+        return "User " + userId;
     }
 
     @Override
@@ -5659,6 +5849,11 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
                     + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
             String[] holdUrls = resolveTemplateEmailHoldActionUrls(application, recipient.getSerUserId(), effectiveStatus);
+            String opinionUrl = null;
+            if ("OPINION_PENDING".equalsIgnoreCase(effectiveStatus)) {
+                opinionUrl = baseUrl + "/opinionApplicationFromEmail?applicationId="
+                        + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
+            }
             String html = generateApprovalEmailHtml(
                     recipient.getTxtUserName() != null ? recipient.getTxtUserName() : "User",
                     displayLevel,
@@ -5673,6 +5868,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     sendBackToInitiatorUrl,
                     holdUrls[0],
                     holdUrls[1],
+                    opinionUrl,
                     resolveTemplateNotificationHistoryJson(application),
                     getBaseUrl());
             sendEmailWithSpecificPdf(java.util.Arrays.asList(recipient.getTxtAddress()), subject, html, application,
@@ -8031,6 +8227,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     null, // rejectUrl
                     null, // sendBackUrl
                     null, // sendBackToInitiatorUrl
+                    true,
                     historyJson,
                     getBaseUrl());
 
@@ -8543,6 +8740,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                         rejectUrl,
                         sendBackUrl,
                         sendBackToInitiatorUrl,
+                        false,
+                        true,
                         application.getTxtApprovalHistory(),
                         baseUrl);
                 sendEmailWithInlineFormPreview(
@@ -8659,6 +8858,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     null,
                     null,
                     null,
+                    false,
+                    true,
                     application.getTxtApprovalHistory(),
                     getBaseUrl());
             html = appendPrCodeActionButtonForInitiator(html, application);
@@ -8872,6 +9073,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                         rejectUrl,
                         sendBackUrl,
                         sendBackToInitiatorUrl,
+                        false,
+                        true,
                         application.getTxtApprovalHistory(),
                         baseUrl);
                 sendEmailWithInlineFormPreview(
@@ -8967,6 +9170,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                         rejectUrl,
                         sendBackUrl,
                         sendBackToInitiatorUrl,
+                        false,
+                        true,
                         application.getTxtApprovalHistory(),
                         baseUrl);
                 sendEmailWithInlineFormPreview(
@@ -9110,6 +9315,8 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                         rejectUrl,
                         sendBackUrl,
                         sendBackToInitiatorUrl,
+                        false,
+                        true,
                         application.getTxtApprovalHistory(),
                         baseUrl);
                 sendEmailWithInlineFormPreview(
@@ -11793,12 +12000,43 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 if (!isHistoryEntryAfterLatestReset(history, i)) {
                     continue;
                 }
-                Object sigObj = entry.get("signaturePath");
-                if (sigObj == null) {
+                String sig = entry.get("signaturePath") != null ? String.valueOf(entry.get("signaturePath")).trim() : "";
+                if (sig.isEmpty() && allowFallback && signatureFromDb != null) {
+                    sig = signatureFromDb.getOrDefault(userId, "");
+                    if (sig == null) {
+                        sig = "";
+                    } else {
+                        sig = sig.trim();
+                    }
+                }
+                if (!sig.isEmpty()) {
+                    return sig;
+                }
+            }
+            // Role labels in footer vs approval history may differ; still honor a valid approval for this user.
+            for (int i = history.size() - 1; i >= 0; i--) {
+                Map<String, Object> entry = history.get(i);
+                if (entry == null) {
                     continue;
                 }
-                String sig = sigObj.toString();
-                if (!sig.trim().isEmpty()) {
+                Integer id = safeInt(entry.get("approvedBy"), safeInt(entry.get("userId"), null));
+                if (id == null || !id.equals(userId)) {
+                    continue;
+                }
+                if (!isApprovedEntry(entry)) {
+                    continue;
+                }
+                if (!isHistoryEntryAfterLatestReset(history, i)) {
+                    continue;
+                }
+                String sig = entry.get("signaturePath") != null ? String.valueOf(entry.get("signaturePath")).trim() : "";
+                if (sig.isEmpty() && allowFallback && signatureFromDb != null) {
+                    sig = signatureFromDb.getOrDefault(userId, "");
+                    if (sig != null) {
+                        sig = sig.trim();
+                    }
+                }
+                if (!sig.isEmpty()) {
                     return sig;
                 }
             }
@@ -14632,7 +14870,27 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             String approvalHistoryJson, String baseUrl) {
         return generateApprovalEmailHtml(recipientName, level, applicationCode, formName, status, remarks,
                 showActionButtons, approveUrl, rejectUrl, sendBackUrl, sendBackToInitiatorUrl,
-                null, null, approvalHistoryJson, baseUrl);
+                null, null, null, false, false, approvalHistoryJson, baseUrl);
+    }
+
+    private String generateApprovalEmailHtml(String recipientName, Integer level, String applicationCode,
+            String formName, String status, String remarks,
+            boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackUrl,
+            String sendBackToInitiatorUrl, boolean finalCompletion,
+            String approvalHistoryJson, String baseUrl) {
+        return generateApprovalEmailHtml(recipientName, level, applicationCode, formName, status, remarks,
+                showActionButtons, approveUrl, rejectUrl, sendBackUrl, sendBackToInitiatorUrl,
+                null, null, null, finalCompletion, false, approvalHistoryJson, baseUrl);
+    }
+
+    private String generateApprovalEmailHtml(String recipientName, Integer level, String applicationCode,
+            String formName, String status, String remarks,
+            boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackUrl,
+            String sendBackToInitiatorUrl, boolean finalCompletion, boolean approvalReminder,
+            String approvalHistoryJson, String baseUrl) {
+        return generateApprovalEmailHtml(recipientName, level, applicationCode, formName, status, remarks,
+                showActionButtons, approveUrl, rejectUrl, sendBackUrl, sendBackToInitiatorUrl,
+                null, null, null, finalCompletion, approvalReminder, approvalHistoryJson, baseUrl);
     }
 
     private String[] resolveTemplateEmailHoldActionUrls(CfgTblCustomFormApplication application, Integer recipientUserId,
@@ -14663,6 +14921,63 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackUrl,
             String sendBackToInitiatorUrl, String holdUrl, String unholdUrl,
             String approvalHistoryJson, String baseUrl) {
+        return generateApprovalEmailHtml(recipientName, level, applicationCode, formName, status, remarks,
+                showActionButtons, approveUrl, rejectUrl, sendBackUrl, sendBackToInitiatorUrl,
+                holdUrl, unholdUrl, null, false, false, approvalHistoryJson, baseUrl);
+    }
+
+    private String generateApprovalEmailHtml(String recipientName, Integer level, String applicationCode,
+            String formName, String status, String remarks,
+            boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackUrl,
+            String sendBackToInitiatorUrl, String holdUrl, String unholdUrl, String opinionUrl,
+            String approvalHistoryJson, String baseUrl) {
+        return generateApprovalEmailHtml(recipientName, level, applicationCode, formName, status, remarks,
+                showActionButtons, approveUrl, rejectUrl, sendBackUrl, sendBackToInitiatorUrl,
+                holdUrl, unholdUrl, opinionUrl, false, false, approvalHistoryJson, baseUrl);
+    }
+
+    private String generateApprovalEmailHtml(String recipientName, Integer level, String applicationCode,
+            String formName, String status, String remarks,
+            boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackUrl,
+            String sendBackToInitiatorUrl, String holdUrl, String unholdUrl,
+            boolean finalCompletion, boolean approvalReminder,
+            String approvalHistoryJson, String baseUrl) {
+        return generateApprovalEmailHtml(recipientName, level, applicationCode, formName, status, remarks,
+                showActionButtons, approveUrl, rejectUrl, sendBackUrl, sendBackToInitiatorUrl,
+                holdUrl, unholdUrl, null, finalCompletion, approvalReminder, approvalHistoryJson, baseUrl);
+    }
+
+    private String generateApprovalEmailHtml(String recipientName, Integer level, String applicationCode,
+            String formName, String status, String remarks,
+            boolean showActionButtons, String approveUrl, String rejectUrl, String sendBackUrl,
+            String sendBackToInitiatorUrl, String holdUrl, String unholdUrl, String opinionUrl,
+            boolean finalCompletion, boolean approvalReminder,
+            String approvalHistoryJson, String baseUrl) {
+        String historyHtml = buildApprovalHistoryHtml(approvalHistoryJson, baseUrl);
+        WorkflowEmailRenderRequest renderRequest = WorkflowEmailRenderRequest.builder()
+                .recipientName(recipientName)
+                .level(level)
+                .applicationCode(applicationCode)
+                .formName(formName)
+                .status(status)
+                .remarks(remarks)
+                .showActionButtons(showActionButtons)
+                .approveUrl(approveUrl)
+                .rejectUrl(rejectUrl)
+                .sendBackUrl(sendBackUrl)
+                .sendBackToInitiatorUrl(sendBackToInitiatorUrl)
+                .holdUrl(holdUrl)
+                .unholdUrl(unholdUrl)
+                .opinionUrl(opinionUrl)
+                .finalCompletion(finalCompletion)
+                .approvalReminder(approvalReminder)
+                .myApplicationUrl(resolveSpaBaseUrl() + "/my-application")
+                .build();
+        Optional<String> templated = workflowEmailRenderService.tryRenderWorkflowEmail(renderRequest, historyHtml);
+        if (templated.isPresent()) {
+            return templated.get();
+        }
+
         StringBuilder html = new StringBuilder();
         html.append("<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
         // Outlook-compatible styles with fallbacks
@@ -14776,11 +15091,26 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         boolean canSendBackToInitiator = showActionButtons && !onHold && sendBackToInitiatorUrl != null;
         boolean canHold = showActionButtons && !onHold && holdUrl != null;
         boolean canUnhold = showActionButtons && onHold && unholdUrl != null;
+        String normalizedStatus = status != null ? status.trim() : "";
+        boolean canOpinion = showActionButtons && !onHold && opinionUrl != null && !opinionUrl.trim().isEmpty()
+                && ("OPINION_PENDING".equalsIgnoreCase(normalizedStatus)
+                        || "OPINION_REQUESTED".equalsIgnoreCase(normalizedStatus));
 
-        if (showActionButtons && (canApproveReject || canSendBack || canSendBackToInitiator || canHold || canUnhold)) {
+        if (showActionButtons && (canApproveReject || canSendBack || canSendBackToInitiator || canHold || canUnhold
+                || canOpinion)) {
             // Button container using table for Outlook
             html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:30px 0;'>");
             html.append("<tr><td align='center' style='padding:10px 20px;'>");
+            if (canOpinion) {
+                html.append("<!--[if mso]>");
+                html.append("<v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='").append(opinionUrl).append("' style='height:44px;v-text-anchor:middle;width:150px;' arcsize='12%' strokecolor='#4361ee' fillcolor='#4361ee'>");
+                html.append("<w:anchorlock/><center style='color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:600;'>Opinion</center>");
+                html.append("</v:roundrect>");
+                html.append("<![endif]-->");
+                html.append("<!--[if !mso]><!-- -->");
+                html.append("<a href='").append(opinionUrl).append("' style='display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;background-color:#4361ee;color:#ffffff !important;'>Opinion</a>");
+                html.append("<!--<![endif]-->");
+            }
             if (canApproveReject) {
                 html.append("<!--[if mso]>");
                 html.append("<v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='").append(approveUrl).append("' style='height:44px;v-text-anchor:middle;width:180px;' arcsize='12%' strokecolor='#27ae60' fillcolor='#27ae60'>");
@@ -14848,10 +15178,9 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         } else {
             html.append("<p style='margin:15px 0;'>Thank you for using our system.</p>");
         }
-
+    
         // Keep history below actions so CAPF emails render as:
         // inline form -> action buttons -> logs.
-        String historyHtml = buildApprovalHistoryHtml(approvalHistoryJson, baseUrl);
         if (historyHtml != null && !historyHtml.trim().isEmpty()) {
             html.append(historyHtml);
         }
@@ -16355,7 +16684,7 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 Integer uid = extractUserId(userObj);
                 String sigPath = "";
                 if (uid != null) {
-                    sigPath = findSignatureForUser(approvalHistory, uid, role, false, signatureFromDb);
+                    sigPath = findSignatureForUser(approvalHistory, uid, role, true, signatureFromDb);
                 }
                 if (sigPath != null && !sigPath.trim().isEmpty()) {
                     float[] cell = dynamicFooterCellBounds(x, colWidth, slotIndex);
@@ -16446,6 +16775,23 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             }
             if (targetSlotIndex >= 0) {
                 break;
+            }
+        }
+        if (targetSlotIndex < 0) {
+            slotIndex = 0;
+            for (int i = 0; i < sections; i++) {
+                List<Object> users = sectionSlots.get(i);
+                for (Object userObj : users) {
+                    Integer uid = extractUserId(userObj);
+                    if (approvedBy.equals(uid)) {
+                        targetSlotIndex = slotIndex;
+                        break;
+                    }
+                    slotIndex++;
+                }
+                if (targetSlotIndex >= 0) {
+                    break;
+                }
             }
         }
         if (targetSlotIndex < 0) {

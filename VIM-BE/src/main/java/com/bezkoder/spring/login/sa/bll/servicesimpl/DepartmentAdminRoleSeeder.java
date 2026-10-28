@@ -32,6 +32,9 @@ public class DepartmentAdminRoleSeeder {
 
             CfgTblRole role = findDepartmentAdminRole(em);
             if (role == null) {
+                role = findDepartmentAdminRoleByCode(em);
+            }
+            if (role == null) {
                 role = new CfgTblRole();
                 role.setTxtRoleName(ROLE_NAME);
                 role.setTxtRoleCode(ROLE_NAME.toUpperCase());
@@ -40,9 +43,22 @@ public class DepartmentAdminRoleSeeder {
                 role.setBlIsDeleted(false);
                 role.setDteCreatedDate(commonService.getCurrentTimeStamp_new());
                 role.setSerCreatedUser(1);
-                em.persist(role);
-                log.info("DepartmentAdminRoleSeeder: created '{}' role.", ROLE_NAME);
-            } else {
+                try {
+                    em.persist(role);
+                    log.info("DepartmentAdminRoleSeeder: created '{}' role.", ROLE_NAME);
+                } catch (Exception persistEx) {
+                    em.flush();
+                    role = findDepartmentAdminRole(em);
+                    if (role == null) {
+                        role = findDepartmentAdminRoleByCode(em);
+                    }
+                    if (role == null) {
+                        throw persistEx;
+                    }
+                    log.warn("DepartmentAdminRoleSeeder: role already exists; applying normalization.");
+                }
+            }
+            if (role != null) {
                 role.setTxtRoleName(ROLE_NAME);
                 role.setTxtRoleCode(ROLE_NAME.toUpperCase());
                 role.setBlIsActive(true);
@@ -74,6 +90,19 @@ public class DepartmentAdminRoleSeeder {
                     "FROM CfgTblRole r WHERE LOWER(TRIM(r.txtRoleName)) = LOWER(:roleName)",
                     CfgTblRole.class)
                     .setParameter("roleName", ROLE_NAME)
+                    .setMaxResults(1)
+                    .getSingleResult();
+        } catch (NoResultException e) {
+            return null;
+        }
+    }
+
+    private CfgTblRole findDepartmentAdminRoleByCode(EntityManager em) {
+        try {
+            return em.createQuery(
+                    "FROM CfgTblRole r WHERE UPPER(TRIM(r.txtRoleCode)) = UPPER(:roleCode)",
+                    CfgTblRole.class)
+                    .setParameter("roleCode", ROLE_NAME.toUpperCase())
                     .setMaxResults(1)
                     .getSingleResult();
         } catch (NoResultException e) {

@@ -1,0 +1,164 @@
+:host {
+    display: block;
+}
+
+::ng-deep .workflow-pipeline-editor-modal .modal-dialog {
+    max-width: 52rem;
+    width: calc(100% - 2rem);
+}
+
+.wp-step-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.wp-step-panel {
+    background: rgba(0, 0, 0, 0.02);
+}
+
+.dark .wp-step-panel {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.wp-page-tabs {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.wp-page-tab {
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: #64748b;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: -1px;
+    padding: 10px 14px;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.wp-page-tab:hover {
+    color: #2563eb;
+}
+
+.wp-page-tab.is-active {
+    border-bottom-color: #2563eb;
+    color: #2563eb;
+}
+
+.wp-threshold-banner strong {
+    font-weight: 700;
+}
+
+::ng-deep .workflow-threshold-rule-modal .modal-dialog {
+    max-width: 56rem;
+    width: calc(100% - 2rem);
+}
+
+.wp-threshold-modal-grid {
+    display: grid;
+    gap: 1.25rem;
+    grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+    .wp-threshold-modal-grid {
+        grid-template-columns: 1fr 1fr;
+        align-items: start;
+    }
+}
+
+.wp-threshold-preview {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px;
+}
+
+.dark .wp-threshold-preview {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: #1b2e4b;
+}
+
+.wp-threshold-preview-title {
+    font-size: 14px;
+    font-weight: 700;
+    margin: 0 0 8px;
+}
+
+.wp-threshold-preview-rule {
+    background: #ffffff;
+    border: 1px dashed #cbd5e1;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.dark .wp-threshold-preview-rule {
+    background: #0e1726;
+    border-color: #334155;
+}
+
+.wp-threshold-preview-if {
+    color: #0f172a;
+    font-weight: 600;
+}
+
+.dark .wp-threshold-preview-if {
+    color: #e2e8f0;
+}
+
+.wp-threshold-preview-then {
+    color: #2563eb;
+    margin-top: 6px;
+}
+
+.wp-threshold-step-preview-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wp-threshold-step-preview-item {
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 8px 10px;
+    background: #fff;
+}
+
+.dark .wp-threshold-step-preview-item {
+    background: #0e1726;
+    border-color: #1b2e4b;
+}
+
+.wp-threshold-step-preview-item.is-override {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2);
+}
+
+.wp-threshold-step-preview-item.is-insert {
+    border-color: #16a34a;
+    border-style: dashed;
+    background: #f0fdf4;
+}
+
+.dark .wp-threshold-step-preview-item.is-insert {
+    background: rgba(22, 163, 74, 0.08);
+    border-color: #22c55e;
+}
+
+.wp-threshold-try-match {
+    border-top: 1px solid #e2e8f0;
+    padding-top: 12px;
+}
+
+.dark .wp-threshold-try-match {
+    border-top-color: #1b2e4b;
+}

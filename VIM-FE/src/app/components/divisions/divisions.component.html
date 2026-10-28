@@ -1,0 +1,33 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-3 px-5 md:flex-row md:items-center">
+            <div data-tour="divisions-header">
+                <h5 class="text-xl font-bold dark:text-white-light">Divisions</h5>
+                <p class="text-sm text-gray-500 mt-1">Synced from SAP HCM on employee import (upsert).</p>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto flex gap-2" data-tour="divisions-toolbar">
+                <button type="button" class="btn btn-outline-secondary btn-sm" (click)="load()" [disabled]="loading">Refresh</button>
+                <input [(ngModel)]="search" type="text" class="form-input w-56" placeholder="Search..." />
+            </div>
+        </div>
+        <div class="px-5 mb-3 text-sm text-gray-500">
+            <span *ngIf="loading">Loading…</span>
+            <span *ngIf="!loading">{{ rows.length }} division(s)</span>
+            <span *ngIf="loadError" class="text-danger ltr:ml-2">{{ loadError }}</span>
+        </div>
+        <div class="datatable invoice-table px-5" data-tour="divisions-grid">
+            <ng-datatable
+                [rows]="rows"
+                [columns]="cols"
+                [search]="search"
+                [sortable]="true"
+                skin="whitespace-nowrap bh-table-hover">
+                <ng-template slot="blnStatus" let-value="data">
+                    <span class="badge" [ngClass]="value.blnStatus ? 'badge-outline-success' : 'badge-outline-danger'">
+                        {{ value.blnStatus ? 'Active' : 'Inactive' }}
+                    </span>
+                </ng-template>
+            </ng-datatable>
+        </div>
+    </div>
+</div>

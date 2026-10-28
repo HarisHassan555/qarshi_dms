@@ -1,0 +1,311 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-3 px-5 md:flex-row md:items-center">
+            <div data-tour="sap-hcm-header">
+                <h5 class="text-xl font-bold dark:text-white-light">Sap Employees</h5>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    Data from SAP <code class="text-xs">ZHCM_EMP_INFO_PAD_WS</code> (stored in DB; photos on disk).
+                </p>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto flex flex-wrap gap-2 items-center" data-tour="sap-sync">
+                <button type="button" class="btn btn-primary btn-sm" (click)="syncFromSap()" [disabled]="syncInProgress">
+                    {{ syncInProgress ? 'Syncing…' : 'Sync from SAP' }}
+                </button>
+                <label class="btn btn-outline-primary btn-sm mb-0 cursor-pointer" [class.opacity-50]="syncInProgress">
+                    {{ syncInProgress ? 'Importing…' : 'Import XML file' }}
+                    <input type="file" accept=".xml,text/xml" class="hidden" (change)="onXmlFileSelected($event)" [disabled]="syncInProgress" />
+                </label>
+                <button type="button" class="btn btn-outline-secondary btn-sm" (click)="loadEmployees()" [disabled]="loading">Refresh</button>
+                <input
+                    [(ngModel)]="search"
+                    (ngModelChange)="applyFilters()"
+                    type="text"
+                    class="form-input w-56"
+                    placeholder="Search employees..." />
+            </div>
+        </div>
+
+        <div class="mb-4 px-5 grid grid-cols-1 md:grid-cols-4 gap-3" data-tour="sap-hcm-filters">
+            <div>
+                <label class="text-xs text-gray-500">Company</label>
+                <select class="form-select" [(ngModel)]="filterCompany" (ngModelChange)="onCompanyFilterChange()">
+                    <option value="">All companies</option>
+                    <option *ngFor="let company of companyOptions" [value]="company">{{ company }}</option>
+                </select>
+            </div>
+            <div>
+                <label class="text-xs text-gray-500">Department</label>
+                <select class="form-select" [(ngModel)]="filterDepartment" (ngModelChange)="applyFilters()">
+                    <option value="">All departments</option>
+                    <option *ngFor="let dept of departmentOptions" [value]="dept">{{ dept }}</option>
+                </select>
+            </div>
+            <div>
+                <label class="text-xs text-gray-500">Status</label>
+                <select class="form-select" [(ngModel)]="filterActive" (ngModelChange)="applyFilters()">
+                    <option value="">All statuses</option>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                </select>
+            </div>
+            <div class="flex items-end gap-2">
+                <button type="button" class="btn btn-outline-secondary" (click)="clearFilters()">Clear filters</button>
+            </div>
+        </div>
+
+        <div class="px-5 mb-3 text-sm text-gray-500">
+            <span *ngIf="loading">Loading employees…</span>
+            <span *ngIf="!loading">Showing {{ displayRows.length }} of {{ allEmployees.length }} employees</span>
+            <span *ngIf="loadError" class="text-danger ltr:ml-2 rtl:mr-2">{{ loadError }}</span>
+            <span *ngIf="syncMessage" class="ltr:ml-2 rtl:mr-2 text-primary">{{ syncMessage }}</span>
+        </div>
+
+        <div class="datatable invoice-table" data-tour="sap-hcm-grid">
+            <ng-datatable
+                [rows]="displayRows"
+                [columns]="cols"
+                [sortable]="true"
+                skin="whitespace-nowrap bh-table-hover"
+                firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                lastArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M11 19L17 12L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M6.99976 19L12.9998 12L6.99976 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg> '
+                previousArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M15 5L9 12L15 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                nextArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M9 5L15 12L9 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'>
+
+                <ng-template slot="empName" let-value="data">
+                    <div class="flex items-center gap-2">
+                        <span class="emp-avatar" [class.has-photo]="value.hasPicture">
+                            <img *ngIf="hasPhoto(value)" [src]="getPhotoUrl(value)" alt="" class="emp-avatar-img" />
+                            <span *ngIf="!hasPhoto(value)">{{ getInitials(value.empName) }}</span>
+                        </span>
+                        <span>{{ value.empName }}</span>
+                    </div>
+                </ng-template>
+
+                <ng-template slot="email" let-value="data">
+                    <span *ngIf="value.email; else noEmail">{{ value.email }}</span>
+                    <ng-template #noEmail>—</ng-template>
+                </ng-template>
+
+                <ng-template slot="active" let-value="data">
+                    <span class="badge" [ngClass]="isActiveStatus(value.active) ? 'badge-outline-success' : 'badge-outline-danger'">
+                        {{ value.active || '—' }}
+                    </span>
+                </ng-template>
+
+                <ng-template slot="reportToName" let-value="data">
+                    {{ formatReportTo(value) }}
+                </ng-template>
+
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-1 flex-wrap">
+                        <button type="button" class="btn btn-sm btn-outline-primary" (click)="openDetails(value)">View</button>
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-primary"
+                            (click)="openCreateUser(value)"
+                            [disabled]="createUserMetaLoading">
+                            Create User
+                        </button>
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+    </div>
+</div>
+
+<div *ngIf="showDetailModal && selectedEmployee as emp" class="sap-hcm-modal-backdrop" (click)="closeDetails()">
+    <div class="sap-hcm-modal panel" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+        <div class="flex items-start justify-between gap-4 mb-4">
+            <div class="flex items-center gap-3">
+                <span class="emp-avatar emp-avatar-lg" [class.has-photo]="emp.hasPicture">
+                    <img *ngIf="hasPhoto(emp)" [src]="getPhotoUrl(emp)" alt="" class="emp-avatar-img" />
+                    <span *ngIf="!hasPhoto(emp)">{{ getInitials(emp.empName) }}</span>
+                </span>
+                <div>
+                    <h3 class="text-lg font-semibold dark:text-white">{{ emp.empName }}</h3>
+                    <p class="text-sm text-gray-500">{{ emp.employee }} · {{ emp.designation }}</p>
+                </div>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" (click)="closeDetails()">Close</button>
+        </div>
+
+        <div class="sap-hcm-detail-grid">
+            <div><span class="label">Department</span><span>{{ emp.departmentName }}</span></div>
+            <div><span class="label">Division</span><span>{{ emp.division }}</span></div>
+            <div><span class="label">Company</span><span>{{ emp.companyName }}</span></div>
+            <div><span class="label">Subarea</span><span>{{ emp.subarea }}</span></div>
+            <div><span class="label">Pay scale</span><span>{{ emp.payScale || '—' }}</span></div>
+            <div><span class="label">Email</span><span>{{ emp.email || '—' }}</span></div>
+            <div><span class="label">Status</span><span>{{ emp.active }}</span></div>
+            <div><span class="label">Reports to</span><span>{{ formatReportTo(emp) }}</span></div>
+            <div><span class="label">Annual inc. type</span><span>{{ emp.annualIncType || '—' }}</span></div>
+            <div><span class="label">Hiring date</span><span>{{ formatSapDate(emp.hiringDate) }}</span></div>
+            <div><span class="label">Confirmation</span><span>{{ formatSapDate(emp.confirmationDate) }}</span></div>
+            <div><span class="label">Retirement</span><span>{{ formatSapDate(emp.retirementDate) }}</span></div>
+            <div><span class="label">Separation</span><span>{{ formatSapDate(emp.separationDate) }}</span></div>
+            <div><span class="label">Rehiring</span><span>{{ formatSapDate(emp.rehiringDate) }}</span></div>
+            <div><span class="label">Photo</span><span>{{ emp.hasPicture ? 'On file' : 'No' }}</span></div>
+        </div>
+    </div>
+</div>
+
+<modal #createUserModal>
+    <ng-template #modalHeader>
+        <div>
+            Create User
+            <span *ngIf="createUserSource" class="text-sm font-normal text-gray-500 ltr:ml-2 rtl:mr-2">
+                from SAP {{ createUserSource.employee }} — {{ createUserSource.empName }}
+            </span>
+        </div>
+    </ng-template>
+    <ng-template #modalBody>
+        <form class="space-y-5 text-sm" [formGroup]="createUserForm" novalidate>
+            <div class="grid grid-cols-1 gap-4">
+                <div>
+                    <label for="sapCreateEmployeeId">Employee ID*</label>
+                    <input formControlName="txtCnic" id="sapCreateEmployeeId" type="text" placeholder="Enter Employee ID" class="form-input" readonly />
+                    <ng-container *ngIf="createUserSubmit && createUserForm.controls['txtCnic'].invalid">
+                        <p class="mt-1 text-danger" *ngIf="createUserForm.controls['txtCnic'].errors?.['required']">Employee ID is required</p>
+                        <p class="mt-1 text-danger" *ngIf="createUserForm.controls['txtCnic'].errors?.['uniqueCnic']">Employee ID is already in use</p>
+                    </ng-container>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="sapCreateName">Name*</label>
+                    <input formControlName="txtUserName" id="sapCreateName" type="text" placeholder="Enter Name" class="form-input"
+                        (blur)="onEmployeeIdOrNameChange()" />
+                    <ng-container *ngIf="createUserSubmit && createUserForm.controls['txtUserName'].invalid">
+                        <p class="mt-1 text-danger">Name is required</p>
+                    </ng-container>
+                </div>
+                <div>
+                    <label for="sapCreateLogin">Login Name*</label>
+                    <input formControlName="txtLoginName" id="sapCreateLogin" type="text" placeholder="Enter Login Name" class="form-input"
+                        (input)="onLoginNameInput()" />
+                    <p class="mt-1 text-xs text-gray-500">Suggested from Employee ID and name; you can edit anytime.</p>
+                    <ng-container *ngIf="createUserSubmit && createUserForm.controls['txtLoginName'].invalid">
+                        <p class="mt-1 text-danger" *ngIf="createUserForm.controls['txtLoginName'].errors?.['required']">Login name is required</p>
+                        <p class="mt-1 text-danger" *ngIf="createUserForm.controls['txtLoginName'].errors?.['duplicate']">Login name already exists</p>
+                    </ng-container>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="sapCreateEmail">Email*</label>
+                    <input formControlName="txtAddress" id="sapCreateEmail" type="email" placeholder="Enter Email" class="form-input" />
+                    <ng-container *ngIf="createUserSubmit && createUserForm.controls['txtAddress'].invalid">
+                        <p class="mt-1 text-danger" *ngIf="createUserForm.controls['txtAddress'].errors?.['required']">Email is required</p>
+                        <p class="mt-1 text-danger" *ngIf="createUserForm.controls['txtAddress'].errors?.['email']">Invalid email format</p>
+                    </ng-container>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div [formGroup]="createUserCfgTblRole">
+                    <label for="sapCreateRole">Role*</label>
+                    <select id="sapCreateRole" class="form-select text-white-dark" formControlName="serRoleId" (change)="onCreateUserRoleChange($event)">
+                        <option value="">Select Role</option>
+                        <option *ngFor="let role of roles" [value]="role.serRoleId">{{ role.txtRoleName }}</option>
+                    </select>
+                    <ng-container *ngIf="createUserSubmit && createUserCfgTblRole.controls['serRoleId'].invalid">
+                        <p class="mt-1 text-danger">Role is required</p>
+                    </ng-container>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="sapCreateOrganization">Organization*</label>
+                    <ng-select id="sapCreateOrganization" [items]="organizations" bindLabel="txtOrganizationName" bindValue="serOrganizationId"
+                        formControlName="serOrganizationId" placeholder="Select Organization" [clearable]="true"
+                        (change)="onOrganizationChange()">
+                    </ng-select>
+                    <ng-container *ngIf="createUserSubmit && createUserForm.controls['serOrganizationId'].invalid">
+                        <p class="mt-1 text-danger">Organization is required</p>
+                    </ng-container>
+                </div>
+                <div>
+                    <label for="sapCreateSubarea">Sub Area*</label>
+                    <ng-select id="sapCreateSubarea" [items]="filteredSubareas" bindLabel="txtSubareaName" bindValue="serSubareaId"
+                        formControlName="serSubareaId" placeholder="Select Sub Area" [clearable]="true"
+                        (change)="onSubareaChange()">
+                    </ng-select>
+                    <ng-container *ngIf="createUserSubmit && createUserForm.controls['serSubareaId'].invalid">
+                        <p class="mt-1 text-danger">Sub area is required</p>
+                    </ng-container>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="sapCreateDivision">Division*</label>
+                    <ng-select id="sapCreateDivision" [items]="filteredDivisions" bindLabel="txtDivisionName" bindValue="serDivisionId"
+                        formControlName="serDivisionId" placeholder="Select Division" [clearable]="true"
+                        (change)="onDivisionChange()">
+                    </ng-select>
+                    <ng-container *ngIf="createUserSubmit && createUserForm.controls['serDivisionId'].invalid">
+                        <p class="mt-1 text-danger">Division is required</p>
+                    </ng-container>
+                </div>
+                <div>
+                    <label for="sapCreateDept">Department*</label>
+                    <ng-select id="sapCreateDept" [items]="filteredDepartments" bindLabel="txtDepartmentName" bindValue="serDepartmentId"
+                        formControlName="serDepartmentId" placeholder="Select Department" [clearable]="true">
+                    </ng-select>
+                    <ng-container *ngIf="createUserSubmit && createUserForm.controls['serDepartmentId'].invalid">
+                        <p class="mt-1 text-danger">Department is required</p>
+                    </ng-container>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="sapCreateDesignation">Designation*</label>
+                    <input formControlName="txtDesignation" id="sapCreateDesignation" type="text" placeholder="Enter Designation" class="form-input" />
+                    <ng-container *ngIf="createUserSubmit && createUserForm.controls['txtDesignation'].invalid">
+                        <p class="mt-1 text-danger">Designation is required</p>
+                    </ng-container>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 gap-4">
+                <div>
+                    <label for="sapCreateProfilePicture">Profile picture</label>
+                    <input id="sapCreateProfilePicture" type="file" accept="image/png,image/jpeg,image/jpg,image/webp" class="form-input"
+                        (change)="onProfilePictureSelected($event)" />
+                    <p class="mt-1 text-xs text-gray-500">Prefilled from SAP photo when available; you can replace it.</p>
+                    <div class="mt-2 flex items-center gap-3" *ngIf="profilePicturePreview">
+                        <img [src]="profilePicturePreview" alt="Preview" class="h-16 w-16 rounded-full object-cover border" />
+                        <button type="button" class="btn btn-outline-danger btn-sm" (click)="clearProfilePicture()">Remove</button>
+                    </div>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="sapCreateMaxMb">Max Attachment Size (MB)</label>
+                    <input formControlName="numMaxAttachmentMb" id="sapCreateMaxMb" type="number" min="1" max="100" step="1"
+                        placeholder="Default 5" class="form-input" />
+                    <p class="mt-1 text-xs text-gray-500">Used when this user uploads files on forms. Leave empty / unset defaults to 5 MB.</p>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div *ngIf="isRoleVendor" [formGroup]="createUserCfgTblCustomer">
+                    <label for="sapCreateVendor">Vendor*</label>
+                    <ng-select id="sapCreateVendor" [items]="customers" bindLabel="txtCustomerName" bindValue="serCustomerId"
+                        formControlName="serCustomerId" placeholder="Select Vendor" [clearable]="true">
+                    </ng-select>
+                    <ng-container *ngIf="createUserSubmit && createUserCfgTblCustomer.controls['serCustomerId'].invalid">
+                        <p class="mt-1 text-danger">Vendor is required</p>
+                    </ng-container>
+                </div>
+                <div [ngClass]="{ 'sm:col-span-2': !isRoleVendor }">
+                    <label for="sapCreateStatus">Status*</label>
+                    <div class="flex items-center mt-2">
+                        <input formControlName="blnStatus" id="sapCreateStatus" type="checkbox" class="form-checkbox" />
+                        <label for="sapCreateStatus" class="ml-2">{{ createUserForm.controls['blnStatus'].value ? 'Active' : 'Inactive' }}</label>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" (click)="createUserModal.close()" class="btn btn-outline-danger">Close</button>
+        <button type="button" (click)="submitCreateUser()" class="btn btn-primary ltr:ml-4 rtl:mr-4">Save</button>
+    </ng-template>
+</modal>

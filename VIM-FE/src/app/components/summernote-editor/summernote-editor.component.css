@@ -1,0 +1,12 @@
+.summernote-editor-host {
+  width: 100%;
+}
+
+.summernote-editor-host ::ng-deep .note-editor {
+  border-color: #e0e6ed;
+  border-radius: 6px;
+}
+
+.summernote-editor-host ::ng-deep .note-toolbar {
+  border-radius: 6px 6px 0 0;
+}

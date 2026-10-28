@@ -1,0 +1,335 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-3 px-5 md:flex-row md:items-center">
+            <div data-tour="delegation-header">
+                <h5 class="text-xl font-bold dark:text-white-light">Delegation Management</h5>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto flex flex-wrap gap-2 items-center" data-tour="delegation-toolbar">
+                <button type="button" class="btn btn-primary gap-2" (click)="openAddModal()">
+                    <icon-plus />
+                    Add New
+                </button>
+                <input
+                    [(ngModel)]="search"
+                    type="text"
+                    class="form-input w-56"
+                    placeholder="Search..." />
+            </div>
+        </div>
+
+        <div class="mb-4 px-5 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3" data-tour="delegation-filters">
+            <div>
+                <label class="text-xs text-gray-500">Status</label>
+                <select class="form-select" [(ngModel)]="filterStatus">
+                    <option *ngFor="let opt of statusOptions" [value]="opt.value">{{ opt.label }}</option>
+                </select>
+            </div>
+            <div class="flex items-end gap-2 md:col-span-2 lg:col-span-3" data-tour="delegation-filter-actions">
+                <button type="button" class="btn btn-primary" (click)="applyFilters()">Apply Filters</button>
+                <button type="button" class="btn btn-outline-secondary" (click)="clearFilters()">Clear</button>
+            </div>
+        </div>
+
+        <div class="px-5 mb-3 text-sm text-gray-500 dark:text-gray-400" data-tour="delegation-summary">
+            <span>{{ displayRows.length }} delegation(s)</span>
+            <span class="ltr:ml-2 rtl:mr-2">
+                · Active {{ summary.active }}, Scheduled {{ summary.scheduled }}, Expired {{ summary.expired }}
+            </span>
+            <span *ngIf="loading">Loading delegations…</span>
+            <span *ngIf="loadError" class="text-danger ltr:ml-2 rtl:mr-2">{{ loadError }}</span>
+        </div>
+
+        <div class="datatable invoice-table px-5" data-tour="delegation-grid">
+            <ng-datatable
+                [rows]="displayRows"
+                [columns]="cols"
+                [search]="search"
+                [sortable]="true"
+                skin="whitespace-nowrap bh-table-hover"
+                firstArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M13 19L7 12L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M16.9998 19L10.9998 12L16.9998 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                lastArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M11 19L17 12L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path opacity="0.5" d="M6.99976 19L12.9998 12L6.99976 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg> '
+                previousArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M15 5L9 12L15 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                nextArrow='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 rtl:rotate-180"> <path d="M9 5L15 12L9 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg>'
+                paginationInfo="Showing {0} to {1} of {2} entries">
+
+                <ng-template slot="delegateUserName" let-value="data">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="user-avatar" [class.has-photo]="hasProfilePhoto(value.delegateUserId)">
+                            <img
+                                *ngIf="hasProfilePhoto(value.delegateUserId)"
+                                [src]="getProfilePhotoUrl(value.delegateUserId)"
+                                alt=""
+                                class="user-avatar-img" />
+                            <span
+                                *ngIf="!hasProfilePhoto(value.delegateUserId)"
+                                class="user-avatar-letter">
+                                {{ getAvatarLetter(value.delegateUserName) }}
+                            </span>
+                        </span>
+                        <div class="min-w-0">
+                            <div class="font-semibold dark:text-white-light truncate">{{ value.delegateUserName }}</div>
+                            <div class="text-xs text-gray-500 truncate">{{ value.delegateEmployeeId }}</div>
+                        </div>
+                    </div>
+                </ng-template>
+                <ng-template slot="onBehalfUserName" let-value="data">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="user-avatar" [class.has-photo]="hasProfilePhoto(value.onBehalfUserId)">
+                            <img
+                                *ngIf="hasProfilePhoto(value.onBehalfUserId)"
+                                [src]="getProfilePhotoUrl(value.onBehalfUserId)"
+                                alt=""
+                                class="user-avatar-img" />
+                            <span
+                                *ngIf="!hasProfilePhoto(value.onBehalfUserId)"
+                                class="user-avatar-letter">
+                                {{ getAvatarLetter(value.onBehalfUserName) }}
+                            </span>
+                        </span>
+                        <div class="min-w-0">
+                            <div class="font-semibold dark:text-white-light truncate">{{ value.onBehalfUserName }}</div>
+                            <div class="text-xs text-gray-500 truncate">{{ value.onBehalfRole }}</div>
+                        </div>
+                    </div>
+                </ng-template>
+                <ng-template slot="documentsLabel" let-value="data">
+                    <span
+                        class="inline-block max-w-[200px] overflow-hidden text-ellipsis whitespace-nowrap lg:max-w-xs"
+                        [title]="documentsDisplayTitle(value)">
+                        {{ documentsDisplay(value) }}
+                    </span>
+                </ng-template>
+                <ng-template slot="validFrom" let-value="data">
+                    {{ value.validFrom | date:'mediumDate' }}
+                </ng-template>
+                <ng-template slot="validTo" let-value="data">
+                    {{ value.validTo | date:'mediumDate' }}
+                </ng-template>
+                <ng-template slot="status" let-value="data">
+                    <span class="badge" [ngClass]="statusBadgeClass(value.status)">{{ statusLabel(value.status) }}</span>
+                </ng-template>
+                <ng-template slot="attachment" let-value="data">
+                    <button
+                        *ngIf="value.hasAttachment"
+                        type="button"
+                        class="text-primary text-xs font-semibold hover:underline"
+                        (click)="downloadRowAttachment(value)">
+                        Download
+                    </button>
+                    <span *ngIf="!value.hasAttachment" class="text-gray-400">—</span>
+                </ng-template>
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-4">
+                        <button
+                            type="button"
+                            class="hover:text-info"
+                            title="Edit"
+                            (click)="openEditModal(value)">
+                            <icon-edit class="h-4.5 w-4.5" />
+                        </button>
+                        <button
+                            type="button"
+                            class="hover:text-danger disabled:opacity-40 disabled:pointer-events-none"
+                            title="Revoke"
+                            [disabled]="value.status === 'REVOKED' || value.status === 'EXPIRED'"
+                            (click)="revokeDelegation(value)">
+                            <icon-trash-lines class="h-4.5 w-4.5" />
+                        </button>
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+    </div>
+</div>
+
+<modal #delegationModal class="delegation-modal large-modal">
+    <ng-template #modalHeader>
+        <div>{{ modalMode === 'add' ? 'Add' : 'Edit' }} Delegation</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <form class="space-y-5 text-sm" novalidate (ngSubmit)="saveDelegation()" data-tour="delegation-modal">
+           
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" data-tour="delegation-modal-users">
+                <div>
+                    <label for="delegationDelegate">Delegate user*</label>
+                    <ng-select
+                        id="delegationDelegate"
+                        class="custom-multiselect delegation-user-select"
+                        [items]="userSelectOptions"
+                        bindLabel="txtUserName"
+                        [compareWith]="compareUserOption"
+                        [(ngModel)]="formDelegateUser"
+                        name="formDelegateUser"
+                        [loading]="loadingUsers"
+                        [clearable]="true"
+                        [searchable]="true"
+                        dropdownPosition="auto"
+                        placeholder="Search user…"
+                        notFoundText="No users found">
+                        <ng-template ng-label-tmp let-item="item">
+                            <span class="delegation-select-label">{{ item?.txtUserName }}</span>
+                        </ng-template>
+                        <ng-template ng-option-tmp let-item="item">
+                            <div class="flex items-center gap-2">
+                                <span class="user-avatar user-avatar-sm" [class.has-photo]="hasProfilePhoto(item.serUserId)">
+                                    <img
+                                        *ngIf="hasProfilePhoto(item.serUserId)"
+                                        [src]="getProfilePhotoUrl(item.serUserId)"
+                                        alt=""
+                                        class="user-avatar-img" />
+                                    <span *ngIf="!hasProfilePhoto(item.serUserId)" class="user-avatar-letter">
+                                        {{ getAvatarLetter(item.txtUserName) }}
+                                    </span>
+                                </span>
+                                <div>
+                                    <div class="font-semibold">{{ item.txtUserName }}</div>
+                                    <div class="text-xs text-gray-500">
+                                        {{ item.txtCnic || '—' }}
+                                        <span *ngIf="item.roleName"> · {{ item.roleName }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </ng-template>
+                    </ng-select>
+                </div>
+                <div>
+                    <label for="delegationOnBehalf">On behalf of*</label>
+                    <ng-select
+                        id="delegationOnBehalf"
+                        class="custom-multiselect delegation-user-select"
+                        [items]="userSelectOptions"
+                        bindLabel="txtUserName"
+                        [compareWith]="compareUserOption"
+                        [(ngModel)]="formOnBehalfUser"
+                        (ngModelChange)="onOnBehalfUserChanged($event)"
+                        name="formOnBehalfUser"
+                        [loading]="loadingUsers"
+                        [clearable]="true"
+                        [searchable]="true"
+                        dropdownPosition="auto"
+                        placeholder="Search user…"
+                        notFoundText="No users found">
+                        <ng-template ng-label-tmp let-item="item">
+                            <span class="delegation-select-label">{{ item?.txtUserName }}</span>
+                        </ng-template>
+                        <ng-template ng-option-tmp let-item="item">
+                            <div class="flex items-center gap-2">
+                                <span class="user-avatar user-avatar-sm" [class.has-photo]="hasProfilePhoto(item.serUserId)">
+                                    <img
+                                        *ngIf="hasProfilePhoto(item.serUserId)"
+                                        [src]="getProfilePhotoUrl(item.serUserId)"
+                                        alt=""
+                                        class="user-avatar-img" />
+                                    <span *ngIf="!hasProfilePhoto(item.serUserId)" class="user-avatar-letter">
+                                        {{ getAvatarLetter(item.txtUserName) }}
+                                    </span>
+                                </span>
+                                <div>
+                                    <div class="font-semibold">{{ item.txtUserName }}</div>
+                                    <div class="text-xs text-gray-500">
+                                        {{ item.txtCnic || '—' }}
+                                        <span *ngIf="item.roleName"> · {{ item.roleName }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </ng-template>
+                    </ng-select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" data-tour="delegation-modal-dates">
+                <div>
+                    <label for="delegationValidFrom">Valid from*</label>
+                    <input id="delegationValidFrom" type="date" class="form-input" [(ngModel)]="formValidFrom" name="formValidFrom" />
+                </div>
+                <div>
+                    <label for="delegationValidTo">Valid to*</label>
+                    <input id="delegationValidTo" type="date" class="form-input" [(ngModel)]="formValidTo" name="formValidTo" />
+                </div>
+            </div>
+
+            <div data-tour="delegation-modal-documents">
+                <label for="delegationDocuments">Documents*</label>
+                <ng-select
+                    id="delegationDocuments"
+                    [items]="publishedDocuments"
+                    bindLabel="name"
+                    bindValue="id"
+                    [(ngModel)]="formDocumentIds"
+                    name="formDocumentIds"
+                    [multiple]="true"
+                    [loading]="loadingDocuments"
+                    [disabled]="!formOnBehalfUser?.serUserId"
+                    [clearable]="true"
+                    [searchable]="true"
+                    [closeOnSelect]="false"
+                    dropdownPosition="auto"
+                    [placeholder]="formOnBehalfUser?.serUserId
+                        ? 'Select documents visible to on-behalf user…'
+                        : 'Select on-behalf user first…'">
+                    <ng-template ng-option-tmp let-item="item">
+                        <div class="font-semibold">{{ item.name }}</div>
+                        <div class="text-xs text-gray-500">Form ID {{ item.id }}</div>
+                    </ng-template>
+                </ng-select>
+            </div>
+
+            <div>
+                <label for="delegationNotes">Notes</label>
+                <textarea
+                    id="delegationNotes"
+                    class="form-textarea"
+                    rows="2"
+                    [(ngModel)]="formNotes"
+                    name="formNotes"
+                    placeholder="Optional internal note"></textarea>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <input
+                    id="delegationNotifyBoth"
+                    type="checkbox"
+                    class="form-checkbox"
+                    [(ngModel)]="formNotifyBothParties"
+                    name="formNotifyBothParties" />
+                <label for="delegationNotifyBoth" class="!mb-0 cursor-pointer">Notify both parties by email</label>
+            </div>
+
+            <div>
+                <label for="delegationAttachment">Supporting attachment</label>
+                <input
+                    id="delegationAttachment"
+                    type="file"
+                    class="form-input"
+                    [accept]="attachmentAccept"
+                    (change)="onAttachmentSelected($event)" />
+                <div *ngIf="attachmentFormLabel" class="mt-2 flex flex-wrap items-center gap-2">
+                    <span class="text-sm font-medium dark:text-white-light">{{ attachmentFormLabel }}</span>
+                    <button
+                        *ngIf="formAttachmentBase64"
+                        type="button"
+                        class="btn btn-outline-danger btn-sm"
+                        (click)="clearNewAttachment()">
+                        Remove file
+                    </button>
+                    <button
+                        *ngIf="formExistingAttachment && !formAttachmentBase64"
+                        type="button"
+                        class="btn btn-outline-danger btn-sm"
+                        (click)="removeExistingAttachment()">
+                        Remove saved file
+                    </button>
+                </div>
+            </div>
+        </form>
+    </ng-template>
+    <ng-template #modalFooter>
+        <div class="flex w-full justify-end gap-2" data-tour="delegation-modal-actions">
+        <button type="button" class="btn btn-outline-danger" (click)="delegationModal.close()">Close</button>
+        <button type="button" class="btn btn-primary ltr:ml-4 rtl:mr-4" [disabled]="saving" (click)="saveDelegation()">
+            {{ saving ? 'Saving…' : 'Save' }}
+        </button>
+        </div>
+    </ng-template>
+</modal>

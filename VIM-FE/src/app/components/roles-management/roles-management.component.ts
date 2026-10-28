@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { forkJoin, of } from 'rxjs';
 import { catchError, finalize, switchMap } from 'rxjs/operators';
@@ -36,7 +36,7 @@ interface RoleViewModel {
     templateUrl: './roles-management.component.html',
     styleUrls: ['./roles-management.component.css']
 })
-export class RolesManagementComponent implements OnInit {
+export class RolesManagementComponent implements OnInit, OnDestroy {
     roles: RoleViewModel[] = [];
     filteredRoles: RoleViewModel[] = [];
     menus: MenuNode[] = [];
@@ -71,7 +71,43 @@ export class RolesManagementComponent implements OnInit {
             blnStatus: [true]
         });
         this.loadData();
+        window.addEventListener('velocity-tour-prepare', this.onTourPrepare);
     }
+
+    ngOnDestroy(): void {
+        window.removeEventListener('velocity-tour-prepare', this.onTourPrepare);
+    }
+
+    private onTourPrepare = (event: Event): void => {
+        const action = (event as CustomEvent<{ action?: string }>).detail?.action;
+        switch (action) {
+            case 'roles-close-modals':
+                if (this.showModal || this.showEditModal) {
+                    this.closeAddModal();
+                    this.closeEditModal();
+                }
+                break;
+            case 'roles-open-add-modal':
+                if (!this.showModal) {
+                    this.closeEditModal();
+                    this.openAddModal();
+                }
+                break;
+            case 'roles-open-edit-modal': {
+                if (this.showEditModal) {
+                    break;
+                }
+                this.closeAddModal();
+                const role = this.filteredRoles[0] || this.roles[0];
+                if (role) {
+                    this.openEditModal(role);
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    };
 
     loadData(): void {
         this.loading = true;
@@ -84,6 +120,7 @@ export class RolesManagementComponent implements OnInit {
             .subscribe(({ roles, users, menuTree }: any) => {
                 this.initializeMenuTree(menuTree || []);
                 this.mergeActivityLogsSubMenu(menuTree || []);
+                this.mergeDelegationManagementSubMenu(menuTree || []);
                 this.roles = (roles || []).map((role: any) => {
                     const roleId = Number(role?.serRoleId);
                     const roleUsers = (users || []).filter((u: any) => Number(u?.cfgTblRole) === roleId || Number(u?.cfgTblRole?.serRoleId) === roleId);
@@ -569,6 +606,55 @@ export class RolesManagementComponent implements OnInit {
         userMgmt.subMenus.push({
             subMenuId,
             subMenuName: activityLogsRaw?.txtSubMenuName || activityLogsRaw?.subMenuName || 'Activity Logs',
+            menuId: userMgmt.menuId,
+            selected: false
+        });
+        userMgmt.subMenus.sort((a, b) => a.subMenuName.localeCompare(b.subMenuName));
+    }
+
+    private mergeDelegationManagementSubMenu(apiMenus: any[]): void {
+        const userMgmt = this.menus.find(
+            (menu) => (menu.menuName || '').trim().toLowerCase() === 'user management'
+        );
+        if (!userMgmt) {
+            return;
+        }
+
+        const alreadyListed = userMgmt.subMenus.some(
+            (sm) => (sm.subMenuName || '').trim().toLowerCase() === 'delegation management'
+        );
+        if (alreadyListed) {
+            return;
+        }
+
+        let delegationRaw: any = null;
+        for (const menu of apiMenus || []) {
+            const subMenus = menu?.cfgTblSubMenus || menu?.subMenus || [];
+            for (const sm of subMenus) {
+                const name = (sm?.txtSubMenuName || sm?.subMenuName || '').toString().trim().toLowerCase();
+                const url = (sm?.txtSubMenuUrl || sm?.subMenuAction || '')
+                    .toString()
+                    .trim()
+                    .replace(/^\/+/, '')
+                    .toLowerCase();
+                if (name === 'delegation management' || url === 'delegation-management') {
+                    delegationRaw = sm;
+                    break;
+                }
+            }
+            if (delegationRaw) {
+                break;
+            }
+        }
+
+        const subMenuId = Number(delegationRaw?.serSubMenuId || delegationRaw?.subMenuId || 0);
+        if (subMenuId <= 0) {
+            return;
+        }
+
+        userMgmt.subMenus.push({
+            subMenuId,
+            subMenuName: delegationRaw?.txtSubMenuName || delegationRaw?.subMenuName || 'Delegation Management',
             menuId: userMgmt.menuId,
             selected: false
         });

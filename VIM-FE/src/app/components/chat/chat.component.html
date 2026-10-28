@@ -1,0 +1,217 @@
+<div class="chat-page panel">
+  <div class="chat-shell" [class.chat-shell--active]="!!selectedConversation">
+    <aside class="chat-sidebar" data-tour="chat-sidebar">
+      <div class="chat-sidebar-head">
+        <div class="chat-sidebar-head-row">
+          <h2 class="chat-sidebar-heading">Messenger</h2>
+          <button type="button" class="btn btn-primary btn-sm chat-new-btn" (click)="openNewChat()">
+            <icon-plus class="h-4 w-4" />
+            New chat
+          </button>
+        </div>
+        <p class="chat-sidebar-hint">Your conversations appear here.</p>
+        <div class="chat-notify-row">
+          <button
+            type="button"
+            class="btn btn-outline-primary btn-sm"
+            *ngIf="browserNotifyPermission !== 'granted' && browserNotifyPermission !== 'unsupported'"
+            (click)="enableBrowserNotifications()">
+            Enable notifications
+          </button>
+          <label class="chat-sound-toggle">
+            <input type="checkbox" [checked]="chatSoundEnabled" (change)="setChatSound($any($event.target).checked)" />
+            Message sound
+          </label>
+        </div>
+      </div>
+
+      <div class="chat-sidebar-section">
+        <input
+          type="search"
+          class="form-input form-input-sm"
+          placeholder="Search conversations..."
+          [(ngModel)]="conversationSearch" />
+
+        <p class="chat-sidebar-title">Chats ({{ filteredConversations.length }})</p>
+        <button
+          type="button"
+          *ngFor="let conv of filteredConversations"
+          class="chat-user-item"
+          [class.active]="isUserActive(conv.otherUserId)"
+          (click)="openChatWithUserId(conv.otherUserId, conv.otherUserName)">
+          <span
+            class="chat-user-avatar"
+            [class.has-photo]="showAvatarImage(conv.otherUserId, conv.otherUserHasProfilePicture)">
+            <img
+              *ngIf="showAvatarImage(conv.otherUserId, conv.otherUserHasProfilePicture)"
+              [src]="getAvatarImageUrl(conv.otherUserId)"
+              alt=""
+              class="chat-user-avatar-img" />
+            <span *ngIf="!showAvatarImage(conv.otherUserId, conv.otherUserHasProfilePicture)">
+              {{ userInitial(conv.otherUserName) }}
+            </span>
+          </span>
+          <span class="chat-user-meta">
+            <span class="chat-user-name">{{ conv.otherUserName || 'User' }}</span>
+            <span class="chat-conv-preview">{{ conv.lastMessageBody || 'No messages yet' }}</span>
+          </span>
+          <span *ngIf="conv.unreadCount > 0" class="chat-unread-badge">{{ conv.unreadCount }}</span>
+        </button>
+        <p *ngIf="!filteredConversations.length" class="chat-empty-hint">
+          {{ conversations.length ? 'No matching conversations.' : 'No chats yet. Click New chat to start one.' }}
+        </p>
+      </div>
+    </aside>
+
+    <section class="chat-main" data-tour="chat-main">
+      <ng-container *ngIf="selectedConversation; else pickUser">
+        <div class="chat-thread">
+          <div class="chat-thread-head">
+            <span
+              class="chat-user-avatar chat-user-avatar-lg"
+              [class.has-photo]="showAvatarImage(selectedUserId, selectedPeerHasProfilePicture())">
+              <img
+                *ngIf="showAvatarImage(selectedUserId, selectedPeerHasProfilePicture())"
+                [src]="getAvatarImageUrl(selectedUserId)"
+                alt=""
+                class="chat-user-avatar-img" />
+              <span *ngIf="!showAvatarImage(selectedUserId, selectedPeerHasProfilePicture())">
+                {{ userInitial(selectedPeerName) }}
+              </span>
+            </span>
+            <div class="chat-thread-identity min-w-0">
+              <h3 class="chat-thread-title">{{ selectedPeerName }}</h3>
+              <p *ngIf="selectedPeer?.loginName" class="chat-thread-login">@{{ selectedPeer?.loginName }}</p>
+              <p class="chat-thread-org" *ngIf="selectedPeerOrgLine">{{ selectedPeerOrgLine }}</p>
+              <p class="chat-thread-org chat-thread-org-empty" *ngIf="!selectedPeerOrgLine">Organization details not set</p>
+            </div>
+          </div>
+
+          <div class="chat-messages" #messagesPane>
+            <p *ngIf="loadingMessages" class="text-center text-sm text-gray-500">Loading messages…</p>
+            <p *ngIf="!loadingMessages && !messages.length" class="chat-empty-thread">
+              No messages yet. Type your message in the box below and press Send.
+            </p>
+            <div
+              *ngFor="let msg of messages; trackBy: trackMessage"
+              class="chat-bubble-row"
+              [class.mine]="isMine(msg)">
+              <div class="chat-bubble">
+                <p class="chat-bubble-text">{{ msg.body }}</p>
+                <div class="chat-bubble-meta">
+                  <span class="chat-bubble-time">{{ formatTime(msg.sentAt) }}</span>
+                  <span
+                    *ngIf="isMine(msg)"
+                    class="chat-ticks"
+                    [class.chat-ticks--sent]="ticksAreSent(msg)"
+                    [class.chat-ticks--delivered]="ticksAreDelivered(msg)"
+                    [class.chat-ticks--read]="ticksAreRead(msg)"
+                    [attr.aria-label]="messageDeliveryStatus(msg)"
+                    [attr.title]="tickStatusLabel(msg)">
+                    <span *ngIf="messageDeliveryStatus(msg) === 'pending'" class="chat-tick-pending" aria-hidden="true">◷</span>
+                    <span *ngIf="messageDeliveryStatus(msg) !== 'pending'" class="chat-tick-checks" aria-hidden="true">
+                      <svg class="chat-tick-icon" viewBox="0 0 16 12" focusable="false">
+                        <path d="M1 6.2L4.8 10 11 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                      <svg *ngIf="showDoubleTick(msg)" class="chat-tick-icon chat-tick-icon--second" viewBox="0 0 16 12" focusable="false">
+                        <path d="M1 6.2L4.8 10 11 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p *ngIf="chatError" class="chat-error-banner">{{ chatError }}</p>
+
+          <div class="chat-composer" role="form" (submit)="$event.preventDefault()">
+            <input
+              #messageInput
+              type="text"
+              class="form-input chat-composer-input"
+              placeholder="Type a message…"
+              [(ngModel)]="draft"
+              [disabled]="sending"
+              autocomplete="off"
+              (keydown.enter)="$event.preventDefault(); send()" />
+            <button
+              type="button"
+              class="btn btn-primary chat-composer-send"
+              [disabled]="sending || !draft.trim()"
+              (click)="send()">
+              {{ sending ? 'Sending…' : 'Send' }}
+            </button>
+          </div>
+        </div>
+      </ng-container>
+
+      <ng-template #pickUser>
+        <div class="chat-placeholder">
+          <icon-chat-dots class="mx-auto h-12 w-12 text-primary/40" />
+          <p class="mt-3 text-base font-semibold text-[#0e1726] dark:text-white-light">Select a conversation</p>
+          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Pick a chat from the left, or start a new one.
+          </p>
+          <button type="button" class="btn btn-primary mt-4" (click)="openNewChat()">
+            <icon-plus class="h-4 w-4" />
+            New chat
+          </button>
+          <p *ngIf="chatError" class="mt-4 max-w-md text-sm text-danger">{{ chatError }}</p>
+          <p *ngIf="openingChat" class="mt-2 text-sm text-primary">Opening chat…</p>
+        </div>
+      </ng-template>
+
+    </section>
+  </div>
+</div>
+
+<div *ngIf="showNewChat" class="chat-modal-backdrop" (click)="closeNewChat()">
+  <div class="chat-modal" (click)="$event.stopPropagation()">
+    <div class="chat-modal-head">
+      <div>
+        <h3 class="chat-modal-title">New chat</h3>
+        <p class="chat-modal-sub">Select a person to start messaging.</p>
+      </div>
+      <button type="button" class="chat-modal-close" (click)="closeNewChat()" aria-label="Close">
+        <icon-x class="h-4 w-4" />
+      </button>
+    </div>
+    <div class="chat-modal-body">
+      <input
+        type="search"
+        class="form-input form-input-sm"
+        placeholder="Search people..."
+        [(ngModel)]="userSearch"
+        autofocus />
+      <p class="chat-sidebar-title">People ({{ filteredUsers.length }})</p>
+      <div class="chat-modal-list">
+        <button
+          type="button"
+          *ngFor="let user of filteredUsers"
+          class="chat-user-item"
+          [disabled]="openingChat && selectedUserId === user.userId"
+          (click)="startChatWithUser(user)">
+          <span
+            class="chat-user-avatar"
+            [class.has-photo]="showAvatarImage(user.userId, user.hasProfilePicture)">
+            <img
+              *ngIf="showAvatarImage(user.userId, user.hasProfilePicture)"
+              [src]="getAvatarImageUrl(user.userId)"
+              alt=""
+              class="chat-user-avatar-img" />
+            <span *ngIf="!showAvatarImage(user.userId, user.hasProfilePicture)">
+              {{ userInitial(user.displayName) }}
+            </span>
+          </span>
+          <span class="chat-user-meta">
+            <span class="chat-user-name">{{ user.displayName }}</span>
+            <span *ngIf="user.loginName" class="chat-conv-preview">@{{ user.loginName }}</span>
+          </span>
+        </button>
+        <p *ngIf="loadingUsers" class="chat-empty-hint">Loading people…</p>
+        <p *ngIf="!loadingUsers && !filteredUsers.length" class="chat-empty-hint">No matching people.</p>
+      </div>
+    </div>
+  </div>
+</div>

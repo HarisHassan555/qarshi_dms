@@ -66,14 +66,25 @@ export class TemplatePendingApprovalsComponent implements OnInit, OnDestroy {
             this.currentUser = null;
         }
         this.loadPendingApprovals();
+        window.addEventListener('velocity-tour-prepare', this.onTourPrepare);
     }
 
     ngOnDestroy(): void {
+        window.removeEventListener('velocity-tour-prepare', this.onTourPrepare);
         if (this.searchTimer) {
             clearTimeout(this.searchTimer);
             this.searchTimer = null;
         }
     }
+
+    private onTourPrepare = (event: Event): void => {
+        const action = (event as CustomEvent<{ action?: string }>).detail?.action;
+        if (action === 'template-pending-close-csv') {
+            this.closeCsvModal();
+        } else if (action === 'template-pending-open-csv' && this.getDisplayedPendingApprovals().length > 0) {
+            this.openCsvModal();
+        }
+    };
 
     loadPendingApprovals(): void {
         this.isLoading = true;

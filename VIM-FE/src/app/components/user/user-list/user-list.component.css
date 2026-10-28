@@ -1,0 +1,30 @@
+.user-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 9999px;
+    background: #e2e8f0;
+    color: #334155;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.user-avatar-letter {
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+.user-avatar.has-photo {
+    background: #dbeafe;
+}
+
+.user-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 9999px;
+}

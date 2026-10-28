@@ -1,0 +1,23 @@
+<div class="document-share-page min-h-screen bg-slate-100">
+    <main class="mx-auto max-w-5xl p-4 sm:p-5">
+        <div *ngIf="isLoading" class="rounded-xl border border-slate-200 bg-white py-16 text-center text-sm text-slate-500">
+            Loading document…
+        </div>
+
+        <div *ngIf="!isLoading && loadError" class="rounded-xl border border-rose-200 bg-rose-50 p-8 text-center">
+            <div class="text-sm font-semibold text-rose-800">{{ loadError }}</div>
+        </div>
+
+        <ng-container *ngIf="!isLoading && !loadError && meta">
+            <div class="mb-4 rounded-xl border border-slate-200 bg-white p-4">
+                <h1 class="text-lg font-bold text-slate-900">{{ meta.formCode || 'Document' }}</h1>
+                <p class="mt-1 text-sm text-slate-600">{{ meta.templateName || 'Application' }}</p>
+                <p *ngIf="meta.expiresAt" class="mt-2 text-xs text-slate-500">Link expires: {{ meta.expiresAt | date: 'medium' }}</p>
+            </div>
+
+            <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <iframe *ngIf="safePdfUrl" [src]="safePdfUrl" class="document-share-frame" title="Shared document PDF"></iframe>
+            </div>
+        </ng-container>
+    </main>
+</div>

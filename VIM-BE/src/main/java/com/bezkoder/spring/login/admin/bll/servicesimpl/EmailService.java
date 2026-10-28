@@ -135,6 +135,50 @@ public class EmailService {
     }
 
     /**
+     * Send HTML email; throws on failure (for background jobs / retries).
+     */
+    public void sendHtmlEmailStrict(List<String> recipients, String subject, String htmlContent) {
+        String username = sanitizeCredential(properties.getProperty("mail.smtp.username"));
+        String password = sanitizeCredential(properties.getProperty("mail.smtp.password"));
+        if (username == null || password == null) {
+            throw new RuntimeException("Missing SMTP username/password");
+        }
+        if (recipients == null || recipients.isEmpty()) {
+            throw new RuntimeException("Recipient list is empty");
+        }
+
+        Session session = Session.getInstance(properties,
+                new javax.mail.Authenticator() {
+                    protected PasswordAuthentication getPasswordAuthentication() {
+                        return new PasswordAuthentication(username, password);
+                    }
+                });
+
+        try {
+            Message message = new MimeMessage(session);
+            message.setFrom(new InternetAddress(username));
+            log.info("Sending HTML email subject='{}' to {} recipient(s)", subject, recipients.size());
+            for (String recipient : recipients) {
+                message.addRecipient(Message.RecipientType.TO, new InternetAddress(recipient));
+            }
+            message.setSubject(subject != null ? subject : "");
+
+            MimeBodyPart messageBodyPart = new MimeBodyPart();
+            messageBodyPart.setContent(htmlContent, "text/html; charset=utf-8");
+
+            Multipart multipart = new MimeMultipart();
+            multipart.addBodyPart(messageBodyPart);
+            message.setContent(multipart);
+
+            Transport.send(message);
+            log.info("HTML email sent successfully!");
+        } catch (MessagingException e) {
+            log.error("Failed to send HTML email", e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
      * Send HTML email with multiple attachments (no inline preview).
      */
     public void sendHtmlEmailWithAttachments(List<String> recipients, String subject, String htmlContent,
@@ -598,6 +642,83 @@ public class EmailService {
 
 
 
+    /**
+     * Welcome email for new users (e.g. created from SAP HCM). Plain password is only in the email body.
+     */
+    public void sendWelcomeUserMail(String recipientEmail, String displayName, String loginName, String plainPassword) {
+        String username = sanitizeCredential(properties.getProperty("mail.smtp.username"));
+        String smtpPassword = sanitizeCredential(properties.getProperty("mail.smtp.password"));
+        if (username == null || smtpPassword == null) {
+            log.error("Welcome email not sent: missing SMTP username/password");
+            return;
+        }
+        if (recipientEmail == null || recipientEmail.trim().isEmpty()) {
+            log.error("Welcome email not sent: recipient is empty");
+            return;
+        }
+
+        String appBaseUrl = loadAppProperty("app.base.url", "http://localhost:4200/velocity");
+        if (!appBaseUrl.endsWith("/")) {
+            appBaseUrl = appBaseUrl + "/";
+        }
+        String loginUrl = appBaseUrl + "auth/login";
+        String safeName = displayName != null && !displayName.trim().isEmpty() ? displayName.trim() : "User";
+        String safeLogin = loginName != null ? loginName.trim() : "";
+        String safePass = plainPassword != null ? plainPassword : "";
+
+        String html = "<!DOCTYPE html><html><body style=\"font-family:Arial,sans-serif;color:#333;line-height:1.5;\">"
+                + "<div style=\"max-width:600px;margin:0 auto;padding:24px;border:1px solid #e5e7eb;border-radius:8px;\">"
+                + "<h2 style=\"color:#1e40af;margin-top:0;\">Welcome to Qarshi DMS</h2>"
+                + "<p>Dear " + escapeHtml(safeName) + ",</p>"
+                + "<p>Your user account has been created. You can sign in using the credentials below.</p>"
+                + "<table style=\"width:100%;border-collapse:collapse;margin:16px 0;\">"
+                + "<tr><td style=\"padding:8px 0;font-weight:bold;width:140px;\">Login name</td><td style=\"padding:8px 0;\">"
+                + escapeHtml(safeLogin) + "</td></tr>"
+                + "<tr><td style=\"padding:8px 0;font-weight:bold;\">Password</td><td style=\"padding:8px 0;\">"
+                + escapeHtml(safePass) + "</td></tr>"
+                + "</table>"
+                + "<p><a href=\"" + escapeHtml(loginUrl) + "\" style=\"display:inline-block;padding:10px 18px;"
+                + "background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;\">Sign in</a></p>"
+                + "<p style=\"font-size:12px;color:#6b7280;\">Please change your password after your first login if prompted.</p>"
+                + "<p style=\"font-size:12px;color:#6b7280;\">If you did not expect this email, contact your administrator.</p>"
+                + "</div></body></html>";
+
+        Session session = Session.getInstance(properties,
+                new javax.mail.Authenticator() {
+                    protected PasswordAuthentication getPasswordAuthentication() {
+                        return new PasswordAuthentication(username, smtpPassword);
+                    }
+                });
+
+        try {
+            Message message = new MimeMessage(session);
+            message.setFrom(new InternetAddress(username));
+            message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(recipientEmail.trim()));
+            message.setSubject("Welcome to Qarshi DMS – Your account details");
+            MimeBodyPart bodyPart = new MimeBodyPart();
+            bodyPart.setContent(html, "text/html; charset=utf-8");
+            MimeMultipart multipart = new MimeMultipart();
+            multipart.addBodyPart(bodyPart);
+            message.setContent(multipart);
+            Transport.send(message);
+            log.info("Welcome email sent to {}", recipientEmail);
+        } catch (MessagingException e) {
+            log.error("Failed to send welcome email to {}", recipientEmail, e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
+    }
+
     public void sendPassordinMail(String mail,String user_name,String pass)
     {
 
@@ -652,6 +773,20 @@ public class EmailService {
 
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private String loadAppProperty(String key, String defaultValue) {
+        try (InputStream input = getClass().getClassLoader().getResourceAsStream("application.properties")) {
+            if (input == null) {
+                return defaultValue;
+            }
+            Properties all = new Properties();
+            all.load(input);
+            return all.getProperty(key, defaultValue);
+        } catch (IOException ex) {
+            log.warn("Could not read {} from application.properties", key);
+            return defaultValue;
         }
     }
 

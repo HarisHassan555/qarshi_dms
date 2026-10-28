@@ -102,6 +102,13 @@
                     <icon-download class="w-4 h-4" *ngIf="!isGeneratingPdfWithLogs" />
                     {{ isGeneratingPdfWithLogs ? 'Generating...' : 'Download PDF With Logs' }}
                 </button>
+                <app-document-share-link-button
+                    *ngIf="applicationDetails?.serApplicationId"
+                    [applicationId]="applicationDetails.serApplicationId"
+                    [documentTitle]="getGenericDocumentHeading()"
+                    [disabled]="isLoading"
+                    buttonClass="btn btn-outline-secondary inline-flex items-center gap-2">
+                </app-document-share-link-button>
             </div>
         </div>
     </div>
@@ -302,34 +309,32 @@
 
                     <div class="ec-slip-footer-fixed">
                         <div class="ec-slip-pipeline-footer" *ngIf="hasSlipPipelineFooter()">
-                            <table class="xyz-signatures" *ngIf="getSlipPipelineFooterFields().length > 0">
-                                <tr class="xyz-signatures-blank">
-                                    <ng-container *ngFor="let section of getSlipPipelineFooterFields()">
-                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section); let slotIndex = index">
-                                            <div *ngIf="slotUser && isUserApproved(slotUser, section, slotIndex)">
-                                                <img *ngIf="getUserSignatureUrl(slotUser, section, slotIndex)"
-                                                    [src]="getUserSignatureUrl(slotUser, section, slotIndex)" class="xyz-sig-img"
+                            <table class="xyz-signatures individual-pipeline-footer-table" *ngIf="getSlipPipelineFooterFields().length > 0">
+                                <ng-container *ngFor="let band of getIndividualFooterBands(getSlipPipelineFooterFields()); let bandIndex = index">
+                                    <tr class="xyz-signatures-blank individual-footer-sig-row"
+                                        [class.individual-footer-band-continued]="bandIndex > 0">
+                                        <td *ngFor="let cell of band.cells">
+                                            <div *ngIf="cell.slotUser && isUserApproved(cell.slotUser, cell.section, cell.slotIndex)">
+                                                <img *ngIf="getUserSignatureUrl(cell.slotUser, cell.section, cell.slotIndex)"
+                                                    [src]="getUserSignatureUrl(cell.slotUser, cell.section, cell.slotIndex)" class="xyz-sig-img"
                                                     alt="Signature" crossorigin="anonymous">
-                                                <div class="xyz-sig-time" *ngIf="getUserApprovalDate(slotUser, section, slotIndex)">
-                                                    {{ getUserApprovalDate(slotUser, section, slotIndex) }}
+                                                <div class="xyz-sig-time" *ngIf="getUserApprovalDate(cell.slotUser, cell.section, cell.slotIndex)">
+                                                    {{ getUserApprovalDate(cell.slotUser, cell.section, cell.slotIndex) }}
                                                 </div>
                                             </div>
                                         </td>
-                                    </ng-container>
-                                </tr>
-                                <tr>
-                                    <th *ngFor="let section of getSlipPipelineFooterFields()"
-                                        [attr.colspan]="getIndividualFooterColSpan(section)">
-                                        {{ section.label || 'New Field' }}:
-                                    </th>
-                                </tr>
-                                <tr>
-                                    <ng-container *ngFor="let section of getSlipPipelineFooterFields()">
-                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                            <div [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></div>
+                                    </tr>
+                                    <tr class="individual-footer-header-row">
+                                        <th *ngFor="let seg of band.headerSegments" [attr.colspan]="seg.colspan">
+                                            {{ seg.section.label || 'New Field' }}:
+                                        </th>
+                                    </tr>
+                                    <tr class="individual-footer-names-row">
+                                        <td *ngFor="let cell of band.cells">
+                                            <div [innerHTML]="getIndividualFooterUserLabel(cell.slotUser, cell.section)"></div>
                                         </td>
-                                    </ng-container>
-                                </tr>
+                                    </tr>
+                                </ng-container>
                             </table>
                         </div>
 
@@ -429,34 +434,32 @@
                     </div>
                     <div class="tas-slip-footer-fixed">
                             <div class="ec-slip-pipeline-footer" *ngIf="hasSlipPipelineFooter()">
-                                <table class="xyz-signatures" *ngIf="getSlipPipelineFooterFields().length > 0">
-                                    <tr class="xyz-signatures-blank">
-                                        <ng-container *ngFor="let section of getSlipPipelineFooterFields()">
-                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section); let slotIndex = index">
-                                                <div *ngIf="slotUser && isUserApproved(slotUser, section, slotIndex)">
-                                                    <img *ngIf="getUserSignatureUrl(slotUser, section, slotIndex)"
-                                                        [src]="getUserSignatureUrl(slotUser, section, slotIndex)" class="xyz-sig-img"
+                                <table class="xyz-signatures individual-pipeline-footer-table" *ngIf="getSlipPipelineFooterFields().length > 0">
+                                    <ng-container *ngFor="let band of getIndividualFooterBands(getSlipPipelineFooterFields()); let bandIndex = index">
+                                        <tr class="xyz-signatures-blank individual-footer-sig-row"
+                                            [class.individual-footer-band-continued]="bandIndex > 0">
+                                            <td *ngFor="let cell of band.cells">
+                                                <div *ngIf="cell.slotUser && isUserApproved(cell.slotUser, cell.section, cell.slotIndex)">
+                                                    <img *ngIf="getUserSignatureUrl(cell.slotUser, cell.section, cell.slotIndex)"
+                                                        [src]="getUserSignatureUrl(cell.slotUser, cell.section, cell.slotIndex)" class="xyz-sig-img"
                                                         alt="Signature" crossorigin="anonymous">
-                                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(slotUser, section, slotIndex)">
-                                                        {{ getUserApprovalDate(slotUser, section, slotIndex) }}
+                                                    <div class="xyz-sig-time" *ngIf="getUserApprovalDate(cell.slotUser, cell.section, cell.slotIndex)">
+                                                        {{ getUserApprovalDate(cell.slotUser, cell.section, cell.slotIndex) }}
                                                     </div>
                                                 </div>
                                             </td>
-                                        </ng-container>
-                                    </tr>
-                                    <tr>
-                                        <th *ngFor="let section of getSlipPipelineFooterFields()"
-                                            [attr.colspan]="getIndividualFooterColSpan(section)">
-                                            {{ section.label || 'New Field' }}:
-                                        </th>
-                                    </tr>
-                                    <tr>
-                                        <ng-container *ngFor="let section of getSlipPipelineFooterFields()">
-                                            <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                                <div [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></div>
+                                        </tr>
+                                        <tr class="individual-footer-header-row">
+                                            <th *ngFor="let seg of band.headerSegments" [attr.colspan]="seg.colspan">
+                                                {{ seg.section.label || 'New Field' }}:
+                                            </th>
+                                        </tr>
+                                        <tr class="individual-footer-names-row">
+                                            <td *ngFor="let cell of band.cells">
+                                                <div [innerHTML]="getIndividualFooterUserLabel(cell.slotUser, cell.section)"></div>
                                             </td>
-                                        </ng-container>
-                                    </tr>
+                                        </tr>
+                                    </ng-container>
                                 </table>
                             </div>
                             <table class="tas-slip-bottom-row tas-slip-footer-prepared" aria-hidden="true">
@@ -514,25 +517,23 @@
                     <div #genericMeasureBody
                         class="xyz-content-body xyz-generic-measured-body"></div>
                     <div #genericMeasureFooter class="xyz-footer" *ngIf="hasIndividualPipelineFooter()">
-                        <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields() as sections">
-                            <tr class="xyz-signatures-blank">
-                                <ng-container *ngFor="let section of sections">
-                                    <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
-                                </ng-container>
-                            </tr>
-                            <tr>
-                                <th *ngFor="let section of sections"
-                                    [attr.colspan]="getIndividualFooterColSpan(section)">
-                                    {{ section.label || 'New Field' }}:
-                                </th>
-                            </tr>
-                            <tr>
-                                <ng-container *ngFor="let section of sections">
-                                    <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                        <span [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></span>
+                        <table class="xyz-signatures individual-pipeline-footer-table" *ngIf="getIndividualPipelineFooterFields() as sections">
+                            <ng-container *ngFor="let band of getIndividualFooterBands(sections); let bandIndex = index">
+                                <tr class="xyz-signatures-blank individual-footer-sig-row"
+                                    [class.individual-footer-band-continued]="bandIndex > 0">
+                                    <td *ngFor="let cell of band.cells"></td>
+                                </tr>
+                                <tr class="individual-footer-header-row">
+                                    <th *ngFor="let seg of band.headerSegments" [attr.colspan]="seg.colspan">
+                                        {{ seg.section.label || 'New Field' }}:
+                                    </th>
+                                </tr>
+                                <tr class="individual-footer-names-row">
+                                    <td *ngFor="let cell of band.cells">
+                                        <span [innerHTML]="getIndividualFooterUserLabel(cell.slotUser, cell.section)"></span>
                                     </td>
-                                </ng-container>
-                            </tr>
+                                </tr>
+                            </ng-container>
                         </table>
                     </div>
                 </div>
@@ -585,31 +586,29 @@
 
                     <ng-container *ngIf="last">
                         <div class="xyz-footer" *ngIf="hasIndividualPipelineFooter()">
-                            <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields() as sections">
-                                <tr class="xyz-signatures-blank">
-                                    <ng-container *ngFor="let section of sections">
-                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                            <div *ngIf="slotUser && isUserApproved(slotUser)">
-                                                <img class="xyz-sig-img" [src]="getUserSignatureUrl(slotUser)"
-                                                    [alt]="(slotUser.txtUserName || slotUser.userName || slotUser.name || 'Approved user') + ' signature'">
-                                                <span class="xyz-sig-time">{{ getUserApprovalDate(slotUser) }}</span>
+                            <table class="xyz-signatures individual-pipeline-footer-table" *ngIf="getIndividualPipelineFooterFields() as sections">
+                                <ng-container *ngFor="let band of getIndividualFooterBands(sections); let bandIndex = index">
+                                    <tr class="xyz-signatures-blank individual-footer-sig-row"
+                                        [class.individual-footer-band-continued]="bandIndex > 0">
+                                        <td *ngFor="let cell of band.cells">
+                                            <div *ngIf="cell.slotUser && isUserApproved(cell.slotUser)">
+                                                <img class="xyz-sig-img" [src]="getUserSignatureUrl(cell.slotUser)"
+                                                    [alt]="(cell.slotUser.txtUserName || cell.slotUser.userName || cell.slotUser.name || 'Approved user') + ' signature'">
+                                                <span class="xyz-sig-time">{{ getUserApprovalDate(cell.slotUser) }}</span>
                                             </div>
                                         </td>
-                                    </ng-container>
-                                </tr>
-                                <tr>
-                                    <th *ngFor="let section of sections"
-                                        [attr.colspan]="getIndividualFooterColSpan(section)">
-                                        {{ section.label || 'New Field' }}:
-                                    </th>
-                                </tr>
-                                <tr>
-                                    <ng-container *ngFor="let section of sections">
-                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                            <span [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></span>
+                                    </tr>
+                                    <tr class="individual-footer-header-row">
+                                        <th *ngFor="let seg of band.headerSegments" [attr.colspan]="seg.colspan">
+                                            {{ seg.section.label || 'New Field' }}:
+                                        </th>
+                                    </tr>
+                                    <tr class="individual-footer-names-row">
+                                        <td *ngFor="let cell of band.cells">
+                                            <span [innerHTML]="getIndividualFooterUserLabel(cell.slotUser, cell.section)"></span>
                                         </td>
-                                    </ng-container>
-                                </tr>
+                                    </tr>
+                                </ng-container>
                             </table>
                         </div>
                     </ng-container>
@@ -680,31 +679,29 @@
 
                     <ng-container *ngIf="last">
                         <div class="xyz-footer" *ngIf="hasIndividualPipelineFooter()">
-                            <table class="xyz-signatures" *ngIf="getIndividualPipelineFooterFields() as sections">
-                                <tr class="xyz-signatures-blank">
-                                    <ng-container *ngFor="let section of sections">
-                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                            <div *ngIf="slotUser && isUserApproved(slotUser)">
-                                                <img class="xyz-sig-img" [src]="getUserSignatureUrl(slotUser)"
-                                                    [alt]="(slotUser.txtUserName || slotUser.userName || slotUser.name || 'Approved user') + ' signature'">
-                                                <span class="xyz-sig-time">{{ getUserApprovalDate(slotUser) }}</span>
+                            <table class="xyz-signatures individual-pipeline-footer-table" *ngIf="getIndividualPipelineFooterFields() as sections">
+                                <ng-container *ngFor="let band of getIndividualFooterBands(sections); let bandIndex = index">
+                                    <tr class="xyz-signatures-blank individual-footer-sig-row"
+                                        [class.individual-footer-band-continued]="bandIndex > 0">
+                                        <td *ngFor="let cell of band.cells">
+                                            <div *ngIf="cell.slotUser && isUserApproved(cell.slotUser)">
+                                                <img class="xyz-sig-img" [src]="getUserSignatureUrl(cell.slotUser)"
+                                                    [alt]="(cell.slotUser.txtUserName || cell.slotUser.userName || cell.slotUser.name || 'Approved user') + ' signature'">
+                                                <span class="xyz-sig-time">{{ getUserApprovalDate(cell.slotUser) }}</span>
                                             </div>
                                         </td>
-                                    </ng-container>
-                                </tr>
-                                <tr>
-                                    <th *ngFor="let section of sections"
-                                        [attr.colspan]="getIndividualFooterColSpan(section)">
-                                        {{ section.label || 'New Field' }}:
-                                    </th>
-                                </tr>
-                                <tr>
-                                    <ng-container *ngFor="let section of sections">
-                                        <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                            <span [innerHTML]="getIndividualFooterUserLabel(slotUser, section)"></span>
+                                    </tr>
+                                    <tr class="individual-footer-header-row">
+                                        <th *ngFor="let seg of band.headerSegments" [attr.colspan]="seg.colspan">
+                                            {{ seg.section.label || 'New Field' }}:
+                                        </th>
+                                    </tr>
+                                    <tr class="individual-footer-names-row">
+                                        <td *ngFor="let cell of band.cells">
+                                            <span [innerHTML]="getIndividualFooterUserLabel(cell.slotUser, cell.section)"></span>
                                         </td>
-                                    </ng-container>
-                                </tr>
+                                    </tr>
+                                </ng-container>
                             </table>
                         </div>
                     </ng-container>

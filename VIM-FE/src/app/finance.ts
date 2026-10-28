@@ -35,7 +35,7 @@ interface DashboardStageColumn {
 interface DashboardMetric {
     label: string;
     value: number;
-    tone: 'slate' | 'amber' | 'emerald' | 'rose';
+    tone: 'slate' | 'amber' | 'emerald' | 'rose' | 'sky';
     hint: string;
 }
 
@@ -67,6 +67,41 @@ interface DashboardCsvColumn {
     label: string;
 }
 
+interface DashboardStorageBreakdown {
+    label: string;
+    bytes: number;
+    path?: string;
+}
+
+interface DashboardStorageInfo {
+    status: string;
+    applicationUsedBytes: number;
+    applicationUsedLabel?: string;
+    hostVolume?: {
+        sourceLabel: string;
+        mountPath: string;
+        totalBytes: number;
+        usableBytes: number;
+        usedBytes: number;
+        usedPercent: number;
+    };
+    fileStorage?: {
+        sourceLabel: string;
+        sourcePath: string;
+        usedBytes: number;
+        breakdown: DashboardStorageBreakdown[];
+    };
+    databaseStorage?: {
+        sourceLabel: string;
+        schemaName: string;
+        databaseTotalBytes: number;
+        applicationTableBytes: number;
+        applicationContentBytes: number;
+        applicationCount: number;
+        applicationPdfCount: number;
+    };
+}
+
 @Component({
     moduleId: module.id,
     templateUrl: './finance.html',
@@ -86,6 +121,7 @@ export class FinanceComponent implements OnInit {
     pendingApplications = 0;
     completedApplications = 0;
     rejectedApplications = 0;
+    draftApplications = 0;
     actionableApplications = 0;
     filterStartDate = '';
     filterEndDate = '';
@@ -98,6 +134,9 @@ export class FinanceComponent implements OnInit {
     showDashboardCsvModal = false;
     availableDashboardCsvColumns: DashboardCsvColumn[] = [];
     selectedDashboardCsvColumns: DashboardCsvColumn[] = [];
+    storageInfo: DashboardStorageInfo | null = null;
+    storageInfoError = '';
+    isLoadingStorageInfo = false;
     readonly dashboardCsvColumns: DashboardCsvColumn[] = [
         { key: 'txtFormCode', label: 'Application Code' },
         { key: 'templateName', label: 'Form Type' },
@@ -239,6 +278,8 @@ export class FinanceComponent implements OnInit {
                 return 'border-emerald-200 bg-emerald-50 text-emerald-900';
             case 'rose':
                 return 'border-rose-200 bg-rose-50 text-rose-900';
+            case 'sky':
+                return 'border-sky-200 bg-sky-50 text-sky-900';
             default:
                 return 'border-slate-200 bg-white text-slate-900';
         }
@@ -272,6 +313,31 @@ export class FinanceComponent implements OnInit {
     formatActivityTitle(entry: DashboardActivityEntry): string {
         const action = this.humanizeStatus(entry.actionType || 'UPDATE');
         return `${action}${entry.username ? ' by ' + entry.username : ''}`;
+    }
+
+    formatStorageBytes(bytes: number | undefined | null): string {
+        const value = Number(bytes || 0);
+        if (!Number.isFinite(value) || value <= 0) {
+            return '0 B';
+        }
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let size = value;
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex += 1;
+        }
+        const digits = size >= 100 || unitIndex === 0 ? 0 : size >= 10 ? 1 : 2;
+        return `${size.toFixed(digits)} ${units[unitIndex]}`;
+    }
+
+    storageUsagePercent(usedBytes: number, totalBytes: number): number {
+        const total = Number(totalBytes || 0);
+        const used = Number(usedBytes || 0);
+        if (!total || total <= 0) {
+            return 0;
+        }
+        return Math.min(100, Math.round((used * 100) / total));
     }
 
     getApplicantLabel(item: DashboardApplicationItem): string {
@@ -319,6 +385,26 @@ export class FinanceComponent implements OnInit {
         }
     }
 
+    async loadStorageInfo(): Promise<void> {
+        this.isLoadingStorageInfo = true;
+        this.storageInfoError = '';
+        try {
+            const response = await firstValueFrom(this.templateWorkflowService.getApplicationStorageInfo());
+            if (response?.status === 'Success') {
+                this.storageInfo = response as DashboardStorageInfo;
+            } else {
+                this.storageInfo = null;
+                this.storageInfoError = response?.message || 'Storage information is not available.';
+            }
+        } catch (error) {
+            console.error('Storage info load failed', error);
+            this.storageInfo = null;
+            this.storageInfoError = 'Could not load storage information.';
+        } finally {
+            this.isLoadingStorageInfo = false;
+        }
+    }
+
     private async loadDashboard(): Promise<void> {
         if (!this.currentUserId) {
             return;
@@ -333,6 +419,13 @@ export class FinanceComponent implements OnInit {
                 firstValueFrom(this.userService.getUsers()),
                 this.isAdmin ? firstValueFrom(this.activityLogService.getAll(activityFilters)) : Promise.resolve([])
             ]);
+
+            if (this.isAdmin) {
+                void this.loadStorageInfo();
+            } else {
+                this.storageInfo = null;
+                this.storageInfoError = '';
+            }
 
             this.userNameById.clear();
             this.userDepartmentById.clear();
@@ -576,6 +669,10 @@ export class FinanceComponent implements OnInit {
         return String(status || '').trim().toUpperCase() === 'REJECTED';
     }
 
+    private isDraftStatus(status: string | undefined): boolean {
+        return String(status || '').trim().toUpperCase() === 'DRAFT';
+    }
+
     private humanizeStatus(status: string): string {
         return String(status || '')
             .trim()
@@ -614,7 +711,12 @@ export class FinanceComponent implements OnInit {
 
     private refreshDashboardView(): void {
         const filteredItems = this.getFilteredDashboardItems();
-        this.totalApplications = filteredItems.length;
+        this.draftApplications = filteredItems
+            .filter((item: DashboardApplicationItem) => this.isDraftStatus(item.txtStatus))
+            .length;
+        this.totalApplications = filteredItems
+            .filter((item: DashboardApplicationItem) => !this.isDraftStatus(item.txtStatus))
+            .length;
         this.pendingApplications = filteredItems
             .filter((item: DashboardApplicationItem) => this.isOpenStatus(item.txtStatus))
             .length;
@@ -632,6 +734,12 @@ export class FinanceComponent implements OnInit {
                 value: this.totalApplications,
                 tone: 'slate',
                 hint: this.isAdmin ? 'All submitted workflow applications' : 'Applications you have submitted'
+            },
+            {
+                label: 'Draft Applications',
+                value: this.draftApplications,
+                tone: 'sky',
+                hint: 'Saved as draft and not yet submitted'
             },
             {
                 label: 'Pending In Workflow',

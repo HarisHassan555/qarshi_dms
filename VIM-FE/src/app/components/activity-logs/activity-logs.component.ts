@@ -1,4 +1,4 @@
-import { Component, OnInit, ViewChild } from '@angular/core';
+import { Component, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FormBuilder, FormGroup } from '@angular/forms';
 import { Router } from '@angular/router';
 import { NotificationService } from 'src/app/NotificationService';
@@ -11,7 +11,7 @@ import { UserService } from 'src/app/services/user/user.service';
   templateUrl: './activity-logs.component.html',
   styleUrls: ['./activity-logs.component.css']
 })
-export class ActivityLogsComponent implements OnInit {
+export class ActivityLogsComponent implements OnInit, OnDestroy {
   @ViewChild('datatable') datatable: any;
   @ViewChild('modal') modal: any;
 
@@ -106,7 +106,34 @@ export class ActivityLogsComponent implements OnInit {
       this.loadLogs();
       this.loadUsers();
     });
+
+    window.addEventListener('velocity-tour-prepare', this.onTourPrepare);
   }
+
+  ngOnDestroy(): void {
+    window.removeEventListener('velocity-tour-prepare', this.onTourPrepare);
+  }
+
+  private onTourPrepare = (event: Event): void => {
+    const action = (event as CustomEvent<{ action?: string }>).detail?.action;
+    switch (action) {
+      case 'activitylogs-close-modal':
+        this.modal?.close();
+        break;
+      case 'activitylogs-open-edit-modal': {
+        if (document.querySelector('[data-tour="activitylogs-edit-form"]')) {
+          break;
+        }
+        const row = this.logs.find((log) => this.canEditRow(log));
+        if (row) {
+          this.edit(row);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  };
 
   private initForm(): void {
     this.transactionForm = this.fb.group({

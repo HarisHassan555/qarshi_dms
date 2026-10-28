@@ -26,11 +26,13 @@ export class AuthInterceptor implements HttpInterceptor {
         const isuploadDocument = request.url.includes("uploadDocument");
         const isUpdateApplicationPdf = request.url.includes("updateApplicationPdf");
         const isEmailApproval = request.url.includes("approveApplicationFromEmail") || request.url.includes("rejectApplicationFromEmail");
+        const isPublicDocumentShare = request.url.includes("public/documentShare");
+        const isOpenMeteo = request.url.includes('api.open-meteo.com');
         const isFormDataRequest = request.body instanceof FormData;
         let ok: string;
 
 
-        if (isLoginUrl || isEmailApproval) {
+        if (isLoginUrl || isEmailApproval || isOpenMeteo || isPublicDocumentShare) {
             return next.handle(request);
         }
 
@@ -54,12 +56,15 @@ export class AuthInterceptor implements HttpInterceptor {
                 );
             }
 
-            const authReq = request.clone({
-                setHeaders: {
-                    Authorization: `Bearer ${authToken}`,
-                    'Content-Type': 'application/json'
-                }
-            });
+            const headers: Record<string, string> = {
+                Authorization: `Bearer ${authToken}`,
+            };
+            // GET (e.g. photo blobs) and other bodyless calls must not send application/json.
+            if (request.method !== 'GET' && request.method !== 'HEAD') {
+                headers['Content-Type'] = 'application/json';
+            }
+
+            const authReq = request.clone({ setHeaders: headers });
 
             return next.handle(authReq).pipe(
                 tap({

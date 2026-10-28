@@ -78,6 +78,12 @@ public class CustomFormApplicationService implements ICustomFormApplicationServi
     }
 
     @Override
+    public java.util.Map<String, Object> checkApplicationPdfSignatures(Integer applicationId) {
+        logger.debug("checkApplicationPdfSignatures() - applicationId: " + applicationId);
+        return customFormApplicationDAO.checkApplicationPdfSignatures(applicationId);
+    }
+
+    @Override
     public String deleteApplication(Integer applicationId) {
         logger.debug("deleteApplication() - applicationId: " + applicationId);
         return customFormApplicationDAO.deleteApplication(applicationId);

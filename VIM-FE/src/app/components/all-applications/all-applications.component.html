@@ -1,0 +1,201 @@
+<div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+    <div class="mb-4.5 flex flex-col gap-4 px-5">
+        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div class="flex items-center gap-2">
+                <h5 class="text-xl font-bold dark:text-white-light">All Applications</h5>
+                <span class="badge badge-outline-primary" *ngIf="totalApplications > 0">
+                    {{ totalApplications }} applications
+                </span>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <input
+                    [(ngModel)]="search"
+                    (ngModelChange)="onSearchChanged()"
+                    type="text"
+                    class="form-input min-w-[220px]"
+                    placeholder="Search code, template, user, department..." />
+                <button type="button" class="btn btn-sm btn-outline-secondary" (click)="clearFilters()">
+                    Clear filters
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Department</label>
+                <ng-select
+                    class="custom-multiselect all-apps-filter-select"
+                    [items]="departments"
+                    bindLabel="txtDepartmentName"
+                    bindValue="serDepartmentId"
+                    [(ngModel)]="selectedDepartmentIds"
+                    (ngModelChange)="onFiltersChanged()"
+                    [multiple]="true"
+                    [closeOnSelect]="false"
+                    [clearable]="true"
+                    [searchable]="true"
+                    [loading]="isFilterOptionsLoading"
+                    [disabled]="isFilterOptionsLoading || isLoading"
+                    placeholder="All departments"
+                    notFoundText="No departments found">
+                </ng-select>
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Form / template</label>
+                <ng-select
+                    class="custom-multiselect all-apps-filter-select"
+                    [items]="templates"
+                    bindLabel="templateName"
+                    bindValue="serFormId"
+                    [(ngModel)]="selectedSerFormIds"
+                    (ngModelChange)="onFiltersChanged()"
+                    [multiple]="true"
+                    [closeOnSelect]="false"
+                    [clearable]="true"
+                    [searchable]="true"
+                    [loading]="isFilterOptionsLoading"
+                    [disabled]="isFilterOptionsLoading || isLoading"
+                    placeholder="All forms"
+                    notFoundText="No forms found">
+                </ng-select>
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Status</label>
+                <ng-select
+                    class="custom-multiselect all-apps-filter-select"
+                    [items]="statuses"
+                    [(ngModel)]="selectedStatuses"
+                    (ngModelChange)="onFiltersChanged()"
+                    [multiple]="true"
+                    [closeOnSelect]="false"
+                    [clearable]="true"
+                    [searchable]="true"
+                    [loading]="isFilterOptionsLoading"
+                    [disabled]="isFilterOptionsLoading || isLoading"
+                    placeholder="All statuses"
+                    notFoundText="No statuses found">
+                </ng-select>
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Submitted by</label>
+                <ng-select
+                    class="custom-multiselect all-apps-filter-select"
+                    [items]="submitters"
+                    bindLabel="txtUserName"
+                    bindValue="serUserId"
+                    [(ngModel)]="selectedSubmittedByUserIds"
+                    (ngModelChange)="onFiltersChanged()"
+                    [multiple]="true"
+                    [closeOnSelect]="false"
+                    [clearable]="true"
+                    [searchable]="true"
+                    [loading]="isFilterOptionsLoading"
+                    [disabled]="isFilterOptionsLoading || isLoading"
+                    placeholder="All submitters"
+                    notFoundText="No users found">
+                </ng-select>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:max-w-md">
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Submitted from</label>
+                <input
+                    type="date"
+                    class="form-input"
+                    [(ngModel)]="dateFrom"
+                    (ngModelChange)="onDateFilterChanged()"
+                    [disabled]="isLoading" />
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Submitted to</label>
+                <input
+                    type="date"
+                    class="form-input"
+                    [(ngModel)]="dateTo"
+                    (ngModelChange)="onDateFilterChanged()"
+                    [disabled]="isLoading" />
+            </div>
+        </div>
+    </div>
+
+    <div *ngIf="isLoading" class="px-5 py-10 text-center">
+        <div class="inline-flex items-center gap-3 text-primary">
+            <span class="loader-spinner" aria-hidden="true"></span>
+            <span>Loading applications...</span>
+        </div>
+    </div>
+
+    <div class="datatable invoice-table px-5" *ngIf="!isLoading && applications.length > 0">
+        <ng-datatable
+            [rows]="applications"
+            [columns]="cols"
+            [hasCheckbox]="false"
+            [pagination]="false"
+            [sortable]="true"
+            skin="whitespace-nowrap bh-table-hover">
+            <ng-template slot="txtFormCode" let-value="data">
+                <span class="badge badge-outline-primary" *ngIf="value.txtFormCode">{{ value.txtFormCode }}</span>
+                <span class="text-gray-400" *ngIf="!value.txtFormCode">-</span>
+            </ng-template>
+            <ng-template slot="applicationTitle" let-value="data">
+                <span class="block max-w-[220px] truncate" [title]="value.applicationTitle || ''">{{ value.applicationTitle || '-' }}</span>
+            </ng-template>
+            <ng-template slot="templateName" let-value="data">
+                <span class="block max-w-[200px] truncate" [title]="value.templateName || ''">{{ value.templateName || '-' }}</span>
+            </ng-template>
+            <ng-template slot="submittedByUserName" let-value="data">
+                <span>{{ value.submittedByUserName || ('User #' + value.serSubmittedBy) }}</span>
+            </ng-template>
+            <ng-template slot="submittedDepartmentName" let-value="data">
+                <span>{{ value.submittedDepartmentName || '-' }}</span>
+            </ng-template>
+            <ng-template slot="txtStatus" let-value="data">
+                <span class="badge" [ngClass]="getStatusBadgeClass(value.txtStatus)">
+                    {{ value.txtStatus || 'N/A' }}
+                </span>
+            </ng-template>
+            <ng-template slot="dteCreatedDate" let-value="data">
+                <span>{{ value.dteCreatedDate ? (value.dteCreatedDate | date:'short') : '-' }}</span>
+            </ng-template>
+            <ng-template slot="actions" let-value="data">
+                <div class="flex items-center justify-center">
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-outline-primary inline-flex items-center gap-1"
+                        [disabled]="isOpeningApplication(value)"
+                        (click)="viewApplication(value)">
+                        <span *ngIf="isOpeningApplication(value)" class="loader-spinner action-spinner" aria-hidden="true"></span>
+                        <icon-eye *ngIf="!isOpeningApplication(value)" class="h-4 w-4" />
+                        View
+                    </button>
+                </div>
+            </ng-template>
+        </ng-datatable>
+
+        <div class="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 md:flex-row md:items-center md:justify-between">
+            <div class="text-sm text-slate-600">
+                Showing {{ pageStart }}–{{ pageEnd }} of {{ totalApplications }}
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <label class="text-sm text-slate-600">Page size</label>
+                <select class="form-select w-20" [ngModel]="pageSize" (ngModelChange)="changePageSize($event)">
+                    <option [ngValue]="10">10</option>
+                    <option [ngValue]="25">25</option>
+                    <option [ngValue]="50">50</option>
+                </select>
+                <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="page <= 0" (click)="changePage(page - 1)">
+                    Previous
+                </button>
+                <span class="text-sm text-slate-600">Page {{ page + 1 }} / {{ totalPages }}</span>
+                <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="page >= totalPages - 1" (click)="changePage(page + 1)">
+                    Next
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div *ngIf="!isLoading && applications.length === 0" class="px-5 py-8 text-center">
+        <p class="text-gray-600 dark:text-gray-400">No applications match your filters.</p>
+    </div>
+</div>

@@ -1,0 +1,537 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4 flex flex-col gap-3 px-5 md:flex-row md:items-start" data-tour="wp-header">
+            <div class="min-w-0 flex-1">
+                <h5 class="text-xl font-bold dark:text-white-light">Workflow Pipelines</h5>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    Reusable approval workflows and conditional routing rules for the Digital Document Builder.
+                </p>
+            </div>
+        </div>
+
+        <div class="px-5 mb-4 border-b border-[#ebedf2] dark:border-[#191e3a]" data-tour="wp-page-tabs">
+            <ul class="wp-page-tabs flex flex-wrap gap-1">
+                <li>
+                    <button
+                        type="button"
+                        class="wp-page-tab"
+                        [class.is-active]="pageTab === 'pipelines'"
+                        (click)="setPageTab('pipelines')">
+                        Pipelines
+                    </button>
+                </li>
+                <li>
+                    <button
+                        type="button"
+                        class="wp-page-tab"
+                        [class.is-active]="pageTab === 'thresholds'"
+                        (click)="setPageTab('thresholds')">
+                        Threshold &amp; conditions
+                    </button>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Pipelines tab -->
+        <ng-container *ngIf="pageTab === 'pipelines'">
+            <div class="mb-4.5 flex flex-col gap-3 px-5 md:flex-row md:items-center" data-tour="wp-pipelines-toolbar">
+                <div class="ltr:ml-auto rtl:mr-auto flex flex-wrap items-center gap-2 w-full md:w-auto md:ml-auto">
+                    <button type="button" class="btn btn-primary btn-sm" (click)="onNewPipeline()" [disabled]="editorLoading">
+                        + New pipeline
+                    </button>
+                    <input [(ngModel)]="search" type="text" class="form-input w-56" placeholder="Search name or code..." />
+                </div>
+            </div>
+
+            <div class="px-5 mb-3 text-sm text-gray-500 dark:text-gray-400">
+                <span *ngIf="loading">Loading pipelines…</span>
+                <span *ngIf="!loading && loadError" class="text-danger">{{ loadError }}</span>
+                <span *ngIf="!loading && !loadError">{{ rows.length }} pipeline(s)</span>
+            </div>
+
+            <div class="datatable invoice-table px-5 pb-4" data-tour="wp-pipelines-table">
+                <ng-datatable
+                    [rows]="rows"
+                    [columns]="cols"
+                    [search]="search"
+                    [sortable]="true"
+                    skin="whitespace-nowrap bh-table-hover">
+                    <ng-template slot="name" let-value="data">
+                        <div>
+                            <div class="font-semibold text-gray-800 dark:text-white">{{ value.name }}</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400 max-w-md truncate" [title]="value.description">
+                                {{ value.description || '—' }}
+                            </div>
+                        </div>
+                    </ng-template>
+                    <ng-template slot="code" let-value="data">
+                        <span>{{ value.code || '—' }}</span>
+                    </ng-template>
+                    <ng-template slot="active" let-value="data">
+                        <span
+                            class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
+                            [ngClass]="value.active ? 'bg-success/15 text-success' : 'bg-gray-200 text-gray-600'">
+                            {{ value.active ? 'Yes' : 'No' }}
+                        </span>
+                    </ng-template>
+                    <ng-template slot="actions" let-value="data">
+                        <div class="flex items-center justify-center gap-1">
+                            <button type="button" class="btn btn-sm btn-outline-primary" (click)="onEdit(value)">Edit</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" (click)="onDuplicate(value)">Dup</button>
+                        </div>
+                    </ng-template>
+                </ng-datatable>
+            </div>
+        </ng-container>
+
+        <ng-container *ngIf="pageTab === 'thresholds'">
+            <div class="mb-4 flex flex-col gap-3 px-5 md:flex-row md:items-center" data-tour="wp-thresholds-toolbar">
+                <div class="ltr:ml-auto rtl:mr-auto flex flex-wrap items-center gap-2 w-full md:w-auto md:ml-auto">
+                    <button type="button" class="btn btn-primary btn-sm" (click)="onNewThresholdRule()">+ New rule</button>
+                    <input
+                        [(ngModel)]="thresholdSearch"
+                        type="text"
+                        class="form-input w-56"
+                        placeholder="Search rules…" />
+                </div>
+            </div>
+
+            <div
+                class="px-5 mb-3 text-sm text-gray-500 dark:text-gray-400"
+                *ngIf="thresholdRulesLoading || thresholdRulesLoadError">
+                <span *ngIf="thresholdRulesLoading">Loading rules…</span>
+                <span *ngIf="!thresholdRulesLoading && thresholdRulesLoadError">{{ thresholdRulesLoadError }}</span>
+            </div>
+
+            <div class="datatable invoice-table px-5 pb-4" data-tour="wp-thresholds-table">
+                <ng-datatable
+                    [rows]="thresholdRows"
+                    [columns]="thresholdCols"
+                    [search]="thresholdSearch"
+                    [sortable]="true"
+                    skin="whitespace-nowrap bh-table-hover">
+                    <ng-template slot="ruleName" let-value="data">
+                        <div>
+                            <div class="font-semibold text-gray-800 dark:text-white">{{ value.ruleName }}</div>
+                            <div class="text-xs text-gray-500 max-w-md truncate" *ngIf="value.notes" [title]="value.notes">
+                                {{ value.notes }}
+                            </div>
+                        </div>
+                    </ng-template>
+                    <ng-template slot="condition" let-value="data">
+                        <div class="text-sm max-w-xs">
+                            <span class="font-medium">{{ value.fieldLabel }}</span>
+                            <span class="text-gray-500"> ({{ value.fieldKey }})</span>
+                            <div class="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+                                {{ thresholdOperatorLabel(value.operator) }}
+                                <span class="font-semibold text-gray-800 dark:text-white">"{{ value.value }}"</span>
+                            </div>
+                        </div>
+                    </ng-template>
+                    <ng-template slot="routing" let-value="data">
+                        <div class="text-sm max-w-sm">
+                            <div class="text-xs font-semibold uppercase text-primary mb-0.5">
+                                {{ (value.routingAction || 'override') === 'insert' ? 'Insert' : 'Override' }}
+                            </div>
+                            <div>{{ getThresholdRoutingSummary(value) }}</div>
+                        </div>
+                    </ng-template>
+                    <ng-template slot="priority" let-value="data">
+                        <span class="badge badge-outline-primary">{{ value.priority }}</span>
+                    </ng-template>
+                    <ng-template slot="active" let-value="data">
+                        <span
+                            class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
+                            [ngClass]="value.active ? 'bg-success/15 text-success' : 'bg-gray-200 text-gray-600'">
+                            {{ value.active ? 'Yes' : 'No' }}
+                        </span>
+                    </ng-template>
+                    <ng-template slot="actions" let-value="data">
+                        <div class="flex items-center justify-center">
+                            <button type="button" class="btn btn-sm btn-outline-primary" (click)="onEditThresholdRule(value)">
+                                Edit
+                            </button>
+                        </div>
+                    </ng-template>
+                </ng-datatable>
+            </div>
+        </ng-container>
+    </div>
+</div>
+
+<modal #editorModal class="workflow-pipeline-editor-modal">
+    <ng-template #modalHeader>
+        <div>{{ editingId ? 'Edit' : 'New' }} Workflow Pipeline</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <form class="space-y-4" [formGroup]="editorForm" (ngSubmit)="saveEditor()" novalidate>
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                    <label class="block mb-1">Name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-input" formControlName="name" placeholder="e.g. Finance 3-level approval" />
+                    <p class="mt-1 text-danger text-sm" *ngIf="editorSubmit && editorForm.controls['name'].invalid">Name is required</p>
+                </div>
+                <div>
+                    <label class="block mb-1">Code</label>
+                    <input type="text" class="form-input" formControlName="code" placeholder="e.g. WF-FIN-01" />
+                </div>
+            </div>
+            <div>
+                <label class="block mb-1">Description</label>
+                <textarea class="form-textarea min-h-[72px]" formControlName="description" placeholder="Optional summary"></textarea>
+            </div>
+            <div class="flex items-center gap-2">
+                <input type="checkbox" class="form-checkbox" formControlName="active" id="wp-active" />
+                <label for="wp-active">Active</label>
+            </div>
+
+            <div class="wp-steps-section border border-[#e0e6ed] dark:border-[#1b2e4b] rounded-md p-4">
+                <div class="flex items-center justify-between gap-2 mb-3">
+                    <h6 class="font-semibold text-base m-0">Approval steps</h6>
+                    <button type="button" class="btn btn-outline-primary btn-sm" (click)="openAddStepPanel()">+ Add step</button>
+                </div>
+                <p class="text-xs text-gray-500 mb-3">Initiator is always first. Add department, role, or individual approver steps.</p>
+
+                <ul class="wp-step-list space-y-2" *ngIf="pipelineSteps.length">
+                    <li
+                        *ngFor="let step of pipelineSteps; let i = index"
+                        class="wp-step-item flex flex-wrap items-center gap-2 rounded-md border border-[#ebedf2] dark:border-[#191e3a] px-3 py-2">
+                        <div class="min-w-0 flex-1">
+                            <div class="font-medium text-sm">{{ getStepRowLabel(step) }}</div>
+                            <div class="text-xs text-gray-500 truncate">{{ getStepTargetLabel(step) }}</div>
+                        </div>
+                        <div class="flex shrink-0 gap-1" *ngIf="step.type !== 'initiator'">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" (click)="openEditStepPanel(step)">Edit</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" (click)="moveStep(i, 'up')">Up</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" (click)="moveStep(i, 'down')">Dn</button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" (click)="removeStep(i)">×</button>
+                        </div>
+                        <span class="text-xs text-gray-400" *ngIf="step.type === 'initiator'">Fixed</span>
+                    </li>
+                </ul>
+
+                <div *ngIf="showStepPanel" class="wp-step-panel mt-4 border-t border-[#ebedf2] dark:border-[#191e3a] pt-4 space-y-3">
+                    <h6 class="font-semibold text-sm">{{ editingStepId ? 'Edit step' : 'New step' }}</h6>
+                    <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <div>
+                            <label class="block mb-1 text-sm">Step name</label>
+                            <input type="text" class="form-input" [(ngModel)]="stepName" [ngModelOptions]="{ standalone: true }" placeholder="Display name" />
+                        </div>
+                        <div>
+                            <label class="block mb-1 text-sm">Type</label>
+                            <select class="form-select" [(ngModel)]="stepType" [ngModelOptions]="{ standalone: true }" (change)="onStepTypeChanged()">
+                                <option *ngFor="let t of pipelineStepTypes" [ngValue]="t.value">{{ t.label }}</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div *ngIf="stepType === 'department'">
+                        <label class="block mb-1 text-sm">Department</label>
+                        <select class="form-select" [(ngModel)]="stepDepartmentId" [ngModelOptions]="{ standalone: true }">
+                            <option [ngValue]="null">— Select —</option>
+                            <option [ngValue]="selfHodDepartmentId">Self HOD (initiator's department head)</option>
+                            <option *ngFor="let d of departments" [ngValue]="d.serDepartmentId">{{ d.txtDepartmentName }}</option>
+                        </select>
+                    </div>
+
+                    <div *ngIf="stepType === 'role'">
+                        <label class="block mb-1 text-sm">Role</label>
+                        <select class="form-select" [(ngModel)]="stepRoleId" [ngModelOptions]="{ standalone: true }">
+                            <option [ngValue]="null">— Select —</option>
+                            <option *ngFor="let r of roles" [ngValue]="r.serRoleId">{{ r.txtRoleName }}</option>
+                        </select>
+                    </div>
+
+                    <div *ngIf="stepType === 'individual'">
+                        <label class="block mb-1 text-sm">Employees</label>
+                        <div class="wp-step-user-dropdown relative">
+                            <button
+                                type="button"
+                                class="form-input text-left w-full flex justify-between items-center"
+                                (click)="showStepUserDropdown = !showStepUserDropdown; $event.stopPropagation()">
+                                <span class="truncate">{{ stepUsersSummary() }}</span>
+                                <span class="text-gray-400">▾</span>
+                            </button>
+                            <div
+                                class="wp-step-user-menu absolute z-20 mt-1 w-full rounded-md border border-[#e0e6ed] bg-white shadow-lg dark:border-[#1b2e4b] dark:bg-[#0e1726] max-h-56 overflow-auto"
+                                *ngIf="showStepUserDropdown"
+                                (click)="$event.stopPropagation()">
+                                <div class="p-2 border-b border-[#ebedf2] dark:border-[#191e3a]">
+                                    <input type="text" class="form-input form-input-sm" [(ngModel)]="stepUserSearch" [ngModelOptions]="{ standalone: true }" placeholder="Search…" />
+                                </div>
+                                <button
+                                    type="button"
+                                    class="wp-step-user-option w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-[#1b2e4b]"
+                                    *ngFor="let user of filteredStepUsers()"
+                                    (click)="toggleStepUser(user, $event)">
+                                    <span class="inline-block w-4">{{ isStepUserSelected(user) ? '✓' : '' }}</span>
+                                    {{ user.txtUserName || user.userName }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div *ngIf="showStepApprovalMode()">
+                        <label class="block mb-1 text-sm">Approval mode</label>
+                        <select class="form-select w-full md:w-48" [(ngModel)]="stepApprovalMode" [ngModelOptions]="{ standalone: true }">
+                            <option value="OR">Any one (OR)</option>
+                            <option value="AND">All (AND)</option>
+                        </select>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <button type="button" class="btn btn-primary btn-sm" (click)="saveStepPanel()">Save step</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" (click)="closeStepPanel()">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" class="btn btn-outline-danger" (click)="closeEditor()" [disabled]="editorSaving">Cancel</button>
+        <button type="button" class="btn btn-primary ltr:ml-4 rtl:mr-4" (click)="saveEditor()" [disabled]="editorSaving">
+            {{ editorSaving ? 'Saving…' : 'Save pipeline' }}
+        </button>
+    </ng-template>
+</modal>
+
+<modal #thresholdRuleModal class="workflow-threshold-rule-modal">
+    <ng-template #modalHeader>
+        <div>{{ editingThresholdId ? 'Edit' : 'New' }} threshold rule</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="wp-threshold-modal-grid">
+            <form class="space-y-3" [formGroup]="thresholdRuleForm" novalidate>
+                <div>
+                    <label class="block mb-1 text-sm">Rule name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-input" formControlName="ruleName" placeholder="e.g. High amount → Finance" />
+                    <p class="mt-1 text-danger text-xs" *ngIf="thresholdRuleSubmit && thresholdRuleForm.controls['ruleName'].invalid">Required</p>
+                </div>
+                <div>
+                    <label class="block mb-1 text-sm">Form <span class="text-danger">*</span></label>
+                    <select
+                        class="form-select"
+                        formControlName="serFormId"
+                        (change)="onThresholdFormChanged()"
+                        [disabled]="thresholdFormsLoading">
+                        <option [ngValue]="null">— Select form —</option>
+                        <option *ngFor="let form of thresholdForms" [ngValue]="form.serFormId">
+                            {{ thresholdFormDisplayLabel(form) }}
+                        </option>
+                    </select>
+                    <p class="mt-1 text-xs text-gray-500" *ngIf="thresholdFormsLoading">Loading forms…</p>
+                    <p class="mt-1 text-danger text-xs" *ngIf="thresholdRuleSubmit && thresholdRuleForm.controls['serFormId'].invalid">
+                        Form is required
+                    </p>
+                </div>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                        <label class="block mb-1 text-sm">Form field <span class="text-danger">*</span></label>
+                        <select
+                            class="form-select"
+                            formControlName="fieldKey"
+                            (change)="onThresholdFieldChanged()"
+                            [disabled]="!thresholdRuleForm.get('serFormId')?.value || thresholdFormFieldsLoading || !thresholdFormFields.length">
+                            <option value="" disabled *ngIf="!thresholdFormFields.length">Select a form first</option>
+                            <option *ngFor="let f of thresholdFormFields" [value]="f.key">{{ f.label }}</option>
+                        </select>
+                        <p class="mt-1 text-xs text-gray-500" *ngIf="thresholdFormFieldsLoading">Loading fields…</p>
+                        <p
+                            class="mt-1 text-xs text-gray-500"
+                            *ngIf="
+                                thresholdRuleForm.get('serFormId')?.value &&
+                                !thresholdFormFieldsLoading &&
+                                !thresholdFormFields.length
+                            ">
+                            No number, integer, or decimal fields on this form.
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block mb-1 text-sm">Operator</label>
+                        <select class="form-select" formControlName="operator">
+                            <option *ngFor="let op of thresholdOperators" [value]="op.value">{{ op.label }}</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block mb-1 text-sm">Compare value <span class="text-danger">*</span></label>
+                    <input type="text" class="form-input" formControlName="value" placeholder="e.g. 500000 or CAPEX" />
+                </div>
+                <div>
+                    <label class="block mb-1 text-sm">When condition matches <span class="text-danger">*</span></label>
+                    <select class="form-select" formControlName="routingAction" (change)="onThresholdRoutingActionChanged()">
+                        <option *ngFor="let a of thresholdRoutingActions" [value]="a.value">{{ a.label }}</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2" *ngIf="isThresholdInsertRouting()">
+                    <div>
+                        <label class="block mb-1 text-sm">Insert position</label>
+                        <select class="form-select" formControlName="insertPosition">
+                            <option *ngFor="let p of thresholdInsertPositions" [value]="p.value">{{ p.label }}</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block mb-1 text-sm">Anchor step <span class="text-danger">*</span></label>
+                        <select
+                            class="form-select"
+                            formControlName="approvalStepOrder"
+                            [disabled]="thresholdFormPipelineLoading || !getThresholdAnchorStepOptions().length">
+                            <option *ngFor="let step of getThresholdAnchorStepOptions()" [ngValue]="step.order">
+                                {{ step.label }}
+                            </option>
+                        </select>
+                    </div>
+                </div>
+                <div *ngIf="!isThresholdInsertRouting()">
+                    <label class="block mb-1 text-sm">Override at step <span class="text-danger">*</span></label>
+                    <select
+                        class="form-select"
+                        formControlName="approvalStepOrder"
+                        [disabled]="thresholdFormPipelineLoading || !getThresholdApprovalStepOptions().length">
+                        <option *ngFor="let step of getThresholdApprovalStepOptions()" [ngValue]="step.order">
+                            {{ step.label }}
+                        </option>
+                    </select>
+                    <p class="mt-1 text-xs text-gray-500" *ngIf="thresholdFormPipelineLoading">Loading workflow steps…</p>
+                </div>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                        <label class="block mb-1 text-sm">Approver type</label>
+                        <select class="form-select" formControlName="targetType" (change)="onThresholdTargetTypeChanged()">
+                            <option *ngFor="let t of thresholdTargetTypes" [value]="t.value">{{ t.label }}</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block mb-1 text-sm">
+                        <ng-container [ngSwitch]="thresholdRuleForm.get('targetType')?.value">
+                            <span *ngSwitchCase="'role'">Role</span>
+                            <span *ngSwitchCase="'individual'">Employee</span>
+                            <span *ngSwitchDefault>Department</span>
+                        </ng-container>
+                        <span class="text-danger">*</span>
+                    </label>
+                    <select
+                        *ngIf="thresholdRuleForm.get('targetType')?.value === 'department'"
+                        class="form-select"
+                        formControlName="targetId"
+                        (change)="onThresholdTargetChanged()">
+                        <option [ngValue]="null">— Select department —</option>
+                        <option *ngFor="let d of departments" [ngValue]="d.serDepartmentId">{{ d.txtDepartmentName }}</option>
+                    </select>
+                    <select
+                        *ngIf="thresholdRuleForm.get('targetType')?.value === 'role'"
+                        class="form-select"
+                        formControlName="targetId"
+                        (change)="onThresholdTargetChanged()">
+                        <option [ngValue]="null">— Select role —</option>
+                        <option *ngFor="let r of roles" [ngValue]="r.serRoleId">{{ r.txtRoleName }}</option>
+                    </select>
+                    <select
+                        *ngIf="thresholdRuleForm.get('targetType')?.value === 'individual'"
+                        class="form-select"
+                        formControlName="targetId"
+                        (change)="onThresholdTargetChanged()">
+                        <option [ngValue]="null">— Select employee —</option>
+                        <option *ngFor="let u of allUsers" [ngValue]="u.serUserId ?? u.userId ?? u.id">
+                            {{ u.txtUserName || u.userName }}
+                        </option>
+                    </select>
+                    <p class="mt-1 text-danger text-xs" *ngIf="thresholdRuleSubmit && thresholdRuleForm.controls['targetId'].invalid">
+                        Selection is required
+                    </p>
+                </div>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                        <label class="block mb-1 text-sm">Priority (lower runs first)</label>
+                        <input type="number" class="form-input" formControlName="priority" min="1" />
+                    </div>
+                    <div class="flex items-end pb-2">
+                        <label class="inline-flex items-center gap-2 text-sm">
+                            <input type="checkbox" class="form-checkbox" formControlName="active" />
+                            Active
+                        </label>
+                    </div>
+                </div>
+                <div>
+                    <label class="block mb-1 text-sm">Notes</label>
+                    <textarea class="form-textarea min-h-[60px]" formControlName="notes" placeholder="Optional"></textarea>
+                </div>
+            </form>
+
+            <aside class="wp-threshold-preview">
+                <h6 class="wp-threshold-preview-title">How this rule will apply</h6>
+                <div class="wp-threshold-preview-rule">
+                    <div class="wp-threshold-preview-if">{{ getThresholdPreviewConditionText() }}</div>
+                    <div class="wp-threshold-preview-then">{{ getThresholdPreviewEffectText() }}</div>
+                </div>
+
+                <p class="text-xs font-semibold mt-4 mb-2 dark:text-white-light">Form workflow (from selected form)</p>
+                <p class="text-xs text-gray-500 mb-2" *ngIf="thresholdFormPipelineLoading">Loading pipeline…</p>
+                <p
+                    class="text-xs text-gray-500 mb-2"
+                    *ngIf="
+                        !thresholdFormPipelineLoading &&
+                        thresholdRuleForm.get('serFormId')?.value &&
+                        !thresholdFormPipelineSteps.length
+                    ">
+                    No approval pipeline found on this form.
+                </p>
+                <ol class="wp-threshold-step-preview-list" *ngIf="thresholdFormPipelineSteps.length">
+                    <ng-container *ngFor="let step of thresholdFormPipelineSteps">
+                        <li
+                            *ngIf="shouldShowThresholdInsertPreviewBefore(step)"
+                            class="wp-threshold-step-preview-item is-insert">
+                            <div class="font-medium text-sm text-success">{{ getThresholdInsertPreviewLabel() }}</div>
+                            <div class="text-xs text-gray-500 mt-0.5">Inserted before this step</div>
+                        </li>
+                        <li
+                            class="wp-threshold-step-preview-item"
+                            [class.is-override]="isThresholdPreviewStepHighlighted(step)">
+                            <div class="flex justify-between gap-2">
+                                <span class="font-medium text-sm">{{ step.order }}. {{ step.name }}</span>
+                                <span class="text-xs text-primary" *ngIf="isThresholdPreviewStepHighlighted(step)">Override here</span>
+                            </div>
+                            <div class="text-xs text-gray-500 mt-0.5">{{ thresholdPreviewStepApprover(step) }}</div>
+                        </li>
+                        <li
+                            *ngIf="shouldShowThresholdInsertPreviewAfter(step)"
+                            class="wp-threshold-step-preview-item is-insert">
+                            <div class="font-medium text-sm text-success">{{ getThresholdInsertPreviewLabel() }}</div>
+                            <div class="text-xs text-gray-500 mt-0.5">Inserted after this step</div>
+                        </li>
+                    </ng-container>
+                </ol>
+
+                <div class="wp-threshold-try-match mt-4">
+                    <label class="block mb-1 text-xs font-semibold">Try a sample field value</label>
+                    <input
+                        type="text"
+                        class="form-input form-input-sm"
+                        [(ngModel)]="thresholdPreviewSampleValue"
+                        [ngModelOptions]="{ standalone: true }"
+                        placeholder="Type value from submitted form" />
+                    <p class="text-xs mt-2" *ngIf="wouldThresholdPreviewMatch() === true">
+                        <span class="text-success font-semibold">Match:</span> this submission would trigger the rule.
+                    </p>
+                    <p class="text-xs mt-2" *ngIf="wouldThresholdPreviewMatch() === false">
+                        <span class="text-gray-600 font-semibold">No match:</span> default approver stays on that step.
+                    </p>
+                    <p class="text-xs mt-2 text-gray-500" *ngIf="wouldThresholdPreviewMatch() === null">
+                        Enter sample and compare values to test the condition.
+                    </p>
+                </div>
+            </aside>
+        </div>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" class="btn btn-outline-danger" (click)="closeThresholdRuleModal()">Cancel</button>
+        <button
+            type="button"
+            class="btn btn-primary ltr:ml-4 rtl:mr-4"
+            (click)="saveThresholdRule()"
+            [disabled]="thresholdRuleSaving">
+            {{ thresholdRuleSaving ? 'Saving…' : 'Save rule' }}
+        </button>
+    </ng-template>
+</modal>

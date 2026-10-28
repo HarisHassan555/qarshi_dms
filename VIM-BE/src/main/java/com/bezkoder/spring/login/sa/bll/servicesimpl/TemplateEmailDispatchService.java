@@ -1,12 +1,14 @@
 package com.bezkoder.spring.login.sa.bll.servicesimpl;
 
-import com.bezkoder.spring.login.sa.bll.services.ICustomFormApplicationService;
+import com.bezkoder.spring.login.backgroundjob.BackgroundJobService;
+import com.bezkoder.spring.login.backgroundjob.dto.TemplatePostApprovalEmailJobPayload;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PreDestroy;
+import java.util.Base64;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -23,7 +25,10 @@ public class TemplateEmailDispatchService {
     private final ExecutorService executorService = Executors.newFixedThreadPool(THREAD_COUNT, new TemplateEmailThreadFactory());
 
     @Autowired
-    private ICustomFormApplicationService customFormApplicationService;
+    private BackgroundJobService backgroundJobService;
+
+    @Autowired
+    private TemplatePostApprovalEmailProcessor templatePostApprovalEmailProcessor;
 
     public void queuePostApprovalEmails(Integer applicationId, String contextLabel) {
         queuePostApprovalEmails(applicationId, contextLabel, false);
@@ -33,24 +38,12 @@ public class TemplateEmailDispatchService {
         if (applicationId == null) {
             return;
         }
-        executorService.submit(() -> {
-            try {
-                if (refreshPdfBeforeEmail) {
-                    String refreshStatus = customFormApplicationService.refreshTemplateApplicationPdfFromStage0(applicationId);
-                    if (!"Success".equalsIgnoreCase(refreshStatus)) {
-                        logger.warn("Failed to refresh template PDF before " + contextLabel + " for applicationId="
-                                + applicationId + ": " + refreshStatus);
-                    }
-                }
-                String status = customFormApplicationService.sendTemplatePostApprovalEmails(applicationId);
-                if (!"Success".equalsIgnoreCase(status)) {
-                    logger.warn("Failed to send " + contextLabel + " for applicationId=" + applicationId + ": " + status);
-                }
-            } catch (Exception ex) {
-                logger.warn("Failed to send " + contextLabel + " for applicationId="
-                        + applicationId + ": " + ex.getMessage(), ex);
-            }
-        });
+        TemplatePostApprovalEmailJobPayload payload = new TemplatePostApprovalEmailJobPayload();
+        payload.setSerApplicationId(applicationId);
+        payload.setContextLabel(contextLabel);
+        payload.setRefreshPdfBeforeEmail(refreshPdfBeforeEmail);
+        payload.setUseStoredApplicationPdf(true);
+        dispatch(payload);
     }
 
     public void queuePostApprovalEmailsWithPdfs(Integer applicationId, byte[] initiatorPdf, byte[] approverPdf,
@@ -58,18 +51,47 @@ public class TemplateEmailDispatchService {
         if (applicationId == null) {
             return;
         }
-        executorService.submit(() -> {
+        TemplatePostApprovalEmailJobPayload payload = new TemplatePostApprovalEmailJobPayload();
+        payload.setSerApplicationId(applicationId);
+        payload.setContextLabel(contextLabel);
+        payload.setPdfName(pdfName);
+        payload.setPdfMime(pdfMime);
+        // PDF is already persisted via updateApplicationPdf before this call; avoid huge job payloads.
+        payload.setUseStoredApplicationPdf(true);
+        dispatch(payload);
+    }
+
+    private void dispatch(TemplatePostApprovalEmailJobPayload payload) {
+        if (backgroundJobService != null && backgroundJobService.isEnabled()) {
             try {
-                String status = customFormApplicationService.sendTemplatePostApprovalEmails(applicationId,
-                        initiatorPdf, approverPdf, pdfName, pdfMime);
-                if (!"Success".equalsIgnoreCase(status)) {
-                    logger.warn("Failed to send " + contextLabel + " for applicationId=" + applicationId + ": " + status);
-                }
-            } catch (Exception ex) {
-                logger.warn("Failed to send " + contextLabel + " for applicationId="
-                        + applicationId + ": " + ex.getMessage(), ex);
+                backgroundJobService.enqueueTemplatePostApprovalEmail(payload, null);
+                return;
+            } catch (Exception queueEx) {
+                logger.warn("Could not queue TEMPLATE_POST_APPROVAL_EMAIL for applicationId="
+                        + payload.getSerApplicationId() + ", running async fallback: " + queueEx.getMessage(), queueEx);
             }
-        });
+        } else {
+            logger.info("background.job.enabled is false; template post-approval email for applicationId="
+                    + payload.getSerApplicationId() + " will run on thread pool (no cfg_tbl_background_job row)");
+        }
+        executorService.submit(() -> runPayload(payload));
+    }
+
+    private void runPayload(TemplatePostApprovalEmailJobPayload payload) {
+        try {
+            templatePostApprovalEmailProcessor.process(payload);
+        } catch (Exception ex) {
+            String label = payload.getContextLabel() != null ? payload.getContextLabel() : "template email";
+            logger.warn("Failed to send " + label + " for applicationId=" + payload.getSerApplicationId()
+                    + ": " + ex.getMessage(), ex);
+        }
+    }
+
+    private static String encodeBase64(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            return null;
+        }
+        return Base64.getEncoder().encodeToString(bytes);
     }
 
     @PreDestroy

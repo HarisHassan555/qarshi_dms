@@ -1,0 +1,81 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-3 px-5 md:flex-row md:items-center">
+            <div>
+                <h5 class="text-xl font-bold dark:text-white-light">Notification Management</h5>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto flex flex-wrap gap-2 items-center">
+                <button type="button" class="btn btn-outline-primary" (click)="markAllRead()">Mark all read</button>
+                <button type="button" class="btn btn-outline-secondary" (click)="loadNotifications()">Refresh</button>
+                <input [(ngModel)]="search" type="text" class="form-input w-56" placeholder="Search..." />
+            </div>
+        </div>
+
+        <div class="mb-4 px-5 flex flex-wrap items-center gap-3">
+            <label class="inline-flex items-center gap-2 cursor-pointer">
+                <input
+                    type="checkbox"
+                    class="form-checkbox"
+                    [checked]="documentNotificationSoundEnabled"
+                    (change)="setDocumentNotificationSound($any($event.target).checked)" />
+                <span>Notification sound</span>
+            </label>
+            <label class="inline-flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" class="form-checkbox" [(ngModel)]="filterUnreadOnly" />
+                <span>Unread only</span>
+            </label>
+            <button type="button" class="btn btn-primary btn-sm" (click)="applyFilters()">Apply</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" (click)="clearFilters()">Clear</button>
+            <span *ngIf="loading" class="text-sm text-gray-500">Loading…</span>
+        </div>
+
+        <div class="datatable invoice-table px-5">
+            <ng-datatable
+                [rows]="displayRows"
+                [columns]="cols"
+                [search]="search"
+                [sortable]="true"
+                skin="whitespace-nowrap bh-table-hover"
+                paginationInfo="Showing {0} to {1} of {2} entries">
+
+                <ng-template slot="txtMessage" let-value="data">
+                    <span class="inline-block max-w-md truncate" [title]="value.txtMessage">{{ value.txtMessage || '—' }}</span>
+                </ng-template>
+
+                <ng-template slot="blnRead" let-value="data">
+                    <span class="badge" [ngClass]="readBadgeClass(value)">{{ readLabel(value) }}</span>
+                </ng-template>
+
+                <ng-template slot="dteCreatedDate" let-value="data">
+                    {{ value.dteCreatedDate | date:'medium' }}
+                </ng-template>
+
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-3">
+                        <button
+                            *ngIf="value.txtDeepLink"
+                            type="button"
+                            class="text-primary text-xs font-semibold hover:underline"
+                            (click)="openDeepLink(value)">
+                            Open
+                        </button>
+                        <button
+                            *ngIf="!value.blnRead"
+                            type="button"
+                            class="text-info text-xs font-semibold hover:underline"
+                            (click)="markRead(value)">
+                            Mark read
+                        </button>
+                        <button
+                            type="button"
+                            class="hover:text-danger"
+                            title="Delete"
+                            (click)="deleteRow(value)">
+                            <icon-trash-lines class="h-4 w-4" />
+                        </button>
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+    </div>
+</div>

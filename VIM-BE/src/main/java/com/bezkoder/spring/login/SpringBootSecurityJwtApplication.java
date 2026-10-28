@@ -10,7 +10,6 @@ import org.springframework.boot.web.servlet.support.SpringBootServletInitializer
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
-
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.nio.file.Files;
@@ -25,7 +24,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 @SpringBootApplication
 @EnableAspectJAutoProxy
-@ComponentScan(basePackages = {"com.bezkoder.spring.login.admin","com.bezkoder.spring.login.sa","com.bezkoder.spring.login.security","com.bezkoder.spring.login.controllers","com.bezkoder.spring.login.admin.dal.daoimpl","com.bezkoder.spring.login.sa.bll"})
+@ComponentScan(basePackages = {"com.bezkoder.spring.login.admin","com.bezkoder.spring.login.sa","com.bezkoder.spring.login.security","com.bezkoder.spring.login.controllers","com.bezkoder.spring.login.admin.dal.daoimpl","com.bezkoder.spring.login.sa.bll","com.bezkoder.spring.login.chat","com.bezkoder.spring.login.backgroundjob","com.bezkoder.spring.login.notification"})
 public class SpringBootSecurityJwtApplication extends SpringBootServletInitializer {
 
 	public static void main(String[] args) {

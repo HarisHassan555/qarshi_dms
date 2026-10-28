@@ -49,6 +49,9 @@ public class HrTblDepartment implements Serializable {
 	@Column(name="ser_parent_department_id")
 	private Integer serParentDepartmentId;
 
+	@Column(name="ser_division_id")
+	private Integer serDivisionId;
+
 	@Column(name="ser_department_head_id")
 	private String serDepartmentHeadId;
 
@@ -146,6 +149,14 @@ public class HrTblDepartment implements Serializable {
 
 	public void setSerParentDepartmentId(Integer serParentDepartmentId) {
 		this.serParentDepartmentId = serParentDepartmentId;
+	}
+
+	public Integer getSerDivisionId() {
+		return serDivisionId;
+	}
+
+	public void setSerDivisionId(Integer serDivisionId) {
+		this.serDivisionId = serDivisionId;
 	}
 
 	public String getSerDepartmentHeadId() {

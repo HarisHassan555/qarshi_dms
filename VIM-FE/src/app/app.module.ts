@@ -79,6 +79,8 @@ import { AppLayout } from './layouts/app-layout';
 import { AuthLayout } from './layouts/auth-layout';
 
 import { HeaderComponent } from './layouts/header';
+import { ProfileDrawerComponent } from './layouts/profile-drawer.component';
+import { ProductTourShellComponent } from './product-tour/product-tour-shell.component';
 import { FooterComponent } from './layouts/footer';
 import { SidebarComponent } from './layouts/sidebar';
 import { ThemeCustomizerComponent } from './layouts/theme-customizer';
@@ -151,6 +153,16 @@ import { RolesManagementComponent } from './components/roles-management/roles-ma
 import { MenuListComponent } from './components/menu-list/menu-list.component';
 import { SubmenuListComponent } from './components/submenu-list/submenu-list.component';
 import { ActivityLogsComponent } from './components/activity-logs/activity-logs.component';
+import { DelegationManagementComponent } from './components/delegation-management/delegation-management.component';
+import { SapHcmEmployeesComponent } from './components/sap-hcm-employees/sap-hcm-employees.component';
+import { ChatComponent } from './components/chat/chat.component';
+import { NotificationManagementComponent } from './components/notification-management/notification-management.component';
+import { OrganizationsComponent } from './components/organizations/organizations.component';
+import { SubAreasComponent } from './components/sub-areas/sub-areas.component';
+import { DivisionsComponent } from './components/divisions/divisions.component';
+import { WorkflowPipelinesComponent } from './components/workflow-pipelines/workflow-pipelines.component';
+import { EmailTemplatesComponent } from './components/email-templates/email-templates.component';
+import { SummernoteEditorComponent } from './components/summernote-editor/summernote-editor.component';
 import { TemplateBuilderComponent } from './components/template-builder/template-builder.component';
 import { TemplateFillComponent } from './components/template-fill/template-fill.component';
 import { TemplateFormsComponent } from './components/template-forms/template-forms.component';
@@ -160,11 +172,18 @@ import { TemplateApprovedApplicationsComponent } from './components/template-app
 import { MyApplicationComponent } from './components/my-application/my-application.component';
 import { UniverFormBuilderComponent } from './components/univer-form-builder/univer-form-builder.component';
 import { PortalAttachmentsPickerComponent } from './components/portal-attachments-picker/portal-attachments-picker.component';
+import { ReportsComponent } from './components/reports/reports.component';
+import { AllApplicationsComponent } from './components/all-applications/all-applications.component';
+import { DocumentShareLinkButtonComponent } from './components/document-share-link-button/document-share-link-button.component';
+import { DocumentShareViewComponent } from './components/document-share-view/document-share-view.component';
 
 
 @NgModule({
     imports: [
-        RouterModule.forRoot(routes, { scrollPositionRestoration: 'enabled' }),
+        RouterModule.forRoot(routes, {
+            scrollPositionRestoration: 'enabled',
+            onSameUrlNavigation: 'reload',
+        }),
         BrowserModule,
         BrowserModule,
         BrowserAnimationsModule,
@@ -209,6 +228,8 @@ import { PortalAttachmentsPickerComponent } from './components/portal-attachment
     declarations: [
         AppComponent,
         HeaderComponent,
+        ProfileDrawerComponent,
+        ProductTourShellComponent,
         FooterComponent,
         SidebarComponent,
         ThemeCustomizerComponent,
@@ -288,6 +309,16 @@ import { PortalAttachmentsPickerComponent } from './components/portal-attachment
         MenuListComponent,
         SubmenuListComponent,
         ActivityLogsComponent,
+        DelegationManagementComponent,
+        SapHcmEmployeesComponent,
+        ChatComponent,
+        NotificationManagementComponent,
+        OrganizationsComponent,
+        SubAreasComponent,
+        DivisionsComponent,
+        WorkflowPipelinesComponent,
+        EmailTemplatesComponent,
+        SummernoteEditorComponent,
         TemplateBuilderComponent,
         TemplateFillComponent,
         TemplateFormsComponent,
@@ -295,8 +326,12 @@ import { PortalAttachmentsPickerComponent } from './components/portal-attachment
         TemplateApprovedApplicationsComponent,
         TemplateApprovalComponent,
         MyApplicationComponent,
+        AllApplicationsComponent,
         UniverFormBuilderComponent,
-        PortalAttachmentsPickerComponent
+        PortalAttachmentsPickerComponent,
+        ReportsComponent,
+        DocumentShareLinkButtonComponent,
+        DocumentShareViewComponent
     ],
 
     providers: [

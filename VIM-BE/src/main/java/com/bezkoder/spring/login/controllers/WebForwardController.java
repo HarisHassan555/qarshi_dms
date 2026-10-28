@@ -11,7 +11,7 @@ public class WebForwardController {
      * This allows Angular to handle the routing on page refresh.
      * Matches any path that doesn't contain a dot (excluding files) and is not /api/**.
      */
-    @RequestMapping(value = "{path:[^\\.]*}")
+    @RequestMapping(value = "{path:[^\\.]*}", headers = "!Upgrade")
     public String redirect() {
         return "forward:/index.html";
     }

@@ -747,24 +747,31 @@
     justify-content: flex-start;
     overflow: hidden;
     width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 0 10px;
 }
 
-.individual-footer-preview .xyz-signatures {
+.individual-footer-preview .xyz-signatures.individual-pipeline-footer-table {
     border-collapse: collapse;
     font-family: Calibri, Arial, sans-serif;
     font-size: 10px;
     height: auto;
     margin-top: 0;
+    max-width: 100%;
     table-layout: fixed;
     transform-origin: top center;
     width: 100%;
 }
 
-.individual-footer-preview .xyz-signatures th,
-.individual-footer-preview .xyz-signatures td {
+.individual-footer-preview .xyz-signatures.individual-pipeline-footer-table th,
+.individual-footer-preview .xyz-signatures.individual-pipeline-footer-table td {
     border: 1px solid #000000;
-    padding-left: 4px;
-    padding-right: 4px;
+    box-sizing: border-box;
+    max-width: 0;
+    overflow: hidden;
+    padding-left: 2px;
+    padding-right: 2px;
     text-align: center;
 }
 
@@ -807,6 +814,7 @@
     word-break: break-word;
 }
 
+.individual-footer-preview .xyz-signatures tr.individual-footer-header-row th,
 .individual-footer-preview .xyz-signatures tr:nth-child(2) th {
     background: #8f8f8f;
     font-size: 8px;
@@ -816,6 +824,7 @@
     padding-top: 2px;
 }
 
+.individual-footer-preview .xyz-signatures tr.individual-footer-names-row td,
 .individual-footer-preview .xyz-signatures tr:last-child td {
     font-size: 7px;
     font-weight: 700;
@@ -826,6 +835,7 @@
     vertical-align: top;
 }
 
+.individual-footer-preview .xyz-signatures tr.individual-footer-names-row td > span,
 .individual-footer-preview .xyz-signatures tr:last-child td > span {
     display: block;
     line-height: 1.02;
@@ -875,27 +885,61 @@
     font-size: 22px;
     line-height: 1.25;
     margin: 0 0 18px;
+}
+
+:host ::ng-deep .template-ckeditor .ck-content .ql-align-center,
+:host ::ng-deep .template-ckeditor .ck-content [style*="text-align: center"],
+:host ::ng-deep .template-ckeditor .ck-content [style*="text-align:center"] {
     text-align: center;
+}
+
+:host ::ng-deep .template-ckeditor .ck-content .ql-align-right,
+:host ::ng-deep .template-ckeditor .ck-content [style*="text-align: right"],
+:host ::ng-deep .template-ckeditor .ck-content [style*="text-align:right"] {
+    text-align: right;
+}
+
+:host ::ng-deep .template-ckeditor .ck-content .ql-align-justify,
+:host ::ng-deep .template-ckeditor .ck-content [style*="text-align: justify"],
+:host ::ng-deep .template-ckeditor .ck-content [style*="text-align:justify"] {
+    text-align: justify;
 }
 
 :host ::ng-deep .template-ckeditor .ck-content p {
     margin: 0 0 12px;
 }
 
-:host ::ng-deep .template-ckeditor .ck-content table {
+:host ::ng-deep .template-ckeditor .ck-content figure.table {
     box-sizing: border-box;
-    max-width: 100%;
-    table-layout: fixed;
-    width: 100%;
-    border-collapse: collapse;
+    clear: both;
+    display: block;
     margin: 12px 0;
+    max-width: 100%;
+}
+
+:host ::ng-deep .template-ckeditor .ck-content figure.table > table {
+    border-collapse: collapse;
+    box-sizing: border-box;
+    margin: 0;
+    max-width: 100%;
+    table-layout: auto;
+    width: 100%;
+}
+
+:host ::ng-deep .template-ckeditor .ck-content table {
+    border-collapse: collapse;
+    box-sizing: border-box;
+    margin: 12px 0;
+    max-width: 100%;
+    table-layout: auto;
+    width: 100%;
 }
 
 :host ::ng-deep .template-ckeditor .ck-content th,
 :host ::ng-deep .template-ckeditor .ck-content td {
     border: 1px solid #334155;
-    max-width: 1px;
-    min-width: 0;
+    box-sizing: border-box;
+    min-width: 2em;
     overflow-wrap: anywhere;
     padding: 8px;
     vertical-align: top;
@@ -907,19 +951,6 @@
 :host ::ng-deep .template-ckeditor .ck-content li {
     break-inside: avoid;
     page-break-inside: avoid;
-}
-
-:host ::ng-deep .template-ckeditor .ck-content figure.table {
-    clear: both;
-    display: table;
-    margin: 12px 0;
-    max-width: 100%;
-    width: 100%;
-}
-
-:host ::ng-deep .template-ckeditor .ck-content figure.table table {
-    max-width: 100%;
-    width: 100%;
 }
 
 :host ::ng-deep .template-ckeditor .ck-content img,
@@ -1531,4 +1562,102 @@
         min-height: 70vh;
         padding: 18px;
     }
+}
+
+.pipeline-source-modal {
+    max-width: 520px;
+    width: min(520px, 100%);
+}
+
+.pipeline-source-intro {
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.45;
+    margin: 0 0 14px;
+}
+
+.pipeline-source-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pipeline-source-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    padding: 14px;
+    text-align: left;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    width: 100%;
+}
+
+.pipeline-source-card:hover {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.15);
+}
+
+.pipeline-source-card strong {
+    color: #0f172a;
+    display: block;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.pipeline-source-card span {
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.pipeline-library-modal {
+    max-width: 560px;
+    width: min(560px, 100%);
+}
+
+.pipeline-library-search {
+    margin-bottom: 12px;
+    width: 100%;
+}
+
+.pipeline-library-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: min(50vh, 360px);
+    overflow-y: auto;
+    margin-bottom: 14px;
+}
+
+.pipeline-library-row {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    padding: 10px 12px;
+    text-align: left;
+    width: 100%;
+}
+
+.pipeline-library-row.is-selected {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2);
+}
+
+.pipeline-library-row strong {
+    color: #0f172a;
+    font-size: 13px;
+}
+
+.pipeline-library-status {
+    color: #64748b;
+    font-size: 13px;
+    margin-bottom: 12px;
+}
+
+.pipeline-library-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
 }

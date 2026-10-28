@@ -1,8 +1,9 @@
 import { Component } from '@angular/core';
 import { Store } from '@ngrx/store';
 import { AppService } from '../service/app.service';
-import { Router, NavigationEnd, Event as RouterEvent } from '@angular/router';
+import { Router, NavigationEnd } from '@angular/router';
 import { TranslateService } from '@ngx-translate/core';
+import { filter } from 'rxjs/operators';
 
 @Component({
     selector: 'app-root',
@@ -11,11 +12,21 @@ import { TranslateService } from '@ngx-translate/core';
 export class AppLayout {
     store: any = { sidebar: false, menu: '', layout: '', rtlClass: '', isShowMainLoader: false, navbar: '' };
     showTopButton = false;
+    hideAppChrome = false;
     constructor(public translate: TranslateService, public storeData: Store<any>, private service: AppService, private router: Router) {
         this.initStore();
+        this.updateShareRouteFlag();
     }
     headerClass = '';
+
+    get isDocumentShareRoute(): boolean {
+        return this.hideAppChrome;
+    }
+
     ngOnInit() {
+        this.router.events
+            .pipe(filter((event) => event instanceof NavigationEnd))
+            .subscribe(() => this.updateShareRouteFlag());
         this.initAnimation();
         setTimeout(() => this.toggleLoader(), 0);
         window.addEventListener('scroll', () => {
@@ -63,5 +74,15 @@ export class AppLayout {
     goToTop() {
         document.body.scrollTop = 0;
         document.documentElement.scrollTop = 0;
+    }
+
+    private updateShareRouteFlag(): void {
+        let path = (this.router.url || '').split('?')[0] || '';
+        path = path.replace(/^\/velocity\/?/i, '/');
+        if (!path.startsWith('/')) {
+            path = '/' + path;
+        }
+        const segments = path.split('/').filter(Boolean);
+        this.hideAppChrome = segments[0] === 'share';
     }
 }

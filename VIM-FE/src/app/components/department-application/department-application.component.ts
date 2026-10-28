@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { finalize } from 'rxjs/operators';
 import { NotificationService } from 'src/app/NotificationService';
@@ -33,7 +33,7 @@ interface DepartmentApplicationCsvColumn {
   templateUrl: './department-application.component.html',
   styleUrls: ['./department-application.component.css']
 })
-export class DepartmentApplicationComponent implements OnInit {
+export class DepartmentApplicationComponent implements OnInit, OnDestroy {
   search = '';
   applications: DepartmentApplication[] = [];
   displayedApplications: DepartmentApplication[] = [];
@@ -76,7 +76,21 @@ export class DepartmentApplicationComponent implements OnInit {
       this.currentUser = JSON.parse(userJson);
     }
     this.loadDepartmentApplications();
+    window.addEventListener('velocity-tour-prepare', this.onTourPrepare);
   }
+
+  ngOnDestroy(): void {
+    window.removeEventListener('velocity-tour-prepare', this.onTourPrepare);
+  }
+
+  private onTourPrepare = (event: Event): void => {
+    const action = (event as CustomEvent<{ action?: string }>).detail?.action;
+    if (action === 'dept-app-close-csv') {
+      this.closeCsvModal();
+    } else if (action === 'dept-app-open-csv' && this.displayedApplications.length > 0) {
+      this.openCsvModal();
+    }
+  };
 
   loadDepartmentApplications() {
     if (!this.currentUser?.serUserId) {

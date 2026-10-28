@@ -1,0 +1,80 @@
+.org-logo-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 56px;
+}
+
+.org-logo-thumb {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    border-radius: 4px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    padding: 2px;
+}
+
+:host-context(.dark) .org-logo-thumb {
+    background: #1b2e4b;
+    border-color: #253b5a;
+}
+
+.org-logo-placeholder {
+    color: #9ca3af;
+    font-size: 12px;
+}
+
+.org-logo-preview-wrap {
+    text-align: center;
+}
+
+.org-logo-preview {
+    max-width: 160px;
+    max-height: 80px;
+    object-fit: contain;
+    margin: 0 auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    padding: 4px;
+    background: #fff;
+}
+
+:host-context(.dark) .org-logo-preview {
+    background: #1b2e4b;
+    border-color: #253b5a;
+}
+
+.org-table-wrap {
+    overflow-x: auto;
+}
+
+.org-table-wrap ::ng-deep .bh-datatable table th:last-child,
+.org-table-wrap ::ng-deep .bh-datatable table td:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    background: var(--bh-table-bg, #fff);
+    box-shadow: -4px 0 8px -4px rgba(0, 0, 0, 0.08);
+}
+
+:host-context(.dark) .org-table-wrap ::ng-deep .bh-datatable table th:last-child,
+:host-context(.dark) .org-table-wrap ::ng-deep .bh-datatable table td:last-child {
+    background: #0e1726;
+}
+
+.org-name-link {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: inherit;
+}
+
+.org-address-cell {
+    display: inline-block;
+    max-width: 280px;
+    white-space: normal;
+    line-height: 1.35;
+    vertical-align: top;
+}

@@ -4,6 +4,12 @@ import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import Swal from 'sweetalert2';
+import { confirmTemplatePdfDownloadIfNeeded } from 'src/app/utils/template-pdf-download.util';
+import {
+    buildIndividualFooterTableBands,
+    getIndividualFooterRenderedHeightPx,
+    IndividualFooterTableBand
+} from 'src/app/utils/individual-footer-pipeline.util';
 import { NotificationService } from 'src/app/NotificationService';
 import { ApplicationPdfService } from 'src/app/services/application-pdf/application-pdf.service';
 import { SavedTemplateDefinition, TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
@@ -15,6 +21,8 @@ import {
     normalizeWordEditorValueForCkeditor,
 } from 'src/app/utils/word-editor-ckeditor.util';
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
+import { applyWordEditorAlignmentClasses, getTemplateFieldNgStyle } from 'src/app/utils/word-editor-display.util';
+import { normalizeDocumentBodyHtmlForDisplay } from 'src/app/utils/document-body-html.util';
 import {
     resolveDocumentHeaderAddress,
     resolveDocumentHeaderBrandTitle,
@@ -207,6 +215,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     hasAnyAttachmentsCache = false;
     hasAttachmentFieldsCache = false;
     readOnlyStepMessage = '';
+    adminProxyNotice = '';
     canEditCurrentStep = false;
     canTakeWorkflowActions = false;
     opinionPending = false;
@@ -526,7 +535,12 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (field.type !== 'individual_pipeline_footer') {
             return height;
         }
-        return Math.max(height, TemplateApprovalComponent.INDIVIDUAL_FOOTER_MIN_HEIGHT);
+        const bandCount = this.getIndividualFooterBands().length;
+        return getIndividualFooterRenderedHeightPx(
+            height,
+            bandCount,
+            TemplateApprovalComponent.INDIVIDUAL_FOOTER_MIN_HEIGHT
+        );
     }
 
     isDynamicSignatureField(field: TemplateField): boolean {
@@ -555,14 +569,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     getInputStyle(field: TemplateField): { [key: string]: string | number } {
-        return {
-            'font-size.px': field.style?.fontSize || 14,
-            'font-family': field.style?.fontFamily || 'Arial, sans-serif',
-            'font-weight': field.style?.bold ? '700' : '400',
-            'font-style': field.style?.italic ? 'italic' : 'normal',
-            'text-decoration': field.style?.underline ? 'underline' : 'none',
-            'text-align': field.style?.textAlign || 'left'
-        };
+        return getTemplateFieldNgStyle(field);
     }
 
     getPanelInputType(field: TemplateField): string {
@@ -625,6 +632,13 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     getIndividualFooterSlots(section: any): any[] {
         const users = Array.isArray(section?.users) ? section.users : [];
         return users.length > 0 ? users : [null];
+    }
+
+    getIndividualFooterBands(): IndividualFooterTableBand[] {
+        return buildIndividualFooterTableBands(
+            this.getIndividualFooterSections(),
+            (section) => this.getIndividualFooterSlots(section)
+        );
     }
 
     getIndividualFooterUserLabel(user: any): SafeHtml {
@@ -918,6 +932,10 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (!this.application || !this.template) {
             return;
         }
+        if (!this.canEditCurrentStep) {
+            this.notificationService.showMessage('This application is not available for editing.', 'danger');
+            return;
+        }
         this.isSaving = true;
         try {
             await this.persistCurrentTemplateState(false);
@@ -929,9 +947,12 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         }
     }
 
-    downloadApplicationPdf(): void {
+    async downloadApplicationPdf(): Promise<void> {
         if (!this.application?.serApplicationId) {
             this.notificationService.showMessage('Invalid application ID', 'danger');
+            return;
+        }
+        if (!(await confirmTemplatePdfDownloadIfNeeded(this.templateWorkflowService, this.application.serApplicationId))) {
             return;
         }
         this.templateWorkflowService.downloadTemplateApplicationPdf(this.application.serApplicationId).subscribe({
@@ -1028,21 +1049,16 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 this.templateWorkflowService.getApplication(this.application.serApplicationId, this.getCurrentUserId())
             );
             const approverStep = this.getPipelineStepForApplication(this.application);
-            const initiatorStep = this.getInitiatorPipelineStep();
             const approverPdfBlob = await this.renderTemplatePreviewPdfBlobForStep(approverStep);
-            const initiatorPdfBlob = this.stepsHaveSameVisibility(approverStep, initiatorStep)
-                ? approverPdfBlob
-                : await this.renderTemplatePreviewPdfBlobForStep(initiatorStep);
             const filename = `${this.sanitizeFilename(this.template?.name || 'template-form')}_${this.application?.txtFormCode || this.application?.serApplicationId}.pdf`;
-            await firstValueFrom(this.templateWorkflowService.updateTemplateApplicationPdf(this.application.serApplicationId, approverPdfBlob, filename));
-            const emailResponse: any = await firstValueFrom(this.templateWorkflowService.sendTemplatePostApprovalEmails(
+            const pdfResponse: any = await firstValueFrom(this.templateWorkflowService.updateTemplateApplicationPdf(
                 this.application.serApplicationId,
-                initiatorPdfBlob,
                 approverPdfBlob,
-                filename
+                filename,
+                true
             ));
-            if (!emailResponse || emailResponse.status !== 'Success') {
-                throw new Error(emailResponse?.message || 'Resubmission email could not be sent');
+            if (!pdfResponse || pdfResponse.status !== 'Success') {
+                throw new Error(pdfResponse?.message || 'Resubmission PDF could not be saved or emails could not be queued');
             }
 
             this.notificationService.showMessage(response.message || 'Application resubmitted successfully.', 'success');
@@ -1071,7 +1087,6 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         }
         this.isActing = true;
         try {
-            await this.persistCurrentTemplateState(false);
             const response = await firstValueFrom(this.templateWorkflowService.requestTemplateOpinion(
                 this.application.serApplicationId,
                 Number(this.selectedOpinionUserId),
@@ -1150,7 +1165,11 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         this.isActing = true;
         try {
             const response: any = await firstValueFrom(
-                this.templateWorkflowService.holdTemplateApplication(this.application.serApplicationId, reason)
+                this.templateWorkflowService.holdTemplateApplication(
+                    this.application.serApplicationId,
+                    reason,
+                    this.getWorkflowOnBehalfOfUserId()
+                )
             );
             if (!response || response.status !== 'Success') {
                 throw new Error(response?.message || 'Could not put application on Hold');
@@ -1182,7 +1201,11 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         this.isActing = true;
         try {
             const response: any = await firstValueFrom(
-                this.templateWorkflowService.unholdTemplateApplication(this.application.serApplicationId, note)
+                this.templateWorkflowService.unholdTemplateApplication(
+                    this.application.serApplicationId,
+                    note,
+                    this.getWorkflowOnBehalfOfUserId()
+                )
             );
             if (!response || response.status !== 'Success') {
                 throw new Error(response?.message || 'Could not take application off Hold');
@@ -1467,19 +1490,32 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             await this.persistCurrentTemplateState(false);
 
             let response: any;
+            const onBehalfOfUserId = this.getWorkflowOnBehalfOfUserId();
             if (action === 'approve') {
                 response = await firstValueFrom(this.templateWorkflowService.approveTemplateApplication(
                     this.application.serApplicationId,
                     this.remarks.trim(),
-                    this.getCurrentUserId(),
-                    true
+                    true,
+                    onBehalfOfUserId
                 ));
             } else if (action === 'reject') {
-                response = await firstValueFrom(this.templateWorkflowService.rejectTemplateApplication(this.application.serApplicationId, this.remarks.trim()));
+                response = await firstValueFrom(this.templateWorkflowService.rejectTemplateApplication(
+                    this.application.serApplicationId,
+                    this.remarks.trim(),
+                    onBehalfOfUserId
+                ));
             } else if (action === 'sendBack' && !shouldSendBackToInitiator) {
-                response = await firstValueFrom(this.templateWorkflowService.sendBackTemplateApplication(this.application.serApplicationId, this.remarks.trim()));
+                response = await firstValueFrom(this.templateWorkflowService.sendBackTemplateApplication(
+                    this.application.serApplicationId,
+                    this.remarks.trim(),
+                    onBehalfOfUserId
+                ));
             } else {
-                response = await firstValueFrom(this.templateWorkflowService.sendBackTemplateApplicationToInitiator(this.application.serApplicationId, this.remarks.trim()));
+                response = await firstValueFrom(this.templateWorkflowService.sendBackTemplateApplicationToInitiator(
+                    this.application.serApplicationId,
+                    this.remarks.trim(),
+                    onBehalfOfUserId
+                ));
             }
 
             if (!response || response.status !== 'Success') {
@@ -1493,21 +1529,16 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 this.previewStepOverride = actingStep;
                 this.refreshDerivedState();
                 this.rebuildPreviewHtml();
-                const initiatorStep = this.getInitiatorPipelineStep();
                 const approverPdfBlob = await this.renderTemplatePreviewPdfBlobForStep(approverStep);
-                const initiatorPdfBlob = this.stepsHaveSameVisibility(approverStep, initiatorStep)
-                    ? approverPdfBlob
-                    : await this.renderTemplatePreviewPdfBlobForStep(initiatorStep);
                 const filename = `${this.sanitizeFilename(this.template?.name || 'template-form')}_${this.application?.txtFormCode || this.application?.serApplicationId}.pdf`;
-                await firstValueFrom(this.templateWorkflowService.updateTemplateApplicationPdf(this.application.serApplicationId, approverPdfBlob, filename));
-                const emailResponse: any = await firstValueFrom(this.templateWorkflowService.sendTemplatePostApprovalEmails(
+                const pdfResponse: any = await firstValueFrom(this.templateWorkflowService.updateTemplateApplicationPdf(
                     this.application.serApplicationId,
-                    initiatorPdfBlob,
                     approverPdfBlob,
-                    filename
+                    filename,
+                    true
                 ));
-                if (!emailResponse || emailResponse.status !== 'Success') {
-                    throw new Error(emailResponse?.message || 'Approval email could not be sent');
+                if (!pdfResponse || pdfResponse.status !== 'Success') {
+                    throw new Error(pdfResponse?.message || 'Approval PDF could not be saved or emails could not be queued');
                 }
                 this.refreshDerivedState();
             }
@@ -1650,6 +1681,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         this.canEditCurrentStep = this.computeCanCurrentUserEditCurrentStep(this.application);
         this.canTakeWorkflowActions = this.canEditCurrentStep || this.canCurrentUserUnhold();
         this.readOnlyStepMessage = this.computeReadOnlyStepMessage(this.application);
+        this.adminProxyNotice = this.computeAdminProxyNotice(this.application);
         this.individualFooterSectionsCache = Array.isArray(this.userPipeline) ? this.userPipeline : [];
         this.editableFieldsCache = this.computeEditableFields();
         this.attachmentItemsCache = this.computeAttachmentItems();
@@ -1709,7 +1741,10 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (Number.isFinite(heldBy) && heldBy > 0 && heldBy === currentUserId) {
             return true;
         }
-        return this.isCurrentPendingApprover(this.application);
+        if (this.isCurrentPendingApprover(this.application)) {
+            return true;
+        }
+        return this.isCurrentUserAdmin() && this.resolveOnBehalfOfApproverId(this.application) != null;
     }
 
     private resolveOpinionPendingWithName(): string {
@@ -1751,12 +1786,18 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (this.opinionPending) {
             return this.isCurrentOpinionUser(application);
         }
-        return this.isCurrentPendingApprover(application);
+        if (this.isCurrentPendingApprover(application)) {
+            return true;
+        }
+        return this.canAdminProxyWorkflowActions(application);
     }
 
     private computeReadOnlyStepMessage(application: any = this.application): string {
         if (!application) {
             return 'This application is available in read-only mode.';
+        }
+        if (this.canAdminProxyWorkflowActions(application)) {
+            return '';
         }
         if (this.computeIsOnHold() && this.canCurrentUserUnhold()) {
             return 'This application is on Hold. Take it off Hold to continue approval actions.';
@@ -1881,6 +1922,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
         this.isDownloadingWithLogsPdf = true;
         try {
+            if (!(await confirmTemplatePdfDownloadIfNeeded(this.templateWorkflowService, this.application.serApplicationId))) {
+                return;
+            }
             const filename = `${this.application?.txtFormCode || 'template-application'}_with_logs.pdf`;
             const applicationPdfBlob = await firstValueFrom(
                 this.templateWorkflowService.downloadTemplateApplicationPdf(this.application.serApplicationId)
@@ -2078,12 +2122,12 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     private buildApprovalLogRowsCache(): ApprovalLogRow[] {
         return this.getApplicationApprovalHistory()
             .map((entry, index) => {
-                const userId = Number(entry?.serUserId ?? entry?.userId ?? entry?.approvedBy ?? entry?.approverId ?? entry?.id);
+                const userId = Number(entry?.performedBy ?? entry?.serUserId ?? entry?.userId ?? entry?.approvedBy ?? entry?.approverId ?? entry?.id);
                 const action = String(entry?.action || entry?.status || '--').toUpperCase();
                 const step = this.getStepForHistoryEntry(entry);
                 return {
                     level: String(this.getDisplayLevelForHistoryEntry(entry, index)),
-                    approver: entry?.approverName || entry?.txtUserName || entry?.userName || entry?.name || (Number.isFinite(userId) ? `User ${userId}` : '--'),
+                    approver: this.formatHistoryActorLabel(entry, userId),
                     role: action === 'SUBMITTED' ? 'Submission' : (step?.name || entry?.role || entry?.stageName || entry?.stepName || '--'),
                     status: action,
                     date: this.getHistoryDate(entry),
@@ -2126,7 +2170,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             }
             node.replaceWith(this.createInlineValue(doc, field));
         });
-        return doc.body.innerHTML;
+        return normalizeDocumentBodyHtmlForDisplay(doc.body.innerHTML);
     }
 
     private createInlineValue(doc: Document, field: TemplateField): HTMLElement {
@@ -2181,6 +2225,8 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             cell.style.padding = cell.style.padding || '6px';
             cell.style.verticalAlign = cell.style.verticalAlign || 'top';
         });
+
+        applyWordEditorAlignmentClasses(qlEditor);
 
         return `<div class="word-editor-value">${qlEditor.outerHTML}</div>`;
     }
@@ -2463,7 +2509,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             tileStatus = 'REJECTED';
         } else if (historyAction === 'APPROVED') {
             tileStatus = 'APPROVED';
-        } else if (applicationStatus === 'APPROVED') {
+        } else if (applicationStatus === 'APPROVED' || applicationStatus === 'COMPLETED') {
             tileStatus = 'APPROVED';
         } else if (applicationStatus === 'REJECTED' && stepLevel === currentStepLevel) {
             tileStatus = 'REJECTED';
@@ -2670,6 +2716,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     private stepRequiresIndividualTiles(step: PipelineStep): boolean {
+        if (String(step.type || '').toLowerCase() === 'individual') {
+            return true;
+        }
         return String(step.approvalMode || '').toUpperCase() === 'AND';
     }
 
@@ -2736,27 +2785,57 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     private getApprovalEntriesForStep(step: PipelineStep, _stepLevel: number): any[] {
+        return this.getWorkflowApprovalHistory().filter((entry) => this.historyEntryMatchesPipelineStep(entry, step));
+    }
+
+    private parseIndividualFooterPipelineStepId(stepId: string): { sectionKey: string; userId: number } | null {
+        const trimmed = String(stepId || '').trim();
+        if (!trimmed) {
+            return null;
+        }
+        const match = trimmed.match(/^(.+)-(\d+)-(\d+)-(\d+)$/);
+        if (!match) {
+            return null;
+        }
+        const userId = Number(match[3]);
+        if (!Number.isFinite(userId) || userId <= 0) {
+            return null;
+        }
+        return { sectionKey: match[1], userId };
+    }
+
+    private historyEntryMatchesPipelineStep(entry: any, step: PipelineStep): boolean {
+        const action = String(entry?.action || entry?.status || '').toUpperCase();
+        if (!['APPROVED', 'REJECTED', 'SENT_BACK', 'SENT_BACK_TO_INITIATOR', 'RESUBMITTED_BY_INITIATOR'].includes(action)) {
+            return false;
+        }
         const stepId = String(step.id || '').trim();
-        return this.getWorkflowApprovalHistory().filter((entry) => {
-            const action = String(entry?.action || entry?.status || '').toUpperCase();
-            if (!['APPROVED', 'REJECTED', 'SENT_BACK', 'SENT_BACK_TO_INITIATOR', 'RESUBMITTED_BY_INITIATOR'].includes(action)) {
-                return false;
-            }
-            const entryStepId = String(entry?.stepId ?? entry?.pipelineStepId ?? entry?.signatureTargetId ?? '').trim();
-            if (entryStepId && stepId) {
-                return entryStepId === stepId;
-            }
-            const rawLevel = this.getRawHistoryLevel(entry);
-            if (rawLevel === 0) {
-                return this.isFirstApprovalStep(step);
-            }
+        const entryStepId = String(entry?.stepId ?? entry?.pipelineStepId ?? entry?.signatureTargetId ?? '').trim();
+        if (entryStepId && stepId && entryStepId === stepId) {
+            return true;
+        }
+        const footerStep = this.parseIndividualFooterPipelineStepId(stepId);
+        if (footerStep && entryStepId && entryStepId === footerStep.sectionKey) {
+            return this.getUserId(entry) === footerStep.userId;
+        }
+        const rawLevel = this.getRawHistoryLevel(entry);
+        if (rawLevel === 0) {
+            return this.isFirstApprovalStep(step);
+        }
+        if (!footerStep) {
             const entryRole = String(entry?.role || entry?.stageName || entry?.stepName || '').trim().toLowerCase();
             const stepName = String(step.name || '').trim().toLowerCase();
             if (entryRole && stepName && entryRole !== stepName) {
                 return false;
             }
+        }
+        if (footerStep && this.getUserId(entry) === footerStep.userId) {
             return this.getLegacyDisplayLevelsForStep(step).includes(rawLevel);
-        });
+        }
+        if (footerStep) {
+            return false;
+        }
+        return this.getLegacyDisplayLevelsForStep(step).includes(rawLevel);
     }
 
     private getInitiatorHistoryEntry(): any {
@@ -2916,6 +2995,134 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         } catch {
             return null;
         }
+    }
+
+    private isAdminUser(user: any): boolean {
+        const role = (
+            user?.cfgTblRole?.txtRoleName ||
+            user?.cfgTblRole?.txtRoleCode ||
+            user?.txtrole ||
+            user?.roleName ||
+            ''
+        ).toString().trim().toUpperCase();
+        return role === 'ADMIN'
+            || role === 'ROLE_ADMIN'
+            || role === 'SUPER ADMIN'
+            || role === 'ROLE_SUPER ADMIN'
+            || role.includes('ADMIN');
+    }
+
+    private isCurrentUserAdmin(): boolean {
+        try {
+            const user = JSON.parse(localStorage.getItem('user') || 'null');
+            return this.isAdminUser(user);
+        } catch {
+            return false;
+        }
+    }
+
+    private canAdminProxyWorkflowActions(application: any = this.application): boolean {
+        if (!this.isCurrentUserAdmin() || !application) {
+            return false;
+        }
+        if (this.computeIsInitiatorResubmissionStep(application)) {
+            return false;
+        }
+        if (String(application?.txtStatus || '').toUpperCase() === 'OPINION_PENDING') {
+            return false;
+        }
+        if (String(application?.txtStatus || '').toUpperCase() === 'HOLD') {
+            return false;
+        }
+        const status = String(application?.txtStatus || '').toUpperCase();
+        if (['REJECTED', 'APPROVED', 'COMPLETED'].includes(status)) {
+            return false;
+        }
+        return this.resolveOnBehalfOfApproverId(application) != null;
+    }
+
+    private shouldSendOnBehalfOfUserId(application: any = this.application): boolean {
+        if (!this.isCurrentUserAdmin() || !application) {
+            return false;
+        }
+        if (this.isCurrentPendingApprover(application)) {
+            return false;
+        }
+        if (this.computeIsInitiatorResubmissionStep(application)) {
+            return false;
+        }
+        if (String(application?.txtStatus || '').toUpperCase() === 'OPINION_PENDING') {
+            return false;
+        }
+        return this.resolveOnBehalfOfApproverId(application) != null;
+    }
+
+    private getWorkflowOnBehalfOfUserId(): number | null {
+        return this.shouldSendOnBehalfOfUserId() ? this.resolveOnBehalfOfApproverId() : null;
+    }
+
+    private resolveOnBehalfOfApproverId(application: any = this.application): number | null {
+        if (!application) {
+            return null;
+        }
+        const currentApproverIds = Array.isArray(application?.currentApproverIds)
+            ? application.currentApproverIds
+                .map((value: any) => Number(value))
+                .filter((value: number) => Number.isFinite(value) && value > 0)
+            : [];
+        const primaryApproverId = Number(application?.serCurrentApprover || 0);
+        if (currentApproverIds.length > 0) {
+            if (Number.isFinite(primaryApproverId) && primaryApproverId > 0 && currentApproverIds.includes(primaryApproverId)) {
+                return primaryApproverId;
+            }
+            return currentApproverIds[0];
+        }
+        if (Number.isFinite(primaryApproverId) && primaryApproverId > 0) {
+            return primaryApproverId;
+        }
+        const step = this.getPipelineStepForApplication(application);
+        const configuredApproverIds = this.getConfiguredStepApproverIds(step);
+        return configuredApproverIds.length > 0 ? configuredApproverIds[0] : null;
+    }
+
+    private getOnBehalfOfApproverDisplayName(application: any = this.application): string {
+        const approverId = this.resolveOnBehalfOfApproverId(application);
+        if (!Number.isFinite(approverId) || !approverId) {
+            return '';
+        }
+        const matchedUser = (this.allUsers || []).find((user: any) => this.getUserId(user) === approverId);
+        if (matchedUser) {
+            return String(matchedUser.txtUserName || matchedUser.userName || matchedUser.name || '').trim();
+        }
+        const step = this.getPipelineStepForApplication(application);
+        if (!step) {
+            return `User ${approverId}`;
+        }
+        const configuredUser = this.getConfiguredStepUsers(step).find((user: any) => this.getUserId(user) === approverId);
+        return String(configuredUser?.txtUserName || configuredUser?.userName || configuredUser?.name || `User ${approverId}`).trim();
+    }
+
+    private computeAdminProxyNotice(application: any = this.application): string {
+        if (!this.shouldSendOnBehalfOfUserId(application)) {
+            return '';
+        }
+        const approverName = this.getOnBehalfOfApproverDisplayName(application);
+        if (!approverName) {
+            return 'You are acting as administrator for the current approval step. Only fields allowed for this step are editable.';
+        }
+        return `You are acting as administrator on behalf of ${approverName}. Only fields allowed for this step are editable.`;
+    }
+
+    private formatHistoryActorLabel(entry: any, fallbackUserId: number): string {
+        const performedByName = String(entry?.performedByName || '').trim();
+        const onBehalfOfName = String(entry?.onBehalfOfName || entry?.approverName || entry?.txtUserName || entry?.userName || entry?.name || '').trim();
+        if (performedByName && onBehalfOfName && performedByName.toLowerCase() !== onBehalfOfName.toLowerCase()) {
+            return `${performedByName} (on behalf of ${onBehalfOfName})`;
+        }
+        if (onBehalfOfName) {
+            return onBehalfOfName;
+        }
+        return Number.isFinite(fallbackUserId) && fallbackUserId > 0 ? `User ${fallbackUserId}` : '--';
     }
 
     private isCurrentPendingApprover(application: any = this.application): boolean {
@@ -3194,14 +3401,24 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     private resolveWorkflowPipeline(savedTemplate: any, liveTemplate: any): PipelineStep[] {
+        const savedPipeline = Array.isArray(savedTemplate?.pipeline) ? savedTemplate.pipeline : [];
+        const livePipeline = Array.isArray(liveTemplate?.pipeline) ? liveTemplate.pipeline : [];
+        const templatePipeline = savedPipeline.length > 0 ? savedPipeline : livePipeline;
+        if (this.hasTemplateApprovalPipelineSteps(templatePipeline)) {
+            return templatePipeline;
+        }
         const footerPipeline = this.buildFooterWorkflowPipeline();
         if (footerPipeline.length > 0) {
             return footerPipeline;
         }
-        if (Array.isArray(savedTemplate?.pipeline) && savedTemplate.pipeline.length > 0) {
-            return savedTemplate.pipeline;
+        return templatePipeline;
+    }
+
+    private hasTemplateApprovalPipelineSteps(pipeline: PipelineStep[]): boolean {
+        if (!Array.isArray(pipeline) || pipeline.length === 0) {
+            return false;
         }
-        return Array.isArray(liveTemplate?.pipeline) ? liveTemplate.pipeline : [];
+        return pipeline.some((step) => step?.type && step.type !== 'initiator');
     }
 
     private buildFooterWorkflowPipeline(): PipelineStep[] {
@@ -3389,6 +3606,12 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (step.type === 'initiator') {
             return this.application?.submittedByUserName || 'Initiator';
         }
+        if (history) {
+            const delegatedLabel = this.formatHistoryActorLabel(history, Number(history?.performedBy ?? history?.approvedBy ?? 0));
+            if (delegatedLabel && delegatedLabel !== '--') {
+                return delegatedLabel;
+            }
+        }
         if (history?.approverName || history?.txtUserName || history?.userName) {
             return history.approverName || history.txtUserName || history.userName;
         }
@@ -3573,12 +3796,12 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             timeEl.style.setProperty('transform', 'translateY(-2px)', 'important');
         });
 
-        root.querySelectorAll('.individual-footer-preview .xyz-signatures tr:last-child td').forEach((node) => {
+        root.querySelectorAll('.individual-footer-preview .xyz-signatures tr.individual-footer-names-row td').forEach((node) => {
             const cell = node as HTMLElement;
             cell.style.setProperty('padding-top', '3px', 'important');
         });
 
-        root.querySelectorAll('.individual-footer-preview .xyz-signatures tr:last-child td > span').forEach((node) => {
+        root.querySelectorAll('.individual-footer-preview .xyz-signatures tr.individual-footer-names-row td > span').forEach((node) => {
             const valueEl = node as HTMLElement;
             valueEl.style.setProperty('transform', 'translateY(-2px)', 'important');
             valueEl.style.setProperty('line-height', '1.2', 'important');

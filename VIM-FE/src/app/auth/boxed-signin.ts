@@ -9,6 +9,7 @@ import { AuthService } from '../services/auth/auth.service';
 import { UserService } from '../services/user/user.service';
 import { SharedDataService } from '../services/shared-data/shared-data.service';
 import {NotificationService} from "../NotificationService";
+import { DocumentHeaderBrandingService } from '../services/document-header-branding/document-header-branding.service';
 
 @Component({
     moduleId: module.id,
@@ -38,7 +39,7 @@ export class BoxedSigninComponent {
         private authService: AuthService,
         private userService: UserService,
         private sharedDataService: SharedDataService,
-        public translate: TranslateService, public storeData: Store<any>, public router: Router, private appSetting: AppService,private notificationService: NotificationService,private route: ActivatedRoute) {
+        public translate: TranslateService, public storeData: Store<any>, public router: Router, private appSetting: AppService,private notificationService: NotificationService,private route: ActivatedRoute, private documentHeaderBranding: DocumentHeaderBrandingService) {
         this.initStore();
         this.route.queryParams.subscribe(params => {
             if (params['error']) {
@@ -107,6 +108,7 @@ export class BoxedSigninComponent {
         this.userService.me().subscribe((data: CfgTblUser | null) => {
             if (data) {
                 this.sharedDataService.saveUser(data);
+                this.documentHeaderBranding.refresh();
                 const returnUrl = this.resolveReturnUrl();
                 this.router.navigateByUrl(returnUrl || '/Dashboard');
             } else {

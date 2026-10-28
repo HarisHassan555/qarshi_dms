@@ -16,6 +16,7 @@ import {
   resolveFormOrientation,
 } from 'src/app/utils/form-orientation.util';
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
+import { resolveWordEditorLineAlignment } from 'src/app/utils/word-editor-display.util';
 import {
   isDocumentHeaderFieldType,
   resolveDocumentHeaderAddress,
@@ -3908,20 +3909,24 @@ export class ApplicationPdfService {
       }
 
       if ((tag === 'ul' || tag === 'ol') && fragmentEl) {
+        const listAlign = resolveWordEditorLineAlignment(fragmentEl);
         const listItems = Array.from(fragmentEl.querySelectorAll(':scope > li')) as HTMLElement[];
         listItems.forEach((item, itemIndex) => {
           const prefix = tag === 'ol' ? `${itemIndex + 1}. ` : '\u2022 ';
+          const itemAlign = resolveWordEditorLineAlignment(item);
+          const alignSuffix = itemAlign.classSuffix || listAlign.classSuffix;
+          const styleAttr = itemAlign.styleAttr || listAlign.styleAttr;
           const lines = this.splitPlainTextIntoRenderedLines(
             `${prefix}${(item.textContent || '').replace(/\s+/g, ' ').trim()}`,
             measureHost,
             orientationClass,
             paperExtraClassName,
             contentWidthPx,
-            'xyz-split-line xyz-split-line--li'
+            `xyz-split-line xyz-split-line--li${alignSuffix}`
           );
           lines.forEach((line) => {
             units.push({
-              html: `<div class="xyz-split-line xyz-split-line--li">${this.escapeHtmlValue(line) || '&nbsp;'}</div>`,
+              html: `<div class="xyz-split-line xyz-split-line--li${alignSuffix}"${styleAttr}>${this.escapeHtmlValue(line) || '&nbsp;'}</div>`,
               lineCount: 1,
             });
           });
@@ -3929,11 +3934,7 @@ export class ApplicationPdfService {
         return;
       }
 
-      const fragmentClasses = fragmentEl
-        ? Array.from(fragmentEl.classList).filter(
-            (cls) => cls.startsWith('ql-align-') || cls.startsWith('ql-direction-')
-          )
-        : [];
+      const lineAlign = resolveWordEditorLineAlignment(fragmentEl);
       const classSuffix =
         tag.startsWith('h')
           ? ' xyz-split-line--heading'
@@ -3942,7 +3943,7 @@ export class ApplicationPdfService {
             : tag === 'pre'
               ? ' xyz-split-line--pre'
               : '';
-      const className = `xyz-split-line${classSuffix}${fragmentClasses.length ? ` ${fragmentClasses.join(' ')}` : ''}`;
+      const className = `xyz-split-line${classSuffix}${lineAlign.classSuffix}`;
       const sourceText = (fragmentEl?.textContent || fragmentWrapper.textContent || '')
         .replace(/\u00a0/g, ' ')
         .replace(/\s+/g, ' ')
@@ -3957,7 +3958,7 @@ export class ApplicationPdfService {
       );
       lines.forEach((line) => {
         units.push({
-          html: `<div class="${className}">${this.escapeHtmlValue(line) || '&nbsp;'}</div>`,
+          html: `<div class="${className}"${lineAlign.styleAttr}>${this.escapeHtmlValue(line) || '&nbsp;'}</div>`,
           lineCount: 1,
         });
       });

@@ -1,0 +1,109 @@
+.sidebar-user-footer {
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.6) 0%, #ffffff 40%);
+}
+
+:host-context(.dark) .sidebar-user-footer,
+.dark .sidebar-user-footer {
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.4) 0%, #0e1726 50%);
+}
+
+.sidebar-user-card {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.5rem 0.55rem;
+    border-radius: 0.65rem;
+    text-align: left;
+    transition: background-color 0.2s ease;
+}
+
+.sidebar-user-card:hover {
+    background: rgba(37, 99, 235, 0.1);
+}
+
+.dark .sidebar-user-card:hover {
+    background: rgba(59, 130, 246, 0.2);
+}
+
+.sidebar-user-avatar {
+    display: flex;
+    height: 2.5rem;
+    width: 2.5rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 9999px;
+    background: #e2e8f0;
+    color: #475569;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.dark .sidebar-user-avatar {
+    background: #334155;
+    color: #e2e8f0;
+}
+
+.sidebar-user-avatar.has-photo {
+    background: #cbd5e1;
+}
+
+.sidebar-user-avatar-img {
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
+}
+
+.sidebar-user-name {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.25;
+    color: #0f172a;
+}
+
+.dark .sidebar-user-name {
+    color: #f1f5f9;
+}
+
+.sidebar-user-meta {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.6875rem;
+    line-height: 1.2;
+    color: #64748b;
+}
+
+.dark .sidebar-user-meta {
+    color: #94a3b8;
+}
+
+.sidebar-logout-btn {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    margin-top: 0.35rem;
+    padding: 0.45rem 0.65rem;
+    border-radius: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #e7515a;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.sidebar-logout-btn:hover {
+    background: rgba(231, 81, 90, 0.1);
+    color: #dc2626;
+}
+
+.dark .sidebar-logout-btn:hover {
+    background: rgba(231, 81, 90, 0.18);
+}
+
+.sidebar-menu-scroll {
+    max-height: calc(100vh - 11.5rem);
+}

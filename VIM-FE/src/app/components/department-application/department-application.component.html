@@ -1,12 +1,12 @@
 <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
     <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2" data-tour="dept-app-header">
             <h5 class="text-xl font-bold dark:text-white-light">My Department Digital Application</h5>
             <span class="badge badge-outline-primary" *ngIf="applications.length > 0">
                 {{ applications.length }} applications
             </span>
         </div>
-        <div class="ltr:ml-auto rtl:mr-auto flex gap-2">
+        <div class="ltr:ml-auto rtl:mr-auto flex gap-2" data-tour="dept-app-toolbar">
             <div>
                 <input [(ngModel)]="search" (ngModelChange)="applySearchFilter()" type="text" class="form-input" placeholder="Search department applications..." />
             </div>
@@ -23,7 +23,7 @@
         </div>
     </div>
 
-    <div class="datatable invoice-table" *ngIf="!isLoading && displayedApplications.length > 0">
+    <div class="datatable invoice-table" *ngIf="!isLoading && displayedApplications.length > 0" data-tour="dept-app-grid">
         <ng-datatable
             [rows]="displayedApplications"
             [columns]="cols"
@@ -82,7 +82,7 @@
 </div>
 
 <div class="log-csv-modal-backdrop" *ngIf="showCsvModal" (click)="closeCsvModal()">
-    <div class="log-csv-modal" (click)="$event.stopPropagation()">
+    <div class="log-csv-modal" (click)="$event.stopPropagation()" data-tour="dept-app-csv-modal">
         <div class="log-csv-modal-header">
             <div>
                 <h3>Download Department Applications CSV</h3>

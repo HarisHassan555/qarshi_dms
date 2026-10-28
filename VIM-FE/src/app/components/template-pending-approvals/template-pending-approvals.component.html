@@ -1,12 +1,12 @@
 <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
     <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2" data-tour="tpl-pending-header">
             <h5 class="text-xl font-bold dark:text-white-light">Digital Pending Approvals</h5>
             <span class="badge badge-outline-warning" *ngIf="totalPendingApprovals > 0">
                 {{ totalPendingApprovals }} pending
             </span>
         </div>
-        <div class="ltr:ml-auto rtl:mr-auto flex items-center gap-2">
+        <div class="ltr:ml-auto rtl:mr-auto flex items-center gap-2" data-tour="tpl-pending-toolbar">
             <input [(ngModel)]="search" (ngModelChange)="onSearchChanged()" type="text" class="form-input" placeholder="Search template approvals..." />
             <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="isLoading || getDisplayedPendingApprovals().length === 0" (click)="openCsvModal()">
                 Download CSV
@@ -21,7 +21,7 @@
         </div>
     </div>
 
-    <div class="datatable invoice-table" *ngIf="!isLoading && getDisplayedPendingApprovals().length > 0">
+    <div class="datatable invoice-table" *ngIf="!isLoading && getDisplayedPendingApprovals().length > 0" data-tour="tpl-pending-grid">
         <ng-datatable
             [rows]="getDisplayedPendingApprovals()"
             [columns]="cols"
@@ -57,7 +57,7 @@
         </ng-datatable>
     </div>
 
-    <div *ngIf="!isLoading && totalPendingApprovals > 0" class="template-pending-pagination px-5 py-3">
+    <div *ngIf="!isLoading && totalPendingApprovals > 0" class="template-pending-pagination px-5 py-3" data-tour="tpl-pending-pagination">
         <div class="pagination-summary">
             Showing {{ pageStart }}-{{ pageEnd }} of {{ totalPendingApprovals }}
         </div>
@@ -84,7 +84,7 @@
 </div>
 
 <div class="log-csv-modal-backdrop" *ngIf="showCsvModal" (click)="closeCsvModal()">
-    <div class="log-csv-modal" (click)="$event.stopPropagation()">
+    <div class="log-csv-modal" (click)="$event.stopPropagation()" data-tour="tpl-pending-csv-modal">
         <div class="log-csv-modal-header">
             <div>
                 <h3>Download Pending Approvals CSV</h3>

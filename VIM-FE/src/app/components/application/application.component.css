@@ -266,6 +266,30 @@
     padding-bottom: 2px;
 }
 
+.app-preview-paper-a4 .xyz-signatures.individual-pipeline-footer-table {
+    max-width: 100%;
+    table-layout: fixed;
+    width: 100%;
+}
+
+.app-preview-paper-a4 .xyz-signatures.individual-pipeline-footer-table th,
+.app-preview-paper-a4 .xyz-signatures.individual-pipeline-footer-table td {
+    box-sizing: border-box;
+    max-width: 0;
+    overflow: hidden;
+    padding: 2px 2px;
+}
+
+.app-preview-paper-a4 .xyz-signatures.individual-pipeline-footer-table tr.individual-footer-header-row th {
+    font-size: 9px;
+    line-height: 1.15;
+}
+
+.app-preview-paper-a4 .xyz-signatures.individual-pipeline-footer-table tr.individual-footer-names-row td {
+    font-size: 7.5px;
+    line-height: 1.12;
+}
+
 .app-preview-paper-a4 .xyz-signatures {
     table-layout: fixed;
 }

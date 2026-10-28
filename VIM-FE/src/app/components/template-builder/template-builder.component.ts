@@ -6,6 +6,7 @@ import { DepartmentService } from 'src/app/services/department/department.servic
 import { TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
 import { NotificationService } from 'src/app/NotificationService';
 import { UserService } from 'src/app/services/user/user.service';
+import { DocumentHeaderBrandingService } from 'src/app/services/document-header-branding/document-header-branding.service';
 import {
     WORD_EDITOR_CKEDITOR,
     WORD_EDITOR_CKEDITOR_CONFIG,
@@ -15,6 +16,10 @@ import {
     resolveDocumentHeaderBrandTitle,
     resolveDocumentHeaderLogoPath,
 } from 'src/app/utils/document-header.util';
+import { buildIndividualFooterTableBands } from 'src/app/utils/individual-footer-pipeline.util';
+import { getTemplateFieldNgStyle } from 'src/app/utils/word-editor-display.util';
+import { WorkflowPipelineService } from 'src/app/services/workflow-pipeline/workflow-pipeline.service';
+import { WorkflowPipelineListItem } from 'src/app/components/workflow-pipelines/workflow-pipelines.demo-data';
 
 type TemplateFieldType =
     'document_header'
@@ -177,7 +182,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     templateIsActive = true;
     templateIsDraft = false;
     isSavingTemplate = false;
-    editorContent = '<h2>Template Title</h2><p>Select any text or table cell content, then assign it as a field from the side panel.</p><p>Example: Vendor Name, Amount, Delivery Date, Approval Notes.</p>';
+    editorContent = '<h2 style="text-align:center">Template Title</h2><p>Select any text or table cell content, then assign it as a field from the side panel.</p><p>Example: Vendor Name, Amount, Delivery Date, Approval Notes.</p>';
     selectedFieldId = '';
     private routeTemplateId = '';
     newFieldLabel = 'New Field';
@@ -212,6 +217,14 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     showFieldModal = false;
     showPipelineModal = false;
     showPipelineRightsModal = false;
+    showPipelineSourceModal = false;
+    showPipelineLibraryModal = false;
+    libraryPipelines: WorkflowPipelineListItem[] = [];
+    libraryPipelineSearch = '';
+    libraryPipelinesLoading = false;
+    libraryPipelinesError = '';
+    selectedLibraryPipelineId: number | null = null;
+    linkedWorkflowPipelineId: number | null = null;
     fieldPropertiesCollapsed = false;
     private lastValidTableHtmlByFieldId: Record<string, string> = {};
     private lastValidNewTableHtml = this.newTableHtml;
@@ -290,10 +303,13 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         private departmentService: DepartmentService,
         private templateWorkflowService: TemplateWorkflowService,
         private userService: UserService,
-        private notificationService: NotificationService
+        private notificationService: NotificationService,
+        private documentHeaderBranding: DocumentHeaderBrandingService,
+        private workflowPipelineService: WorkflowPipelineService,
     ) { }
 
     ngOnInit(): void {
+        this.documentHeaderBranding.ensureLoaded();
         document.body.classList.add(TEMPLATE_BUILDER_HIDE_CKEDITOR_BADGE_CLASS);
         this.ensureInitiatorPipelineStep();
         this.loadDepartments();
@@ -304,11 +320,24 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (templateId) {
             this.loadTemplateForEdit(templateId);
         }
+        window.addEventListener('velocity-tour-prepare', this.onTourPrepare);
     }
 
     ngOnDestroy(): void {
+        window.removeEventListener('velocity-tour-prepare', this.onTourPrepare);
         document.body.classList.remove(TEMPLATE_BUILDER_HIDE_CKEDITOR_BADGE_CLASS);
     }
+
+    private onTourPrepare = (event: Event): void => {
+        const action = (event as CustomEvent<{ action?: string }>).detail?.action;
+        if (action === 'template-builder-close-modals') {
+            this.closeFieldModal();
+            this.closePipelineModal();
+            this.closePipelineRightsModal();
+        } else if (action === 'template-builder-open-field-modal' && !this.showFieldModal) {
+            this.openFieldModal();
+        }
+    };
 
     get pageWidth(): number {
         return this.pageOrientation === 'portrait' ? this.a4PortraitWidth : this.a4PortraitHeight;
@@ -498,7 +527,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             this.pageCount = Math.max(this.pageCount, count);
         }
 
-        if (this.editorContent === '<h2>Template Title</h2><p>Select any text or table cell content, then assign it as a field from the side panel.</p><p>Example: Vendor Name, Amount, Delivery Date, Approval Notes.</p>') {
+        if (this.editorContent === '<h2 style="text-align:center">Template Title</h2><p>Select any text or table cell content, then assign it as a field from the side panel.</p><p>Example: Vendor Name, Amount, Delivery Date, Approval Notes.</p>') {
             this.editorContent = '';
             this.editorInstance?.setData('');
         }
@@ -682,6 +711,131 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     trackByRadioOptionId(_: number, option: { id: string }): string {
         return option.id;
+    }
+
+    onAddPipelineClicked(): void {
+        this.showPipelineSourceModal = true;
+    }
+
+    closePipelineSourceModal(): void {
+        this.showPipelineSourceModal = false;
+    }
+
+    choosePipelineManualStep(): void {
+        this.closePipelineSourceModal();
+        this.openPipelineModal();
+    }
+
+    openPipelineLibraryPicker(): void {
+        this.closePipelineSourceModal();
+        this.showPipelineLibraryModal = true;
+        this.libraryPipelineSearch = '';
+        this.selectedLibraryPipelineId = null;
+        this.libraryPipelinesError = '';
+        this.loadLibraryPipelines();
+    }
+
+    closePipelineLibraryModal(): void {
+        this.showPipelineLibraryModal = false;
+        this.selectedLibraryPipelineId = null;
+    }
+
+    loadLibraryPipelines(): void {
+        this.libraryPipelinesLoading = true;
+        this.libraryPipelinesError = '';
+        this.workflowPipelineService.getAll().subscribe({
+            next: (rows) => {
+                this.libraryPipelines = (rows || []).filter((row) => row?.active !== false);
+                this.libraryPipelinesLoading = false;
+            },
+            error: () => {
+                this.libraryPipelines = [];
+                this.libraryPipelinesLoading = false;
+                this.libraryPipelinesError =
+                    'Could not load workflow pipelines. Ensure you have access to Master Data → Workflow Pipelines.';
+            },
+        });
+    }
+
+    getFilteredLibraryPipelines(): WorkflowPipelineListItem[] {
+        const term = this.libraryPipelineSearch.trim().toLowerCase();
+        if (!term) {
+            return this.libraryPipelines;
+        }
+        return this.libraryPipelines.filter((row) => {
+            const name = String(row.name || '').toLowerCase();
+            const code = String(row.code || '').toLowerCase();
+            const desc = String(row.description || '').toLowerCase();
+            return name.includes(term) || code.includes(term) || desc.includes(term);
+        });
+    }
+
+    selectLibraryPipeline(row: WorkflowPipelineListItem): void {
+        this.selectedLibraryPipelineId = row?.id ?? null;
+    }
+
+    applySelectedLibraryPipeline(): void {
+        const id = this.selectedLibraryPipelineId;
+        if (!id) {
+            this.notificationService.showMessage('Select a pipeline from the library.', 'warning');
+            return;
+        }
+        this.workflowPipelineService.getById(id).subscribe({
+            next: (detail) => {
+                const steps = Array.isArray(detail.pipeline) ? detail.pipeline : [];
+                if (steps.length === 0) {
+                    this.notificationService.showMessage('Selected pipeline has no steps.', 'warning');
+                    return;
+                }
+                this.pipelineSteps = this.hydratePipelineStepsFromLibrary(steps as PipelineStep[]);
+                this.linkedWorkflowPipelineId = id;
+                this.ensureInitiatorPipelineStep();
+                this.reorderPipelineSteps();
+                this.closePipelineLibraryModal();
+                this.notificationService.showMessage(`Loaded pipeline "${detail.name}".`, 'success');
+            },
+            error: () => {
+                this.notificationService.showMessage('Failed to load pipeline details.', 'error');
+            },
+        });
+    }
+
+    private hydratePipelineStepsFromLibrary(steps: PipelineStep[]): PipelineStep[] {
+        let cloned: PipelineStep[];
+        try {
+            cloned = JSON.parse(JSON.stringify(steps)) as PipelineStep[];
+        } catch {
+            return [];
+        }
+        return cloned.map((step) => {
+            if (step.type === 'department' && step.serDepartmentId && !step.hrTblDepartment) {
+                const dept = this.departments.find(
+                    (d) => Number(d.serDepartmentId) === Number(step.serDepartmentId)
+                );
+                if (dept) {
+                    step.hrTblDepartment = dept;
+                }
+            }
+            if (step.type === 'role' && step.serRoleId && !step.cfgTblRole) {
+                const role = this.roles.find((r) => Number(r.serRoleId) === Number(step.serRoleId));
+                if (role) {
+                    step.cfgTblRole = role;
+                }
+            }
+            if (step.type === 'individual') {
+                const ids = Array.isArray(step.userIds) ? step.userIds : [];
+                const fromJson = Array.isArray(step.users) ? step.users : [];
+                const users = fromJson
+                    .map((user) => this.findUserById(user?.serUserId || user?.userId || user?.id) || user)
+                    .filter((user) => !!user);
+                if (users.length === 0 && ids.length > 0) {
+                    step.users = ids.map((userId) => this.findUserById(userId)).filter((user) => !!user);
+                } else {
+                    step.users = users;
+                }
+            }
+            return step;
+        });
     }
 
     openPipelineModal(step?: PipelineStep): void {
@@ -1089,6 +1243,13 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         return Math.max(users.length, 1);
     }
 
+    getBuilderIndividualFooterBands() {
+        return buildIndividualFooterTableBands(
+            this.getBuilderIndividualFooterSections(),
+            (section) => this.getBuilderIndividualFooterSlots(section)
+        );
+    }
+
     getBuilderIndividualFooterSlots(section: { users: any[] } | null | undefined): any[] {
         const users = Array.isArray(section?.users) ? (section?.users ?? []) : [];
         return users.length > 0 ? users : [null];
@@ -1418,12 +1579,8 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     getFieldStyle(field: TemplateField): { [key: string]: string | number } {
         return {
+            ...getTemplateFieldNgStyle(field),
             'font-size.px': this.getFieldPreviewFontSize(field),
-            'font-family': field.style.fontFamily || 'Arial, sans-serif',
-            'font-weight': field.style.bold ? '700' : '400',
-            'font-style': field.style.italic ? 'italic' : 'normal',
-            'text-decoration': field.style.underline ? 'underline' : 'none',
-            'text-align': field.style.textAlign
         };
     }
 
@@ -1451,6 +1608,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
                     }
                 });
                 this.pipelineSteps = Array.isArray(payload.pipeline) ? payload.pipeline : [];
+                const linkedId = Number(payload.workflowPipelineId);
+                this.linkedWorkflowPipelineId =
+                    Number.isFinite(linkedId) && linkedId > 0 ? linkedId : null;
 
                 const page = payload.page || {};
                 this.pageOrientation = page.orientation || (Number(page.width) > Number(page.height) ? 'landscape' : 'portrait');
@@ -1465,6 +1625,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
                 this.showFieldModal = false;
                 this.showPipelineModal = false;
                 this.showPipelineRightsModal = false;
+                this.showPipelineSourceModal = false;
+                this.showPipelineLibraryModal = false;
+                this.linkedWorkflowPipelineId = null;
                 this.editorInstance?.setData(this.editorContent);
                 this.schedulePaginationUpdate();
             },
@@ -1490,7 +1653,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             pipeline: this.getPipelineStepsForPayload().map((step, index) => ({
                 ...step,
                 order: index + 1
-            }))
+            })),
+            ...(this.linkedWorkflowPipelineId
+                ? { workflowPipelineId: this.linkedWorkflowPipelineId }
+                : {})
         }, null, 2);
     }
 

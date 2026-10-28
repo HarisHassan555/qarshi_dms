@@ -2,14 +2,14 @@
     <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
         <div class="datatable invoice-table">
             <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2" data-tour="users-header">
                     <!-- <button type="button" class="btn btn-danger gap-2" (click)="delete()">
                         <icon-trash-lines />
                         Delete
                     </button> -->
                     <h5 class="text-xl font-bold dark:text-white-light">Users</h5>
                 </div>
-                <div class="ltr:ml-auto rtl:mr-auto flex gap-2">
+                <div class="ltr:ml-auto rtl:mr-auto flex gap-2" data-tour="users-toolbar">
                     <div>
                         <a (click)="add()" class="btn btn-primary gap-2">
                             <icon-plus />
@@ -21,6 +21,7 @@
                     </div>
                 </div>
             </div>
+            <div data-tour="users-grid">
             <ng-datatable #datatable [rows]="getDisplayedUsers()" [columns]="cols" [hasCheckbox]="true" [sortable]="true"
                 skin="whitespace-nowrap bh-table-hover"
                 firstArrow='<icon-carets-down class="rotate-90" />'
@@ -28,6 +29,27 @@
                 previousArrow='<icon-carets-down class="rotate-90" />'
                 nextArrow='<icon-carets-down class="-rotate-90" />'
                 paginationInfo="Showing {0} to {1} of {2} entries">
+                <ng-template slot="txtUserName" let-value="data">
+                    <div class="flex items-center gap-2">
+                        <span class="user-avatar" [class.has-photo]="hasProfilePhoto(value)">
+                            <img *ngIf="hasProfilePhoto(value)" [src]="getProfilePhotoUrl(value)" alt="" class="user-avatar-img" />
+                            <span *ngIf="!hasProfilePhoto(value)" class="user-avatar-letter">{{ getAvatarLetter(value.txtUserName) }}</span>
+                        </span>
+                        <span>{{ value.txtUserName }}</span>
+                    </div>
+                </ng-template>
+                <ng-template slot="txtOrganizationName" let-value="data">
+                    {{ value.txtOrganizationName || '—' }}
+                </ng-template>
+                <ng-template slot="txtSubareaName" let-value="data">
+                    {{ value.txtSubareaName || '—' }}
+                </ng-template>
+                <ng-template slot="txtDivisionName" let-value="data">
+                    {{ value.txtDivisionName || '—' }}
+                </ng-template>
+                <ng-template slot="txtDepartmentName" let-value="data">
+                    {{ value.txtDepartmentName || value.hrTblDepartment?.txtDepartmentName || '—' }}
+                </ng-template>
                 <ng-template slot="txtAddress" let-value="data">
                     <span class="inline-block max-w-[150px] overflow-hidden text-ellipsis whitespace-nowrap lg:max-w-none lg:whitespace-normal break-all">
                         {{ value.txtAddress }}
@@ -50,6 +72,7 @@
                     </div>
                 </ng-template>
             </ng-datatable>
+            </div>
         </div>
     </div>
 </div>
@@ -62,7 +85,8 @@
             <div class="grid grid-cols-1 gap-4">
                 <div>
                     <label for="employeeId">Employee ID*</label>
-                    <input formControlName="txtCnic" id="employeeId" type="text" placeholder="Enter Employee ID" class="form-input" />
+                    <input formControlName="txtCnic" id="employeeId" type="text" placeholder="Enter Employee ID" class="form-input"
+                        (blur)="onEmployeeIdOrNameChange()" />
                     <ng-container *ngIf="isSubmit && form.controls['txtCnic'].invalid">
                         <p class="mt-1 text-danger" *ngIf="form.controls['txtCnic'].errors?.['required']">Employee ID is required</p>
                         <p class="mt-1 text-danger" *ngIf="form.controls['txtCnic'].errors?.['uniqueCnic']">Employee ID is already in use</p>
@@ -72,14 +96,17 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                     <label for="name">Name*</label>
-                    <input formControlName="txtUserName" id="name" type="text" placeholder="Enter Name" class="form-input" />
+                    <input formControlName="txtUserName" id="name" type="text" placeholder="Enter Name" class="form-input"
+                        (blur)="onEmployeeIdOrNameChange()" />
                     <ng-container *ngIf="isSubmit && form.controls['txtUserName'].invalid">
                         <p class="mt-1 text-danger" *ngIf="form.controls['txtUserName'].errors?.['required']">Name is required</p>
                     </ng-container>
                 </div>
                 <div>
                     <label for="loginName">Login Name*</label>
-                    <input formControlName="txtLoginName" id="loginName" type="text" placeholder="Enter Login Name" class="form-input" />
+                    <input formControlName="txtLoginName" id="loginName" type="text" placeholder="Enter Login Name" class="form-input"
+                        (input)="onLoginNameInput()" />
+                    <p class="mt-1 text-xs text-gray-500">Suggested from Employee ID and name; you can edit anytime.</p>
                     <ng-container *ngIf="isSubmit && form.controls['txtLoginName'].invalid">
                         <p class="mt-1 text-danger" *ngIf="form.controls['txtLoginName'].errors?.['required']">Login name is required</p>
                         <p class="mt-1 text-danger" *ngIf="form.controls['txtLoginName'].errors?.['duplicate']">Login name already exists</p>
@@ -115,19 +142,65 @@
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
+                    <label for="organization">Organization*</label>
+                    <ng-select id="organization" [items]="organizations" bindLabel="txtOrganizationName" bindValue="serOrganizationId"
+                        formControlName="serOrganizationId" placeholder="Select Organization" [clearable]="true"
+                        (change)="onOrganizationChange()">
+                    </ng-select>
+                    <ng-container *ngIf="isSubmit && form.controls['serOrganizationId'].invalid">
+                        <p class="mt-1 text-danger">Organization is required</p>
+                    </ng-container>
+                </div>
+                <div>
+                    <label for="subarea">Sub Area*</label>
+                    <ng-select id="subarea" [items]="filteredSubareas" bindLabel="txtSubareaName" bindValue="serSubareaId"
+                        formControlName="serSubareaId" placeholder="Select Sub Area" [clearable]="true"
+                        (change)="onSubareaChange()">
+                    </ng-select>
+                    <ng-container *ngIf="isSubmit && form.controls['serSubareaId'].invalid">
+                        <p class="mt-1 text-danger">Sub area is required</p>
+                    </ng-container>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="division">Division*</label>
+                    <ng-select id="division" [items]="filteredDivisions" bindLabel="txtDivisionName" bindValue="serDivisionId"
+                        formControlName="serDivisionId" placeholder="Select Division" [clearable]="true"
+                        (change)="onDivisionChange()">
+                    </ng-select>
+                    <ng-container *ngIf="isSubmit && form.controls['serDivisionId'].invalid">
+                        <p class="mt-1 text-danger">Division is required</p>
+                    </ng-container>
+                </div>
+                <div>
                     <label for="department">Department*</label>
-                    <ng-select [items]="departments" bindLabel="txtDepartmentName" bindValue="serDepartmentId" formControlName="serDepartmentId" placeholder="Select Department" [clearable]="true">
+                    <ng-select id="department" [items]="filteredDepartments" bindLabel="txtDepartmentName" bindValue="serDepartmentId"
+                        formControlName="serDepartmentId" placeholder="Select Department" [clearable]="true">
                     </ng-select>
                     <ng-container *ngIf="isSubmit && form.controls['serDepartmentId'].invalid">
                         <p class="mt-1 text-danger">Department is required</p>
                     </ng-container>
                 </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                     <label for="designation">Designation*</label>
                     <input formControlName="txtDesignation" id="designation" type="text" placeholder="Enter Designation" class="form-input" />
                     <ng-container *ngIf="isSubmit && form.controls['txtDesignation'].invalid">
                         <p class="mt-1 text-danger">Designation is required</p>
                     </ng-container>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 gap-4">
+                <div>
+                    <label for="profilePicture">Profile picture</label>
+                    <input id="profilePicture" type="file" accept="image/png,image/jpeg,image/jpg,image/webp" class="form-input"
+                        (change)="onProfilePictureSelected($event)" />
+                    <div class="mt-2 flex items-center gap-3" *ngIf="profilePicturePreview">
+                        <img [src]="profilePicturePreview" alt="Preview" class="h-16 w-16 rounded-full object-cover border" />
+                        <button type="button" class="btn btn-outline-danger btn-sm" (click)="clearProfilePicture()">Remove</button>
+                    </div>
                 </div>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">

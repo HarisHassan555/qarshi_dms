@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import { ActivatedRoute, ActivatedRouteSnapshot, CanActivate, CanActivateFn, Router, RouterStateSnapshot, UrlTree } from '@angular/router';
-import { catchError, map, Observable, pipe } from 'rxjs';
+import { catchError, map, of } from 'rxjs';
 import { MenuService } from 'src/app/layout/menu-service/menu.service';
 import { SharedDataService } from 'src/app/services/shared-data/shared-data.service';
 import { UserService } from 'src/app/services/user/user.service';
@@ -67,6 +67,39 @@ export const canActivate: CanActivateFn = (
   const isTrueFlag = (v: any): boolean =>
       v === true || v === 1 || v === '1' || v === 'true';
 
+  const hasDelegationManagementViewPermission = (rows: any[]): boolean =>
+      (rows || []).some((row: any) => {
+          if (!row || isTrueFlag(row?.blIsDeleted)) {
+              return false;
+          }
+          // Must match backend UserDelegationController: permission row blIsEnabled + view.
+          if (!isTrueFlag(row?.blIsEnabled)) {
+              return false;
+          }
+          const canView = isTrueFlag(row?.blIsview) || isTrueFlag(row?.blIsNewView);
+          if (!canView) {
+              return false;
+          }
+          const subMenuUrl = normalizePath(row?.cfgTblSubMenu?.txtSubMenuUrl);
+          return subMenuUrl === 'delegation-management';
+      });
+
+  const hasAllApplicationsViewPermission = (rows: any[]): boolean =>
+      (rows || []).some((row: any) => {
+          if (!row || isTrueFlag(row?.blIsDeleted)) {
+              return false;
+          }
+          if (!isTrueFlag(row?.blIsEnabled)) {
+              return false;
+          }
+          const canView = isTrueFlag(row?.blIsview) || isTrueFlag(row?.blIsNewView);
+          if (!canView) {
+              return false;
+          }
+          const subMenuUrl = normalizePath(row?.cfgTblSubMenu?.txtSubMenuUrl);
+          return subMenuUrl === 'all-applications';
+      });
+
   // Routes that don't require menu permission check (master data routes)
   const allowedRoutesWithoutMenu = ['Dashboard', 'department', 'country', 'city', 'media-house', 
     'tax-category', 'product-category', 'product', 'users', 'password-policy', 'change-password', 
@@ -74,7 +107,7 @@ export const canActivate: CanActivateFn = (
     'SES', 'auditLog', 'transactions-details', 'report', 'order-details', 'application', 'applicationsview', 
     'application-details', 'formbuilder', 'CAPF', 'approveApplicationFromEmail', 'rejectApplicationFromEmail',
     'univer-form-builder', 'pending-approvals', 'department-application', 'approved-applications', 'assign-asset-code', 'pr-code', 'po-code', 'menu-list', 'submenu-list',
-    'roles'];
+    'roles', 'chat', 'notification-management', 'workflow-pipelines', 'organizations', 'sub-areas', 'divisions', 'sap-hcm-employees'];
 
   let user: any = localStorage.getItem('user');
   if (user && user !== null) {
@@ -94,7 +127,7 @@ export const canActivate: CanActivateFn = (
       roleName === 'ROLE_SUPER ADMIN';
 
   // Allow email approval/rejection routes without authentication
-  if (path === 'approveApplicationFromEmail' || path === 'rejectApplicationFromEmail') {
+  if (path === 'approveApplicationFromEmail' || path === 'rejectApplicationFromEmail' || path === 'share') {
     return true;
   }
 
@@ -117,6 +150,85 @@ export const canActivate: CanActivateFn = (
       sharedDataService.saveUser(user);
     });
     return true;
+  }
+
+  if (resolvedPath === 'all-applications') {
+    if (isAdmin) {
+      return true;
+    }
+    const resolvedRoleId = getRoleIdFromUser(user);
+    if (!user?.serUserId || !resolvedRoleId) {
+      router.navigateByUrl('Dashboard');
+      return false;
+    }
+    return menuService.getAllSubMenuRoles(resolvedRoleId, user.serUserId).pipe(
+      map((data) => {
+        if (hasAllApplicationsViewPermission(data)) {
+          userService.me().subscribe((freshUser: any) => {
+            sharedDataService.saveUser(freshUser);
+          });
+          return true;
+        }
+        router.navigateByUrl('Dashboard');
+        return false;
+      }),
+      catchError(() => {
+        router.navigateByUrl('Dashboard');
+        return of(false);
+      })
+    );
+  }
+
+  if (resolvedPath === 'delegation-management') {
+    const resolvedRoleId = getRoleIdFromUser(user);
+    if (!user?.serUserId || !resolvedRoleId) {
+      router.navigateByUrl('Dashboard');
+      return false;
+    }
+    // Role-level rows only (userId 0), same as sidebar / Role Management screen.
+    return menuService.getAllSubMenuRoles(resolvedRoleId, 0).pipe(
+      map((data) => {
+        if (hasDelegationManagementViewPermission(data)) {
+          userService.me().subscribe((freshUser: any) => {
+            sharedDataService.saveUser(freshUser);
+          });
+          return true;
+        }
+        router.navigateByUrl('Dashboard');
+        return false;
+      }),
+      catchError(() => {
+        router.navigateByUrl('Dashboard');
+        return of(false);
+      })
+    );
+  }
+
+  if (resolvedPath === 'my-application' && state.url.includes('from=all-applications')) {
+    if (isAdmin) {
+      return true;
+    }
+    const resolvedRoleId = getRoleIdFromUser(user);
+    if (!user?.serUserId || !resolvedRoleId) {
+      router.navigateByUrl('Dashboard');
+      return false;
+    }
+    return menuService.getAllSubMenuRoles(resolvedRoleId, user.serUserId).pipe(
+      map((data) => {
+        if (hasAllApplicationsViewPermission(data)) {
+          userService.me().subscribe((freshUser: any) => {
+            sharedDataService.saveUser(freshUser);
+          });
+          return true;
+        }
+        router.navigateByUrl('Dashboard');
+        return false;
+      }),
+      catchError(() => {
+        router.navigateByUrl('Dashboard');
+        return of(false);
+      })
+    );
   }
 
   if (localStorage.getItem('token')) {

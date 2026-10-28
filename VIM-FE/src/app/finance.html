@@ -1,6 +1,6 @@
 <div class="space-y-6">
     <div class="panel overflow-hidden !p-0">
-        <div class="relative min-h-[340px] overflow-hidden rounded-lg">
+        <div class="relative min-h-[340px] overflow-hidden rounded-lg" data-tour="dashboard-hero">
             <div
                 class="absolute inset-0 bg-cover bg-center bg-no-repeat"
                 style="background-image: url('assets/images/Qarshi_Walpaper_Final.jpg.jpeg');"></div>
@@ -20,7 +20,7 @@
                     </p>
                 </div>
 
-                <div class="mt-8 flex flex-wrap items-center gap-3">
+                <div class="mt-8 flex flex-wrap items-center gap-3" data-tour="dashboard-quick-actions">
                     <button
                         type="button"
                         class="btn bg-white text-slate-900 shadow-sm hover:bg-slate-100"
@@ -42,7 +42,7 @@
         </div>
     </div>
 
-    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" data-tour="dashboard-metrics">
         <div
             *ngFor="let metric of dashboardMetrics"
             class="panel border !py-2.5"
@@ -63,7 +63,98 @@
         </div>
     </div>
 
-    <div class="panel">
+    <div *ngIf="isAdmin" class="panel" data-tour="dashboard-storage">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900">Storage &amp; data sources</h2>
+                <p class="mt-1 text-sm text-slate-500">
+                    Server disk capacity and how much space Velocity uses (upload folder + application data in MySQL).
+                </p>
+            </div>
+            <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm"
+                [disabled]="isLoadingStorageInfo"
+                (click)="loadStorageInfo()">
+                {{ isLoadingStorageInfo ? 'Refreshing…' : 'Refresh storage' }}
+            </button>
+        </div>
+
+        <div *ngIf="isLoadingStorageInfo && !storageInfo" class="mt-5 py-8 text-center text-sm text-slate-500">
+            Loading storage information…
+        </div>
+
+        <p *ngIf="storageInfoError" class="mt-5 text-sm text-rose-600">{{ storageInfoError }}</p>
+
+        <div *ngIf="storageInfo as storage" class="mt-5 grid gap-4 lg:grid-cols-3">
+            <div class="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Application footprint</p>
+                <p class="mt-2 text-2xl font-bold text-slate-900">{{ formatStorageBytes(storage.applicationUsedBytes) }}</p>
+                <p class="mt-2 text-xs text-slate-600">{{ storage.applicationUsedLabel || 'Upload files + database content' }}</p>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 p-4" *ngIf="storage.hostVolume">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{{ storage.hostVolume.sourceLabel }}</p>
+                <p class="mt-2 text-sm font-semibold text-slate-800">
+                    {{ formatStorageBytes(storage.hostVolume.usedBytes) }} used
+                    <span class="font-normal text-slate-500">of {{ formatStorageBytes(storage.hostVolume.totalBytes) }}</span>
+                </p>
+                <div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                        class="h-full rounded-full bg-primary transition-all"
+                        [style.width.%]="storageUsagePercent(storage.hostVolume.usedBytes, storage.hostVolume.totalBytes)"></div>
+                </div>
+                <p class="mt-2 text-xs text-slate-500">
+                    {{ formatStorageBytes(storage.hostVolume.usableBytes) }} free · {{ storage.hostVolume.mountPath }}
+                </p>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 p-4" *ngIf="storage.databaseStorage">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{{ storage.databaseStorage.sourceLabel }}</p>
+                <p class="mt-2 text-sm font-semibold text-slate-800">
+                    {{ storage.databaseStorage.schemaName || 'velocity' }}
+                </p>
+                <ul class="mt-3 space-y-1.5 text-xs text-slate-600">
+                    <li class="flex justify-between gap-3">
+                        <span>Database total</span>
+                        <span class="font-semibold text-slate-800">{{ formatStorageBytes(storage.databaseStorage.databaseTotalBytes) }}</span>
+                    </li>
+                    <li class="flex justify-between gap-3">
+                        <span>Applications table</span>
+                        <span class="font-semibold text-slate-800">{{ formatStorageBytes(storage.databaseStorage.applicationTableBytes) }}</span>
+                    </li>
+                    <li class="flex justify-between gap-3">
+                        <span>PDF / form payload</span>
+                        <span class="font-semibold text-slate-800">{{ formatStorageBytes(storage.databaseStorage.applicationContentBytes) }}</span>
+                    </li>
+                    <li class="flex justify-between gap-3">
+                        <span>Applications</span>
+                        <span class="font-semibold text-slate-800">{{ storage.databaseStorage.applicationCount }} ({{ storage.databaseStorage.applicationPdfCount }} with PDF)</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <div *ngIf="storageInfo?.fileStorage as fileStorage" class="mt-4 rounded-xl border border-slate-200 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{{ fileStorage.sourceLabel }}</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-800">{{ formatStorageBytes(fileStorage.usedBytes) }} on disk</p>
+                </div>
+                <p class="max-w-xl truncate text-xs text-slate-500" [title]="fileStorage.sourcePath">{{ fileStorage.sourcePath }}</p>
+            </div>
+            <div class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <div
+                    *ngFor="let item of fileStorage.breakdown"
+                    class="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs">
+                    <span class="text-slate-600">{{ item.label }}</span>
+                    <span class="font-semibold text-slate-800">{{ formatStorageBytes(item.bytes) }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel" data-tour="dashboard-filters">
         <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
                 <h2 class="text-lg font-semibold text-slate-900">Dashboard Filters</h2>
@@ -119,7 +210,7 @@
     </div>
 
     <div class="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.85fr)]">
-        <div class="panel">
+        <div class="panel" data-tour="dashboard-board">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <div>
                     <h2 class="text-xl font-semibold text-slate-900">
@@ -201,7 +292,7 @@
         </div>
 
         <div class="space-y-6">
-            <div class="panel" *ngIf="isAdmin">
+            <div class="panel" *ngIf="isAdmin" data-tour="dashboard-activity">
                 <div class="flex items-center justify-between gap-3">
                     <button
                         type="button"
@@ -249,7 +340,7 @@
                 </div>
             </div>
 
-            <div class="panel">
+            <div class="panel" data-tour="dashboard-recent-apps">
                 <div class="flex items-center justify-between gap-3">
                     <div>
                         <h2 class="text-lg font-semibold text-slate-900">

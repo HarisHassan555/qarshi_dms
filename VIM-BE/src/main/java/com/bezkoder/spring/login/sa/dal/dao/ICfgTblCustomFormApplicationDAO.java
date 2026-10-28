@@ -24,6 +24,8 @@ public interface ICfgTblCustomFormApplicationDAO {
 
     byte[] resolveDownloadablePdf(Integer applicationId);
 
+    java.util.Map<String, Object> checkApplicationPdfSignatures(Integer applicationId);
+
     String deleteApplication(Integer applicationId);
 
     List<CfgTblCustomFormApplication> getApplicationsByStatus(String status);

@@ -23,6 +23,7 @@ import {
   WORD_EDITOR_CKEDITOR,
   WORD_EDITOR_CKEDITOR_CONFIG,
 } from 'src/app/utils/word-editor-ckeditor.util';
+import { buildIndividualFooterTableBands, IndividualFooterTableBand } from 'src/app/utils/individual-footer-pipeline.util';
 import {
   isDocumentHeaderFieldType,
   resolveDocumentHeaderAddress,
@@ -4202,6 +4203,10 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
   getIndividualFooterSlots(section: IndividualPipelineFooterField): any[] {
     const users = Array.isArray(section?.users) ? section.users : [];
     return users.length > 0 ? users : [null];
+  }
+
+  getIndividualFooterBands(sections: IndividualPipelineFooterField[]): IndividualFooterTableBand[] {
+    return buildIndividualFooterTableBands(sections, (section) => this.getIndividualFooterSlots(section));
   }
 
   private getIndividualFooterUserParts(user: any): string[] {

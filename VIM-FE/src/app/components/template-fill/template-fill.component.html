@@ -1,5 +1,5 @@
 <div class="template-fill-page">
-    <div class="fill-header">
+    <div class="fill-header" data-tour="template-fill-header">
         <div>
             <h2>{{ template?.name || 'Template Form' }}</h2>
             <p *ngIf="template">
@@ -7,17 +7,61 @@
                 <span *ngIf="template.codeConvention">Code: {{ template.codeConvention }}</span>
             </p>
         </div>
-        <div class="header-actions">
+        <div class="header-actions" data-tour="template-fill-actions">
             <button *ngIf="hasAnyAttachments" type="button" class="btn btn-outline" (click)="openAttachmentsModal()">
                 View Attachments
             </button>
             <button *ngIf="savedTemplate" type="button" class="btn btn-outline" [disabled]="isSubmitting || isSavingDraft" (click)="saveAsDraft()">
                 {{ isSavingDraft ? 'Saving draft...' : 'Save as Draft' }}
             </button>
-            <button *ngIf="savedTemplate" type="button" class="btn btn-primary" [disabled]="isSubmitting || isSavingDraft" (click)="submitTemplate()">
-                {{ isSubmitting ? 'Saving...' : (isSentBackForEdit ? 'Resubmit' : 'Submit') }}
+            <button *ngIf="savedTemplate" type="button" class="btn btn-primary" [disabled]="isSubmitting || isPostSubmitProcessing || isSavingDraft" (click)="submitTemplate()">
+                {{ isSubmitting ? 'Saving...' : (isPostSubmitProcessing ? 'Preparing PDF & emails...' : (isSentBackForEdit ? 'Resubmit' : 'Submit')) }}
             </button>
         </div>
+    </div>
+
+    <div *ngIf="showFillAccessChoice" class="fill-access-panel" data-tour="template-fill-access">
+        <span class="fill-access-panel-title">Submitting as</span>
+        <label class="fill-access-option">
+            <input
+                type="checkbox"
+                [checked]="fillForSelfChecked"
+                (change)="onFillForSelfChanged($any($event.target).checked)" />
+            <span>For self</span>
+        </label>
+        <label class="fill-access-option">
+            <input
+                type="checkbox"
+                [checked]="fillOnBehalfChecked"
+                (change)="onFillOnBehalfChanged($any($event.target).checked)" />
+            <span>On behalf of</span>
+        </label>
+        <select
+            *ngIf="showOnBehalfUserDropdown"
+            class="form-select fill-access-onbehalf-select"
+            [(ngModel)]="selectedOnBehalfUserId">
+            <option *ngFor="let party of getDelegationParties()" [ngValue]="party.serOnBehalfUserId">
+                {{ party.onBehalfUserName || ('User #' + party.serOnBehalfUserId) }}
+            </option>
+        </select>
+        <span *ngIf="fillOnBehalfChecked && !showOnBehalfUserDropdown && singleOnBehalfPartyLabel" class="fill-access-single-onbehalf">
+            {{ singleOnBehalfPartyLabel }}
+        </span>
+    </div>
+
+    <div *ngIf="showDelegatedOnlyFillSelector" class="fill-access-panel" data-tour="template-fill-access-delegated">
+        <span class="fill-access-panel-title">Submitting on behalf of</span>
+        <select
+            *ngIf="showOnBehalfUserDropdown || getDelegationParties().length > 1"
+            class="form-select fill-access-onbehalf-select"
+            [(ngModel)]="selectedOnBehalfUserId">
+            <option *ngFor="let party of getDelegationParties()" [ngValue]="party.serOnBehalfUserId">
+                {{ party.onBehalfUserName || ('User #' + party.serOnBehalfUserId) }}
+            </option>
+        </select>
+        <span *ngIf="getDelegationParties().length === 1 && singleOnBehalfPartyLabel" class="fill-access-single-onbehalf">
+            {{ singleOnBehalfPartyLabel }}
+        </span>
     </div>
 
     <div *ngIf="submittedCode" class="submission-code">
@@ -34,7 +78,7 @@
     </div>
 
     <div *ngIf="template" class="fill-workspace">
-        <aside class="fill-values-panel">
+        <aside class="fill-values-panel" data-tour="template-fill-fields">
             <h3>Fields</h3>
             <div class="inline-word-editor-toolbar-panel" *ngIf="getActiveInlineWordEditorField() as activeWordEditorField">
                 <div class="inline-word-editor-toolbar-panel-header">
@@ -163,7 +207,7 @@
                     (ngModelChange)="onPanelValueChanged()" />
             </div>
 
-            <div class="user-pipeline-panel" *ngIf="hasIndividualPipelineFooter()">
+            <div class="user-pipeline-panel" *ngIf="hasIndividualPipelineFooter()" data-tour="template-fill-pipeline">
                 <div class="user-pipeline-header">
                     <h3>Individual Footer Sections</h3>
                     <button type="button" title="Add section" (click)="addUserPipelineSection()">+</button>
@@ -195,11 +239,37 @@
             </div>
         </aside>
 
-        <div class="fill-stage">
+        <div class="fill-stage" data-tour="template-fill-stage" (wheel)="onFillStageWheel($event)">
+            <div class="fill-stage-zoom-bar" aria-label="Document zoom controls">
+                <span class="fill-stage-zoom-label">Preview zoom</span>
+                <button
+                    type="button"
+                    class="btn btn-outline btn-sm fill-stage-zoom-btn"
+                    title="Zoom out"
+                    [disabled]="previewZoom <= previewZoomMin"
+                    (click)="zoomOutPreview()">
+                    −
+                </button>
+                <button type="button" class="btn btn-outline btn-sm fill-stage-zoom-btn fill-stage-zoom-reset" (click)="resetPreviewZoom()">
+                    {{ previewZoomPercentLabel }}
+                </button>
+                <button
+                    type="button"
+                    class="btn btn-outline btn-sm fill-stage-zoom-btn"
+                    title="Zoom in"
+                    [disabled]="previewZoom >= previewZoomMax"
+                    (click)="zoomInPreview()">
+                    +
+                </button>
+                <span class="fill-stage-zoom-hint">Ctrl + scroll to zoom</span>
+            </div>
+            <div
+                class="fill-zoom-slot"
+                [style.width.px]="zoomedFrameWidth"
+                [style.height.px]="zoomedFrameHeight">
             <div
                 class="fill-frame"
-                [style.width.px]="template.page?.width || 794"
-                [style.min-height.px]="(template.page?.count || 1) * (template.page?.height || 1123) + (((template.page?.count || 1) - 1) * (template.page?.gap || 32))"
+                [ngStyle]="fillFrameZoomTransform"
                 [style.--template-page-height]="(template.page?.height || 1123) + 'px'"
                 [style.--template-page-gap]="(template.page?.gap || 32) + 'px'">
                 <div
@@ -278,24 +348,23 @@
                             <ng-container *ngIf="field.type === 'individual_pipeline_footer'; else regularFooter">
                                 <div class="document-footer-preview individual-footer-preview">
                                     <div class="individual-footer-preview-inner">
-                                        <table class="xyz-signatures" *ngIf="userPipeline.length > 0">
-                                            <tr class="xyz-signatures-blank">
-                                                <ng-container *ngFor="let section of userPipeline">
-                                                    <td *ngFor="let slotUser of getIndividualFooterSlots(section)"></td>
-                                                </ng-container>
-                                            </tr>
-                                            <tr>
-                                                <th *ngFor="let section of userPipeline" [attr.colspan]="getIndividualFooterColSpan(section)">
-                                                    {{ section.label || 'New Field' }}:
-                                                </th>
-                                            </tr>
-                                            <tr>
-                                                <ng-container *ngFor="let section of userPipeline">
-                                                    <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                                        <span [innerHTML]="getIndividualFooterUserLabel(slotUser)"></span>
+                                        <table class="xyz-signatures individual-pipeline-footer-table" *ngIf="userPipeline.length > 0">
+                                            <ng-container *ngFor="let band of getIndividualFooterBands(); let bandIndex = index">
+                                                <tr class="xyz-signatures-blank individual-footer-sig-row"
+                                                    [class.individual-footer-band-continued]="bandIndex > 0">
+                                                    <td *ngFor="let cell of band.cells"></td>
+                                                </tr>
+                                                <tr class="individual-footer-header-row">
+                                                    <th *ngFor="let seg of band.headerSegments" [attr.colspan]="seg.colspan">
+                                                        {{ seg.section.label || 'New Field' }}:
+                                                    </th>
+                                                </tr>
+                                                <tr class="individual-footer-names-row">
+                                                    <td *ngFor="let cell of band.cells">
+                                                        <span [innerHTML]="getIndividualFooterUserLabel(cell.slotUser)"></span>
                                                     </td>
-                                                </ng-container>
-                                            </tr>
+                                                </tr>
+                                            </ng-container>
                                         </table>
                                     </div>
                                 </div>
@@ -390,6 +459,7 @@
                         </ng-template>
                     </ng-template>
                 </div>
+            </div>
             </div>
         </div>
     </div>

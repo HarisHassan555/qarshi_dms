@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { urls } from 'src/app/utils/urls';
 import {Observable, of} from "rxjs";
+import { filter, map } from 'rxjs/operators';
 
 @Injectable({
   providedIn: 'root'
@@ -14,6 +15,21 @@ export class UserService {
 
   getUsers() {
     return this.http.get(urls.API_URL + 'getAllUser');
+  }
+
+  getCurrentUser() {
+    return this.http.get(urls.API_URL + 'getCurrentUser');
+  }
+
+  profilePictureUrl(userId: number): string {
+    return `${urls.API_URL}getUserProfilePicture?userId=${encodeURIComponent(String(userId))}`;
+  }
+
+  loadProfilePictureObjectUrl(userId: number): Observable<string> {
+    return this.http.get(this.profilePictureUrl(userId), { responseType: 'blob' }).pipe(
+      filter((blob) => blob != null && blob.size > 64),
+      map((blob) => URL.createObjectURL(blob))
+    );
   }
 
   getRoles() {
@@ -35,6 +51,20 @@ export class UserService {
 
   getPasswordPolicy() {
     return this.http.get(urls.API_URL + 'getActivePasswordPolicy');
+  }
+
+  suggestLoginName(employeeId: string, fullName: string) {
+    const params = new URLSearchParams();
+    if (employeeId) {
+      params.set('employeeId', employeeId);
+    }
+    if (fullName) {
+      params.set('fullName', fullName);
+    }
+    const q = params.toString();
+    return this.http.get<{ loginName: string }>(
+      urls.API_URL + 'suggestUserLoginName' + (q ? '?' + q : '')
+    );
   }
 
   save(payload: any) {

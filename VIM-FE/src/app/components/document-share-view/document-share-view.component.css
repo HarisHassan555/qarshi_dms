@@ -1,0 +1,9 @@
+.document-share-page {
+    min-height: 100vh;
+}
+
+.document-share-frame {
+    width: 100%;
+    min-height: calc(100vh - 180px);
+    border: 0;
+}

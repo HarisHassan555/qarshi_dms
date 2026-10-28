@@ -42,6 +42,7 @@ import { CapfComponent } from './components/capf/capf.component';
 import { ApplicationComponent } from './components/application/application.component';
 import { ApplicationsViewComponent } from './components/applications-view/applications-view.component';
 import { DepartmentApplicationComponent } from './components/department-application/department-application.component';
+import { AllApplicationsComponent } from './components/all-applications/all-applications.component';
 import { PendingApprovalsComponent } from './components/pending-approvals/pending-approvals.component';
 import { ApplicationDetailsComponent } from './components/application-details/application-details.component';
 import { AssignAssetCodeComponent } from './components/assign-asset-code/assign-asset-code.component';
@@ -84,6 +85,15 @@ import { RolesManagementComponent } from './components/roles-management/roles-ma
 import { MenuListComponent } from './components/menu-list/menu-list.component';
 import { SubmenuListComponent } from './components/submenu-list/submenu-list.component';
 import { ActivityLogsComponent } from './components/activity-logs/activity-logs.component';
+import { DelegationManagementComponent } from './components/delegation-management/delegation-management.component';
+import { SapHcmEmployeesComponent } from './components/sap-hcm-employees/sap-hcm-employees.component';
+import { ChatComponent } from './components/chat/chat.component';
+import { NotificationManagementComponent } from './components/notification-management/notification-management.component';
+import { OrganizationsComponent } from './components/organizations/organizations.component';
+import { SubAreasComponent } from './components/sub-areas/sub-areas.component';
+import { DivisionsComponent } from './components/divisions/divisions.component';
+import { WorkflowPipelinesComponent } from './components/workflow-pipelines/workflow-pipelines.component';
+import { EmailTemplatesComponent } from './components/email-templates/email-templates.component';
 import { TemplateBuilderComponent } from './components/template-builder/template-builder.component';
 import { TemplateFillComponent } from './components/template-fill/template-fill.component';
 import { TemplateFormsComponent } from './components/template-forms/template-forms.component';
@@ -92,9 +102,12 @@ import { TemplateApprovalComponent } from './components/template-approval/templa
 import { TemplateApprovedApplicationsComponent } from './components/template-approved-applications/template-approved-applications.component';
 import { MyApplicationComponent } from './components/my-application/my-application.component';
 import { UniverFormBuilderComponent } from './components/univer-form-builder/univer-form-builder.component';
+import { ReportsComponent } from './components/reports/reports.component';
+import { DocumentShareViewComponent } from './components/document-share-view/document-share-view.component';
 
 
 export const routes: Routes = [
+    { path: 'share/:token', component: DocumentShareViewComponent, title: 'Shared Document' },
     {
         path: '',
         component: AppLayout,
@@ -141,6 +154,7 @@ export const routes: Routes = [
             { path: 'application', canActivate: [canActivate], component: ApplicationComponent, title: 'Application' },
             { path: 'applicationsview', canActivate: [canActivate], component: ApplicationsViewComponent, title: 'Applications View' },
             { path: 'department-application', canActivate: [canActivate], component: DepartmentApplicationComponent, title: 'My Department Digital Application' },
+            { path: 'all-applications', canActivate: [canActivate], component: AllApplicationsComponent, title: 'All Applications' },
             { path: 'pending-approvals', canActivate: [canActivate], component: PendingApprovalsComponent, title: 'Pending Approvals' },
             { path: 'application-details/:id', canActivate: [canActivate], component: ApplicationDetailsComponent, title: 'Application Details' },
             { path: 'approved-applications', canActivate: [canActivate], component: ApprovedApplicationsComponent, title: 'Approved Applications' },
@@ -201,7 +215,27 @@ export const routes: Routes = [
             { path: 'template-approval/:id', canActivate: [canActivate], component: TemplateApprovalComponent, title: 'Template Approval' },
             { path: 'my-application/:id', canActivate: [canActivate], component: MyApplicationComponent, title: 'My Application Details' },
             { path: 'my-application', canActivate: [canActivate], component: MyApplicationComponent, title: 'My Digital Applications' },
+            { path: 'chat', canActivate: [canActivate], component: ChatComponent, title: 'Messages' },
+            {
+                path: 'notification-management',
+                canActivate: [canActivate],
+                component: NotificationManagementComponent,
+                title: 'Notification Management',
+            },
             { path: 'activitylogs', canActivate: [canActivate], component: ActivityLogsComponent, title: 'Activity Logs' },
+            {
+                path: 'delegation-management',
+                canActivate: [canActivate],
+                component: DelegationManagementComponent,
+                title: 'Delegation Management',
+            },
+            { path: 'sap-hcm-employees', canActivate: [canActivate], component: SapHcmEmployeesComponent, title: 'Sap Employees' },
+            { path: 'organizations', canActivate: [canActivate], component: OrganizationsComponent, title: 'Organizations' },
+            { path: 'sub-areas', canActivate: [canActivate], component: SubAreasComponent, title: 'Sub Areas' },
+            { path: 'divisions', canActivate: [canActivate], component: DivisionsComponent, title: 'Divisions' },
+            { path: 'workflow-pipelines', canActivate: [canActivate], component: WorkflowPipelinesComponent, title: 'Workflow Pipelines' },
+            { path: 'email-templates', canActivate: [canActivate], component: EmailTemplatesComponent, title: 'Email Templates' },
+            { path: 'reports', canActivate: [canActivate], component: ReportsComponent, title: 'Reports' },
 
 
 

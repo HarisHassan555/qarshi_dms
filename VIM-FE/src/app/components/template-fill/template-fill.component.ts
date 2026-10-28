@@ -4,7 +4,12 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { NotificationService } from 'src/app/NotificationService';
 import { UserService } from 'src/app/services/user/user.service';
-import { SavedTemplateDefinition, TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
+import { UserDelegationDto, UserDelegationService } from 'src/app/services/user-delegation/user-delegation.service';
+import {
+    SavedTemplateDefinition,
+    TemplateSubmitAccessContext,
+    TemplateWorkflowService,
+} from 'src/app/services/template-workflow/template-workflow.service';
 import { urls } from 'src/app/utils/urls';
 import {
     WORD_EDITOR_CKEDITOR,
@@ -12,11 +17,17 @@ import {
     normalizeWordEditorValueForCkeditor,
 } from 'src/app/utils/word-editor-ckeditor.util';
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
+import { applyWordEditorAlignmentClasses, getTemplateFieldNgStyle } from 'src/app/utils/word-editor-display.util';
+import { normalizeDocumentBodyHtmlForDisplay } from 'src/app/utils/document-body-html.util';
 import {
     resolveDocumentHeaderAddress,
     resolveDocumentHeaderBrandTitle,
     resolveDocumentHeaderLogoPath,
 } from 'src/app/utils/document-header.util';
+import {
+    buildIndividualFooterTableBands,
+    getIndividualFooterRenderedHeightPx
+} from 'src/app/utils/individual-footer-pipeline.util';
 
 type TemplateFieldType =
     'document_header'
@@ -160,8 +171,15 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     ]);
     private static readonly ALLOWED_ATTACHMENT_EXTENSIONS = new Set(['pdf', 'webp', 'png', 'jpeg', 'jpg']);
     private static readonly INDIVIDUAL_FOOTER_MIN_HEIGHT = 136;
+    private individualFooterBandsCacheKey = '';
+    private individualFooterBandsCache: ReturnType<typeof buildIndividualFooterTableBands> = [];
     template: any = null;
     savedTemplate: SavedTemplateDefinition | null = null;
+    /** UI-only for now: which access path the user is filling under when both own and delegated apply. */
+    fillAccessMode: 'self' | 'on_behalf' = 'self';
+    selectedOnBehalfUserId: number | null = null;
+    userHasActiveDelegations = false;
+    private activeDelegationsForCurrentUser: UserDelegationDto[] = [];
     editingApplication: any = null;
     safeHtml: SafeHtml = '';
     values: { [fieldId: string]: any } = {};
@@ -173,6 +191,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     isSendingTestEmail = false;
     testEmailMessage = '';
     isSubmitting = false;
+    isPostSubmitProcessing = false;
     isSavingDraft = false;
     showAttachmentsModal = false;
     showPortalAttachmentModal = false;
@@ -198,12 +217,14 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         private sanitizer: DomSanitizer,
         private notificationService: NotificationService,
         private templateWorkflowService: TemplateWorkflowService,
-        private userService: UserService
+        private userService: UserService,
+        private userDelegationService: UserDelegationService
     ) { }
 
     async ngOnInit(): Promise<void> {
         document.body.classList.add(TEMPLATE_FILL_HIDE_CKEDITOR_BADGE_CLASS);
         this.loadUsers();
+        await this.loadDelegateAccessFlag();
         const templateId = this.route.snapshot.paramMap.get('id');
         this.routeTemplateId = templateId || '';
         const applicationId = Number(this.route.snapshot.queryParamMap.get('applicationId'));
@@ -221,6 +242,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             if (!this.template) {
                 return;
             }
+
+            this.syncDelegationFillAccessAfterTemplateLoad();
 
             if (!this.editingApplication) {
                 this.generatedApplicationCode = await this.resolveInitialApplicationCode();
@@ -287,6 +310,77 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         return Array.from({ length: count }, (_, index) => index);
     }
 
+    /** Document preview zoom (fill-stage only). */
+    previewZoom = 1;
+    readonly previewZoomMin = 0.5;
+    readonly previewZoomMax = 2;
+    readonly previewZoomStep = 0.1;
+
+    get templateFrameWidth(): number {
+        return Number(this.template?.page?.width) || 794;
+    }
+
+    get templateFrameHeight(): number {
+        const pageHeight = Number(this.template?.page?.height) || 1123;
+        const pageCount = Number(this.template?.page?.count) || 1;
+        const gap = Number(this.template?.page?.gap) || 32;
+        return pageCount * pageHeight + (pageCount - 1) * gap;
+    }
+
+    get zoomedFrameWidth(): number {
+        return Math.round(this.templateFrameWidth * this.previewZoom);
+    }
+
+    get zoomedFrameHeight(): number {
+        return Math.round(this.templateFrameHeight * this.previewZoom);
+    }
+
+    get previewZoomPercentLabel(): string {
+        return `${Math.round(this.previewZoom * 100)}%`;
+    }
+
+    get fillFrameZoomTransform(): { [key: string]: string } {
+        return {
+            transform: `scale(${this.previewZoom})`,
+            transformOrigin: 'top left',
+            width: `${this.templateFrameWidth}px`,
+            minHeight: `${this.templateFrameHeight}px`,
+        };
+    }
+
+    zoomInPreview(): void {
+        this.setPreviewZoom(this.previewZoom + this.previewZoomStep);
+    }
+
+    zoomOutPreview(): void {
+        this.setPreviewZoom(this.previewZoom - this.previewZoomStep);
+    }
+
+    resetPreviewZoom(): void {
+        this.setPreviewZoom(1);
+    }
+
+    onFillStageWheel(event: WheelEvent): void {
+        if (!event.ctrlKey && !event.metaKey) {
+            return;
+        }
+        const target = event.target as HTMLElement | null;
+        if (!target?.closest('.fill-stage')) {
+            return;
+        }
+        event.preventDefault();
+        if (event.deltaY < 0) {
+            this.zoomInPreview();
+        } else if (event.deltaY > 0) {
+            this.zoomOutPreview();
+        }
+    }
+
+    private setPreviewZoom(value: number): void {
+        const clamped = Math.min(this.previewZoomMax, Math.max(this.previewZoomMin, value));
+        this.previewZoom = Math.round(clamped * 100) / 100;
+    }
+
     get fillableFields(): TemplateField[] {
         return (this.template?.fields || []).filter((field: TemplateField) =>
             !this.isDocumentRegionFieldType(field.type) && this.canCurrentStepFillField(field)
@@ -346,7 +440,12 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         if (field.type !== 'individual_pipeline_footer') {
             return height;
         }
-        return Math.max(height, TemplateFillComponent.INDIVIDUAL_FOOTER_MIN_HEIGHT);
+        const bandCount = this.getIndividualFooterBands().length;
+        return getIndividualFooterRenderedHeightPx(
+            height,
+            bandCount,
+            TemplateFillComponent.INDIVIDUAL_FOOTER_MIN_HEIGHT
+        );
     }
 
     isDocumentRegionFieldType(type: TemplateFieldType): boolean {
@@ -389,14 +488,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     getInputStyle(field: TemplateField): { [key: string]: string | number } {
-        return {
-            'font-size.px': field.style?.fontSize || 14,
-            'font-family': field.style?.fontFamily || 'Arial, sans-serif',
-            'font-weight': field.style?.bold ? '700' : '400',
-            'font-style': field.style?.italic ? 'italic' : 'normal',
-            'text-decoration': field.style?.underline ? 'underline' : 'none',
-            'text-align': field.style?.textAlign || 'left'
-        };
+        return getTemplateFieldNgStyle(field);
     }
 
     getFieldValueText(field: TemplateField, optionLabel?: string): string {
@@ -517,6 +609,290 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
 
     ngOnDestroy(): void {
         document.body.classList.remove(TEMPLATE_FILL_HIDE_CKEDITOR_BADGE_CLASS);
+    }
+
+    get showFillAccessChoice(): boolean {
+        return this.hasDelegatedFillAccessForCurrentForm() && this.isBothFillAccess();
+    }
+
+    get showDelegatedOnlyFillSelector(): boolean {
+        return !this.showFillAccessChoice
+            && this.hasDelegatedFillAccessForCurrentForm()
+            && !this.hasOwnFillAccess();
+    }
+
+    private async loadDelegateAccessFlag(): Promise<void> {
+        const userId = this.getCurrentUserId();
+        if (!userId) {
+            this.userHasActiveDelegations = false;
+            this.activeDelegationsForCurrentUser = [];
+            return;
+        }
+        try {
+            const rows = await firstValueFrom(
+                this.userDelegationService.getAll({ delegateUserId: userId, status: 'ACTIVE' })
+            );
+            this.activeDelegationsForCurrentUser = (Array.isArray(rows) ? rows : [])
+                .filter((row) => this.isDelegationEffective(row));
+            this.userHasActiveDelegations = this.activeDelegationsForCurrentUser.length > 0;
+        } catch {
+            this.userHasActiveDelegations = false;
+            this.activeDelegationsForCurrentUser = [];
+        }
+    }
+
+    get fillForSelfChecked(): boolean {
+        return this.fillAccessMode === 'self';
+    }
+
+    get fillOnBehalfChecked(): boolean {
+        return this.fillAccessMode === 'on_behalf';
+    }
+
+    get showOnBehalfUserDropdown(): boolean {
+        return this.fillOnBehalfChecked && this.getDelegationParties().length > 1;
+    }
+
+    get singleOnBehalfPartyLabel(): string {
+        const parties = this.getDelegationParties();
+        if (parties.length !== 1) {
+            return '';
+        }
+        const party = parties[0];
+        return party.onBehalfUserName || `User #${party.serOnBehalfUserId}`;
+    }
+
+    getDelegationParties(): Array<{ serOnBehalfUserId: number; onBehalfUserName: string }> {
+        const formId = this.resolveCurrentFormId();
+        const allowedOnBehalfIds = this.getEffectiveOnBehalfUserIdsForForm(formId);
+        if (allowedOnBehalfIds.size === 0) {
+            return [];
+        }
+        const parties: Array<{ serOnBehalfUserId: number; onBehalfUserName: string }> = [];
+        const seen = new Set<number>();
+        const templateParties = Array.isArray(this.savedTemplate?.delegationOnBehalfOf)
+            ? this.savedTemplate!.delegationOnBehalfOf!
+            : [];
+        for (const party of templateParties) {
+            const onBehalfId = Number(party?.serOnBehalfUserId);
+            if (!Number.isFinite(onBehalfId) || onBehalfId <= 0 || !allowedOnBehalfIds.has(onBehalfId) || seen.has(onBehalfId)) {
+                continue;
+            }
+            seen.add(onBehalfId);
+            parties.push({
+                serOnBehalfUserId: onBehalfId,
+                onBehalfUserName: party.onBehalfUserName || `User #${onBehalfId}`,
+            });
+        }
+        for (const delegation of this.activeDelegationsForCurrentUser) {
+            const onBehalfId = Number(delegation?.serOnBehalfUserId);
+            if (!Number.isFinite(onBehalfId) || onBehalfId <= 0 || !allowedOnBehalfIds.has(onBehalfId) || seen.has(onBehalfId)) {
+                continue;
+            }
+            seen.add(onBehalfId);
+            parties.push({
+                serOnBehalfUserId: onBehalfId,
+                onBehalfUserName: delegation.onBehalfUserName || `User #${onBehalfId}`,
+            });
+        }
+        return parties;
+    }
+
+    hasDelegatedFillAccessForCurrentForm(): boolean {
+        return this.hasDelegatedFillAccess() && this.getDelegationParties().length > 0;
+    }
+
+    private syncDelegationFillAccessAfterTemplateLoad(): void {
+        if (!this.hasDelegatedFillAccessForCurrentForm()) {
+            this.fillAccessMode = 'self';
+            this.selectedOnBehalfUserId = null;
+            return;
+        }
+        this.initFillAccessSelection();
+        const parties = this.getDelegationParties();
+        const selectedId = Number(this.selectedOnBehalfUserId);
+        if (!parties.some((party) => party.serOnBehalfUserId === selectedId)) {
+            const firstId = Number(parties[0]?.serOnBehalfUserId);
+            this.selectedOnBehalfUserId = Number.isFinite(firstId) && firstId > 0 ? firstId : null;
+        }
+    }
+
+    private resolveCurrentFormId(): number {
+        const fromTemplate = Number(this.savedTemplate?.id || this.template?.id);
+        if (Number.isFinite(fromTemplate) && fromTemplate > 0) {
+            return fromTemplate;
+        }
+        const fromRoute = Number(this.routeTemplateId);
+        return Number.isFinite(fromRoute) && fromRoute > 0 ? fromRoute : 0;
+    }
+
+    private getEffectiveOnBehalfUserIdsForForm(formId: number): Set<number> {
+        const allowed = new Set<number>();
+        if (!formId) {
+            return allowed;
+        }
+        for (const delegation of this.activeDelegationsForCurrentUser) {
+            if (!this.isDelegationEffective(delegation) || !this.delegationIncludesForm(delegation, formId)) {
+                continue;
+            }
+            const onBehalfId = Number(delegation.serOnBehalfUserId);
+            if (Number.isFinite(onBehalfId) && onBehalfId > 0) {
+                allowed.add(onBehalfId);
+            }
+        }
+        return allowed;
+    }
+
+    private isDelegationEffective(delegation: UserDelegationDto): boolean {
+        const status = String(delegation?.txtStatus || '').trim().toUpperCase();
+        if (status === 'REVOKED') {
+            return false;
+        }
+        const today = this.toLocalDateOnly(new Date());
+        const validFrom = this.parseDelegationDate(delegation?.dteValidFrom);
+        const validTo = this.parseDelegationDate(delegation?.dteValidTo);
+        if (!validFrom || !validTo) {
+            return false;
+        }
+        return today >= validFrom && today <= validTo;
+    }
+
+    private delegationIncludesForm(delegation: UserDelegationDto, formId: number): boolean {
+        const scopeIds = Array.isArray(delegation.documentIds) && delegation.documentIds.length > 0
+            ? delegation.documentIds
+            : String(delegation.txtScope || '').split(',').map((part) => part.trim()).filter(Boolean);
+        return scopeIds.some((id) => Number(id) === formId);
+    }
+
+    private parseDelegationDate(value: string | null | undefined): Date | null {
+        if (!value) {
+            return null;
+        }
+        const parsed = new Date(`${String(value).trim()}T00:00:00`);
+        return Number.isFinite(parsed.getTime()) ? this.toLocalDateOnly(parsed) : null;
+    }
+
+    private toLocalDateOnly(value: Date): Date {
+        return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+    }
+
+    hasOwnFillAccess(): boolean {
+        if (this.savedTemplate?.hasOwnAccess === true) {
+            return true;
+        }
+        const mode = (this.savedTemplate?.listingAccess || '').toUpperCase();
+        if (mode === 'OWN' || mode === 'BOTH') {
+            return true;
+        }
+        return !this.hasDelegatedFillAccess();
+    }
+
+    hasDelegatedFillAccess(): boolean {
+        if (this.savedTemplate?.hasDelegatedAccess === true) {
+            return true;
+        }
+        const mode = (this.savedTemplate?.listingAccess || '').toUpperCase();
+        return mode === 'DELEGATION' || mode === 'BOTH';
+    }
+
+    isBothFillAccess(): boolean {
+        return this.hasOwnFillAccess() && this.hasDelegatedFillAccess();
+    }
+
+    private initFillAccessSelection(): void {
+        const parties = this.getDelegationParties();
+        const firstId = Number(parties[0]?.serOnBehalfUserId);
+        this.selectedOnBehalfUserId = Number.isFinite(firstId) && firstId > 0 ? firstId : null;
+        if (!this.hasOwnFillAccess() && this.hasDelegatedFillAccessForCurrentForm()) {
+            this.fillAccessMode = 'on_behalf';
+        } else {
+            this.fillAccessMode = 'self';
+        }
+    }
+
+    isOnBehalfFillMode(): boolean {
+        if (!this.hasDelegatedFillAccessForCurrentForm()) {
+            return false;
+        }
+        if (this.fillAccessMode === 'on_behalf' && this.selectedOnBehalfUserId != null) {
+            return true;
+        }
+        return !this.hasOwnFillAccess() && this.hasDelegatedFillAccessForCurrentForm();
+    }
+
+    getTemplateSubmitAccessContext(): TemplateSubmitAccessContext {
+        if (this.isOnBehalfFillMode() && this.selectedOnBehalfUserId != null) {
+            return {
+                fillAccessMode: 'on_behalf',
+                onBehalfUserId: this.selectedOnBehalfUserId,
+            };
+        }
+        return { fillAccessMode: 'self', onBehalfUserId: null };
+    }
+
+    private getEffectiveInitiatorUserId(): number | null {
+        if (this.isOnBehalfFillMode()) {
+            const onBehalfId = Number(this.selectedOnBehalfUserId);
+            return Number.isFinite(onBehalfId) && onBehalfId > 0 ? onBehalfId : null;
+        }
+        return this.getCurrentUserId();
+    }
+
+    private getEffectiveInitiatorProfile(): any {
+        const userId = this.getEffectiveInitiatorUserId();
+        if (!userId) {
+            return this.getCurrentUserProfile();
+        }
+        const fromDirectory = this.allUsers.find((user: any) => {
+            const id = Number(user?.serUserId ?? user?.userId ?? user?.id);
+            return id === userId;
+        });
+        if (fromDirectory) {
+            return fromDirectory;
+        }
+        const party = this.getDelegationParties().find((row) => row.serOnBehalfUserId === userId);
+        return {
+            serUserId: userId,
+            txtUserName: party?.onBehalfUserName || `User #${userId}`,
+        };
+    }
+
+    private getEffectiveInitiatorDisplayName(): string {
+        const profile = this.getEffectiveInitiatorProfile();
+        return String(profile?.txtUserName || profile?.userName || profile?.name || '').trim();
+    }
+
+    private validateSubmitAccessSelection(): string | null {
+        if (!this.isOnBehalfFillMode()) {
+            return null;
+        }
+        const onBehalfId = Number(this.selectedOnBehalfUserId);
+        if (!Number.isFinite(onBehalfId) || onBehalfId <= 0) {
+            return 'Please select the user you are submitting on behalf of.';
+        }
+        const allowed = this.getDelegationParties().some((party) => party.serOnBehalfUserId === onBehalfId);
+        if (!allowed) {
+            return 'You are not delegated to submit on behalf of the selected user for this form.';
+        }
+        return null;
+    }
+
+    onFillForSelfChanged(checked: boolean): void {
+        if (checked) {
+            this.fillAccessMode = 'self';
+        }
+    }
+
+    onFillOnBehalfChanged(checked: boolean): void {
+        if (!checked) {
+            return;
+        }
+        this.fillAccessMode = 'on_behalf';
+        if (this.selectedOnBehalfUserId == null) {
+            const parties = this.getDelegationParties();
+            const firstId = Number(parties[0]?.serOnBehalfUserId);
+            this.selectedOnBehalfUserId = Number.isFinite(firstId) && firstId > 0 ? firstId : null;
+        }
     }
 
     onInlineWordEditorFocus(field: TemplateField): void {
@@ -779,6 +1155,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     markUserPipelineChanged(): void {
+        this.individualFooterBandsCacheKey = '';
         this.userPipeline.forEach((section, index) => {
             section.order = index + 1;
             section.users = Array.isArray(section.users) ? section.users : [];
@@ -797,6 +1174,23 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     getIndividualFooterSlots(section: IndividualPipelineFooterSection): any[] {
         const users = Array.isArray(section?.users) ? section.users : [];
         return users.length > 0 ? users : [null];
+    }
+
+    getIndividualFooterBands() {
+        const cacheKey = JSON.stringify(
+            (this.userPipeline || []).map((section) => ({
+                label: section?.label,
+                users: (section?.users || []).map((user) => user?.serUserId ?? user?.userId ?? user?.id ?? null)
+            }))
+        );
+        if (cacheKey !== this.individualFooterBandsCacheKey) {
+            this.individualFooterBandsCacheKey = cacheKey;
+            this.individualFooterBandsCache = buildIndividualFooterTableBands(
+                this.userPipeline,
+                (section) => this.getIndividualFooterSlots(section)
+            );
+        }
+        return this.individualFooterBandsCache;
     }
 
     getIndividualFooterUserLabel(user: any): SafeHtml {
@@ -893,9 +1287,16 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             }
         });
 
+        const accessError = this.validateSubmitAccessSelection();
+        if (accessError) {
+            this.notificationService.showMessage(accessError, 'danger');
+            return;
+        }
+
         this.isSavingDraft = true;
         const allowedValues = this.getAllowedSubmissionValues();
         const userPipeline = this.hasIndividualPipelineFooter() ? this.getNormalizedUserPipeline() : [];
+        const submitAccess = this.getTemplateSubmitAccessContext();
 
         try {
             const draft = await firstValueFrom(this.templateWorkflowService.saveTemplateDraft(
@@ -904,7 +1305,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 userPipeline,
                 {
                     applicationId: this.editingApplication?.serApplicationId,
-                    formCode: this.editingApplication?.txtFormCode || this.generatedApplicationCode
+                    formCode: this.editingApplication?.txtFormCode || this.generatedApplicationCode,
+                    submitAccess,
                 }
             ));
             this.generatedApplicationCode = draft.formCode || this.generatedApplicationCode;
@@ -915,7 +1317,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 serFormId: Number(this.savedTemplate.id),
                 txtFormCode: this.generatedApplicationCode,
                 txtStatus: 'DRAFT',
-                serSubmittedBy: this.getCurrentUserId()
+                serSubmittedBy: this.getEffectiveInitiatorUserId()
             };
             const templateRouteId = this.routeTemplateId || this.savedTemplate.id;
             await this.router.navigate(['/template-fill', templateRouteId], {
@@ -935,7 +1337,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     async submitTemplate(): Promise<void> {
-        if (!this.savedTemplate || this.isSubmitting || this.isSavingDraft) {
+        if (!this.savedTemplate || this.isSubmitting || this.isPostSubmitProcessing || this.isSavingDraft) {
             return;
         }
         (this.template?.fields || []).forEach((field: TemplateField) => {
@@ -956,8 +1358,15 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             return;
         }
 
+        const accessError = this.validateSubmitAccessSelection();
+        if (accessError) {
+            this.notificationService.showMessage(accessError, 'danger');
+            return;
+        }
+
         this.isSubmitting = true;
         const allowedValues = this.getAllowedSubmissionValues();
+        const submitAccess = this.getTemplateSubmitAccessContext();
 
         try {
             const userPipeline = this.hasIndividualPipelineFooter() ? this.getNormalizedUserPipeline() : [];
@@ -967,11 +1376,14 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                     allowedValues,
                     userPipeline,
                     this.editingApplication?.txtFormCode || this.generatedApplicationCode,
-                    this.editingApplication?.serApplicationId
+                    this.editingApplication?.serApplicationId,
+                    submitAccess
                 ));
                 this.submittedCode = submission.code || this.generatedApplicationCode;
                 this.generatedApplicationCode = this.submittedCode;
                 this.initiatorSignatureApproved = true;
+                this.isSubmitting = false;
+                this.isPostSubmitProcessing = true;
 
                 const filename = `${this.sanitizeFilename(this.template?.name || 'template-form')}_${this.submittedCode || submission.id}.pdf`;
                 const pdfBlob = await this.renderTemplatePreviewPdfBlob();
@@ -984,14 +1396,11 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                     throw new Error(pdfResponse?.message || 'PDF could not be attached to application');
                 }
 
-                const emailResponse: any = await firstValueFrom(this.templateWorkflowService.sendTemplatePostApprovalEmails(
-                    submission.id,
-                    pdfBlob,
-                    pdfBlob,
-                    filename
-                ));
+                const emailResponse: any = await firstValueFrom(
+                    this.templateWorkflowService.sendTemplatePostApprovalEmails(submission.id)
+                );
                 if (!emailResponse || emailResponse.status !== 'Success') {
-                    throw new Error(emailResponse?.message || 'Approval email could not be sent');
+                    throw new Error(emailResponse?.message || 'Approval email could not be queued');
                 }
                 this.notificationService.showMessage('Template application submitted successfully.', 'success');
                 this.router.navigate(['/my-application', submission.id]);
@@ -1017,6 +1426,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 this.submittedCode = this.editingApplication.txtFormCode || this.generatedApplicationCode;
                 this.generatedApplicationCode = this.submittedCode;
                 this.initiatorSignatureApproved = true;
+                this.isSubmitting = false;
+                this.isPostSubmitProcessing = true;
 
                 const filename = `${this.sanitizeFilename(this.template?.name || 'template-form')}_${this.submittedCode || this.editingApplication.serApplicationId}.pdf`;
                 const pdfBlob = await this.renderTemplatePreviewPdfBlob();
@@ -1029,14 +1440,11 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                     throw new Error(pdfResponse?.message || 'PDF could not be attached to application');
                 }
 
-                const emailResponse: any = await firstValueFrom(this.templateWorkflowService.sendTemplatePostApprovalEmails(
-                    this.editingApplication.serApplicationId,
-                    pdfBlob,
-                    pdfBlob,
-                    filename
-                ));
+                const emailResponse: any = await firstValueFrom(
+                    this.templateWorkflowService.sendTemplatePostApprovalEmails(this.editingApplication.serApplicationId)
+                );
                 if (!emailResponse || emailResponse.status !== 'Success') {
-                    throw new Error(emailResponse?.message || 'Approval email could not be sent');
+                    throw new Error(emailResponse?.message || 'Approval email could not be queued');
                 }
 
                 this.notificationService.showMessage('Application updated and resubmitted successfully.', 'success');
@@ -1048,11 +1456,15 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 this.savedTemplate,
                 allowedValues,
                 userPipeline,
-                this.generatedApplicationCode
+                this.generatedApplicationCode,
+                null,
+                submitAccess
             ));
             this.submittedCode = submission.code || this.generatedApplicationCode;
             this.generatedApplicationCode = this.submittedCode;
             this.initiatorSignatureApproved = true;
+            this.isSubmitting = false;
+            this.isPostSubmitProcessing = true;
 
             const filename = `${this.sanitizeFilename(this.template?.name || 'template-form')}_${this.submittedCode || submission.id}.pdf`;
             const pdfBlob = await this.renderTemplatePreviewPdfBlob();
@@ -1065,14 +1477,11 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 throw new Error(pdfResponse?.message || 'PDF could not be attached to application');
             }
 
-            const emailResponse: any = await firstValueFrom(this.templateWorkflowService.sendTemplatePostApprovalEmails(
-                submission.id,
-                pdfBlob,
-                pdfBlob,
-                filename
-            ));
+            const emailResponse: any = await firstValueFrom(
+                this.templateWorkflowService.sendTemplatePostApprovalEmails(submission.id)
+            );
             if (!emailResponse || emailResponse.status !== 'Success') {
-                throw new Error(emailResponse?.message || 'Approval email could not be sent');
+                throw new Error(emailResponse?.message || 'Approval email could not be queued');
             }
             this.notificationService.showMessage('Template application submitted successfully.', 'success');
             this.router.navigate(['/template-list']);
@@ -1080,6 +1489,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             this.notificationService.showMessage(error?.message || 'Template application could not be submitted.', 'danger');
         } finally {
             this.isSubmitting = false;
+            this.isPostSubmitProcessing = false;
         }
     }
 
@@ -1383,8 +1793,13 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     private async renderTemplatePreviewPdfBlob(): Promise<Blob> {
+        const previousZoom = this.previewZoom;
+        this.previewZoom = 1;
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
         const sourceFrame = this.elementRef.nativeElement.querySelector('.fill-frame') as HTMLElement | null;
         if (!sourceFrame) {
+            this.previewZoom = previousZoom;
             throw new Error('Template preview not found');
         }
 
@@ -1472,6 +1887,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             if (captureHost.parentNode) {
                 captureHost.parentNode.removeChild(captureHost);
             }
+            this.previewZoom = previousZoom;
         }
     }
 
@@ -1596,12 +2012,12 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             timeEl.style.setProperty('transform', 'translateY(-2px)', 'important');
         });
 
-        root.querySelectorAll('.individual-footer-preview .xyz-signatures tr:last-child td').forEach((node) => {
+        root.querySelectorAll('.individual-footer-preview .xyz-signatures tr.individual-footer-names-row td').forEach((node) => {
             const cell = node as HTMLElement;
             cell.style.setProperty('padding-top', '3px', 'important');
         });
 
-        root.querySelectorAll('.individual-footer-preview .xyz-signatures tr:last-child td > span').forEach((node) => {
+        root.querySelectorAll('.individual-footer-preview .xyz-signatures tr.individual-footer-names-row td > span').forEach((node) => {
             const valueEl = node as HTMLElement;
             valueEl.style.setProperty('transform', 'translateY(-2px)', 'important');
             valueEl.style.setProperty('line-height', '1.2', 'important');
@@ -1716,7 +2132,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             node.replaceWith(this.createInlineValue(doc, field));
         });
 
-        return doc.body.innerHTML;
+        return normalizeDocumentBodyHtmlForDisplay(doc.body.innerHTML);
     }
 
     private getCurrentStepFieldRight(field: TemplateField): PipelineFieldRight | 'view' {
@@ -1768,23 +2184,23 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     private getInitiatorSignatureSlots(): any[] {
-        const currentUser = this.getCurrentUserProfile();
-        const initiatorName = this.getCurrentUserDisplayName();
+        const initiatorProfile = this.getEffectiveInitiatorProfile();
+        const initiatorName = this.getEffectiveInitiatorDisplayName();
         if (!this.initiatorSignatureApproved) {
             return [{
                 label: initiatorName || 'Initiator',
                 txtUserName: initiatorName || '',
-                txtDepartmentName: this.resolveDepartmentName(currentUser),
-                txtDesignation: this.resolveDesignation(currentUser)
+                txtDepartmentName: this.resolveDepartmentName(initiatorProfile),
+                txtDesignation: this.resolveDesignation(initiatorProfile)
             }];
         }
-        const userId = this.getCurrentUserId();
+        const userId = this.getEffectiveInitiatorUserId();
         const submissionTimestamp = this.editingApplication?.dteCreatedDate || new Date().toISOString();
         return userId ? [{
             serUserId: userId,
             txtUserName: initiatorName || 'Initiator',
-            txtDepartmentName: this.resolveDepartmentName(currentUser),
-            txtDesignation: this.resolveDesignation(currentUser),
+            txtDepartmentName: this.resolveDepartmentName(initiatorProfile),
+            txtDesignation: this.resolveDesignation(initiatorProfile),
             approvedDate: submissionTimestamp,
             approvedAt: submissionTimestamp,
             dteCreatedDate: submissionTimestamp,
@@ -1792,8 +2208,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         }] : [{
             label: initiatorName || 'Initiator',
             txtUserName: initiatorName || '',
-            txtDepartmentName: this.resolveDepartmentName(currentUser),
-            txtDesignation: this.resolveDesignation(currentUser)
+            txtDepartmentName: this.resolveDepartmentName(initiatorProfile),
+            txtDesignation: this.resolveDesignation(initiatorProfile)
         }];
     }
 
@@ -1907,7 +2323,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         }
 
         if (step.dynamicTarget === 'initiator' || (Array.isArray(step.dynamicTargets) && step.dynamicTargets.includes('initiator'))) {
-            const initiatorName = this.getCurrentUserDisplayName();
+            const initiatorName = this.getEffectiveInitiatorDisplayName();
             return [{ label: initiatorName || 'Initiator', txtUserName: initiatorName || '' }];
         }
 
@@ -2201,6 +2617,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             cell.style.padding = cell.style.padding || '6px';
             cell.style.verticalAlign = cell.style.verticalAlign || 'top';
         });
+
+        applyWordEditorAlignmentClasses(qlEditor);
 
         return `<div class="word-editor-value">${qlEditor.outerHTML}</div>`;
     }

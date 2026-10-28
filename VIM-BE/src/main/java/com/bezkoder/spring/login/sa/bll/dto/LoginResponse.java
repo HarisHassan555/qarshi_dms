@@ -6,7 +6,6 @@ public class LoginResponse {
 
     private String token;
     private CfgTblUser user;
-
     public String getToken() {
         return token;
     }

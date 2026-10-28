@@ -1,0 +1,71 @@
+<!-- Launcher -->
+<div *ngIf="ui.launcherOpen" class="tour-launcher-backdrop" (click)="closeLauncher()">
+    <div class="tour-launcher-modal" role="dialog" aria-label="Digital walkthrough" (click)="$event.stopPropagation()">
+        <div class="tour-launcher-head">
+            <h3>Digital walkthrough</h3>
+            <button type="button" class="tour-launcher-close" (click)="closeLauncher()" aria-label="Close">×</button>
+        </div>
+        <div class="tour-launcher-body">
+            <p class="tour-launcher-intro">
+                Walkthroughs for <strong>{{ pageLabel }}</strong> only. Open another screen to see that page's guide when it is configured.
+            </p>
+            <div *ngIf="tours.length === 0" class="tour-launcher-empty">
+                No walkthrough is configured for this page yet. Ask an administrator to extend <code>tour-definitions.ts</code>.
+            </div>
+            <div class="tour-launcher-grid">
+                <button
+                    type="button"
+                    class="tour-card"
+                    [class.completed]="isCompleted(tour.id)"
+                    *ngFor="let tour of tours"
+                    (click)="startTour(tour.id)">
+                    <div class="tour-icon">{{ tour.icon }}</div>
+                    <div class="tour-name">{{ tour.name }}</div>
+                    <div class="tour-desc">{{ tour.desc }}</div>
+                    <div class="tour-meta">
+                        <span>{{ tour.steps.length }} steps</span>
+                        <span class="tour-badge" [class.done]="isCompleted(tour.id)">
+                            {{ isCompleted(tour.id) ? 'Completed' : 'Start' }}
+                        </span>
+                    </div>
+                </button>
+            </div>
+        </div>
+        <div class="tour-launcher-foot">
+            <button type="button" class="btn btn-outline-primary btn-sm" (click)="closeLauncher()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Active tour -->
+<ng-container *ngIf="ui.active && ui.step">
+    <!-- Full dim only when there is no spotlight target (centered step). -->
+    <div class="tour-backdrop" *ngIf="!ui.spotlight"></div>
+    <div
+        *ngIf="ui.spotlight"
+        class="tour-spotlight"
+        [class.tour-spotlight--instant]="ui.suppressSpotlightTransition"
+        [style.left.px]="ui.spotlight.left"
+        [style.top.px]="ui.spotlight.top"
+        [style.width.px]="ui.spotlight.width"
+        [style.height.px]="ui.spotlight.height"></div>
+    <div
+        class="tour-popover"
+        [class.tour-popover--instant]="ui.suppressSpotlightTransition"
+        [style.left.px]="ui.popover.left"
+        [style.top.px]="ui.popover.top"
+        [style.transform]="ui.popover.transform">
+        <button type="button" class="tour-popover-close" (click)="skip()" aria-label="Skip walkthrough">×</button>
+        <span class="tour-step-num">Step {{ ui.stepIndex + 1 }} of {{ ui.stepCount }}</span>
+        <h4>{{ ui.step.title }}</h4>
+        <p>{{ ui.step.body }}</p>
+        <div class="tour-footer">
+            <div class="tour-progress"><span [style.width.%]="ui.progressPct"></span></div>
+            <div class="tour-actions">
+                <button type="button" class="ghost" (click)="skip()">Skip</button>
+                <button type="button" (click)="prev()" [disabled]="ui.stepIndex === 0">Back</button>
+                <button type="button" class="primary" (click)="next()">{{ nextLabel }}</button>
+            </div>
+        </div>
+    </div>
+</ng-container>

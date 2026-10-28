@@ -1,0 +1,133 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-3 px-5 md:flex-row md:items-center">
+            <div data-tour="organizations-header">
+                <h5 class="text-xl font-bold dark:text-white-light">Organizations</h5>
+                <p class="text-sm text-gray-500 mt-1">
+                    Synced from SAP HCM on employee import. Document headers match organizations by <code>txt_organization_code</code> (e.g. QARSHI_UNIVERSITY).
+                    You can edit <strong>name</strong>, <strong>address</strong>, and <strong>logo</strong> for document letterheads.
+                </p>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto flex gap-2" data-tour="organizations-toolbar">
+                <button type="button" class="btn btn-outline-secondary btn-sm" (click)="load()" [disabled]="loading">Refresh</button>
+                <input [(ngModel)]="search" type="text" class="form-input w-56" placeholder="Search..." />
+            </div>
+        </div>
+        <div class="px-5 mb-3 text-sm text-gray-500">
+            <span *ngIf="loading">Loading…</span>
+            <span *ngIf="!loading">{{ rows.length }} organization(s)</span>
+            <span *ngIf="loadError" class="text-danger ltr:ml-2">{{ loadError }}</span>
+        </div>
+        <div class="datatable invoice-table org-table-wrap px-5" data-tour="organizations-grid">
+            <ng-datatable
+                [rows]="rows"
+                [columns]="cols"
+                [search]="search"
+                [sortable]="true"
+                skin="whitespace-nowrap bh-table-hover">
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center">
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-outline-primary"
+                            (click)="openBrandingEdit(value)">
+                            Edit
+                        </button>
+                    </div>
+                </ng-template>
+                <ng-template slot="txtOrganizationName" let-value="data">
+                    <button
+                        type="button"
+                        class="org-name-link text-left font-semibold hover:text-primary"
+                        (click)="openBrandingEdit(value)">
+                        {{ value.txtOrganizationName }}
+                    </button>
+                </ng-template>
+                <ng-template slot="txtAddress" let-value="data">
+                    <span class="org-address-cell" [title]="value.txtAddress || ''">{{ value.txtAddress || '—' }}</span>
+                </ng-template>
+                <ng-template slot="logo" let-value="data">
+                    <div class="org-logo-cell">
+                        <img
+                            *ngIf="organizationLogoUrl(value) as logoSrc"
+                            class="org-logo-thumb"
+                            [src]="logoSrc"
+                            [alt]="value.txtOrganizationName || 'Organization logo'"
+                            loading="lazy" />
+                        <span *ngIf="!organizationLogoUrl(value)" class="org-logo-placeholder">—</span>
+                    </div>
+                </ng-template>
+                <ng-template slot="blnStatus" let-value="data">
+                    <span class="badge" [ngClass]="value.blnStatus ? 'badge-outline-success' : 'badge-outline-danger'">
+                        {{ value.blnStatus ? 'Active' : 'Inactive' }}
+                    </span>
+                </ng-template>
+            </ng-datatable>
+        </div>
+    </div>
+</div>
+
+<modal #brandingModal>
+    <ng-template #modalHeader>
+        <div>Edit letterhead</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <form class="space-y-4 text-sm" [formGroup]="brandingForm" (ngSubmit)="saveBranding()">
+            <div class="rounded border border-[#e0e6ed] dark:border-[#1b2e4b] p-3 bg-gray-50 dark:bg-[#0e1726]">
+                <div class="text-gray-500 text-xs">Organization code (from SAP, read-only)</div>
+                <div class="font-mono text-sm mt-0.5 dark:text-white-light">{{ editOrgCode || '—' }}</div>
+            </div>
+
+            <div>
+                <label for="orgName">Organization name*</label>
+                <input
+                    id="orgName"
+                    type="text"
+                    class="form-input"
+                    formControlName="txtOrganizationName"
+                    placeholder="Name shown on document headers" />
+                <p *ngIf="brandingSubmit && brandingForm.get('txtOrganizationName')?.invalid" class="mt-1 text-danger text-xs">
+                    Organization name is required.
+                </p>
+            </div>
+
+            <div>
+                <label for="orgAddress">Address</label>
+                <textarea
+                    id="orgAddress"
+                    formControlName="txtAddress"
+                    rows="3"
+                    class="form-textarea"
+                    placeholder="Organization address for document headers"></textarea>
+            </div>
+
+            <div>
+                <label for="orgLogoPath">Logo path (optional)</label>
+                <input
+                    id="orgLogoPath"
+                    type="text"
+                    class="form-input"
+                    formControlName="logo"
+                    placeholder="e.g. assets/images/qarshi-logo.png"
+                    (input)="clearUploadedLogo(); refreshLogoPreview()" />
+                <p class="text-xs text-gray-500 mt-1">Use a path under <code>assets/images/</code>, or upload an image below (stored on server as <code>org-logos/…</code>).</p>
+            </div>
+
+            <div>
+                <label for="orgLogoFile">Upload logo image</label>
+                <input id="orgLogoFile" type="file" accept="image/*" class="form-input py-1.5" (change)="onLogoFileSelected($event)" />
+            </div>
+
+            <div class="org-logo-preview-wrap" *ngIf="logoPreview">
+                <span class="text-xs text-gray-500 block mb-1">Preview</span>
+                <img class="org-logo-preview" [src]="logoPreview" alt="Logo preview" />
+            </div>
+        </form>
+    </ng-template>
+    <ng-template #modalFooter>
+        <button type="button" class="btn btn-outline-danger" (click)="brandingModal.close()">Cancel</button>
+        <button type="button" class="btn btn-primary ltr:ml-2" [disabled]="saving" (click)="saveBranding()">
+            {{ saving ? 'Saving…' : 'Save' }}
+        </button>
+    </ng-template>
+</modal>

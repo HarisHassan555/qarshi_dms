@@ -12,10 +12,19 @@ import javax.persistence.*;;
 
 
 import com.bezkoder.spring.login.admin.bll.servicesimpl.EmailService;
+import com.bezkoder.spring.login.backgroundjob.BackgroundJobService;
+import com.bezkoder.spring.login.backgroundjob.dto.ChangePasswordEmailJobPayload;
+import com.bezkoder.spring.login.backgroundjob.dto.UserCredentialEmailJobPayload;
+import com.bezkoder.spring.login.sa.bll.servicesimpl.ChangePasswordEmailSender;
+import com.bezkoder.spring.login.sa.bll.servicesimpl.UserCredentialEmailSender;
 import com.bezkoder.spring.login.admin.dal.dao.ICfgTblRoleDAO;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblRole;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomer;
+import com.bezkoder.spring.login.admin.utility.common.UserProfilePictureStorageUtil;
 import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
+import com.bezkoder.spring.login.sa.dal.entities.HrTblDivision;
+import com.bezkoder.spring.login.sa.dal.entities.HrTblOrganization;
+import com.bezkoder.spring.login.sa.dal.entities.HrTblSubarea;
 import org.hibernate.Hibernate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +63,15 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 
 	@Autowired
 	private EmailService emailService;
+
+	@Autowired
+	private BackgroundJobService backgroundJobService;
+
+	@Autowired
+	private UserCredentialEmailSender userCredentialEmailSender;
+
+	@Autowired
+	private ChangePasswordEmailSender changePasswordEmailSender;
 
 
 	@Autowired
@@ -97,8 +115,9 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 		/*List<CfgTblUser> Users = entityManager.createQuery("FROM CfgTblUser where blIsDeleted=FALSE or blIsDeleted is null ")
 				.getResultList();*/
 		List<CfgTblUser> users = entityManager
-				.createQuery("SELECT user FROM CfgTblUser user " +
+				.createQuery("SELECT DISTINCT user FROM CfgTblUser user " +
 						"LEFT JOIN FETCH user.cfgTblRole role " +
+						"LEFT JOIN FETCH user.hrTblDepartment dept " +
 						"WHERE user.blIsDeleted = FALSE OR user.blIsDeleted IS NULL", CfgTblUser.class)
 				.getResultList();
 
@@ -196,14 +215,40 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			CfgTblUser.setCfgTblCustomer(cfgTblCustomerObj);
 			CfgTblUser.setHrTblDepartment(resolveDepartment(entityManager, CfgTblUser.getHrTblDepartment(), null));
 			syncDepartmentName(CfgTblUser);
+			syncOrgFieldsFromDepartment(entityManager, CfgTblUser);
 			CfgTblUser.setTxtUserName(normalizeNullable(CfgTblUser.getTxtUserName()));
 			CfgTblUser.setTxtLoginName(normalizeNullable(CfgTblUser.getTxtLoginName()));
 			CfgTblUser.setTxtDesignation(normalizeNullable(CfgTblUser.getTxtDesignation()));
 
+			String profileBase64 = CfgTblUser.getProfilePictureBase64();
+			CfgTblUser.setProfilePictureBase64(null);
+
 			entityManager.persist(CfgTblUser);
+			entityManager.flush();
+
+			if (profileBase64 != null && !profileBase64.trim().isEmpty() && CfgTblUser.getSerUserId() != null) {
+				try {
+					String path = UserProfilePictureStorageUtil.saveProfilePicture(
+							CfgTblUser.getSerUserId(), profileBase64);
+					if (path != null) {
+						CfgTblUser.setTxtProfilePicturePath(path);
+					}
+				} catch (Exception ex) {
+					log.warn("Could not save profile picture for user {}: {}", CfgTblUser.getSerUserId(), ex.getMessage());
+				}
+			}
+
 			entityManager.getTransaction().commit();
 
-			emailService.sendPassordinMail(CfgTblUser.getTxtAddress(), CfgTblUser.getEffectiveLoginName(), plaintText);
+			boolean welcomeEmail = shouldSendWelcomeCredentialEmail(CfgTblUser);
+			dispatchUserCredentialEmail(
+					CfgTblUser.getSerUserId(),
+					CfgTblUser.getTxtAddress(),
+					CfgTblUser.getTxtUserName(),
+					CfgTblUser.getEffectiveLoginName(),
+					plaintText,
+					welcomeEmail,
+					true);
 
 			return "{\"status\":\"Success\"}";
 
@@ -221,6 +266,98 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 		}
 	}
 
+	private boolean shouldSendWelcomeCredentialEmail(CfgTblUser user) {
+		if (user == null) {
+			return true;
+		}
+		if (Boolean.FALSE.equals(user.getSendWelcomeEmail())) {
+			return false;
+		}
+		if (Boolean.TRUE.equals(user.getSendWelcomeEmail())
+				|| Boolean.TRUE.equals(user.getCreatedFromSapHcm())) {
+			return true;
+		}
+		return true;
+	}
+
+	private void dispatchChangePasswordEmail(Integer userId, String email, String displayName, String loginName,
+			String plainPassword, boolean adminInitiated) {
+		if (email == null || email.trim().isEmpty() || plainPassword == null || plainPassword.isEmpty()) {
+			return;
+		}
+		try {
+			if (backgroundJobService != null && backgroundJobService.isEnabled()) {
+				ChangePasswordEmailJobPayload payload = new ChangePasswordEmailJobPayload();
+				payload.setSerUserId(userId);
+				payload.setRecipientEmail(email.trim());
+				payload.setDisplayName(displayName);
+				payload.setLoginName(loginName);
+				payload.setPlainPassword(plainPassword);
+				payload.setAdminInitiated(adminInitiated);
+				int createdBy = commonService != null ? commonService.getCurrentLoggedInUser() : 0;
+				Integer actorId = createdBy > 0 ? createdBy : null;
+				backgroundJobService.enqueueChangePasswordEmail(payload, actorId);
+				return;
+			}
+		} catch (Exception queueEx) {
+			log.warn("Could not queue change-password email for userId={}, sending synchronously: {}", userId,
+					queueEx.getMessage());
+		}
+		try {
+			ChangePasswordEmailJobPayload payload = new ChangePasswordEmailJobPayload();
+			payload.setSerUserId(userId);
+			payload.setRecipientEmail(email.trim());
+			payload.setDisplayName(displayName);
+			payload.setLoginName(loginName);
+			payload.setPlainPassword(plainPassword);
+			payload.setAdminInitiated(adminInitiated);
+			changePasswordEmailSender.sendChangePasswordEmail(payload);
+		} catch (Exception mailEx) {
+			log.error("Password updated but change-password email could not be sent: {}", mailEx.getMessage(), mailEx);
+		}
+	}
+
+	private void dispatchUserCredentialEmail(Integer userId, String email, String displayName, String loginName,
+			String plainPassword, boolean welcomeEmail, boolean onCreate) {
+		if (email == null || email.trim().isEmpty() || plainPassword == null || plainPassword.isEmpty()) {
+			return;
+		}
+		try {
+			if (backgroundJobService != null && backgroundJobService.isEnabled()) {
+				UserCredentialEmailJobPayload payload = new UserCredentialEmailJobPayload();
+				payload.setSerUserId(userId);
+				payload.setRecipientEmail(email.trim());
+				payload.setDisplayName(displayName);
+				payload.setLoginName(loginName);
+				payload.setPlainPassword(plainPassword);
+				payload.setWelcomeEmail(welcomeEmail);
+				int createdBy = commonService != null ? commonService.getCurrentLoggedInUser() : 0;
+				Integer actorId = createdBy > 0 ? createdBy : null;
+				if (onCreate) {
+					backgroundJobService.enqueueUserCredentialEmailOnCreate(payload, actorId);
+					log.info("Queued USER_CREDENTIAL_EMAIL (welcome={}) for new userId={}", welcomeEmail, userId);
+				} else {
+					backgroundJobService.enqueueUserCredentialEmailOnPasswordReset(payload, actorId);
+				}
+				return;
+			}
+		} catch (Exception queueEx) {
+			log.warn("Could not queue user credential email for userId={}, sending synchronously: {}", userId,
+					queueEx.getMessage());
+		}
+		try {
+			UserCredentialEmailJobPayload payload = new UserCredentialEmailJobPayload();
+			payload.setSerUserId(userId);
+			payload.setRecipientEmail(email.trim());
+			payload.setDisplayName(displayName);
+			payload.setLoginName(loginName);
+			payload.setPlainPassword(plainPassword);
+			payload.setWelcomeEmail(welcomeEmail);
+			userCredentialEmailSender.sendCredentialEmail(payload);
+		} catch (Exception mailEx) {
+			log.error("User saved but credential email could not be sent: {}", mailEx.getMessage(), mailEx);
+		}
+	}
 
 	public static String generateRandomPassword(int length) {
 		SecureRandom random = new SecureRandom();
@@ -300,6 +437,9 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			if (CfgTblUser.getBlIsGroupCustomer() == null) CfgTblUser.setBlIsGroupCustomer(existingUser.getBlIsGroupCustomer());
 			if (CfgTblUser.getHrTblDepartment() == null) CfgTblUser.setHrTblDepartment(existingUser.getHrTblDepartment());
 			if (isBlank(CfgTblUser.getTxtSignaturePath())) CfgTblUser.setTxtSignaturePath(existingUser.getTxtSignaturePath());
+			if (isBlank(CfgTblUser.getTxtProfilePicturePath())) {
+				CfgTblUser.setTxtProfilePicturePath(existingUser.getTxtProfilePicturePath());
+			}
 			if (isBlank(CfgTblUser.getTxtDepartmentName())) CfgTblUser.setTxtDepartmentName(existingUser.getTxtDepartmentName());
 			if (isBlank(CfgTblUser.getTxtDesignation())) CfgTblUser.setTxtDesignation(existingUser.getTxtDesignation());
 			if (CfgTblUser.getNumMaxAttachmentMb() == null) CfgTblUser.setNumMaxAttachmentMb(existingUser.getNumMaxAttachmentMb());
@@ -309,12 +449,27 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			CfgTblUser.setCfgTblCustomer(resolveCustomer(entityManager, CfgTblUser.getCfgTblCustomer(), existingUser.getCfgTblCustomer()));
 			CfgTblUser.setHrTblDepartment(resolveDepartment(entityManager, CfgTblUser.getHrTblDepartment(), existingUser.getHrTblDepartment()));
 			syncDepartmentName(CfgTblUser);
+			syncOrgFieldsFromDepartment(entityManager, CfgTblUser);
+			String profileBase64 = CfgTblUser.getProfilePictureBase64();
+			CfgTblUser.setProfilePictureBase64(null);
 			CfgTblUser.setTxtUserName(normalizeNullable(CfgTblUser.getTxtUserName()));
 			CfgTblUser.setTxtLoginName(normalizeNullable(CfgTblUser.getTxtLoginName()));
 			CfgTblUser.setTxtDesignation(normalizeNullable(CfgTblUser.getTxtDesignation()));
 
 			if (CfgTblUser.getCfgTblRole() != null && isBlank(CfgTblUser.getTxtrole())) {
 				CfgTblUser.setTxtrole(CfgTblUser.getCfgTblRole().getTxtRoleName());
+			}
+
+			if (profileBase64 != null && !profileBase64.trim().isEmpty() && CfgTblUser.getSerUserId() != null) {
+				try {
+					String path = UserProfilePictureStorageUtil.saveProfilePicture(
+							CfgTblUser.getSerUserId(), profileBase64);
+					if (path != null) {
+						CfgTblUser.setTxtProfilePicturePath(path);
+					}
+				} catch (Exception ex) {
+					log.warn("Could not save profile picture for user {}: {}", CfgTblUser.getSerUserId(), ex.getMessage());
+				}
 			}
 
 			entityManager.merge(CfgTblUser);
@@ -386,6 +541,53 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			return;
 		}
 		user.setTxtDepartmentName(normalizeNullable(user.getTxtDepartmentName()));
+	}
+
+	private void syncOrgFieldsFromDepartment(EntityManager entityManager, CfgTblUser user) {
+		if (user == null) {
+			return;
+		}
+		HrTblDepartment department = user.getHrTblDepartment();
+		if (department == null) {
+			return;
+		}
+		if (department.getSerDivisionId() == null && department.getSerDepartmentId() != null) {
+			HrTblDepartment loaded = entityManager.find(HrTblDepartment.class, department.getSerDepartmentId());
+			if (loaded != null) {
+				department = loaded;
+				user.setHrTblDepartment(loaded);
+			}
+		}
+		user.setTxtDepartmentName(department.getTxtDepartmentName());
+		Integer divisionId = department.getSerDivisionId();
+		user.setSerDivisionId(divisionId);
+		if (divisionId == null) {
+			return;
+		}
+		HrTblDivision division = entityManager.find(HrTblDivision.class, divisionId);
+		if (division == null) {
+			return;
+		}
+		user.setTxtDivisionName(division.getTxtDivisionName());
+		Integer subareaId = division.getSerSubareaId();
+		user.setSerSubareaId(subareaId);
+		if (subareaId == null) {
+			return;
+		}
+		HrTblSubarea subarea = entityManager.find(HrTblSubarea.class, subareaId);
+		if (subarea == null) {
+			return;
+		}
+		user.setTxtSubareaName(subarea.getTxtSubareaName());
+		Integer orgId = subarea.getSerOrganizationId();
+		user.setSerOrganizationId(orgId);
+		if (orgId == null) {
+			return;
+		}
+		HrTblOrganization organization = entityManager.find(HrTblOrganization.class, orgId);
+		if (organization != null) {
+			user.setTxtOrganizationName(organization.getTxtOrganizationName());
+		}
 	}
 
 	private CfgTblRole resolveRole(EntityManager entityManager, CfgTblRole role, CfgTblRole fallbackRole) {
@@ -468,6 +670,7 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			List<CfgTblUser> users = entityManager.createQuery(
 							"SELECT user FROM CfgTblUser user " +
 									"LEFT JOIN FETCH user.cfgTblRole role " +
+									"LEFT JOIN FETCH user.hrTblDepartment dept " +
 									"WHERE user.serUserId = :userId " +
 									"AND (user.blIsDeleted = FALSE OR user.blIsDeleted IS NULL)",
 							CfgTblUser.class)
@@ -666,8 +869,14 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 				CfgTblUserObject.setTxtPassword(passwordEncoder.encode(NewPassword));
 				entityManager.merge(CfgTblUserObject);
 				entityManager.getTransaction().commit();
-				emailService.sendPassordinMail(CfgTblUserObject.getTxtAddress(), CfgTblUserObject.getEffectiveLoginName(),
-						NewPassword);
+				boolean adminInitiated = oldPassword == null || oldPassword.trim().isEmpty();
+				dispatchChangePasswordEmail(
+						CfgTblUserObject.getSerUserId(),
+						CfgTblUserObject.getTxtAddress(),
+						CfgTblUserObject.getTxtUserName(),
+						CfgTblUserObject.getEffectiveLoginName(),
+						NewPassword,
+						adminInitiated);
 				return "Success";
 			} catch (Exception ex) {
 				if (entityManager.getTransaction().isActive()) {

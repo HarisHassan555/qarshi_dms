@@ -70,14 +70,25 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
             this.currentUser = null;
         }
         this.loadApprovedApplications();
+        window.addEventListener('velocity-tour-prepare', this.onTourPrepare);
     }
 
     ngOnDestroy(): void {
+        window.removeEventListener('velocity-tour-prepare', this.onTourPrepare);
         if (this.searchTimer) {
             clearTimeout(this.searchTimer);
             this.searchTimer = null;
         }
     }
+
+    private onTourPrepare = (event: Event): void => {
+        const action = (event as CustomEvent<{ action?: string }>).detail?.action;
+        if (action === 'template-approved-close-csv') {
+            this.closeCsvModal();
+        } else if (action === 'template-approved-open-csv' && this.getDisplayedApprovedApplications().length > 0) {
+            this.openCsvModal();
+        }
+    };
 
     loadApprovedApplications(): void {
         this.isLoading = true;

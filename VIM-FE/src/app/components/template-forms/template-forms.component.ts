@@ -5,6 +5,7 @@ import { NotificationService } from 'src/app/NotificationService';
 import { DepartmentService } from 'src/app/services/department/department.service';
 import { SavedTemplateDefinition, TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
 import { UserService } from 'src/app/services/user/user.service';
+import { UserDelegationService } from 'src/app/services/user-delegation/user-delegation.service';
 
 @Component({
     selector: 'app-template-forms',
@@ -32,6 +33,8 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
     duplicatingTemplate = false;
     togglingTemplateStatusId = '';
     isAdmin = false;
+    /** True when the logged-in user is delegate on at least one active delegation. */
+    showDelegationAccessView = false;
     currentUserId: number | null = null;
     /** Admin: published documents vs builder drafts (not shown to end users). */
     listMode: 'published' | 'drafts' = 'published';
@@ -44,14 +47,23 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
         { field: 'status', title: 'Status' },
         { field: 'visibility', title: 'Visibility' },
         { field: 'updatedAt', title: 'Updated' },
-        { field: 'actions', title: 'Actions', sort: false, headerClass: 'justify-center' }
+        { field: 'actions', title: 'Actions', sort: false, headerClass: 'justify-center' },
     ];
+
+    private readonly listingAccessColumn = {
+        field: 'listingAccess',
+        title: 'How you access',
+        width: '150px',
+        sort: false,
+        headerClass: '',
+    };
 
     constructor(
         private router: Router,
         private templateWorkflowService: TemplateWorkflowService,
         private departmentService: DepartmentService,
         private userService: UserService,
+        private userDelegationService: UserDelegationService,
         private notificationService: NotificationService
     ) { }
 
@@ -62,7 +74,27 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
             this.loadDepartments();
             this.loadUsers();
         }
-        this.loadTemplates();
+        this.resolveDelegationAccessView(() => this.loadTemplates());
+    }
+
+    private resolveDelegationAccessView(onReady: () => void): void {
+        if (!this.currentUserId) {
+            this.showDelegationAccessView = false;
+            onReady();
+            return;
+        }
+        this.userDelegationService
+            .getAll({ delegateUserId: this.currentUserId, status: 'ACTIVE' })
+            .subscribe({
+                next: (rows) => {
+                    this.showDelegationAccessView = Array.isArray(rows) && rows.length > 0;
+                    onReady();
+                },
+                error: () => {
+                    this.showDelegationAccessView = false;
+                    onReady();
+                },
+            });
     }
 
     ngOnDestroy(): void {
@@ -89,6 +121,11 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
                 this.templates = (response?.items || []).filter((template: any) => template && template.id);
                 this.totalTemplates = Number(response?.total || 0);
                 this.loadError = '';
+                if (!this.showDelegationAccessView) {
+                    this.showDelegationAccessView = this.templates.some(
+                        (template) => template?.hasDelegatedAccess === true
+                    );
+                }
             },
             error: () => {
                 this.templates = [];
@@ -331,6 +368,82 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
             return convention;
         }
         return convention?.pattern || template?.payload?.codeConvention || 'TPL-0000';
+    }
+
+    get gridColumns(): Array<{
+        field: string;
+        title: string;
+        sort?: boolean;
+        headerClass?: string;
+        width?: string;
+    }> {
+        if (!this.showDelegationAccessView) {
+            return this.cols;
+        }
+        const base = this.cols.filter((c) => c.field !== 'listingAccess');
+        const nameIdx = base.findIndex((c) => c.field === 'name');
+        const insertAt = nameIdx >= 0 ? nameIdx + 1 : 1;
+        return [...base.slice(0, insertAt), this.listingAccessColumn, ...base.slice(insertAt)];
+    }
+
+    hasOwnListingAccess(template: SavedTemplateDefinition): boolean {
+        if (template?.hasOwnAccess === true) {
+            return true;
+        }
+        if (template?.hasOwnAccess === false) {
+            return false;
+        }
+        const mode = (template?.listingAccess || '').toUpperCase();
+        if (mode === 'OWN' || mode === 'BOTH') {
+            return true;
+        }
+        if (mode === 'NONE' || mode === 'DELEGATION') {
+            return false;
+        }
+        return !this.hasDelegatedListingAccess(template);
+    }
+
+    hasDelegatedListingAccess(template: SavedTemplateDefinition): boolean {
+        if (template?.hasDelegatedAccess === true) {
+            return true;
+        }
+        if (template?.hasDelegatedAccess === false) {
+            return false;
+        }
+        const mode = (template?.listingAccess || '').toUpperCase();
+        return mode === 'DELEGATION' || mode === 'BOTH';
+    }
+
+    isBothListingAccess(template: SavedTemplateDefinition): boolean {
+        return this.hasOwnListingAccess(template) && this.hasDelegatedListingAccess(template);
+    }
+
+    getDelegationOnBehalfSummary(template: SavedTemplateDefinition): string {
+        const parties = template?.delegationOnBehalfOf || [];
+        if (!parties.length) {
+            return '';
+        }
+        return parties.map((p) => p.onBehalfUserName || `User #${p.serOnBehalfUserId}`).join(', ');
+    }
+
+    getDelegationOnBehalfTooltip(template: SavedTemplateDefinition): string {
+        const summary = this.getDelegationOnBehalfSummary(template);
+        if (!summary) {
+            return 'Delegated access';
+        }
+        return `On behalf of ${summary}`;
+    }
+
+    getDelegatedAccessBadgeLabel(template: SavedTemplateDefinition): string {
+        const parties = template?.delegationOnBehalfOf || [];
+        if (!parties.length) {
+            return 'Delegated';
+        }
+        if (parties.length === 1) {
+            const name = parties[0].onBehalfUserName || `User #${parties[0].serOnBehalfUserId}`;
+            return `Delegated · ${name}`;
+        }
+        return `Delegated · ${parties.length} users`;
     }
 
     getVisibilitySummary(template: SavedTemplateDefinition): string {

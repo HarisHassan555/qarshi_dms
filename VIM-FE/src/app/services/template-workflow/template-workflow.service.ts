@@ -9,6 +9,17 @@ export interface TemplateCodeConvention {
     serialLength: number;
 }
 
+export interface PdfSignatureMissingItem {
+    userId: number;
+    userName: string;
+    signaturePath?: string;
+}
+
+export interface PdfSignatureCheckResult {
+    allPresent: boolean;
+    missing: PdfSignatureMissingItem[];
+}
+
 export interface SavedTemplateDefinition {
     id: string;
     name: string;
@@ -20,6 +31,17 @@ export interface SavedTemplateDefinition {
     visibilityUserIds?: number[];
     isActive?: boolean;
     isDraft?: boolean;
+    /** Template list: user's direct visibility */
+    hasOwnAccess?: boolean;
+    /** Template list: visible via active delegation */
+    hasDelegatedAccess?: boolean;
+    listingAccess?: 'OWN' | 'DELEGATION' | 'BOTH' | 'NONE';
+    delegationOnBehalfOf?: Array<{ serOnBehalfUserId: number; onBehalfUserName: string }>;
+}
+
+export interface TemplateSubmitAccessContext {
+    fillAccessMode?: 'self' | 'on_behalf';
+    onBehalfUserId?: number | null;
 }
 
 export interface TemplateDefinitionSummaryResponse {
@@ -139,14 +161,33 @@ export class TemplateWorkflowService {
         );
     }
 
-    getTemplate(id: string, userId?: number | null): Observable<SavedTemplateDefinition | null> {
+    getTemplate(
+        id: string,
+        userId?: number | null,
+        options?: { includeBackground?: boolean }
+    ): Observable<SavedTemplateDefinition | null> {
         const resolvedUserId = userId ?? this.getCurrentUserId();
-        const query = resolvedUserId != null
-            ? '&userId=' + encodeURIComponent(String(resolvedUserId))
-            : '';
-        return this.http.get<any>(urls.API_URL + 'getTemplateDefinitionByFormId?formId=' + encodeURIComponent(id) + query).pipe(
+        const params = new URLSearchParams();
+        params.set('formId', id);
+        if (resolvedUserId != null) {
+            params.set('userId', String(resolvedUserId));
+        }
+        if (options?.includeBackground === false) {
+            params.set('includeBackground', 'false');
+        }
+        return this.http.get<any>(urls.API_URL + 'getTemplateDefinitionByFormId?' + params.toString()).pipe(
             map((definition) => this.mapTemplateDefinitionToSavedTemplate(definition))
         );
+    }
+
+    getTemplateDefinitionBackground(formId: string | number, userId?: number | null): Observable<any> {
+        const params = new URLSearchParams();
+        params.set('formId', String(formId));
+        const resolvedUserId = userId ?? this.getCurrentUserId();
+        if (resolvedUserId != null) {
+            params.set('userId', String(resolvedUserId));
+        }
+        return this.http.get<any>(urls.API_URL + 'getTemplateDefinitionBackground?' + params.toString());
     }
 
     duplicateTemplate(sourceTemplateId: string | number, newTemplateName: string): Observable<SavedTemplateDefinition> {
@@ -268,6 +309,56 @@ export class TemplateWorkflowService {
         return this.http.get<any>(urls.API_URL + 'getMyTemplateApplications?' + params.toString());
     }
 
+    getAuditAllTemplateApplications(
+        userId: number,
+        options: {
+            page?: number;
+            pageSize?: number;
+            search?: string;
+            departmentIds?: number[];
+            serFormIds?: number[];
+            statuses?: string[];
+            submittedByUserIds?: number[];
+            dateFrom?: string;
+            dateTo?: string;
+        } = {}
+    ): Observable<any> {
+        const params = new URLSearchParams();
+        params.set('userId', String(userId));
+        params.set('page', String(Math.max(0, options.page ?? 0)));
+        params.set('pageSize', String(Math.max(1, options.pageSize ?? 10)));
+        if (options.search?.trim()) {
+            params.set('search', options.search.trim());
+        }
+        const departmentIds = (options.departmentIds || []).filter((id) => id > 0);
+        if (departmentIds.length) {
+            params.set('departmentIds', departmentIds.join(','));
+        }
+        const serFormIds = (options.serFormIds || []).filter((id) => id > 0);
+        if (serFormIds.length) {
+            params.set('serFormIds', serFormIds.join(','));
+        }
+        const statuses = (options.statuses || []).map((s) => s.trim()).filter(Boolean);
+        if (statuses.length) {
+            params.set('statuses', statuses.join(','));
+        }
+        const submittedByUserIds = (options.submittedByUserIds || []).filter((id) => id > 0);
+        if (submittedByUserIds.length) {
+            params.set('submittedByUserIds', submittedByUserIds.join(','));
+        }
+        if (options.dateFrom?.trim()) {
+            params.set('dateFrom', options.dateFrom.trim());
+        }
+        if (options.dateTo?.trim()) {
+            params.set('dateTo', options.dateTo.trim());
+        }
+        return this.http.get<any>(urls.API_URL + 'getAuditAllTemplateApplications?' + params.toString());
+    }
+
+    getAuditAllApplicationsFilterOptions(userId: number): Observable<any> {
+        return this.http.get<any>(urls.API_URL + 'getAuditAllApplicationsFilterOptions?userId=' + userId);
+    }
+
     getTemplatePendingApprovals(userId: number, all = false, page = 0, pageSize = 10, search = ''): Observable<any> {
         const params = new URLSearchParams();
         params.set('userId', String(userId || 0));
@@ -289,6 +380,63 @@ export class TemplateWorkflowService {
             params.set('search', search.trim());
         }
         return this.http.get<any>(urls.API_URL + 'getCompletedTemplatePortalAttachments?' + params.toString());
+    }
+
+    searchVelocityReports(options: {
+        page?: number;
+        pageSize?: number;
+        search?: string;
+        sort?: string;
+        semantic?: boolean;
+        all?: boolean;
+        statuses?: string;
+        types?: string;
+        departments?: string;
+        uploadedBy?: string;
+        dateFrom?: string;
+        dateTo?: string;
+        amountMin?: string;
+        amountMax?: string;
+    }): Observable<any> {
+        const params = new URLSearchParams();
+        params.set('page', String(Math.max(0, options.page ?? 0)));
+        params.set('pageSize', String(Math.max(1, options.pageSize ?? 50)));
+        params.set('all', String(options.all !== false));
+        if (options.search?.trim()) {
+            params.set('search', options.search.trim());
+        }
+        if (options.sort?.trim()) {
+            params.set('sort', options.sort.trim());
+        }
+        if (options.statuses?.trim()) {
+            params.set('statuses', options.statuses.trim());
+        }
+        if (options.types?.trim()) {
+            params.set('types', options.types.trim());
+        }
+        if (options.departments?.trim()) {
+            params.set('departments', options.departments.trim());
+        }
+        if (options.uploadedBy?.trim()) {
+            params.set('uploadedBy', options.uploadedBy.trim());
+        }
+        if (options.dateFrom?.trim()) {
+            params.set('dateFrom', options.dateFrom.trim());
+        }
+        if (options.dateTo?.trim()) {
+            params.set('dateTo', options.dateTo.trim());
+        }
+        if (options.amountMin?.trim()) {
+            params.set('amountMin', options.amountMin.trim());
+        }
+        if (options.amountMax?.trim()) {
+            params.set('amountMax', options.amountMax.trim());
+        }
+        return this.http.get<any>(urls.API_URL + 'searchVelocityReports?' + params.toString());
+    }
+
+    getApplicationStorageInfo(): Observable<any> {
+        return this.http.get<any>(urls.API_URL + 'getApplicationStorageInfo');
     }
 
     getCompletedTemplatePortalAttachmentContent(
@@ -325,10 +473,14 @@ export class TemplateWorkflowService {
         template: SavedTemplateDefinition,
         values: Record<string, any>,
         userPipeline: any[] = [],
-        options?: { applicationId?: number | string | null; formCode?: string | null }
+        options?: {
+            applicationId?: number | string | null;
+            formCode?: string | null;
+            submitAccess?: TemplateSubmitAccessContext;
+        }
     ): Observable<{ applicationId: number; formCode: string }> {
         const normalizedValues = this.normalizeApplicationValuesForStorage(values);
-        const applicationData = {
+        const applicationData: Record<string, any> = {
             ...normalizedValues,
             templateValues: normalizedValues,
             footerFields: userPipeline,
@@ -338,12 +490,14 @@ export class TemplateWorkflowService {
         const payload: any = {
             serFormId: Number(template.id),
             txtFormCode: options?.formCode || null,
-            txtApplicationData: JSON.stringify(applicationData),
+            txtApplicationData: '',
             serSubmittedBy: this.getCurrentUserId(),
             blIsActive: true,
             blIsDeleted: false,
             blnStatus: true
         };
+        this.applySubmitAccessToApplication(payload, applicationData, options?.submitAccess);
+        payload.txtApplicationData = JSON.stringify(applicationData);
         if (Number.isFinite(applicationId) && applicationId > 0) {
             payload.serApplicationId = applicationId;
         }
@@ -366,10 +520,11 @@ export class TemplateWorkflowService {
         values: Record<string, any>,
         userPipeline: any[] = [],
         codeOverride?: string,
-        applicationId?: number | string | null
+        applicationId?: number | string | null,
+        submitAccess?: TemplateSubmitAccessContext
     ): Observable<TemplateSubmission> {
         const normalizedValues = this.normalizeApplicationValuesForStorage(values);
-        const applicationData = {
+        const applicationData: Record<string, any> = {
             ...normalizedValues,
             templateValues: normalizedValues,
             footerFields: userPipeline,
@@ -379,7 +534,7 @@ export class TemplateWorkflowService {
         const payload: any = {
             serFormId: Number(template.id),
             txtFormCode: codeOverride || null,
-            txtApplicationData: JSON.stringify(applicationData),
+            txtApplicationData: '',
             txtStatus: 'PENDING',
             intCurrentApprovalLevel: 1,
             serSubmittedBy: this.getCurrentUserId(),
@@ -388,6 +543,8 @@ export class TemplateWorkflowService {
             blnStatus: true,
             deferEmail: true
         };
+        this.applySubmitAccessToApplication(payload, applicationData, submitAccess);
+        payload.txtApplicationData = JSON.stringify(applicationData);
         if (Number.isFinite(numericApplicationId) && numericApplicationId > 0) {
             payload.serApplicationId = numericApplicationId;
         }
@@ -413,11 +570,20 @@ export class TemplateWorkflowService {
         );
     }
 
-    updateTemplateApplicationPdf(applicationId: string | number, pdfBlob: Blob, filename: string) {
+    updateTemplateApplicationPdf(
+        applicationId: string | number,
+        pdfBlob: Blob,
+        filename: string,
+        queuePostApprovalEmails = false
+    ) {
         const formData = new FormData();
         formData.append('applicationId', String(applicationId));
         formData.append('pdf', pdfBlob, filename || 'template-application.pdf');
-        return this.http.post(urls.API_URL + 'updateApplicationPdf?suppressEditNotification=true', formData);
+        let url = urls.API_URL + 'updateApplicationPdf?suppressEditNotification=true';
+        if (queuePostApprovalEmails) {
+            url += '&queuePostApprovalEmails=true';
+        }
+        return this.http.post(url, formData);
     }
 
     sendTemplateApplicationEmails(applicationId: string | number) {
@@ -452,10 +618,22 @@ export class TemplateWorkflowService {
         return this.http.get<any>(url);
     }
 
+    getTemplateApplicationPdfBase64(applicationId: string | number): Observable<any> {
+        return this.http.get<any>(
+            urls.API_URL + 'getTemplateApplicationPdfBase64?applicationId=' + encodeURIComponent(String(applicationId))
+        );
+    }
+
     downloadTemplateApplicationPdf(applicationId: string | number): Observable<Blob> {
         return this.http.get(urls.API_URL + 'downloadTemplateApplicationPdf?applicationId=' + encodeURIComponent(String(applicationId)), {
             responseType: 'blob'
         });
+    }
+
+    checkApplicationPdfSignatures(applicationId: string | number): Observable<PdfSignatureCheckResult> {
+        return this.http.get<PdfSignatureCheckResult>(
+            urls.API_URL + 'checkApplicationPdfSignatures?applicationId=' + encodeURIComponent(String(applicationId))
+        );
     }
 
     getTemplateApprovalReminderPreview(applicationId: string | number, userId: number): Observable<any> {
@@ -518,43 +696,45 @@ export class TemplateWorkflowService {
         });
     }
 
-    approveTemplateApplication(applicationId: string | number, remarks: string, approverUserId?: number | null, deferEmail = false) {
-        const body: any = {
-            applicationId: Number(applicationId),
-            remarks: remarks || '',
-            deferEmail
-        };
-        if (approverUserId != null) {
-            body.approverUserId = approverUserId;
-            body.userId = approverUserId;
-        } else {
-            body.userId = this.getCurrentUserId();
-        }
-        return this.http.post<any>(urls.API_URL + 'approveTemplateApplication', body);
-    }
-
-    rejectTemplateApplication(applicationId: string | number, remarks: string) {
-        return this.http.post<any>(urls.API_URL + 'rejectTemplateApplication', {
-            applicationId: Number(applicationId),
-            userId: this.getCurrentUserId(),
-            remarks: remarks || ''
-        });
-    }
-
-    sendBackTemplateApplication(applicationId: string | number, remarks: string) {
-        return this.http.post<any>(urls.API_URL + 'sendBackTemplateApplication', {
-            applicationId: Number(applicationId),
+    approveTemplateApplication(
+        applicationId: string | number,
+        remarks: string,
+        deferEmail = false,
+        onBehalfOfUserId?: number | null
+    ) {
+        return this.http.post<any>(urls.API_URL + 'approveTemplateApplication', this.buildTemplateWorkflowActionBody(
+            applicationId,
             remarks,
-            userId: this.getCurrentUserId()
-        });
+            { deferEmail },
+            onBehalfOfUserId
+        ));
     }
 
-    sendBackTemplateApplicationToInitiator(applicationId: string | number, remarks: string) {
-        return this.http.post<any>(urls.API_URL + 'sendBackTemplateApplicationToInitiator', {
-            applicationId: Number(applicationId),
+    rejectTemplateApplication(applicationId: string | number, remarks: string, onBehalfOfUserId?: number | null) {
+        return this.http.post<any>(urls.API_URL + 'rejectTemplateApplication', this.buildTemplateWorkflowActionBody(
+            applicationId,
             remarks,
-            userId: this.getCurrentUserId()
-        });
+            {},
+            onBehalfOfUserId
+        ));
+    }
+
+    sendBackTemplateApplication(applicationId: string | number, remarks: string, onBehalfOfUserId?: number | null) {
+        return this.http.post<any>(urls.API_URL + 'sendBackTemplateApplication', this.buildTemplateWorkflowActionBody(
+            applicationId,
+            remarks,
+            {},
+            onBehalfOfUserId
+        ));
+    }
+
+    sendBackTemplateApplicationToInitiator(applicationId: string | number, remarks: string, onBehalfOfUserId?: number | null) {
+        return this.http.post<any>(urls.API_URL + 'sendBackTemplateApplicationToInitiator', this.buildTemplateWorkflowActionBody(
+            applicationId,
+            remarks,
+            {},
+            onBehalfOfUserId
+        ));
     }
 
     resubmitTemplateApplicationFromInitiator(applicationId: string | number, remarks: string, userId?: number | null) {
@@ -586,20 +766,22 @@ export class TemplateWorkflowService {
         });
     }
 
-    holdTemplateApplication(applicationId: string | number, remarks: string) {
-        return this.http.post<any>(urls.API_URL + 'holdTemplateApplication', {
-            applicationId: Number(applicationId),
-            userId: this.getCurrentUserId(),
-            remarks: remarks || ''
-        });
+    holdTemplateApplication(applicationId: string | number, remarks: string, onBehalfOfUserId?: number | null) {
+        return this.http.post<any>(urls.API_URL + 'holdTemplateApplication', this.buildTemplateWorkflowActionBody(
+            applicationId,
+            remarks,
+            {},
+            onBehalfOfUserId
+        ));
     }
 
-    unholdTemplateApplication(applicationId: string | number, remarks: string = '') {
-        return this.http.post<any>(urls.API_URL + 'unholdTemplateApplication', {
-            applicationId: Number(applicationId),
-            userId: this.getCurrentUserId(),
-            remarks: remarks || ''
-        });
+    unholdTemplateApplication(applicationId: string | number, remarks: string = '', onBehalfOfUserId?: number | null) {
+        return this.http.post<any>(urls.API_URL + 'unholdTemplateApplication', this.buildTemplateWorkflowActionBody(
+            applicationId,
+            remarks,
+            {},
+            onBehalfOfUserId
+        ));
     }
 
     sendTemplateTestEmailPdf(recipients: string[], subject: string, bodyHtml: string, pdfBlob: Blob, filename: string) {
@@ -703,6 +885,13 @@ export class TemplateWorkflowService {
             backendDefinition: definition
         };
 
+        const hasOwnAccess = definition?.hasOwnAccess === true;
+        const hasDelegatedAccess = definition?.hasDelegatedAccess === true;
+        const listingAccess = definition?.listingAccess as SavedTemplateDefinition['listingAccess'];
+        const delegationOnBehalfOf = Array.isArray(definition?.delegationOnBehalfOf)
+            ? definition.delegationOnBehalfOf
+            : [];
+
         return {
             id: String(definition.serFormId),
             name: payload.name || 'Untitled Template',
@@ -713,7 +902,11 @@ export class TemplateWorkflowService {
             backendForm: definition,
             visibilityUserIds,
             isActive,
-            isDraft
+            isDraft,
+            hasOwnAccess,
+            hasDelegatedAccess,
+            listingAccess,
+            delegationOnBehalfOf,
         };
     }
 
@@ -728,6 +921,12 @@ export class TemplateWorkflowService {
         );
         const isActive = summary?.isActive === false ? false : this.extractTemplateIsActive(summary);
         const isDraft = summary?.isDraft === true;
+        const hasOwnAccess = summary?.hasOwnAccess === true;
+        const hasDelegatedAccess = summary?.hasDelegatedAccess === true;
+        const listingAccess = summary?.listingAccess as SavedTemplateDefinition['listingAccess'];
+        const delegationOnBehalfOf = Array.isArray(summary?.delegationOnBehalfOf)
+            ? summary.delegationOnBehalfOf
+            : [];
 
         return {
             id: String(summary.serFormId),
@@ -739,7 +938,11 @@ export class TemplateWorkflowService {
             backendForm: summary,
             visibilityUserIds,
             isActive,
-            isDraft
+            isDraft,
+            hasOwnAccess,
+            hasDelegatedAccess,
+            listingAccess,
+            delegationOnBehalfOf,
         };
     }
 
@@ -864,6 +1067,50 @@ export class TemplateWorkflowService {
             ...step,
             intApprovalOrder: index + 1
         }));
+    }
+
+    private buildTemplateWorkflowActionBody(
+        applicationId: string | number,
+        remarks: string,
+        extras: Record<string, unknown> = {},
+        onBehalfOfUserId?: number | null
+    ): Record<string, unknown> {
+        const body: Record<string, unknown> = {
+            applicationId: Number(applicationId),
+            userId: this.getCurrentUserId(),
+            remarks: remarks || '',
+            ...extras
+        };
+        const onBehalfOf = Number(onBehalfOfUserId);
+        if (Number.isFinite(onBehalfOf) && onBehalfOf > 0) {
+            body['onBehalfOfUserId'] = onBehalfOf;
+        }
+        return body;
+    }
+
+    private applySubmitAccessToApplication(
+        payload: { serSubmittedBy?: number | null },
+        applicationData: Record<string, any>,
+        submitAccess?: TemplateSubmitAccessContext
+    ): void {
+        const actorId = Number(this.getCurrentUserId());
+        const onBehalfId = Number(submitAccess?.onBehalfUserId);
+        const isOnBehalf = submitAccess?.fillAccessMode === 'on_behalf'
+            && Number.isFinite(onBehalfId)
+            && onBehalfId > 0;
+        if (isOnBehalf) {
+            applicationData['fillAccessMode'] = 'on_behalf';
+            applicationData['onBehalfOfUserId'] = onBehalfId;
+            applicationData['submittedByDelegateUserId'] = actorId;
+            payload.serSubmittedBy = onBehalfId;
+            return;
+        }
+        applicationData['fillAccessMode'] = 'self';
+        delete applicationData['onBehalfOfUserId'];
+        delete applicationData['submittedByDelegateUserId'];
+        if (Number.isFinite(actorId) && actorId > 0) {
+            payload.serSubmittedBy = actorId;
+        }
     }
 
     private getCurrentUserId(): number | null {

@@ -29,6 +29,7 @@ import {
   resolveDocumentHeaderBrandTitle,
   resolveDocumentHeaderLogoPath,
 } from 'src/app/utils/document-header.util';
+import { buildIndividualFooterTableBands } from 'src/app/utils/individual-footer-pipeline.util';
 import {
   DOCUMENT_RENDER_A4_LONG_EDGE_MM,
   DOCUMENT_RENDER_A4_SHORT_EDGE_MM,
@@ -2144,6 +2145,10 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
   getIndividualFooterColSpan(section: any): number {
     const slots = this.getIndividualFooterSlots(section);
     return Math.max(slots.length === 1 && slots[0] === null ? 1 : slots.length, 1);
+  }
+
+  getIndividualFooterBands(sections: any[]) {
+    return buildIndividualFooterTableBands(sections, (section) => this.getIndividualFooterSlots(section));
   }
 
   /**

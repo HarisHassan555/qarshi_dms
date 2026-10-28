@@ -12,10 +12,13 @@ import javax.servlet.http.HttpServletRequest;
 @Controller
 public class SpaForwardController {
 
-    @RequestMapping(value = {
-        "/{path:[^\\.]*}",
-        "/**/{path:[^\\.]*}"
-    })
+    @RequestMapping(
+        value = {
+            "/{path:[^\\.]*}",
+            "/**/{path:[^\\.]*}"
+        },
+        headers = "!Upgrade"
+    )
     public String forward(HttpServletRequest request) {
         String uri = request.getRequestURI();
         if (uri.startsWith("/api/") || uri.equals("/api")) {

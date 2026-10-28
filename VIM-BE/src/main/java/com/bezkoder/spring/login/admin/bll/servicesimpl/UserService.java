@@ -1,5 +1,6 @@
 package com.bezkoder.spring.login.admin.bll.servicesimpl;
 
+import java.util.Collections;
 import java.util.List;
 
 import org.apache.log4j.LogManager;
@@ -10,6 +11,8 @@ import org.springframework.stereotype.Service;
 import com.bezkoder.spring.login.admin.bll.services.IUserService;
 import com.bezkoder.spring.login.admin.dal.dao.ICfgTblUserDAO;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
+import com.bezkoder.spring.login.admin.bll.servicesimpl.UserLoginNameService;
+import com.bezkoder.spring.login.sa.bll.servicesimpl.UserOrgHierarchyEnrichmentService;
 import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 
 
@@ -18,6 +21,12 @@ public class UserService implements IUserService {
 	
 	@Autowired
 	private ICfgTblUserDAO citTableUserDAO;
+
+	@Autowired
+	private UserOrgHierarchyEnrichmentService userOrgHierarchyEnrichmentService;
+
+	@Autowired
+	private UserLoginNameService userLoginNameService;
 
 	private Logger logger = LogManager.getLogger(UserService.class);
 
@@ -29,6 +38,7 @@ public class UserService implements IUserService {
 	public List<CfgTblUser> getAllUser() {
 		logger.debug("getAllUsers()");
 		List<CfgTblUser> users = citTableUserDAO.getAllUser();
+		userOrgHierarchyEnrichmentService.enrichUsers(users);
 		return users;
 	}
 	
@@ -36,6 +46,7 @@ public class UserService implements IUserService {
 	public List<CfgTblUser> getActiveUser() {
 		logger.debug("getActiveUsers()");
 		List<CfgTblUser> users = citTableUserDAO.getActiveUser();
+		userOrgHierarchyEnrichmentService.enrichUsers(users);
 		return users;
 	}
 	
@@ -50,6 +61,15 @@ public class UserService implements IUserService {
 	public CfgTblUser getUserById(Integer userId) {
 		return citTableUserDAO.getUserEntityById(userId);
 	}
+
+	@Override
+	public CfgTblUser getEnrichedUserById(Integer userId) {
+		CfgTblUser user = getUserById(userId);
+		if (user != null) {
+			userOrgHierarchyEnrichmentService.enrichUsers(Collections.singletonList(user));
+		}
+		return user;
+	}
 	
 	@Override
 	public boolean getUserByProperty(String property, String value,String mode, String oldValue) {
@@ -58,8 +78,20 @@ public class UserService implements IUserService {
 	
 	@Override
 	public String addNewUser(CfgTblUser cfgTblUser) {
-				
+		if (cfgTblUser != null && isBlank(cfgTblUser.getTxtLoginName())) {
+			cfgTblUser.setTxtLoginName(userLoginNameService.suggestUniqueLoginName(
+					cfgTblUser.getTxtCnic(), cfgTblUser.getTxtUserName()));
+		}
 		return citTableUserDAO.addNewUser(cfgTblUser);
+	}
+
+	@Override
+	public String suggestLoginName(String employeeId, String fullName) {
+		return userLoginNameService.suggestUniqueLoginName(employeeId, fullName);
+	}
+
+	private static boolean isBlank(String value) {
+		return value == null || value.trim().isEmpty();
 	}
 
 	@Override

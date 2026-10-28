@@ -9,7 +9,7 @@
         </div>
     </div>
 
-    <div class="fill-header">
+    <div class="fill-header" data-tour="tpl-approval-header">
         <div>
             <h2>{{ template?.name || 'Template Approval' }}</h2>
             <p *ngIf="application">
@@ -17,7 +17,7 @@
                 <span *ngIf="currentStep"> - Current step: {{ currentStep.name }}</span>
             </p>
         </div>
-        <div class="header-actions">
+        <div class="header-actions" data-tour="tpl-approval-header-actions">
             <button type="button" class="btn btn-outline" routerLink="/template-pending-approvals">Back</button>
             <button *ngIf="hasAttachmentFields" type="button" class="btn btn-outline" (click)="openAttachmentsModal()">
                 View Attachments
@@ -28,6 +28,13 @@
             <button type="button" class="btn btn-outline-primary" [disabled]="isLoading || isActing || isDownloadingWithLogsPdf" (click)="downloadApplicationWithLogsPdf()">
                 {{ isDownloadingWithLogsPdf ? 'Downloading...' : 'Download PDF With Logs' }}
             </button>
+            <app-document-share-link-button
+                *ngIf="application?.serApplicationId"
+                [applicationId]="application.serApplicationId"
+                [documentTitle]="application?.cfgTblCustomForm?.txtFormName || application?.formName"
+                [disabled]="isLoading || isActing"
+                buttonClass="btn btn-outline inline-flex items-center gap-1.5">
+            </app-document-share-link-button>
             <button type="button" class="btn btn-outline" [disabled]="isSaving || isActing" (click)="saveChanges()">
                 {{ isSaving ? 'Saving...' : 'Save' }}
             </button>
@@ -38,7 +45,7 @@
     <div *ngIf="!isLoading && !template" class="empty-template">Template application not found.</div>
 
     <div *ngIf="!isLoading && template" class="fill-workspace approval-workspace">
-        <aside class="fill-values-panel approval-values-panel">
+        <aside class="fill-values-panel approval-values-panel" data-tour="tpl-approval-fields">
             <h3>Fields For This Step</h3>
             <div class="inline-word-editor-toolbar-panel" *ngIf="getActiveInlineWordEditorField() as activeWordEditorField">
                 <div class="inline-word-editor-toolbar-panel-header">
@@ -47,7 +54,10 @@
                 </div>
                 <div class="inline-word-editor-toolbar-host"></div>
             </div>
-            <div class="step-rights-note" *ngIf="currentStep && !opinionPending">
+            <div class="step-rights-note admin-proxy-note" *ngIf="adminProxyNotice">
+                {{ adminProxyNotice }}
+            </div>
+            <div class="step-rights-note" *ngIf="currentStep && !opinionPending && !adminProxyNotice">
                 {{ currentStep.name }} can fill/edit only the fields listed here. Hidden fields are removed from the preview.
             </div>
             <div class="step-rights-note opinion-note" *ngIf="opinionPending">
@@ -149,7 +159,7 @@
                     (ngModelChange)="onPanelValueChanged(field)" />
             </div>
 
-            <div class="approval-actions">
+            <div class="approval-actions" data-tour="tpl-approval-workflow">
                 <label for="approval-remarks">{{ holdPending ? 'Remarks (optional for Unhold)' : 'Remarks *' }}</label>
                 <textarea
                     id="approval-remarks"
@@ -197,7 +207,7 @@
                             Put on Hold
                         </button>
 
-                        <div class="opinion-request-box">
+                        <div class="opinion-request-box" data-tour="tpl-approval-opinion">
                             <label for="opinion-user">Request Opinion From</label>
                             <select id="opinion-user" [(ngModel)]="selectedOpinionUserId">
                                 <option [ngValue]="null">Select user</option>
@@ -233,7 +243,7 @@
             </div>
         </aside>
 
-        <div class="fill-stage">
+        <div class="fill-stage" data-tour="tpl-approval-preview">
             <div
                 class="fill-frame"
                 [style.width.px]="template.page?.width || 794"
@@ -310,34 +320,33 @@
                             <ng-container *ngIf="field.type === 'individual_pipeline_footer'; else regularFooter">
                                 <div class="document-footer-preview individual-footer-preview">
                                     <div class="individual-footer-preview-inner">
-                                    <table class="xyz-signatures" *ngIf="individualFooterSectionsCache.length > 0">
-                                        <tr class="xyz-signatures-blank">
-                                            <ng-container *ngFor="let section of individualFooterSectionsCache">
-                                                <td *ngFor="let slotUser of getIndividualFooterSlots(section); let slotIndex = index">
-                                                    <div *ngIf="slotUser && isIndividualFooterUserApproved(slotUser, section, slotIndex)">
-                                                        <img *ngIf="getIndividualFooterSignatureUrl(slotUser, section, slotIndex)"
-                                                            [src]="getIndividualFooterSignatureUrl(slotUser, section, slotIndex)"
+                                    <table class="xyz-signatures individual-pipeline-footer-table" *ngIf="individualFooterSectionsCache.length > 0">
+                                        <ng-container *ngFor="let band of getIndividualFooterBands(); let bandIndex = index">
+                                            <tr class="xyz-signatures-blank individual-footer-sig-row"
+                                                [class.individual-footer-band-continued]="bandIndex > 0">
+                                                <td *ngFor="let cell of band.cells">
+                                                    <div *ngIf="cell.slotUser && isIndividualFooterUserApproved(cell.slotUser, cell.section, cell.slotIndex)">
+                                                        <img *ngIf="getIndividualFooterSignatureUrl(cell.slotUser, cell.section, cell.slotIndex)"
+                                                            [src]="getIndividualFooterSignatureUrl(cell.slotUser, cell.section, cell.slotIndex)"
                                                             class="xyz-sig-img"
-                                                            [alt]="(slotUser.txtUserName || slotUser.userName || slotUser.name || 'Approved user') + ' signature'">
-                                                        <div class="xyz-sig-time" *ngIf="getIndividualFooterUserApprovalDate(slotUser, section, slotIndex)">
-                                                            {{ getIndividualFooterUserApprovalDate(slotUser, section, slotIndex) }}
+                                                            [alt]="(cell.slotUser.txtUserName || cell.slotUser.userName || cell.slotUser.name || 'Approved user') + ' signature'">
+                                                        <div class="xyz-sig-time" *ngIf="getIndividualFooterUserApprovalDate(cell.slotUser, cell.section, cell.slotIndex)">
+                                                            {{ getIndividualFooterUserApprovalDate(cell.slotUser, cell.section, cell.slotIndex) }}
                                                         </div>
                                                     </div>
                                                 </td>
-                                            </ng-container>
-                                        </tr>
-                                            <tr>
-                                                <th *ngFor="let section of individualFooterSectionsCache" [attr.colspan]="getIndividualFooterColSpan(section)">
-                                                    {{ section.label || 'New Field' }}:
+                                            </tr>
+                                            <tr class="individual-footer-header-row">
+                                                <th *ngFor="let seg of band.headerSegments" [attr.colspan]="seg.colspan">
+                                                    {{ seg.section.label || 'New Field' }}:
                                                 </th>
                                             </tr>
-                                            <tr>
-                                                <ng-container *ngFor="let section of individualFooterSectionsCache">
-                                                    <td *ngFor="let slotUser of getIndividualFooterSlots(section)">
-                                                        <span [innerHTML]="getIndividualFooterUserLabel(slotUser)"></span>
-                                                    </td>
-                                                </ng-container>
+                                            <tr class="individual-footer-names-row">
+                                                <td *ngFor="let cell of band.cells">
+                                                    <span [innerHTML]="getIndividualFooterUserLabel(cell.slotUser)"></span>
+                                                </td>
                                             </tr>
+                                        </ng-container>
                                         </table>
                                     </div>
                                 </div>

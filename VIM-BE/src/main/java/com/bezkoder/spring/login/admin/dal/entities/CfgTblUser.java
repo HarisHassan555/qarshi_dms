@@ -377,6 +377,20 @@ public class CfgTblUser implements Serializable {
 	@Column(name="txt_signature_path")
 	private String txtSignaturePath;
 
+	@Column(name = "txt_profile_picture_path")
+	private String txtProfilePicturePath;
+
+	@Transient
+	private String profilePictureBase64;
+
+	/** When true (e.g. create user from SAP HCM), send welcome email instead of default password mail. */
+	@Transient
+	private Boolean sendWelcomeEmail;
+
+	/** Set by SAP HCM create-user flow; ensures USER_WELCOME template and background credential email. */
+	@Transient
+	private Boolean createdFromSapHcm;
+
 	@Column(name="txt_department_name")
 	private String txtDepartmentName;
 
@@ -392,6 +406,38 @@ public class CfgTblUser implements Serializable {
 
 	public void setTxtSignaturePath(String txtSignaturePath) {
 		this.txtSignaturePath = txtSignaturePath;
+	}
+
+	public String getTxtProfilePicturePath() {
+		return txtProfilePicturePath;
+	}
+
+	public void setTxtProfilePicturePath(String txtProfilePicturePath) {
+		this.txtProfilePicturePath = txtProfilePicturePath;
+	}
+
+	public String getProfilePictureBase64() {
+		return profilePictureBase64;
+	}
+
+	public void setProfilePictureBase64(String profilePictureBase64) {
+		this.profilePictureBase64 = profilePictureBase64;
+	}
+
+	public Boolean getSendWelcomeEmail() {
+		return sendWelcomeEmail;
+	}
+
+	public void setSendWelcomeEmail(Boolean sendWelcomeEmail) {
+		this.sendWelcomeEmail = sendWelcomeEmail;
+	}
+
+	public Boolean getCreatedFromSapHcm() {
+		return createdFromSapHcm;
+	}
+
+	public void setCreatedFromSapHcm(Boolean createdFromSapHcm) {
+		this.createdFromSapHcm = createdFromSapHcm;
 	}
 
 	public String getTxtDepartmentName() {
@@ -416,5 +462,71 @@ public class CfgTblUser implements Serializable {
 
 	public void setNumMaxAttachmentMb(Integer numMaxAttachmentMb) {
 		this.numMaxAttachmentMb = numMaxAttachmentMb;
+	}
+
+	@Column(name = "ser_organization_id")
+	private Integer serOrganizationId;
+
+	@Column(name = "ser_subarea_id")
+	private Integer serSubareaId;
+
+	@Column(name = "ser_division_id")
+	private Integer serDivisionId;
+
+	@Column(name = "txt_organization_name")
+	private String txtOrganizationName;
+
+	@Column(name = "txt_subarea_name")
+	private String txtSubareaName;
+
+	@Column(name = "txt_division_name")
+	private String txtDivisionName;
+
+	public Integer getSerOrganizationId() {
+		return serOrganizationId;
+	}
+
+	public void setSerOrganizationId(Integer serOrganizationId) {
+		this.serOrganizationId = serOrganizationId;
+	}
+
+	public Integer getSerSubareaId() {
+		return serSubareaId;
+	}
+
+	public void setSerSubareaId(Integer serSubareaId) {
+		this.serSubareaId = serSubareaId;
+	}
+
+	public Integer getSerDivisionId() {
+		return serDivisionId;
+	}
+
+	public void setSerDivisionId(Integer serDivisionId) {
+		this.serDivisionId = serDivisionId;
+	}
+
+	public String getTxtOrganizationName() {
+		return txtOrganizationName;
+	}
+
+	public void setTxtOrganizationName(String txtOrganizationName) {
+		this.txtOrganizationName = txtOrganizationName;
+	}
+
+	public String getTxtSubareaName() {
+		return txtSubareaName;
+	}
+
+	public void setTxtSubareaName(String txtSubareaName) {
+		this.txtSubareaName = txtSubareaName;
+	}
+
+	public String getTxtDivisionName() {
+		return txtDivisionName;
+	}
+
+	public void setTxtDivisionName(String txtDivisionName) {
+		this.txtDivisionName = txtDivisionName;
 	}
 }

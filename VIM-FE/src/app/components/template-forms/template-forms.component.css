@@ -1,5 +1,42 @@
 .template-name-cell {
     min-width: 0;
+    border-left: 3px solid transparent;
+    padding-left: 10px;
+}
+
+.template-row-own {
+    border-left-color: #16a34a;
+}
+
+.template-row-delegated {
+    border-left-color: #d97706;
+}
+
+.template-row-both {
+    border-left-color: #2563eb;
+}
+
+.listing-access-badges {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    max-width: 220px;
+}
+
+.listing-access-badges .badge {
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.25;
+    padding: 2px 7px;
+}
+
+.listing-access-delegated-badge {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
 }
 
 .loader-spinner {

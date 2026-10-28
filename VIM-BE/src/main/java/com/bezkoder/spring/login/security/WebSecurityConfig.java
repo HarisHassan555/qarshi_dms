@@ -3,6 +3,7 @@ package com.bezkoder.spring.login.security;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
@@ -20,7 +21,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-
+import org.springframework.web.cors.CorsConfigurationSource;
 import com.bezkoder.spring.login.security.jwt.AuthEntryPointJwt;
 import com.bezkoder.spring.login.security.jwt.AuthTokenFilter;
 import com.bezkoder.spring.login.security.services.UserDetailsServiceImpl;
@@ -36,6 +37,10 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
 
   @Autowired
   private AuthEntryPointJwt unauthorizedHandler;
+
+  @Autowired
+  @Qualifier("corsConfigurationSource")
+  private CorsConfigurationSource corsConfigurationSource;
 
   @Bean
   public AuthTokenFilter authenticationJwtTokenFilter() {
@@ -87,19 +92,29 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
   
   @Bean
   public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-    http.csrf(csrf -> csrf.disable())
+    http.cors(cors -> cors.configurationSource(corsConfigurationSource))
+        .csrf(csrf -> csrf.disable())
         .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(auth ->
           auth.antMatchers(HttpMethod.OPTIONS, "/**").permitAll()
               .antMatchers("/api/auth/**").permitAll()
               .antMatchers("/api/test/**").permitAll()
-                  .antMatchers("/", "/index.html", "/static/**", "/*.js", "/*.css", "/*.png", "/*.ico", "/assets/**").permitAll()
+                  .antMatchers("/", "/index.html", "/static/**", "/assets/**",
+                      "/*.js", "/*.mjs", "/*.css", "/*.map", "/*.json",
+                      "/*.png", "/*.jpg", "/*.jpeg", "/*.gif", "/*.svg", "/*.webp", "/*.ico",
+                      "/*.woff", "/*.woff2", "/*.ttf", "/*.eot",
+                      "/**/*.js", "/**/*.mjs", "/**/*.css", "/**/*.map",
+                      "/**/*.png", "/**/*.jpg", "/**/*.jpeg", "/**/*.gif", "/**/*.svg", "/**/*.webp", "/**/*.ico",
+                      "/**/*.woff", "/**/*.woff2", "/**/*.ttf", "/**/*.eot").permitAll()
                   .antMatchers("/{path:[^\\.]*}", "/**/{path:[^\\.]*}").permitAll()
                   .antMatchers("/login", "/getloginCustomer", "/allMenu", "/resources/**", "/updatePasswordReconfirm").permitAll()
                   .antMatchers("/getSignature", "/getUserSignaturePath").permitAll()
+              .antMatchers("/ws/chat", "/ws/chat/**", "/ws/notifications", "/ws/notifications/**").permitAll()
                   .antMatchers("/approveApplicationFromEmail", "/rejectApplicationFromEmail", "/sendBackApplicationFromEmail", "/sendBackToInitiatorFromEmail",
-                          "/holdTemplateApplicationFromEmail", "/unholdTemplateApplicationFromEmail").permitAll()
+                          "/holdTemplateApplicationFromEmail", "/unholdTemplateApplicationFromEmail",
+                          "/opinionApplicationFromEmail").permitAll()
+                  .antMatchers("/public/documentShare", "/public/documentSharePdf").permitAll()
                   .anyRequest().authenticated()
         );
     

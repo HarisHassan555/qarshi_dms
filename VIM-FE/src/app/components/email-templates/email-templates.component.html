@@ -1,0 +1,233 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-3 px-5 md:flex-row md:items-center">
+            <div data-tour="email-tpl-header">
+                <h5 class="text-xl font-bold dark:text-white-light">Email Templates</h5>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto flex flex-wrap gap-2 items-center" data-tour="email-tpl-toolbar">
+                <button type="button" class="btn btn-outline-secondary btn-sm" (click)="loadAll()" [disabled]="loading">Refresh</button>
+                <input [(ngModel)]="search" type="text" class="form-input w-48" placeholder="Search..." />
+            </div>
+        </div>
+
+        <div class="px-5 mb-4 flex gap-2 border-b border-[#e0e6ed] dark:border-[#1b2e4b]" data-tour="email-tpl-tabs">
+            <button
+                type="button"
+                class="btn btn-sm mb-2"
+                [ngClass]="activeTab === 'templates' ? 'btn-primary' : 'btn-outline-primary'"
+                (click)="setTab('templates')">
+                Templates
+            </button>
+            <button
+                type="button"
+                class="btn btn-sm mb-2"
+                [ngClass]="activeTab === 'layouts' ? 'btn-primary' : 'btn-outline-primary'"
+                (click)="setTab('layouts')">
+                Layouts
+            </button>
+        </div>
+
+        <div class="px-5 mb-3 text-sm text-gray-500">
+            <span *ngIf="loading">Loading…</span>
+        </div>
+
+        <div *ngIf="activeTab === 'templates'" class="datatable invoice-table px-5" data-tour="email-tpl-templates-panel">
+            <div class="mb-4 flex justify-end" data-tour="email-tpl-add-template">
+                <button type="button" class="btn btn-primary gap-2" (click)="openAddTemplate()">
+                    <icon-plus />
+                    Add template
+                </button>
+            </div>
+            <ng-datatable
+                [rows]="templates"
+                [columns]="templateCols"
+                [search]="search"
+                [sortable]="true"
+                skin="whitespace-nowrap bh-table-hover">
+                <ng-template slot="active" let-value="data">
+                    <span class="badge" [ngClass]="value.active ? 'badge-outline-success' : 'badge-outline-danger'">
+                        {{ value.active ? 'Yes' : 'No' }}
+                    </span>
+                </ng-template>
+                <ng-template slot="layoutName" let-value="data">
+                    {{ value.layoutName || '—' }}
+                </ng-template>
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary" (click)="openPreviewTemplate(value)">
+                            Preview
+                        </button>
+                        <button type="button" class="hover:text-info" (click)="openEditTemplate(value)" title="Edit">
+                            <icon-edit class="h-4.5 w-4.5" />
+                        </button>
+                        <button type="button" class="hover:text-danger" (click)="deleteTemplate(value)" title="Delete">
+                            <icon-trash-lines class="h-4.5 w-4.5" />
+                        </button>
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+
+        <div *ngIf="activeTab === 'layouts'" class="datatable invoice-table px-5" data-tour="email-tpl-layouts-panel">
+            <div class="mb-4 flex justify-end">
+                <button type="button" class="btn btn-primary gap-2" (click)="openAddLayout()">
+                    <icon-plus />
+                    Add layout
+                </button>
+            </div>
+            <ng-datatable
+                [rows]="layouts"
+                [columns]="layoutCols"
+                [search]="search"
+                [sortable]="true"
+                skin="whitespace-nowrap bh-table-hover">
+                <ng-template slot="active" let-value="data">
+                    <span class="badge" [ngClass]="value.active ? 'badge-outline-success' : 'badge-outline-danger'">
+                        {{ value.active ? 'Yes' : 'No' }}
+                    </span>
+                </ng-template>
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center gap-3">
+                        <button type="button" class="hover:text-info" (click)="openEditLayout(value)" title="Edit">
+                            <icon-edit class="h-4.5 w-4.5" />
+                        </button>
+                        <button type="button" class="hover:text-danger" (click)="deleteLayout(value)" title="Delete">
+                            <icon-trash-lines class="h-4.5 w-4.5" />
+                        </button>
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+    </div>
+</div>
+
+<modal #templateModal class="max-w-4xl">
+    <ng-template #modalHeader>
+        <div>{{ templateForm.get('id')?.value ? 'Edit' : 'Add' }} email template</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <form class="space-y-4 text-sm" [formGroup]="templateForm" (ngSubmit)="saveTemplate()" data-tour="email-tpl-template-modal">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4" data-tour="email-tpl-template-meta">
+                <div>
+                    <label>Template code*</label>
+                    <input type="text" class="form-input font-mono" formControlName="templateCode" placeholder="USER_WELCOME" />
+                    <p *ngIf="templateSubmit && templateForm.get('templateCode')?.invalid" class="text-danger text-xs mt-1">Required</p>
+                </div>
+                <div>
+                    <label>Name*</label>
+                    <input type="text" class="form-input" formControlName="templateName" />
+                </div>
+                <div>
+                    <label>Category</label>
+                    <select class="form-select" formControlName="category">
+                        <option *ngFor="let c of categoryOptions" [value]="c">{{ c }}</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Layout (optional)</label>
+                    <select class="form-select" formControlName="layoutId">
+                        <option [ngValue]="null">— None —</option>
+                        <option *ngFor="let l of layoutOptions()" [ngValue]="l.id">{{ l.name }}</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Sort order</label>
+                    <input type="number" class="form-input" formControlName="sortOrder" />
+                </div>
+                <div class="flex items-center gap-2 pt-6">
+                    <input type="checkbox" class="form-checkbox" formControlName="active" id="tplActive" />
+                    <label for="tplActive">Active</label>
+                </div>
+            </div>
+            <div>
+                <label>Subject*</label>
+                <input type="text" class="form-input" formControlName="subject" placeholder="Welcome to Qarshi DMS" />
+            </div>
+            <div>
+                <label>Description</label>
+                <input type="text" class="form-input" formControlName="description" />
+            </div>
+            <div>
+                <label>Placeholder help (for admins)</label>
+                <textarea rows="2" class="form-textarea" formControlName="placeholderHelp"></textarea>
+            </div>
+            <div data-tour="email-tpl-template-body">
+                <label>Body HTML*</label>
+                <p class="text-xs text-gray-500 mb-1">Use the toolbar or <strong>Code View</strong> for raw HTML and placeholders.</p>
+                <app-summernote-editor
+                    formControlName="bodyHtml"
+                    [initToken]="templateEditorToken"
+                    [height]="300"
+                    placeholder="Email body…"></app-summernote-editor>
+                <p *ngIf="templateSubmit && templateForm.get('bodyHtml')?.invalid" class="text-danger text-xs mt-1">Body is required</p>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button type="button" class="btn btn-outline-secondary" (click)="templateModal.close()">Cancel</button>
+                <button type="submit" class="btn btn-primary" [disabled]="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
+            </div>
+        </form>
+    </ng-template>
+</modal>
+
+<modal #layoutModal class="max-w-3xl">
+    <ng-template #modalHeader>
+        <div>{{ layoutForm.get('id')?.value ? 'Edit' : 'Add' }} email layout</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <form class="space-y-4 text-sm" [formGroup]="layoutForm" (ngSubmit)="saveLayout()" data-tour="email-tpl-layout-modal">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label>Layout code*</label>
+                    <input type="text" class="form-input font-mono" formControlName="layoutCode" />
+                </div>
+                <div>
+                    <label>Name*</label>
+                    <input type="text" class="form-input" formControlName="layoutName" />
+                </div>
+            </div>
+            <div>
+                <label>Description</label>
+                <input type="text" class="form-input" formControlName="description" />
+            </div>
+            <p class="text-xs text-gray-500">Include <code>{{'{{content}}'}}</code> where the template body is inserted.</p>
+            <div>
+                <label>HTML wrapper*</label>
+                <p class="text-xs text-gray-500 mb-1">Use <strong>Code View</strong> for full HTML documents and <code>{{'{{content}}'}}</code>.</p>
+                <app-summernote-editor
+                    formControlName="htmlWrapper"
+                    [initToken]="layoutEditorToken"
+                    [height]="340"
+                    placeholder="Layout HTML…"></app-summernote-editor>
+            </div>
+            <div class="flex items-center gap-2">
+                <input type="checkbox" class="form-checkbox" formControlName="active" id="layoutActive" />
+                <label for="layoutActive">Active</label>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button type="button" class="btn btn-outline-secondary" (click)="layoutModal.close()">Cancel</button>
+                <button type="submit" class="btn btn-primary" [disabled]="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
+            </div>
+        </form>
+    </ng-template>
+</modal>
+
+<modal #previewModal class="max-w-4xl">
+    <ng-template #modalHeader>
+        <div>Email preview</div>
+    </ng-template>
+    <ng-template #modalBody>
+        <div class="space-y-3 text-sm" data-tour="email-tpl-preview-modal">
+            <div class="rounded border border-[#e0e6ed] dark:border-[#1b2e4b] px-3 py-2 bg-gray-50 dark:bg-[#0e1726]">
+                <span class="text-gray-500 text-xs uppercase tracking-wide">Subject</span>
+                <div class="font-medium dark:text-white-light mt-0.5">{{ previewSubject }}</div>
+            </div>
+            <p class="text-xs text-gray-500">Sample placeholder values are used for preview.</p>
+            <div
+                class="email-preview-frame w-full rounded border border-[#e0e6ed] dark:border-[#1b2e4b] bg-white overflow-auto"
+                [innerHTML]="previewHtmlSafe"></div>
+        </div>
+        <div class="flex justify-end pt-4">
+            <button type="button" class="btn btn-outline-secondary" (click)="previewModal.close()">Close</button>
+        </div>
+    </ng-template>
+</modal>

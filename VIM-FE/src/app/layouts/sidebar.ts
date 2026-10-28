@@ -1,17 +1,22 @@
 import { animate, style, transition, trigger } from '@angular/animations';
 import { Component, NgZone, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 import { NavigationEnd, Router } from '@angular/router';
 import { Store } from '@ngrx/store';
 import { TranslateService } from '@ngx-translate/core';
 import { slideDownUp } from '../shared/animations';
 import { MenuService } from '../layout/menu-service/menu.service';
+import { ProfileDrawerService } from '../services/profile-drawer/profile-drawer.service';
 import { SharedDataService } from '../services/shared-data/shared-data.service';
-import { catchError, Observable, of, Subject, switchMap, takeUntil, tap } from 'rxjs';
+import { UserService } from '../services/user/user.service';
+import { catchError, Observable, of, Subject, Subscription, switchMap, takeUntil, tap } from 'rxjs';
+import { appMenuRouterLink, normalizeAppMenuPath } from '../utils/urls';
 
 @Component({
     moduleId: module.id,
     selector: 'sidebar',
     templateUrl: './sidebar.html',
+    styleUrls: ['./sidebar.css'],
     animations: [slideDownUp],
 })
 export class SidebarComponent implements OnInit, OnDestroy {
@@ -24,6 +29,10 @@ export class SidebarComponent implements OnInit, OnDestroy {
     subMenuRoles: any[] = [];
     isDashboardPresent!: boolean;
 
+    sidebarProfilePhotoSafeUrl: SafeUrl | null = null;
+    private sidebarProfilePhotoBlobUrl: string | null = null;
+    private profilePhotoUpdatedSub?: Subscription;
+
     /** Used to unsubscribe all long-lived subscriptions on destroy. */
     private destroy$ = new Subject<void>();
     constructor(
@@ -32,7 +41,10 @@ export class SidebarComponent implements OnInit, OnDestroy {
         public storeData: Store<any>,
         public router: Router,
         private sharedDataService: SharedDataService,
-        private ngZone: NgZone
+        private ngZone: NgZone,
+        private userService: UserService,
+        private sanitizer: DomSanitizer,
+        private profileDrawerService: ProfileDrawerService
     ) {
         this.initStore();
     }
@@ -46,6 +58,10 @@ export class SidebarComponent implements OnInit, OnDestroy {
 
     ngOnInit() {
         this.getUser();
+        this.loadSidebarProfilePhoto();
+        this.profilePhotoUpdatedSub = this.profileDrawerService.profilePhotoUpdated$.subscribe(() =>
+            this.loadSidebarProfilePhoto()
+        );
         this.setActiveDropdown();
 
         // Re-fetch menus whenever a role/permission change is broadcast from RolesManagementComponent.
@@ -58,8 +74,93 @@ export class SidebarComponent implements OnInit, OnDestroy {
     }
 
     ngOnDestroy(): void {
+        this.profilePhotoUpdatedSub?.unsubscribe();
+        this.revokeSidebarProfilePhoto();
         this.destroy$.next();
         this.destroy$.complete();
+    }
+
+    sidebarShowAvatarImage(): boolean {
+        return this.sidebarProfilePhotoSafeUrl != null;
+    }
+
+    sidebarAvatarUrl(): SafeUrl | null {
+        return this.sidebarProfilePhotoSafeUrl;
+    }
+
+    getSidebarDisplayName(): string {
+        const name = String(this.user?.txtUserName || '').trim();
+        return name || 'User';
+    }
+
+    getSidebarMetaLine(): string {
+        const role = this.user?.cfgTblRole;
+        const roleName =
+            role && typeof role === 'object'
+                ? String(role.txtRoleName || '').trim()
+                : String(role || '').trim();
+        if (roleName) {
+            return roleName;
+        }
+        const email = String(this.user?.txtAddress || this.user?.txtEmail || '').trim();
+        return email || 'Logged in';
+    }
+
+    getSidebarAvatarLetter(): string {
+        const name = this.getSidebarDisplayName();
+        return name.charAt(0).toUpperCase();
+    }
+
+    openProfileDrawer(): void {
+        this.profileDrawerService.open();
+    }
+
+    doLogout(): void {
+        this.router.navigateByUrl('auth/signin');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+    }
+
+    private loadSidebarProfilePhoto(): void {
+        this.userService.getCurrentUser().subscribe({
+            next: (data) => {
+                if (data) {
+                    this.user = this.user || data;
+                    this.fetchSidebarProfilePhoto(data);
+                }
+            },
+            error: () => {
+                if (this.user) {
+                    this.fetchSidebarProfilePhoto(this.user);
+                }
+            },
+        });
+    }
+
+    private fetchSidebarProfilePhoto(profile: any): void {
+        this.revokeSidebarProfilePhoto();
+        const userId = Number(profile?.serUserId);
+        const path = String(profile?.txtProfilePicturePath || '').trim();
+        if (!userId || !path) {
+            return;
+        }
+        this.userService.loadProfilePictureObjectUrl(userId).subscribe({
+            next: (objectUrl) => {
+                this.sidebarProfilePhotoBlobUrl = objectUrl;
+                this.sidebarProfilePhotoSafeUrl = this.sanitizer.bypassSecurityTrustUrl(objectUrl);
+            },
+            error: () => {
+                this.sidebarProfilePhotoSafeUrl = null;
+            },
+        });
+    }
+
+    private revokeSidebarProfilePhoto(): void {
+        if (this.sidebarProfilePhotoBlobUrl) {
+            URL.revokeObjectURL(this.sidebarProfilePhotoBlobUrl);
+            this.sidebarProfilePhotoBlobUrl = null;
+        }
+        this.sidebarProfilePhotoSafeUrl = null;
     }
 
     getUser() {
@@ -68,9 +169,13 @@ export class SidebarComponent implements OnInit, OnDestroy {
                 if (data) {
                     console.log('User', data);
                     this.user = data;
+                    this.fetchSidebarProfilePhoto(data);
                     this.getMenus();
                 } else {
                     this.user = this.getUserFromLocalStorage();
+                    if (this.user) {
+                        this.fetchSidebarProfilePhoto(this.user);
+                    }
                     this.getMenus();
                 }
             });
@@ -243,8 +348,24 @@ export class SidebarComponent implements OnInit, OnDestroy {
                                 Number(role?.cfgTblSubMenu?.serSubMenuId || role?.cfgTblSubMenu?.subMenuId || 0) === smId
                             );
                             const hasPermissionRows    = matchedPermissionRows.length > 0;
+                            const subMenuUrl = (sm?.subMenuAction || sm?.txtSubMenuUrl || '')
+                                .toString()
+                                .trim()
+                                .replace(/^\/+/, '')
+                                .toLowerCase();
+                            const subMenuName = (sm?.subMenuName || sm?.txtSubMenuName || '')
+                                .toString()
+                                .trim()
+                                .toLowerCase();
+                            if (this.isHeaderOnlySidebarSubMenu(subMenuUrl, subMenuName)) {
+                                return false;
+                            }
+                            const isDelegationManagementMenu =
+                                subMenuUrl === 'delegation-management' || subMenuName === 'delegation management';
                             const hasEnabledPermission = matchedPermissionRows.some((role: any) =>
-                                this.isSubMenuEnabled(role)
+                                isDelegationManagementMenu
+                                    ? this.isDelegationSubMenuGranted(role)
+                                    : this.isSubMenuEnabled(role)
                             );
 
                             // Special case: always show Pending Approvals for HODs / Procurement.
@@ -433,6 +554,11 @@ export class SidebarComponent implements OnInit, OnDestroy {
         return label === 'pending approvals' || label === 'pending-approvals';
     }
 
+    /** Shown via header actions only (not the Velocity sidebar list). */
+    private isHeaderOnlySidebarSubMenu(subMenuUrl: string, subMenuName: string): boolean {
+        return subMenuUrl === 'notification-management' || subMenuName === 'notification management';
+    }
+
     private isAdminUser(): boolean {
         const roleName = (
             this.user?.cfgTblRole?.txtRoleName ||
@@ -456,6 +582,29 @@ export class SidebarComponent implements OnInit, OnDestroy {
         // sub-entity was DB-seeded without explicit values.  Submenu liveness is
         // already guaranteed by the normalisation filter at the top of getMenus().
         return toBool(role?.blIsEnabled) || toBool(role?.blnStatus) || toBool(role?.blIsActive);
+    }
+
+    private isSubMenuViewAllowed(role: any): boolean {
+        if (!role) {
+            return false;
+        }
+        const toBool = (v: any) => v === true || v === 1 || v === '1' || v === 'true';
+        return toBool(role?.blIsview) || toBool(role?.blIsNewView);
+    }
+
+    /** Delegation Management: requires blIsEnabled (not blnStatus alone) + view, same as API. */
+    private isDelegationSubMenuGranted(role: any): boolean {
+        if (!role) {
+            return false;
+        }
+        const toBool = (v: any) => v === true || v === 1 || v === '1' || v === 'true';
+        if (toBool(role?.blIsDeleted)) {
+            return false;
+        }
+        if (!toBool(role?.blIsEnabled)) {
+            return false;
+        }
+        return this.isSubMenuViewAllowed(role);
     }
 
     /**
@@ -514,6 +663,21 @@ export class SidebarComponent implements OnInit, OnDestroy {
             return 'My Department Digital Application';
         }
         return name || '';
+    }
+
+    getSubMenuRouterLink(action: string | undefined): string[] {
+        return appMenuRouterLink(action);
+    }
+
+    onSubMenuNavigate(action: string | undefined, event: MouseEvent): void {
+        const path = normalizeAppMenuPath(action);
+        if (/^https?:\/\//i.test(path)) {
+            return;
+        }
+        event.preventDefault();
+        const url = '/' + path.split('/').filter(Boolean).join('/');
+        void this.router.navigateByUrl(url);
+        this.toggleMobileMenu();
     }
 
 }
