@@ -1,13 +1,22 @@
-<div class="template-fill-page">
-    <div class="fill-header" data-tour="template-fill-header">
+<div class="template-fill-page" [class.template-fill-page--builder-preview]="builderPreviewMode">
+    <div *ngIf="template && builderPreviewMode" class="builder-preview-banner">
+        <div class="builder-preview-banner-text">
+            <strong>{{ template.name || 'Template Form' }}</strong>
+            <span>Preview with sample data — filled fields are shown as users will see them on the document.</span>
+        </div>
+    </div>
+    <div class="fill-header" data-tour="template-fill-header" *ngIf="!builderPreviewMode">
         <div>
             <h2>{{ template?.name || 'Template Form' }}</h2>
-            <p *ngIf="template">
+            <p *ngIf="template && !builderPreviewMode">
                 Fill the mapped fields on the saved template.
                 <span *ngIf="template.codeConvention">Code: {{ template.codeConvention }}</span>
             </p>
+            <p *ngIf="template && builderPreviewMode" class="builder-preview-note">
+                Builder preview — how this form will look when users fill it (unsaved changes included).
+            </p>
         </div>
-        <div class="header-actions" data-tour="template-fill-actions">
+        <div class="header-actions" data-tour="template-fill-actions" *ngIf="!builderPreviewMode">
             <button *ngIf="hasAnyAttachments" type="button" class="btn btn-outline" (click)="openAttachmentsModal()">
                 View Attachments
             </button>
@@ -20,7 +29,7 @@
         </div>
     </div>
 
-    <div *ngIf="showFillAccessChoice" class="fill-access-panel" data-tour="template-fill-access">
+    <div *ngIf="showFillAccessChoice && !builderPreviewMode" class="fill-access-panel" data-tour="template-fill-access">
         <span class="fill-access-panel-title">Submitting as</span>
         <label class="fill-access-option">
             <input
@@ -49,7 +58,7 @@
         </span>
     </div>
 
-    <div *ngIf="showDelegatedOnlyFillSelector" class="fill-access-panel" data-tour="template-fill-access-delegated">
+    <div *ngIf="showDelegatedOnlyFillSelector && !builderPreviewMode" class="fill-access-panel" data-tour="template-fill-access-delegated">
         <span class="fill-access-panel-title">Submitting on behalf of</span>
         <select
             *ngIf="showOnBehalfUserDropdown || getDelegationParties().length > 1"
@@ -77,8 +86,8 @@
         No saved template found.
     </div>
 
-    <div *ngIf="template" class="fill-workspace">
-        <aside class="fill-values-panel" data-tour="template-fill-fields">
+    <div *ngIf="template" class="fill-workspace" [class.fill-workspace--builder-preview]="builderPreviewMode">
+        <aside class="fill-values-panel" data-tour="template-fill-fields" *ngIf="!builderPreviewMode">
             <h3>Fields</h3>
             <div class="inline-word-editor-toolbar-panel" *ngIf="getActiveInlineWordEditorField() as activeWordEditorField">
                 <div class="inline-word-editor-toolbar-panel-header">
@@ -162,7 +171,7 @@
                     </div>
                     <div class="attachment-list" *ngIf="getAttachmentPayloads(field).length > 0">
                         <div class="attachment-item" *ngFor="let attachment of getAttachmentPayloads(field); let index = index">
-                            <button type="button" class="attachment-link-button" (click)="viewAttachment(attachment)">
+                            <button type="button" class="attachment-link-button" [title]="attachment.fileName" (click)="viewAttachment(attachment)">
                                 {{ attachment.fileName }}
                             </button>
                             <button type="button" class="btn btn-danger btn-sm" (click)="removeAttachment(field, index, $event)">
@@ -172,30 +181,7 @@
                     </div>
                 </div>
                 <div *ngIf="field.type === 'table'" class="table-field-panel">
-                    <div class="table-editor-scroll">
-                        <table class="fillable-table">
-                            <tbody>
-                                <tr *ngFor="let row of getTableRenderRows(field)">
-                                    <td
-                                        *ngFor="let cell of row.cells"
-                                        [attr.colspan]="cell.colspan"
-                                        [attr.rowspan]="cell.rowspan"
-                                        [attr.class]="cell.className"
-                                        [attr.style]="cell.style">
-                                        <input
-                                            *ngIf="cell.editable; else staticTableCell"
-                                            type="text"
-                                            [ngModel]="getTableCellValue(field, cell.key)"
-                                            [disabled]="!canCurrentStepFillField(field)"
-                                            (ngModelChange)="setTableCellValue(field, cell.key, $event)" />
-                                        <ng-template #staticTableCell>
-                                            <span [innerHTML]="cell.html"></span>
-                                        </ng-template>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                    <ng-container *ngTemplateOutlet="fillableFieldTable; context: { field: field }"></ng-container>
                 </div>
                 <input
                     *ngIf="field.type !== 'textarea' && field.type !== 'word_editor' && field.type !== 'checkbox' && field.type !== 'radio' && field.type !== 'table' && !isAttachmentField(field)"
@@ -207,7 +193,7 @@
                     (ngModelChange)="onPanelValueChanged()" />
             </div>
 
-            <div class="user-pipeline-panel" *ngIf="hasIndividualPipelineFooter()" data-tour="template-fill-pipeline">
+            <div class="user-pipeline-panel" *ngIf="hasIndividualPipelineFooter() && !builderPreviewMode" data-tour="template-fill-pipeline">
                 <div class="user-pipeline-header">
                     <h3>Individual Footer Sections</h3>
                     <button type="button" title="Add section" (click)="addUserPipelineSection()">+</button>
@@ -301,7 +287,7 @@
                     </div>
                 </div>
 
-                <div class="document-html" [innerHTML]="safeHtml"></div>
+                <div #documentHtml class="document-html" [innerHTML]="safeHtml"></div>
 
                 <ng-container *ngFor="let field of template.fields">
                     <div
@@ -392,6 +378,7 @@
                                             [src]="signatureUrl"
                                             [alt]="getDynamicSignatureLabel(slot)" />
                                         <ng-template #signaturePlaceholder>
+                                            <span *ngIf="builderPreviewMode" class="builder-preview-signature-placeholder">Sample signature</span>
                                         </ng-template>
                                     </div>
                                 </ng-container>
@@ -404,31 +391,8 @@
                         </ng-container>
                         <ng-template #nonSignatureField>
                             <ng-container *ngIf="field.type === 'table'; else nonTableFieldValue">
-                                <div class="inline-table-shell" [ngStyle]="getInputStyle(field)">
-                                    <div class="table-editor-scroll">
-                                        <table class="fillable-table inline-fillable-table">
-                                            <tbody>
-                                                <tr *ngFor="let row of getTableRenderRows(field)">
-                                                    <td
-                                                        *ngFor="let cell of row.cells"
-                                                        [attr.colspan]="cell.colspan"
-                                                        [attr.rowspan]="cell.rowspan"
-                                                        [attr.class]="cell.className"
-                                                        [attr.style]="cell.style">
-                                                        <input
-                                                            *ngIf="cell.editable; else inlineStaticTableCell"
-                                                            type="text"
-                                                            [ngModel]="getTableCellValue(field, cell.key)"
-                                                            [disabled]="!canCurrentStepFillField(field)"
-                                                            (ngModelChange)="setTableCellValue(field, cell.key, $event)" />
-                                                        <ng-template #inlineStaticTableCell>
-                                                            <span [innerHTML]="cell.html"></span>
-                                                        </ng-template>
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
+                                <div class="inline-table-shell" [attr.data-field-id]="field.id" [ngStyle]="getInputStyle(field)">
+                                    <ng-container *ngTemplateOutlet="fillableFieldTable; context: { field: field }"></ng-container>
                                 </div>
                             </ng-container>
                             <ng-template #nonTableFieldValue>
@@ -491,6 +455,48 @@
         </div>
     </div>
 </div>
+
+<ng-template #fillableFieldTable let-field="field">
+    <div class="table-editor-scroll">
+        <table class="fillable-table" [class.inline-fillable-table]="!!field.placement" (keydown)="removeDocumentTableMenu()">
+            <tbody>
+                <tr *ngIf="!tableFieldIndicatorsDismissed" class="table-index-row">
+                    <th class="fill-table-index fill-table-index-corner">
+                        <button type="button" class="fill-table-index-remove" title="Remove row and column labels" (click)="dismissTableFieldIndicators($event)">×</button>
+                    </th>
+                    <th class="fill-table-index fill-table-col-label" *ngFor="let label of getTableIndicatorColumns(field)">{{ label }}</th>
+                </tr>
+                <tr *ngFor="let row of getTableRenderRows(field); let rowIndex = index; trackBy: trackTableRow">
+                    <th *ngIf="!tableFieldIndicatorsDismissed" class="fill-table-index">{{ rowIndex + 1 }}</th>
+                    <td
+                        *ngFor="let cell of row.cells; trackBy: trackTableCell"
+                        [attr.colspan]="cell.colspan"
+                        [attr.rowspan]="cell.rowspan"
+                        [attr.class]="cell.className"
+                        [attr.style]="cell.style"
+                        (click)="openTableFieldMenu(field, cell, $event)"
+                        (contextmenu)="openTableFieldMenu(field, cell, $event)">
+                        <input
+                            *ngIf="cell.editable || cell.formula; else staticTableLabel"
+                            type="text"
+                            [class.table-formula-expression-input]="cell.formula && isTableFormulaEditing(field, cell.key)"
+                            [ngModel]="cell.formula ? tableFormulaInputValue(field, cell.key) : getTableCellValue(field, cell.key)"
+                            [disabled]="!canCurrentStepFillField(field)"
+                            (focus)="beginTableCellEdit(field, cell, $event)"
+                            (blur)="endTableCellEdit(field, cell)"
+                            (ngModelChange)="onTableCellInput(field, cell, $event)"
+                            (copy)="rememberTableFieldFormula(field, cell, $event)"
+                            (cut)="rememberTableFieldFormula(field, cell, $event)"
+                            (paste)="pasteTableFieldFormula(field, cell, $event)" />
+                        <ng-template #staticTableLabel>
+                            <span [innerHTML]="cell.html"></span>
+                        </ng-template>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</ng-template>
 
 <app-portal-attachments-picker
     *ngIf="showPortalAttachmentModal"

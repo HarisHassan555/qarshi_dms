@@ -67,41 +67,6 @@ interface DashboardCsvColumn {
     label: string;
 }
 
-interface DashboardStorageBreakdown {
-    label: string;
-    bytes: number;
-    path?: string;
-}
-
-interface DashboardStorageInfo {
-    status: string;
-    applicationUsedBytes: number;
-    applicationUsedLabel?: string;
-    hostVolume?: {
-        sourceLabel: string;
-        mountPath: string;
-        totalBytes: number;
-        usableBytes: number;
-        usedBytes: number;
-        usedPercent: number;
-    };
-    fileStorage?: {
-        sourceLabel: string;
-        sourcePath: string;
-        usedBytes: number;
-        breakdown: DashboardStorageBreakdown[];
-    };
-    databaseStorage?: {
-        sourceLabel: string;
-        schemaName: string;
-        databaseTotalBytes: number;
-        applicationTableBytes: number;
-        applicationContentBytes: number;
-        applicationCount: number;
-        applicationPdfCount: number;
-    };
-}
-
 @Component({
     moduleId: module.id,
     templateUrl: './finance.html',
@@ -134,9 +99,6 @@ export class FinanceComponent implements OnInit {
     showDashboardCsvModal = false;
     availableDashboardCsvColumns: DashboardCsvColumn[] = [];
     selectedDashboardCsvColumns: DashboardCsvColumn[] = [];
-    storageInfo: DashboardStorageInfo | null = null;
-    storageInfoError = '';
-    isLoadingStorageInfo = false;
     readonly dashboardCsvColumns: DashboardCsvColumn[] = [
         { key: 'txtFormCode', label: 'Application Code' },
         { key: 'templateName', label: 'Form Type' },
@@ -315,31 +277,6 @@ export class FinanceComponent implements OnInit {
         return `${action}${entry.username ? ' by ' + entry.username : ''}`;
     }
 
-    formatStorageBytes(bytes: number | undefined | null): string {
-        const value = Number(bytes || 0);
-        if (!Number.isFinite(value) || value <= 0) {
-            return '0 B';
-        }
-        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        let size = value;
-        let unitIndex = 0;
-        while (size >= 1024 && unitIndex < units.length - 1) {
-            size /= 1024;
-            unitIndex += 1;
-        }
-        const digits = size >= 100 || unitIndex === 0 ? 0 : size >= 10 ? 1 : 2;
-        return `${size.toFixed(digits)} ${units[unitIndex]}`;
-    }
-
-    storageUsagePercent(usedBytes: number, totalBytes: number): number {
-        const total = Number(totalBytes || 0);
-        const used = Number(usedBytes || 0);
-        if (!total || total <= 0) {
-            return 0;
-        }
-        return Math.min(100, Math.round((used * 100) / total));
-    }
-
     getApplicantLabel(item: DashboardApplicationItem): string {
         if (!this.isAdmin) {
             return item.requiresAction ? 'Needs your action' : '';
@@ -385,26 +322,6 @@ export class FinanceComponent implements OnInit {
         }
     }
 
-    async loadStorageInfo(): Promise<void> {
-        this.isLoadingStorageInfo = true;
-        this.storageInfoError = '';
-        try {
-            const response = await firstValueFrom(this.templateWorkflowService.getApplicationStorageInfo());
-            if (response?.status === 'Success') {
-                this.storageInfo = response as DashboardStorageInfo;
-            } else {
-                this.storageInfo = null;
-                this.storageInfoError = response?.message || 'Storage information is not available.';
-            }
-        } catch (error) {
-            console.error('Storage info load failed', error);
-            this.storageInfo = null;
-            this.storageInfoError = 'Could not load storage information.';
-        } finally {
-            this.isLoadingStorageInfo = false;
-        }
-    }
-
     private async loadDashboard(): Promise<void> {
         if (!this.currentUserId) {
             return;
@@ -419,13 +336,6 @@ export class FinanceComponent implements OnInit {
                 firstValueFrom(this.userService.getUsers()),
                 this.isAdmin ? firstValueFrom(this.activityLogService.getAll(activityFilters)) : Promise.resolve([])
             ]);
-
-            if (this.isAdmin) {
-                void this.loadStorageInfo();
-            } else {
-                this.storageInfo = null;
-                this.storageInfoError = '';
-            }
 
             this.userNameById.clear();
             this.userDepartmentById.clear();

@@ -9,8 +9,24 @@ import { UserService } from 'src/app/services/user/user.service';
 import { DocumentHeaderBrandingService } from 'src/app/services/document-header-branding/document-header-branding.service';
 import {
     WORD_EDITOR_CKEDITOR,
-    WORD_EDITOR_CKEDITOR_CONFIG,
 } from 'src/app/utils/word-editor-ckeditor.util';
+import { TEMPLATE_BUILDER_WORD_EDITOR_CONFIG } from 'src/app/utils/template-builder-word-editor.config';
+import {
+    finalizeTableFormulaHtml,
+    formatExcelColumnLabel,
+    isTableFormulaSyncHtmlSafe,
+    getFormulaDefinitionFromCell,
+    getFormulaEditText,
+    getTableFormulaCellRefFromElement,
+    isExcelFormulaComplete,
+    isExcelFormulaText,
+    shiftExcelFormulaReferences,
+    isSameTableCellRef,
+    readTableCellPlainText,
+    TableFormulaCellRef,
+    TableFormulaDefinition,
+    TEMPLATE_TABLE_FORMULA_ATTR,
+} from 'src/app/utils/template-table-formula.util';
 import {
     resolveDocumentHeaderAddress,
     resolveDocumentHeaderBrandTitle,
@@ -53,7 +69,7 @@ type TemplateFieldType =
     | 'orientation';
 type PipelineStepType = 'initiator' | 'department' | 'individual' | 'role';
 type PipelineApprovalMode = 'AND' | 'OR';
-type PipelineDynamicTarget = 'initiator_hod' | 'initiator';
+type PipelineDynamicTarget = 'initiator_hod' | 'initiator_manager' | 'initiator';
 type PipelineFieldRight = 'fill' | 'edit' | 'hide';
 const TEMPLATE_BUILDER_HIDE_CKEDITOR_BADGE_CLASS = 'template-builder-hide-ckeditor-badge';
 
@@ -151,15 +167,26 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     readonly a4PortraitHeight = 1123;
     readonly pageGap = 16;
     readonly selfHodDepartmentValue = -1;
+    readonly selfManagerDepartmentValue = -2;
     readonly wordEditor = WORD_EDITOR_CKEDITOR;
-    readonly wordEditorConfig = WORD_EDITOR_CKEDITOR_CONFIG;
+    readonly wordEditorConfig = TEMPLATE_BUILDER_WORD_EDITOR_CONFIG;
     readonly tableFieldEditorConfig: EditorConfig = {
-        ...WORD_EDITOR_CKEDITOR_CONFIG,
+        ...TEMPLATE_BUILDER_WORD_EDITOR_CONFIG,
         toolbar: {
             items: [],
             shouldNotGroupWhenFull: true,
         },
     };
+    private tableFormulaEditorCleanups: Array<() => void> = [];
+    private tableFormulaSyncTimers = new WeakMap<any, ReturnType<typeof setTimeout>>();
+    private tableFormulaSyncGuard = new WeakSet<any>();
+    private tableFormulaEditTarget: TableFormulaCellRef | null = null;
+    private copiedTableFormula: { expression: string; source: TableFormulaCellRef } | null = null;
+    private tableFormulaSyncCommits = new WeakMap<any, (syncedHtml: string) => void>();
+    private tableFormulaExpressions = new WeakMap<any, Map<string, string>>();
+    private excelIndicatorTimers = new WeakMap<any, ReturnType<typeof setTimeout>>();
+    private excelIndicatorCleanups: Array<() => void> = [];
+    private dismissedExcelIndicators = new WeakSet<any>();
     private readonly pdfBackgroundRenderScale = 3;
     private readonly minFloatingFieldWidth = 1;
     private readonly minFloatingFieldHeight = 1;
@@ -326,6 +353,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     ngOnDestroy(): void {
         window.removeEventListener('velocity-tour-prepare', this.onTourPrepare);
         document.body.classList.remove(TEMPLATE_BUILDER_HIDE_CKEDITOR_BADGE_CLASS);
+        this.excelIndicatorCleanups.forEach((cleanup) => cleanup());
+        this.excelIndicatorCleanups = [];
+        this.tableFormulaEditorCleanups.forEach((cleanup) => cleanup());
+        this.tableFormulaEditorCleanups = [];
     }
 
     private onTourPrepare = (event: Event): void => {
@@ -349,6 +380,75 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     get pageIndexes(): number[] {
         return Array.from({ length: this.pageCount }, (_, index) => index);
+    }
+
+    /** Document stage zoom (center canvas). */
+    documentZoom = 1;
+    readonly documentZoomMin = 0.5;
+    readonly documentZoomMax = 2;
+    readonly documentZoomStep = 0.1;
+
+    get documentFrameHeight(): number {
+        return this.pageCount * this.pageHeight + (this.pageCount - 1) * this.pageGap;
+    }
+
+    get zoomedDocumentWidth(): number {
+        return Math.round(this.pageWidth * this.documentZoom);
+    }
+
+    get zoomedDocumentHeight(): number {
+        return Math.round(this.documentFrameHeight * this.documentZoom);
+    }
+
+    get documentZoomPercentLabel(): string {
+        return `${Math.round(this.documentZoom * 100)}%`;
+    }
+
+    get documentZoomTransform(): { [key: string]: string } {
+        return {
+            transform: `scale(${this.documentZoom})`,
+            transformOrigin: 'top left',
+            width: `${this.pageWidth}px`,
+            minHeight: `${this.documentFrameHeight}px`,
+        };
+    }
+
+    zoomInDocument(): void {
+        this.setDocumentZoom(this.documentZoom + this.documentZoomStep);
+    }
+
+    zoomOutDocument(): void {
+        this.setDocumentZoom(this.documentZoom - this.documentZoomStep);
+    }
+
+    resetDocumentZoom(): void {
+        this.setDocumentZoom(1);
+    }
+
+    onDocumentStageWheel(event: WheelEvent): void {
+        if (!event.ctrlKey && !event.metaKey) {
+            return;
+        }
+        const target = event.target as HTMLElement | null;
+        if (!target?.closest('.paper-wrap')) {
+            return;
+        }
+        event.preventDefault();
+        if (event.deltaY < 0) {
+            this.zoomInDocument();
+        } else if (event.deltaY > 0) {
+            this.zoomOutDocument();
+        }
+    }
+
+    private setDocumentZoom(value: number): void {
+        const clamped = Math.min(this.documentZoomMax, Math.max(this.documentZoomMin, value));
+        this.documentZoom = Math.round(clamped * 100) / 100;
+        this.scheduleExcelTableIndicators(this.editorInstance);
+        Object.values(this.tableEditorsByFieldId || {}).forEach((editor) => this.scheduleExcelTableIndicators(editor));
+        if (this.newTableEditor) {
+            this.scheduleExcelTableIndicators(this.newTableEditor);
+        }
     }
 
     get selectedField(): TemplateField | undefined {
@@ -411,17 +511,765 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     onEditorReady(editor: any): void {
         this.editorInstance = editor;
+        const initialHtml = String(this.editorContent || '');
+        if (initialHtml && String(editor.getData?.() || '') !== initialHtml) {
+            this.tableFormulaSyncGuard.add(editor);
+            editor.setData(initialHtml);
+            setTimeout(() => this.tableFormulaSyncGuard.delete(editor), 0);
+        }
+        this.attachTableFormulaLiveSync(editor, (syncedHtml) => {
+            this.editorContent = syncedHtml;
+            this.schedulePaginationUpdate();
+        });
+        this.attachExcelTableIndicators(editor);
+        this.runInitialTableFormulaSync(editor, (syncedHtml) => {
+            this.editorContent = syncedHtml;
+        });
+        this.protectTableInsert(editor);
         this.updateFieldLayerTop();
         this.schedulePaginationUpdate();
     }
 
-    onEditorContentChanged(): void {
-        const cleanedContent = this.removeRadioFieldMarkers(this.editorContent || '');
-        if (cleanedContent !== this.editorContent) {
-            this.editorContent = cleanedContent;
-            this.editorInstance?.setData(this.editorContent);
+    private attachTableFormulaLiveSync(editor: any, commit: (syncedHtml: string) => void): void {
+        if (!editor?.model?.document?.on || editor.__templateBuilderFormulaSyncAttached) {
+            return;
         }
+        editor.__templateBuilderFormulaSyncAttached = true;
+        this.tableFormulaSyncCommits.set(editor, commit);
+        this.attachTableFormulaEditSupport(editor);
+        editor.model.document.on('change:data', () => {
+            this.scheduleExcelTableIndicators(editor);
+        });
+    }
+
+    private shouldDeferTableFormulaSync(editor: any): boolean {
+        return this.editorHasIncompleteFormulaDraft(editor);
+    }
+
+    private editorHasIncompleteFormulaDraft(editor: any): boolean {
+        const html = String(editor?.getData?.() || '');
+        if (!/<table[\s>]/i.test(html)) {
+            return false;
+        }
+        const host = document.createElement('div');
+        host.innerHTML = html;
+        const cells = host.querySelectorAll('td, th');
+        for (let index = 0; index < cells.length; index += 1) {
+            const cell = cells[index] as HTMLTableCellElement;
+            const text = readTableCellPlainText(cell);
+            if (isExcelFormulaText(text) && !isExcelFormulaComplete(text)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private moveSelectionOutsideTables(editor: any): void {
+        const root = editor?.model?.document?.getRoot?.();
+        if (!root || !editor?.model?.change) {
+            return;
+        }
+        try {
+            editor.model.change((writer: any) => {
+                writer.setSelection(root, 'end');
+            });
+        } catch {
+            // Selection can stay in the cell; setData is still skipped while typing.
+        }
+    }
+
+    private readModelCellPlainText(cell: any): string {
+        if (!cell?.getChildren) {
+            return '';
+        }
+        const parts: string[] = [];
+        const visit = (node: any) => {
+            if (!node) {
+                return;
+            }
+            if (typeof node.data === 'string') {
+                parts.push(node.data);
+                return;
+            }
+            if (typeof node.getChildren === 'function') {
+                Array.from(node.getChildren()).forEach(visit);
+            }
+        };
+        Array.from(cell.getChildren()).forEach(visit);
+        return parts.join('').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    private getModelCellRefFromSelection(editor: any): TableFormulaCellRef | null {
+        const position = editor?.model?.document?.selection?.getFirstPosition?.();
+        let cell = position?.parent;
+        while (cell && cell.name !== 'tableCell' && cell.name !== 'tableHeaderCell') {
+            cell = cell.parent;
+        }
+        const row = cell?.parent;
+        const table = row?.parent;
+        if (!cell || !row || row.name !== 'tableRow' || !table || table.name !== 'table') {
+            return null;
+        }
+        const root = editor.model.document.getRoot();
+        let tableIndex = 0;
+        let matched = false;
+        const visit = (element: any): void => {
+            if (!element?.getChildren || matched) {
+                return;
+            }
+            for (const child of element.getChildren()) {
+                if (matched) {
+                    return;
+                }
+                if (child?.name === 'table') {
+                    tableIndex += 1;
+                    if (child === table) {
+                        matched = true;
+                        return;
+                    }
+                    continue;
+                }
+                visit(child);
+            }
+        };
+        visit(root);
+        if (!matched) {
+            return null;
+        }
+        const rows = Array.from(row.parent.getChildren()).filter((item: any) => item?.name === 'tableRow');
+        const cells = Array.from(row.getChildren()).filter((item: any) =>
+            item?.name === 'tableCell' || item?.name === 'tableHeaderCell');
+        const rowNumber = rows.indexOf(row) + 1;
+        const colNumber = cells.indexOf(cell) + 1;
+        if (rowNumber < 1 || colNumber < 1) {
+            return null;
+        }
+        return { tableIndex, row: rowNumber, col: colNumber };
+    }
+
+    private isSelectionInsideTable(editor: any): boolean {
+        const position = editor?.model?.document?.selection?.getFirstPosition?.();
+        let parent = position?.parent;
+        while (parent) {
+            if (parent.name === 'table' || parent.name === 'tableCell' || parent.name === 'tableHeaderCell') {
+                return true;
+            }
+            parent = parent.parent;
+        }
+        return false;
+    }
+
+    private findModelTableCell(editor: any, tableIndex: number, row: number, col: number): any | null {
+        const root = editor?.model?.document?.getRoot?.();
+        if (!root?.getChildren) {
+            return null;
+        }
+        let seen = 0;
+        const visit = (element: any): any | null => {
+            for (const child of element.getChildren()) {
+                if (child?.name === 'table') {
+                    seen += 1;
+                    if (seen === tableIndex) {
+                        const rows = Array.from(child.getChildren()).filter((item: any) => item?.name === 'tableRow');
+                        const rowNode = rows[row - 1] as any;
+                        if (!rowNode?.getChildren) {
+                            return null;
+                        }
+                        const cells = Array.from(rowNode.getChildren()).filter((item: any) =>
+                            item?.name === 'tableCell' || item?.name === 'tableHeaderCell');
+                        return cells[col - 1] || null;
+                    }
+                    continue;
+                }
+                if (typeof child?.getChildren === 'function') {
+                    const found = visit(child);
+                    if (found) {
+                        return found;
+                    }
+                }
+            }
+            return null;
+        };
+        return visit(root);
+    }
+
+    private replaceEditorTableCellText(editor: any, cellRef: TableFormulaCellRef, text: string): void {
+        const cell = this.findModelTableCell(editor, cellRef.tableIndex, cellRef.row, cellRef.col);
+        if (!cell || !editor?.model?.change) {
+            return;
+        }
+        this.tableFormulaSyncGuard.add(editor);
+        try {
+            editor.model.change((writer: any) => {
+                const range = editor.model.createRangeIn(cell);
+                writer.remove(range);
+                const paragraph = writer.createElement('paragraph');
+                writer.append(paragraph, cell);
+                if (text) {
+                    writer.insertText(text, paragraph);
+                }
+            });
+        } catch (error) {
+            console.warn('[template-builder] could not restore formula text in cell', error);
+        }
+        setTimeout(() => this.tableFormulaSyncGuard.delete(editor), 0);
+    }
+
+    private isEditingFormulaInTableCell(editor: any): boolean {
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        const active = editable?.ownerDocument?.activeElement as HTMLElement | null;
+        if (!editable || !active || !editable.contains(active)) {
+            return false;
+        }
+        const cell = active.closest?.('td, th') as HTMLTableCellElement | null;
+        if (!cell || !editable.contains(cell)) {
+            return false;
+        }
+        const text = readTableCellPlainText(cell);
+        return isExcelFormulaText(text);
+    }
+
+    private runTableFormulaSync(editor: any, force = false): void {
+        if (this.tableFormulaSyncGuard.has(editor)) {
+            return;
+        }
+        if (!force && this.shouldDeferTableFormulaSync(editor)) {
+            this.scheduleExcelTableIndicators(editor);
+            return;
+        }
+        if (!force && this.isEditingFormulaInTableCell(editor)) {
+            this.scheduleExcelTableIndicators(editor);
+            return;
+        }
+        const commit = this.tableFormulaSyncCommits.get(editor);
+        if (!commit) {
+            return;
+        }
+        const rawHtml = String(editor.getData?.() || '');
+        const syncedHtml = finalizeTableFormulaHtml(rawHtml, null, {
+            editingTarget: this.tableFormulaEditTarget,
+        });
+        if (syncedHtml === rawHtml) {
+            this.scheduleExcelTableIndicators(editor);
+            return;
+        }
+        if (!isTableFormulaSyncHtmlSafe(rawHtml, syncedHtml)) {
+            console.warn('[template-builder] Skipped formula sync to protect table structure.');
+            this.scheduleExcelTableIndicators(editor);
+            return;
+        }
+        if (this.isSelectionInsideTable(editor) && !force) {
+            this.scheduleExcelTableIndicators(editor);
+            return;
+        }
+        this.tableFormulaSyncGuard.add(editor);
+        if (this.isSelectionInsideTable(editor)) {
+            this.moveSelectionOutsideTables(editor);
+        }
+        editor.setData?.(syncedHtml);
+        commit(syncedHtml);
+        setTimeout(() => {
+            this.tableFormulaSyncGuard.delete(editor);
+            this.scheduleExcelTableIndicators(editor);
+        }, 0);
+    }
+
+    private attachTableFormulaEditSupport(editor: any): void {
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        if (!editable || editor.__templateBuilderFormulaEditAttached) {
+            return;
+        }
+        editor.__templateBuilderFormulaEditAttached = true;
+
+        const onFocusIn = (event: FocusEvent) => {
+            const target = event.target as HTMLElement | null;
+            const cell = target?.closest?.('td, th') as HTMLTableCellElement | null;
+            if (!cell || !editable.contains(cell)) {
+                return;
+            }
+            const cellRef = getTableFormulaCellRefFromElement(cell, editable);
+            if (!cellRef) {
+                return;
+            }
+            const remembered = this.recallFormulaExpression(editor, cellRef);
+            const formula = getFormulaDefinitionFromCell(cell);
+            const editText = formula ? getFormulaEditText(formula) : remembered;
+            if (!editText) {
+                return;
+            }
+            this.tableFormulaEditTarget = cellRef;
+            if (readTableCellPlainText(cell) !== editText) {
+                this.replaceEditorTableCellText(editor, cellRef, editText);
+            }
+        };
+
+        const onFocusOut = (event: FocusEvent) => {
+            const target = event.target as HTMLElement | null;
+            const cell = target?.closest?.('td, th') as HTMLTableCellElement | null;
+            if (!cell || !editable.contains(cell)) {
+                return;
+            }
+            window.setTimeout(() => {
+                const active = editable.ownerDocument.activeElement as HTMLElement | null;
+                const activeCell = active?.closest?.('td, th') as HTMLTableCellElement | null;
+                if (activeCell && cell.contains(activeCell)) {
+                    return;
+                }
+                if (activeCell && editable.contains(activeCell)) {
+                    this.tableFormulaEditTarget = getTableFormulaCellRefFromElement(activeCell, editable);
+                } else {
+                    this.tableFormulaEditTarget = null;
+                }
+                if (this.shouldDeferTableFormulaSync(editor)) {
+                    this.scheduleExcelTableIndicators(editor);
+                    return;
+                }
+                this.renderFormulaResultsInModel(editor);
+            }, 0);
+        };
+
+        const onCopyFormula = () => {
+            const source = this.getModelCellRefFromSelection(editor);
+            if (!source) {
+                this.copiedTableFormula = null;
+                return;
+            }
+            const expression = this.formulaExpressionForCell(editor, editable, source);
+            this.copiedTableFormula = expression
+                ? { expression, source }
+                : null;
+        };
+        const onPasteFormula = (event: ClipboardEvent) => {
+            const copied = this.copiedTableFormula;
+            const destination = this.getModelCellRefFromSelection(editor);
+            if (!copied || !destination || !isExcelFormulaText(copied.expression)) {
+                return;
+            }
+            const plainText = String(event.clipboardData?.getData('text/plain') || '');
+            const htmlText = String(event.clipboardData?.getData('text/html') || '');
+            const htmlHost = document.createElement('div');
+            htmlHost.innerHTML = htmlText;
+            const pasted = (isExcelFormulaText(plainText) ? plainText : htmlHost.textContent || '')
+                .replace(/\u00a0/g, ' ')
+                .trim();
+            if (!isExcelFormulaText(pasted)) {
+                return;
+            }
+            if (this.normalizeCopiedFormula(pasted) !== this.normalizeCopiedFormula(copied.expression)) {
+                return;
+            }
+            const deltaRow = destination.row - copied.source.row;
+            const deltaCol = destination.col - copied.source.col;
+            if (!deltaRow && !deltaCol) {
+                return;
+            }
+            const shifted = shiftExcelFormulaReferences(copied.expression, deltaRow, deltaCol);
+            event.preventDefault();
+            event.stopPropagation();
+            this.tableFormulaEditTarget = destination;
+            this.rememberFormulaExpression(editor, destination, shifted);
+            this.replaceEditorTableCellText(editor, destination, shifted);
+        };
+        editable.addEventListener('focusin', onFocusIn);
+        editable.addEventListener('focusout', onFocusOut, true);
+        editable.addEventListener('copy', onCopyFormula, true);
+        editable.addEventListener('cut', onCopyFormula, true);
+        editable.addEventListener('paste', onPasteFormula, true);
+        const onSelectionChange = () => {
+            if (this.tableFormulaSyncGuard.has(editor)) {
+                return;
+            }
+            const nextRef = this.getModelCellRefFromSelection(editor);
+            const previousRef = this.tableFormulaEditTarget;
+            if (previousRef && nextRef && isSameTableCellRef(previousRef, nextRef)) {
+                return;
+            }
+            if (!previousRef && !nextRef) {
+                return;
+            }
+            this.tableFormulaEditTarget = nextRef;
+            window.setTimeout(() => {
+                if (this.tableFormulaSyncGuard.has(editor)) {
+                    return;
+                }
+                if (!this.shouldDeferTableFormulaSync(editor)) {
+                    this.renderFormulaResultsInModel(editor);
+                }
+                if (!nextRef) {
+                    return;
+                }
+                const remembered = this.recallFormulaExpression(editor, nextRef);
+                if (!remembered) {
+                    return;
+                }
+                const cell = this.findModelTableCell(editor, nextRef.tableIndex, nextRef.row, nextRef.col);
+                const liveText = this.readModelCellPlainText(cell);
+                if (liveText === remembered) {
+                    return;
+                }
+                this.tableFormulaEditTarget = nextRef;
+                this.replaceEditorTableCellText(editor, nextRef, remembered);
+            }, 40);
+        };
+        editor.model.document.selection.on('change:range', onSelectionChange);
+        this.tableFormulaEditorCleanups.push(() => {
+            editable.removeEventListener('focusin', onFocusIn);
+            editable.removeEventListener('focusout', onFocusOut, true);
+            editable.removeEventListener('copy', onCopyFormula, true);
+            editable.removeEventListener('cut', onCopyFormula, true);
+            editable.removeEventListener('paste', onPasteFormula, true);
+            editor.model.document.selection.off('change:range', onSelectionChange);
+        });
+    }
+
+    private formulaExpressionForCell(editor: any, editable: HTMLElement, cellRef: TableFormulaCellRef): string {
+        const tables = Array.from(editable.querySelectorAll('table'));
+        const table = tables[cellRef.tableIndex - 1];
+        const row = table?.querySelectorAll('tr')[cellRef.row - 1];
+        const cell = row?.querySelectorAll('th, td')[cellRef.col - 1] as HTMLTableCellElement | undefined;
+        const liveText = cell ? readTableCellPlainText(cell) : '';
+        if (isExcelFormulaText(liveText)) {
+            return liveText.trim();
+        }
+        const formula = cell ? getFormulaDefinitionFromCell(cell) : null;
+        const fromAttribute = formula ? getFormulaEditText(formula) : '';
+        if (isExcelFormulaText(fromAttribute)) {
+            return fromAttribute.trim();
+        }
+        const remembered = this.recallFormulaExpression(editor, cellRef);
+        return isExcelFormulaText(remembered) ? remembered.trim() : '';
+    }
+
+    private normalizeCopiedFormula(value: string): string {
+        return String(value || '').replace(/\u00a0/g, ' ').replace(/\s+/g, '').toUpperCase();
+    }
+
+    private runInitialTableFormulaSync(editor: any, commit: (syncedHtml: string) => void): void {
+        if (!editor?.getData) {
+            return;
+        }
+        const rawHtml = String(editor.getData() || '');
+        const syncedHtml = finalizeTableFormulaHtml(rawHtml, null, {
+            editingTarget: this.tableFormulaEditTarget,
+        });
+        if (syncedHtml === rawHtml) {
+            return;
+        }
+        if (!isTableFormulaSyncHtmlSafe(rawHtml, syncedHtml)) {
+            return;
+        }
+        this.tableFormulaSyncGuard.add(editor);
+        editor.setData(syncedHtml);
+        commit(syncedHtml);
+        setTimeout(() => {
+            this.tableFormulaSyncGuard.delete(editor);
+            this.scheduleExcelTableIndicators(editor);
+        }, 0);
+    }
+
+    private attachExcelTableIndicators(editor: any): void {
+        if (!editor?.model?.document?.on || editor.__templateBuilderExcelIndicatorsAttached) {
+            return;
+        }
+        editor.__templateBuilderExcelIndicatorsAttached = true;
+        const schedule = () => this.scheduleExcelTableIndicators(editor);
+        editor.model.document.on('change:data', schedule);
+        editor.model.document.selection?.on?.('change:range', schedule);
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        const onScroll = () => schedule();
+        editable?.addEventListener('scroll', onScroll, { passive: true });
+        window.addEventListener('resize', onScroll, { passive: true });
+        this.excelIndicatorCleanups.push(() => {
+            editable?.removeEventListener('scroll', onScroll);
+            window.removeEventListener('resize', onScroll);
+        });
+        schedule();
+    }
+
+    private scheduleExcelTableIndicators(editor: any): void {
+        const pending = this.excelIndicatorTimers.get(editor);
+        if (pending) {
+            clearTimeout(pending);
+        }
+        this.excelIndicatorTimers.set(editor, setTimeout(() => this.refreshExcelTableIndicators(editor), 60));
+    }
+
+    private refreshExcelTableIndicators(editor: any): void {
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        const editorRoot = editable?.closest('.ck-editor') as HTMLElement | null;
+        if (!editable || !editorRoot) {
+            return;
+        }
+
+        editorRoot.querySelectorAll('.template-excel-indicator-layer').forEach((node) => node.remove());
+        if (this.dismissedExcelIndicators.has(editor)) {
+            return;
+        }
+
+        const tables = Array.from(editable.querySelectorAll('table')).filter((table) => !table.parentElement?.closest('table'));
+        if (tables.length === 0) {
+            return;
+        }
+
+        const main = editorRoot.querySelector('.ck-editor__main') as HTMLElement | null;
+        const host = main || editorRoot;
+        if (getComputedStyle(host).position === 'static') {
+            host.style.position = 'relative';
+        }
+        host.style.overflow = 'visible';
+
+        const layer = document.createElement('div');
+        layer.className = 'template-excel-indicator-layer';
+        const editableBox = this.boxWithin(editable, host);
+        layer.style.left = `${editableBox.left}px`;
+        layer.style.top = `${editableBox.top}px`;
+        layer.style.width = `${Math.max(editable.offsetWidth, editable.scrollWidth)}px`;
+        layer.style.height = `${Math.max(editable.offsetHeight, editable.scrollHeight)}px`;
+        host.appendChild(layer);
+
+        const rowGutter = 22;
+        const colGutter = 16;
+        let needsRetry = false;
+
+        tables.forEach((tableNode) => {
+            const table = tableNode as HTMLTableElement;
+            const rows = Array.from(table.querySelectorAll(':scope > tbody > tr, :scope > thead > tr, :scope > tr'));
+            const measuredRows = rows.length ? rows : Array.from(table.querySelectorAll('tr'));
+            if (measuredRows.length === 0) {
+                needsRetry = true;
+                return;
+            }
+
+            const firstRowCells = Array.from(measuredRows[0].querySelectorAll(':scope > th, :scope > td')) as HTMLElement[];
+            const headerCells = firstRowCells.length
+                ? firstRowCells
+                : Array.from(measuredRows[0].querySelectorAll('th, td')) as HTMLElement[];
+            if (headerCells.length === 0) {
+                needsRetry = true;
+                return;
+            }
+
+            const anchorBox = this.boxWithin(headerCells[0], editable);
+            if (anchorBox.width < 1 || anchorBox.height < 1) {
+                needsRetry = true;
+                return;
+            }
+
+            const corner = document.createElement('button');
+            corner.type = 'button';
+            corner.className = 'template-excel-corner';
+            corner.title = 'Remove row and column labels';
+            corner.setAttribute('aria-label', 'Remove row and column labels');
+            corner.textContent = '×';
+            corner.style.left = `${anchorBox.left - rowGutter}px`;
+            corner.style.top = `${anchorBox.top - colGutter}px`;
+            corner.style.width = `${rowGutter}px`;
+            corner.style.height = `${colGutter}px`;
+            corner.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                this.dismissedExcelIndicators.add(editor);
+                layer.remove();
+            });
+            layer.appendChild(corner);
+
+            headerCells.forEach((cell, columnIndex) => {
+                const cellBox = this.boxWithin(cell, editable);
+                const label = document.createElement('span');
+                label.className = 'template-excel-col-label';
+                label.style.left = `${cellBox.left}px`;
+                label.style.top = `${cellBox.top - colGutter}px`;
+                label.style.width = `${Math.max(cellBox.width, 1)}px`;
+                label.style.height = `${colGutter}px`;
+                label.textContent = formatExcelColumnLabel(columnIndex + 1);
+                layer.appendChild(label);
+            });
+
+            measuredRows.forEach((row, rowIndex) => {
+                const firstCell = row.querySelector(':scope > th, :scope > td, th, td') as HTMLElement | null;
+                if (!firstCell) {
+                    return;
+                }
+                const rowBox = this.boxWithin(firstCell, editable);
+                if (rowBox.height < 1) {
+                    needsRetry = true;
+                    return;
+                }
+                const label = document.createElement('span');
+                label.className = 'template-excel-row-label';
+                label.style.left = `${rowBox.left - rowGutter}px`;
+                label.style.top = `${rowBox.top}px`;
+                label.style.width = `${rowGutter}px`;
+                label.style.height = `${rowBox.height}px`;
+                label.textContent = String(rowIndex + 1);
+                layer.appendChild(label);
+            });
+        });
+
+        if (needsRetry) {
+            const attempts = Number(editor.__excelIndicatorRetries || 0);
+            if (attempts < 8) {
+                editor.__excelIndicatorRetries = attempts + 1;
+                setTimeout(() => this.refreshExcelTableIndicators(editor), 120);
+            }
+        } else {
+            editor.__excelIndicatorRetries = 0;
+        }
+    }
+
+    private boxWithin(element: HTMLElement, ancestor: HTMLElement): { left: number; top: number; width: number; height: number } {
+        const ancestorRect = ancestor.getBoundingClientRect();
+        const rect = element.getBoundingClientRect();
+        const unscaledWidth = ancestor.offsetWidth || ancestorRect.width || 1;
+        const unscaledHeight = ancestor.offsetHeight || ancestorRect.height || 1;
+        const scaleX = ancestorRect.width / unscaledWidth || 1;
+        const scaleY = ancestorRect.height / unscaledHeight || 1;
+        return {
+            left: (rect.left - ancestorRect.left) / scaleX,
+            top: (rect.top - ancestorRect.top) / scaleY,
+            width: rect.width / scaleX,
+            height: rect.height / scaleY,
+        };
+    }
+
+    private formulaMemoryFor(editor: any): Map<string, string> {
+        let memory = this.tableFormulaExpressions.get(editor);
+        if (!memory) {
+            memory = new Map<string, string>();
+            this.tableFormulaExpressions.set(editor, memory);
+        }
+        return memory;
+    }
+
+    private rememberFormulaExpression(editor: any, cellRef: TableFormulaCellRef, expression: string): void {
+        if (!expression) {
+            return;
+        }
+        this.formulaMemoryFor(editor).set(`${cellRef.tableIndex}:${cellRef.row}:${cellRef.col}`, expression);
+    }
+
+    private recallFormulaExpression(editor: any, cellRef: TableFormulaCellRef): string {
+        return this.formulaMemoryFor(editor).get(`${cellRef.tableIndex}:${cellRef.row}:${cellRef.col}`) || '';
+    }
+
+    private renderFormulaResultsInModel(editor: any): void {
+        if (!editor?.getData || !editor?.model?.change || this.tableFormulaSyncGuard.has(editor)) {
+            return;
+        }
+        if (this.shouldDeferTableFormulaSync(editor)) {
+            return;
+        }
+        const rawHtml = String(editor.getData() || '');
+        if (!/<table[\s>]/i.test(rawHtml)) {
+            return;
+        }
+        const syncedHtml = finalizeTableFormulaHtml(rawHtml, null, {
+            editingTarget: this.tableFormulaEditTarget,
+        });
+        if (!isTableFormulaSyncHtmlSafe(rawHtml, syncedHtml)) {
+            return;
+        }
+        const host = document.createElement('div');
+        host.innerHTML = syncedHtml;
+        const updates: Array<{ ref: TableFormulaCellRef; text: string; rawAttr: string }> = [];
+        host.querySelectorAll('table').forEach((table, tableIndex) => {
+            Array.from(table.querySelectorAll('tr')).forEach((row, rowIndex) => {
+                Array.from(row.querySelectorAll('td, th')).forEach((cell, colIndex) => {
+                    const element = cell as HTMLTableCellElement;
+                    const rawAttr = element.getAttribute(TEMPLATE_TABLE_FORMULA_ATTR) || '';
+                    if (!rawAttr) {
+                        return;
+                    }
+                    const ref: TableFormulaCellRef = {
+                        tableIndex: tableIndex + 1,
+                        row: rowIndex + 1,
+                        col: colIndex + 1,
+                    };
+                    if (this.tableFormulaEditTarget && isSameTableCellRef(this.tableFormulaEditTarget, ref)) {
+                        return;
+                    }
+                    let expression = '';
+                    try {
+                        expression = String((JSON.parse(rawAttr) as TableFormulaDefinition)?.expression || '');
+                    } catch {
+                        expression = '';
+                    }
+                    if (expression) {
+                        this.rememberFormulaExpression(editor, ref, expression);
+                    }
+                    updates.push({
+                        ref,
+                        text: readTableCellPlainText(element),
+                        rawAttr,
+                    });
+                });
+            });
+        });
+        if (updates.length === 0) {
+            return;
+        }
+        this.tableFormulaSyncGuard.add(editor);
+        try {
+            editor.model.change((writer: any) => {
+                updates.forEach((update) => {
+                    const cell = this.findModelTableCell(editor, update.ref.tableIndex, update.ref.row, update.ref.col);
+                    if (!cell) {
+                        return;
+                    }
+                    const range = editor.model.createRangeIn(cell);
+                    writer.remove(range);
+                    const paragraph = writer.createElement('paragraph');
+                    writer.append(paragraph, cell);
+                    if (update.text) {
+                        writer.insertText(update.text, paragraph);
+                    }
+                    if (editor.model.schema.checkAttribute(cell, 'htmlTdAttributes')) {
+                        writer.setAttribute('htmlTdAttributes', {
+                            attributes: {
+                                'data-template-formula': update.rawAttr,
+                                title: update.text,
+                            },
+                            classes: ['template-formula-cell'],
+                        }, cell);
+                    }
+                });
+            });
+        } catch (error) {
+            console.warn('[template-builder] could not render table formula result', error);
+        }
+        setTimeout(() => {
+            this.tableFormulaSyncGuard.delete(editor);
+            this.scheduleExcelTableIndicators(editor);
+        }, 0);
+    }
+
+    onEditorContentChanged(event?: { editor?: any }): void {
+        const editor = event?.editor || this.editorInstance;
+        if (editor && this.tableFormulaSyncGuard.has(editor)) {
+            this.schedulePaginationUpdate();
+            return;
+        }
+        const html = String(editor?.getData?.() || this.editorContent || '');
+        const cleanedContent = this.removeRadioFieldMarkers(html);
+        this.editorContent = cleanedContent;
         this.schedulePaginationUpdate();
+    }
+
+    private protectTableInsert(editor: any): void {
+        const insertTable = editor?.commands?.get?.('insertTable');
+        if (!insertTable?.on || editor.__templateBuilderInsertTableGuard) {
+            return;
+        }
+        editor.__templateBuilderInsertTableGuard = true;
+        insertTable.on('execute', () => {
+            this.tableFormulaSyncGuard.add(editor);
+            setTimeout(() => {
+                this.tableFormulaSyncGuard.delete(editor);
+                this.editorContent = String(editor.getData?.() || this.editorContent || '');
+                this.scheduleExcelTableIndicators(editor);
+                setTimeout(() => this.scheduleExcelTableIndicators(editor), 200);
+            }, 300);
+        });
     }
 
     assignField(): void {
@@ -586,6 +1434,15 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     onNewTableEditorReady(editor: any): void {
         this.newTableEditor = editor;
         this.lastValidNewTableHtml = this.normalizeTableHtml(this.newTableHtml);
+        this.attachTableFormulaLiveSync(editor, (syncedHtml) => {
+            this.newTableHtml = syncedHtml;
+            this.lastValidNewTableHtml = syncedHtml;
+        });
+        this.attachExcelTableIndicators(editor);
+        this.runInitialTableFormulaSync(editor, (syncedHtml) => {
+            this.newTableHtml = syncedHtml;
+            this.lastValidNewTableHtml = syncedHtml;
+        });
         this.hideTableEditorTopToolbar(editor);
         this.attachNewTableEditorSizeGuard(editor);
     }
@@ -661,6 +1518,15 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         field.tableHtml = this.normalizeTableHtml(field.tableHtml);
         this.lastValidTableHtmlByFieldId[field.id] = field.tableHtml;
         this.tableEditorsByFieldId[field.id] = editor;
+        this.attachTableFormulaLiveSync(editor, (syncedHtml) => {
+            field.tableHtml = syncedHtml;
+            this.lastValidTableHtmlByFieldId[field.id] = syncedHtml;
+        });
+        this.attachExcelTableIndicators(editor);
+        this.runInitialTableFormulaSync(editor, (syncedHtml) => {
+            field.tableHtml = syncedHtml;
+            this.lastValidTableHtmlByFieldId[field.id] = syncedHtml;
+        });
         this.hideTableEditorTopToolbar(editor);
         this.attachTableFieldEditorSizeGuard(field, editor);
     }
@@ -850,9 +1716,13 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             this.selectedPipelineUsers = [];
 
             if (step.type === 'department') {
-                this.selectedPipelineDepartmentId = step.dynamicTarget === 'initiator_hod'
-                    ? this.selfHodDepartmentValue
-                    : Number(step.serDepartmentId || step.hrTblDepartment?.serDepartmentId || null);
+                if (step.dynamicTarget === 'initiator_hod') {
+                    this.selectedPipelineDepartmentId = this.selfHodDepartmentValue;
+                } else if (step.dynamicTarget === 'initiator_manager') {
+                    this.selectedPipelineDepartmentId = this.selfManagerDepartmentValue;
+                } else {
+                    this.selectedPipelineDepartmentId = Number(step.serDepartmentId || step.hrTblDepartment?.serDepartmentId || null);
+                }
             } else if (step.type === 'role') {
                 this.selectedPipelineRoleId = Number(step.serRoleId || step.cfgTblRole?.serRoleId || null);
             } else if (step.type === 'individual') {
@@ -1130,6 +2000,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (step.dynamicTarget === 'initiator_hod') {
             return 'Self HOD - resolves from initiator department';
         }
+        if (step.dynamicTarget === 'initiator_manager') {
+            return 'Self Manager - resolves from initiator reporting manager';
+        }
         if (step.dynamicTarget === 'initiator') {
             return 'Initiator - resolves to current form submitter';
         }
@@ -1278,6 +2151,8 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
         if (step?.dynamicTarget === 'initiator_hod') {
             users.push({ txtUserName: 'Initiator HOD' });
+        } else if (step?.dynamicTarget === 'initiator_manager') {
+            users.push({ txtUserName: 'Initiator Manager' });
         } else if (step?.dynamicTarget === 'initiator' || dynamicTargets.includes('initiator')) {
             users.push({ txtUserName: 'Initiator' });
         }
@@ -1537,8 +2412,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         }
 
         const { placement } = target;
-        const dx = event.clientX - this.activePointerAction.startClientX;
-        const dy = event.clientY - this.activePointerAction.startClientY;
+        const zoom = this.documentZoom || 1;
+        const dx = (event.clientX - this.activePointerAction.startClientX) / zoom;
+        const dy = (event.clientY - this.activePointerAction.startClientY) / zoom;
         if (this.activePointerAction.mode === 'drag') {
             placement.x = this.clamp(this.activePointerAction.startX + dx, 0, Math.max(0, this.pageWidth - placement.width));
             placement.y = this.clamp(this.activePointerAction.startY + dy, 0, Math.max(0, this.getDocumentHeight() - placement.height));
@@ -2421,6 +3297,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (this.newPipelineType === 'department') {
             if (Number(this.selectedPipelineDepartmentId) === this.selfHodDepartmentValue) {
                 return { id, name: name || 'Self HOD', type: 'department', approvalMode, dynamicTarget: 'initiator_hod', fieldPermissions, fieldPermissionsConfigured: true };
+            }
+            if (Number(this.selectedPipelineDepartmentId) === this.selfManagerDepartmentValue) {
+                return { id, name: name || 'Self Manager', type: 'department', approvalMode, dynamicTarget: 'initiator_manager', fieldPermissions, fieldPermissionsConfigured: true };
             }
             const department = this.departments.find((dept) => Number(dept.serDepartmentId) === Number(this.selectedPipelineDepartmentId));
             if (!department) {

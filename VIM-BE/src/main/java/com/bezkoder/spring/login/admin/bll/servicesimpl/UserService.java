@@ -106,6 +106,13 @@ public class UserService implements IUserService {
 	}
 
 	@Override
+	public String batchAssignUsersToDepartment(Integer departmentId, List<Integer> userIds,
+			String departmentHeadIds, String departmentManagerIds) {
+		return citTableUserDAO.batchAssignUsersToDepartment(departmentId, userIds, departmentHeadIds,
+				departmentManagerIds);
+	}
+
+	@Override
 	public String deleteUser(List<String> usersId) {
 		// TODO Auto-generated method stub
 		return citTableUserDAO.deleteUser(usersId);

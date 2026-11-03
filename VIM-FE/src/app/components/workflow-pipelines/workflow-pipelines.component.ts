@@ -30,6 +30,7 @@ import {
 } from './workflow-pipeline-thresholds.demo-data';
 import {
     SELF_HOD_DEPARTMENT_ID,
+    SELF_MANAGER_DEPARTMENT_ID,
     WORKFLOW_PIPELINE_STEP_TYPES,
     WorkflowPipelineApprovalMode,
     WorkflowPipelineStep,
@@ -113,6 +114,7 @@ export class WorkflowPipelinesComponent implements OnInit, OnDestroy {
 
     readonly pipelineStepTypes = WORKFLOW_PIPELINE_STEP_TYPES;
     readonly selfHodDepartmentId = SELF_HOD_DEPARTMENT_ID;
+    readonly selfManagerDepartmentId = SELF_MANAGER_DEPARTMENT_ID;
     readonly thresholdOperators = Object.entries(THRESHOLD_OPERATOR_LABELS).map(([value, label]) => ({
         value: value as ThresholdOperator,
         label,
@@ -413,6 +415,8 @@ export class WorkflowPipelinesComponent implements OnInit, OnDestroy {
         this.stepApprovalMode = (step.approvalMode as WorkflowPipelineApprovalMode) || 'OR';
         if (step.dynamicTarget === 'initiator_hod') {
             this.stepDepartmentId = this.selfHodDepartmentId;
+        } else if (step.dynamicTarget === 'initiator_manager') {
+            this.stepDepartmentId = this.selfManagerDepartmentId;
         } else {
             this.stepDepartmentId = step.serDepartmentId != null ? Number(step.serDepartmentId) : null;
         }
@@ -470,6 +474,17 @@ export class WorkflowPipelinesComponent implements OnInit, OnDestroy {
                     type: 'department',
                     approvalMode,
                     dynamicTarget: 'initiator_hod',
+                    fieldPermissions: emptyPermissions,
+                    fieldPermissionsConfigured: true,
+                };
+            }
+            if (Number(this.stepDepartmentId) === this.selfManagerDepartmentId) {
+                return {
+                    id,
+                    name: name || 'Self Manager',
+                    type: 'department',
+                    approvalMode,
+                    dynamicTarget: 'initiator_manager',
                     fieldPermissions: emptyPermissions,
                     fieldPermissionsConfigured: true,
                 };

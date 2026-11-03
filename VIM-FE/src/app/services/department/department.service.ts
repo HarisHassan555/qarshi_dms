@@ -31,14 +31,18 @@ export class DepartmentService {
     return this.http.get(urls.API_URL + 'getUsersByDepartment?departmentId=' + departmentId);
   }
 
-  assignUsersToDepartment(departmentId: number, userIds: number[], departmentHeadId?: string | null) {
+  assignUsersToDepartment(
+    departmentId: number,
+    userIds: number[],
+    departmentHeadId?: string | null,
+    departmentManagerId?: string | null
+  ) {
     const payload: any = {
       departmentId: departmentId,
-      userIds: userIds
+      userIds: userIds,
+      departmentHeadId: departmentHeadId ?? '',
+      departmentManagerId: departmentManagerId ?? ''
     };
-    if (departmentHeadId !== null && departmentHeadId !== undefined) {
-      payload.departmentHeadId = departmentHeadId;
-    }
     return this.http.post(urls.API_URL + 'assignUsersToDepartment', payload, { responseType: 'text' });
   }
 }

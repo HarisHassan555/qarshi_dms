@@ -26,6 +26,7 @@ export class DepartmentComponent implements OnInit {
   selectedDepartment: any = null;
   selectedUserIds: number[] = [];
   selectedDepartmentHeadIds: number[] = [];
+  selectedDepartmentManagerIds: number[] = [];
   blnStatus = false;
   editCase = false;
 
@@ -34,6 +35,7 @@ export class DepartmentComponent implements OnInit {
     { field: 'txtDepartmentCode', title: 'Department Code' },
     { field: 'userCount', title: 'Users Assigned' },
     { field: 'departmentHeadName', title: 'Department Head' },
+    { field: 'departmentManagerName', title: 'Department Manager' },
     { field: 'blnStatus', title: 'Status' },
     { field: 'actions', title: 'Actions', sort: false, headerClass: 'justify-center' },
   ];
@@ -115,24 +117,19 @@ export class DepartmentComponent implements OnInit {
             if (dept.departmentHead && dept.departmentHead.txtUserName) {
               departmentHeadName = dept.departmentHead.txtUserName;
             } else if (dept.serDepartmentHeadId && this.allUsers) {
-              // Fallback: find users from allUsers if departmentHead relationship is not loaded
-              const headIds = String(dept.serDepartmentHeadId).split(',').map(id => id.trim());
-              const headNames: string[] = [];
-              headIds.forEach(id => {
-                const headUser = this.allUsers.find((user: any) => String(user.serUserId) === id);
-                if (headUser && headUser.txtUserName) {
-                  headNames.push(headUser.txtUserName);
-                }
-              });
-              if (headNames.length > 0) {
-                departmentHeadName = headNames.join(', ');
-              }
+              departmentHeadName = this.formatAssigneeNames(dept.serDepartmentHeadId);
+            }
+
+            let departmentManagerName = '-';
+            if (dept.serDepartmentManagerId && this.allUsers) {
+              departmentManagerName = this.formatAssigneeNames(dept.serDepartmentManagerId);
             }
 
             return {
               ...dept,
               userCount: userCount,
-              departmentHeadName: departmentHeadName
+              departmentHeadName: departmentHeadName,
+              departmentManagerName: departmentManagerName
             };
           });
         }
@@ -234,6 +231,7 @@ export class DepartmentComponent implements OnInit {
     this.assignUsersSearch = '';
     this.selectedUserIds = [];
     this.selectedDepartmentHeadIds = [];
+    this.selectedDepartmentManagerIds = [];
 
     if (department.serDepartmentHeadId) {
       this.selectedDepartmentHeadIds = String(department.serDepartmentHeadId)
@@ -241,8 +239,20 @@ export class DepartmentComponent implements OnInit {
         .map(id => Number(id.trim()))
         .filter(id => !isNaN(id));
 
-      // Pre-fill selectedUserIds with HODs to ensure they are consistent
       this.selectedDepartmentHeadIds.forEach(id => {
+        if (!this.selectedUserIds.includes(id)) {
+          this.selectedUserIds.push(id);
+        }
+      });
+    }
+
+    if (department.serDepartmentManagerId) {
+      this.selectedDepartmentManagerIds = String(department.serDepartmentManagerId)
+        .split(',')
+        .map(id => Number(id.trim()))
+        .filter(id => !isNaN(id));
+
+      this.selectedDepartmentManagerIds.forEach(id => {
         if (!this.selectedUserIds.includes(id)) {
           this.selectedUserIds.push(id);
         }
@@ -284,6 +294,10 @@ export class DepartmentComponent implements OnInit {
       if (headIndex > -1) {
         this.selectedDepartmentHeadIds.splice(headIndex, 1);
       }
+      const managerIndex = this.selectedDepartmentManagerIds.indexOf(userId);
+      if (managerIndex > -1) {
+        this.selectedDepartmentManagerIds.splice(managerIndex, 1);
+      }
     } else {
       this.selectedUserIds.push(userId);
     }
@@ -300,6 +314,43 @@ export class DepartmentComponent implements OnInit {
         this.selectedUserIds.push(userId);
       }
     }
+  }
+
+  toggleDepartmentManager(userId: number) {
+    const index = this.selectedDepartmentManagerIds.indexOf(userId);
+    if (index > -1) {
+      this.selectedDepartmentManagerIds.splice(index, 1);
+    } else {
+      this.selectedDepartmentManagerIds.push(userId);
+      if (!this.isUserSelected(userId)) {
+        this.selectedUserIds.push(userId);
+      }
+    }
+  }
+
+  formatAssigneeNames(rawIds: string | number | null | undefined): string {
+    if (rawIds == null || !this.allUsers) {
+      return '-';
+    }
+    const ids = String(rawIds).split(',').map((id) => id.trim()).filter(Boolean);
+    const names: string[] = [];
+    ids.forEach((id) => {
+      const user = this.allUsers.find((u: any) => String(u.serUserId) === id);
+      if (user?.txtUserName) {
+        names.push(user.txtUserName);
+      }
+    });
+    return names.length > 0 ? names.join(', ') : '-';
+  }
+
+  getAssigneeNamesForIds(ids: number[]): string {
+    if (!ids?.length || !this.allUsers) {
+      return '';
+    }
+    return ids
+      .map((id) => this.allUsers.find((u: any) => u.serUserId === id)?.txtUserName)
+      .filter(Boolean)
+      .join(', ');
   }
 
   isUserSelected(userId: number): boolean {
@@ -331,6 +382,14 @@ export class DepartmentComponent implements OnInit {
       const invalidHeads = this.selectedDepartmentHeadIds.filter(id => !this.selectedUserIds.includes(id));
       if (invalidHeads.length > 0) {
         this.notificationService.showMessage('All department heads must be selected from the assigned users', 'danger');
+        return;
+      }
+    }
+
+    if (this.selectedDepartmentManagerIds.length > 0) {
+      const invalidManagers = this.selectedDepartmentManagerIds.filter(id => !this.selectedUserIds.includes(id));
+      if (invalidManagers.length > 0) {
+        this.notificationService.showMessage('All department managers must be selected from the assigned users', 'danger');
         return;
       }
     }
@@ -436,18 +495,20 @@ export class DepartmentComponent implements OnInit {
   private performAssignUsers() {
 
     // Use the backend endpoint for assigning users to department
-    const headsString = this.selectedDepartmentHeadIds.length > 0 ? this.selectedDepartmentHeadIds.join(',') : null;
+    const headsString = this.selectedDepartmentHeadIds.length > 0 ? this.selectedDepartmentHeadIds.join(',') : '';
+    const managersString = this.selectedDepartmentManagerIds.length > 0 ? this.selectedDepartmentManagerIds.join(',') : '';
 
     this.departmentService.assignUsersToDepartment(
       this.selectedDepartment.serDepartmentId,
       this.selectedUserIds,
-      headsString
+      headsString,
+      managersString
     ).subscribe(
       (response: any) => {
         if (response && (response.includes('Success') || response.includes('"status":"Success"'))) {
           this.notificationService.showMessage('Users assigned to department successfully', 'success');
           this.assignUsersModal.close();
-          this.getAllUsers();
+          this.getDepartments();
         } else {
           this.notificationService.showMessage('Error occurred while assigning users', 'danger');
         }

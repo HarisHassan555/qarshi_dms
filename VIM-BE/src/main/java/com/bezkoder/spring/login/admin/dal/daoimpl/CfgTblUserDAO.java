@@ -118,18 +118,10 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 				.createQuery("SELECT DISTINCT user FROM CfgTblUser user " +
 						"LEFT JOIN FETCH user.cfgTblRole role " +
 						"LEFT JOIN FETCH user.hrTblDepartment dept " +
+						"LEFT JOIN FETCH user.cfgTblManager manager " +
 						"WHERE user.blIsDeleted = FALSE OR user.blIsDeleted IS NULL", CfgTblUser.class)
 				.getResultList();
 
-		for (CfgTblUser user : users) {
-			System.out.println("User: " + user.getTxtUserName());
-			if (user.getCfgTblRole() != null) {
-				System.out.println("Role: " + user.getCfgTblRole().getTxtRoleName());
-			} else {
-				System.out.println("Role: No role assigned");
-			}
-		}
-		/*Hibernate.initialize(users.getCfgTblManager());*/
 		entityManager.getTransaction().commit();
 		entityManager.close();
 
@@ -520,6 +512,164 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 		}
 	}
 
+	@Override
+	public String batchAssignUsersToDepartment(Integer departmentId, List<Integer> userIds,
+			String departmentHeadIds, String departmentManagerIds) {
+		EntityManager entityManager = getEntityManager();
+		try {
+			entityManager.getTransaction().begin();
+			if (departmentId == null || userIds == null || userIds.isEmpty()) {
+				entityManager.getTransaction().rollback();
+				return "{\"status\":\"Failure\",\"message\":\"Invalid request\"}";
+			}
+
+			HrTblDepartment department = entityManager.find(HrTblDepartment.class, departmentId);
+			if (department == null) {
+				entityManager.getTransaction().rollback();
+				return "{\"status\":\"Failure\",\"message\":\"Department not found\"}";
+			}
+
+			java.util.Set<Integer> targetUserIds = new java.util.LinkedHashSet<>();
+			for (Integer userId : userIds) {
+				if (userId != null && userId > 0) {
+					targetUserIds.add(userId);
+				}
+			}
+			if (targetUserIds.isEmpty()) {
+				entityManager.getTransaction().rollback();
+				return "{\"status\":\"Failure\",\"message\":\"User IDs are required\"}";
+			}
+
+			java.util.Set<Integer> affectedDepartmentIds = new java.util.LinkedHashSet<>();
+			affectedDepartmentIds.add(departmentId);
+
+			@SuppressWarnings("unchecked")
+			java.util.List<CfgTblUser> currentlyAssigned = entityManager.createQuery(
+					"SELECT u FROM CfgTblUser u WHERE u.hrTblDepartment.serDepartmentId = :deptId "
+							+ "AND (u.blIsDeleted IS NULL OR u.blIsDeleted = FALSE)",
+					CfgTblUser.class)
+					.setParameter("deptId", departmentId)
+					.getResultList();
+			for (CfgTblUser user : currentlyAssigned) {
+				if (user != null && user.getSerUserId() != null && !targetUserIds.contains(user.getSerUserId())) {
+					user.setHrTblDepartment(null);
+					user.setTxtDepartmentName(null);
+					entityManager.merge(user);
+				}
+			}
+
+			int updatedCount = 0;
+			for (Integer userId : targetUserIds) {
+				CfgTblUser user = entityManager.find(CfgTblUser.class, userId);
+				if (user == null) {
+					continue;
+				}
+				Integer previousDepartmentId = user.getHrTblDepartment() != null
+						? user.getHrTblDepartment().getSerDepartmentId()
+						: null;
+				if (previousDepartmentId != null && !previousDepartmentId.equals(departmentId)) {
+					affectedDepartmentIds.add(previousDepartmentId);
+				}
+				user.setHrTblDepartment(department);
+				user.setTxtDepartmentName(department.getTxtDepartmentName());
+				entityManager.merge(user);
+				updatedCount++;
+			}
+
+			department.setSerDepartmentHeadId(blankAssigneeIdsToNull(departmentHeadIds));
+			department.setSerDepartmentManagerId(blankAssigneeIdsToNull(departmentManagerIds));
+			entityManager.merge(department);
+
+			for (Integer affectedDepartmentId : affectedDepartmentIds) {
+				HrTblDepartment affectedDepartment = entityManager.find(HrTblDepartment.class, affectedDepartmentId);
+				if (affectedDepartment == null) {
+					continue;
+				}
+				java.util.List<CfgTblUser> members = loadActiveDepartmentMembers(entityManager, affectedDepartmentId);
+				affectedDepartment.setSerDepartmentHeadId(blankAssigneeIdsToNull(
+						filterAssigneeIdsForMembers(affectedDepartment.getSerDepartmentHeadId(), members)));
+				affectedDepartment.setSerDepartmentManagerId(blankAssigneeIdsToNull(
+						filterAssigneeIdsForMembers(affectedDepartment.getSerDepartmentManagerId(), members)));
+				entityManager.merge(affectedDepartment);
+			}
+
+			entityManager.getTransaction().commit();
+			entityManager.close();
+			return "{\"status\":\"Success\",\"message\":\"" + updatedCount + " user(s) assigned to department\"}";
+		} catch (Exception e) {
+			if (entityManager.getTransaction().isActive()) {
+				entityManager.getTransaction().rollback();
+			}
+			log.error("batchAssignUsersToDepartment failed: {}", e.getMessage(), e);
+			return "{\"status\":\"Failure\",\"message\":\"" + e.getMessage() + "\"}";
+		} finally {
+			if (entityManager.isOpen()) {
+				entityManager.close();
+			}
+		}
+	}
+
+	private java.util.List<CfgTblUser> loadActiveDepartmentMembers(EntityManager entityManager, Integer departmentId) {
+		if (entityManager == null || departmentId == null) {
+			return new java.util.ArrayList<>();
+		}
+		@SuppressWarnings("unchecked")
+		java.util.List<CfgTblUser> members = entityManager.createQuery(
+				"SELECT u FROM CfgTblUser u WHERE u.hrTblDepartment.serDepartmentId = :deptId "
+						+ "AND (u.blIsDeleted IS NULL OR u.blIsDeleted = FALSE)",
+				CfgTblUser.class)
+				.setParameter("deptId", departmentId)
+				.getResultList();
+		return members != null ? members : new java.util.ArrayList<>();
+	}
+
+	private String filterAssigneeIdsForMembers(String rawIds, java.util.List<CfgTblUser> members) {
+		String normalized = normalizeAssigneeIds(rawIds);
+		if (normalized.isEmpty()) {
+			return "";
+		}
+		java.util.Set<Integer> memberIds = new java.util.HashSet<>();
+		for (CfgTblUser member : members) {
+			if (member != null && member.getSerUserId() != null) {
+				memberIds.add(member.getSerUserId());
+			}
+		}
+		java.util.List<String> valid = new java.util.ArrayList<>();
+		for (String part : normalized.split(",")) {
+			try {
+				Integer parsed = Integer.parseInt(part.trim());
+				if (memberIds.contains(parsed) && !valid.contains(String.valueOf(parsed))) {
+					valid.add(String.valueOf(parsed));
+				}
+			} catch (NumberFormatException ignored) {
+			}
+		}
+		return String.join(",", valid);
+	}
+
+	private String normalizeAssigneeIds(String ids) {
+		if (ids == null || ids.trim().isEmpty()) {
+			return "";
+		}
+		java.util.List<String> normalizedIds = new java.util.ArrayList<>();
+		for (String idPart : ids.split(",")) {
+			try {
+				Integer parsed = Integer.parseInt(idPart.trim());
+				String normalizedId = String.valueOf(parsed);
+				if (!normalizedIds.contains(normalizedId)) {
+					normalizedIds.add(normalizedId);
+				}
+			} catch (NumberFormatException ignored) {
+			}
+		}
+		return String.join(",", normalizedIds);
+	}
+
+	private String blankAssigneeIdsToNull(String ids) {
+		String normalized = normalizeAssigneeIds(ids);
+		return normalized.isEmpty() ? null : normalized;
+	}
+
 	private boolean isBlank(String value) {
 		return value == null || value.trim().isEmpty();
 	}
@@ -601,9 +751,12 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 	}
 
 	private CfgTblUser resolveManager(EntityManager entityManager, CfgTblUser manager, CfgTblUser fallbackManager) {
-		Integer managerId = manager != null ? manager.getSerUserId() : null;
-		if (managerId == null || managerId <= 0) {
+		if (manager == null) {
 			return fallbackManager;
+		}
+		Integer managerId = manager.getSerUserId();
+		if (managerId == null || managerId <= 0) {
+			return null;
 		}
 
 		CfgTblUser managedManager = entityManager.find(CfgTblUser.class, managerId);

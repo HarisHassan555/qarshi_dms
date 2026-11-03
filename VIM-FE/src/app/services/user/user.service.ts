@@ -13,6 +13,17 @@ export class UserService {
     private http: HttpClient
   ) { }
 
+  syncUserManagersFromSap() {
+    return this.http.post<Record<string, unknown>>(urls.API_URL + 'syncUserManagersFromSap', {});
+  }
+
+  resolveManagerFromSap(employeeId: string) {
+    const id = encodeURIComponent(String(employeeId || '').trim());
+    return this.http.get<Record<string, unknown>>(
+      urls.API_URL + 'resolveUserManagerFromSap?employeeId=' + id
+    );
+  }
+
   getUsers() {
     return this.http.get(urls.API_URL + 'getAllUser');
   }

@@ -104,6 +104,10 @@ public class WorkflowEmailContentBuilder {
         String normalized = normalizeStatus(status);
 
         if (showActionButtons) {
+            if (isOpinionDecisionStatus(normalized)) {
+                return "Your opinion is requested on this application at Level " + level
+                        + ". Use Approve Opinion or Reject Opinion below. The application returns to the requester either way.";
+            }
             if ("SENT_BACK".equals(normalized) || "REVISION_REQUIRED".equals(normalized)) {
                 return "This application has been <strong>sent back to you</strong> and now requires your action at Level "
                         + level + ".";
@@ -154,6 +158,9 @@ public class WorkflowEmailContentBuilder {
             return "";
         }
         String status = request.getStatus();
+        if (isOpinionDecisionStatus(status)) {
+            return buildOpinionDecisionButtonsHtml(request);
+        }
         boolean onHold = "HOLD".equalsIgnoreCase(status != null ? status.trim() : "");
         boolean canApproveReject = !onHold && request.getApproveUrl() != null && request.getRejectUrl() != null;
         boolean canSendBack = !onHold && request.getSendBackUrl() != null;
@@ -195,6 +202,32 @@ public class WorkflowEmailContentBuilder {
                     + "You can also review this application in the system dashboard.</p>");
         }
         return html.toString();
+    }
+
+    private String buildOpinionDecisionButtonsHtml(WorkflowEmailRenderRequest request) {
+        boolean hasApprove = StringUtils.hasText(request.getApproveUrl());
+        boolean hasReject = StringUtils.hasText(request.getRejectUrl());
+        if (!hasApprove && !hasReject) {
+            return "";
+        }
+        StringBuilder html = new StringBuilder();
+        html.append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin:30px 0;\">");
+        html.append("<tr><td align=\"center\" style=\"padding:10px 20px;\">");
+        if (hasApprove) {
+            appendOutlookButton(html, request.getApproveUrl(), "Approve Opinion", "#27ae60", "210px");
+        }
+        if (hasReject) {
+            appendOutlookButton(html, request.getRejectUrl(), "Reject Opinion", "#e74c3c", "200px");
+        }
+        html.append("</td></tr></table>");
+        html.append("<p style=\"text-align:center;color:#7f8c8d;font-size:12px;margin-top:20px;\">"
+                + "You can also review this application in the system dashboard.</p>");
+        return html.toString();
+    }
+
+    private static boolean isOpinionDecisionStatus(String status) {
+        String normalized = normalizeStatus(status);
+        return "OPINION_PENDING".equals(normalized) || "OPINION_REQUESTED".equals(normalized);
     }
 
     private void appendOutlookButton(StringBuilder html, String url, String label, String color, String width) {

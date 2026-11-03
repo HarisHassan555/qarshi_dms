@@ -113,7 +113,7 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
               .antMatchers("/ws/chat", "/ws/chat/**", "/ws/notifications", "/ws/notifications/**").permitAll()
                   .antMatchers("/approveApplicationFromEmail", "/rejectApplicationFromEmail", "/sendBackApplicationFromEmail", "/sendBackToInitiatorFromEmail",
                           "/holdTemplateApplicationFromEmail", "/unholdTemplateApplicationFromEmail",
-                          "/opinionApplicationFromEmail").permitAll()
+                          "/opinionApplicationFromEmail", "/approveOpinionFromEmail", "/rejectOpinionFromEmail").permitAll()
                   .antMatchers("/public/documentShare", "/public/documentSharePdf").permitAll()
                   .anyRequest().authenticated()
         );

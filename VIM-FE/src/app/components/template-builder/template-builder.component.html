@@ -75,13 +75,39 @@
         </aside>
 
         <main class="document-stage" [class.payload-open]="previewMode" data-tour="builder-stage">
-            <div *ngIf="!previewMode" class="paper-wrap">
+            <div *ngIf="!previewMode" class="paper-wrap" (wheel)="onDocumentStageWheel($event)">
+                <div class="builder-stage-zoom-bar" aria-label="Document zoom controls">
+                    <span class="builder-stage-zoom-label">Canvas zoom</span>
+                    <button
+                        type="button"
+                        class="btn btn-outline btn-sm builder-stage-zoom-btn"
+                        title="Zoom out"
+                        [disabled]="documentZoom <= documentZoomMin"
+                        (click)="zoomOutDocument()">
+                        −
+                    </button>
+                    <button type="button" class="btn btn-outline btn-sm builder-stage-zoom-btn builder-stage-zoom-reset" (click)="resetDocumentZoom()">
+                        {{ documentZoomPercentLabel }}
+                    </button>
+                    <button
+                        type="button"
+                        class="btn btn-outline btn-sm builder-stage-zoom-btn"
+                        title="Zoom in"
+                        [disabled]="documentZoom >= documentZoomMax"
+                        (click)="zoomInDocument()">
+                        +
+                    </button>
+                    <span class="builder-stage-zoom-hint">Ctrl + scroll to zoom</span>
+                </div>
+                <div
+                    class="builder-zoom-slot"
+                    [style.width.px]="zoomedDocumentWidth"
+                    [style.height.px]="zoomedDocumentHeight">
                 <div
                     #editorFrame
                     class="editor-frame"
                     [class.has-background]="backgroundFile"
-                    [style.width.px]="pageWidth"
-                    [style.min-height.px]="pageCount * pageHeight + ((pageCount - 1) * pageGap)"
+                    [ngStyle]="documentZoomTransform"
                     [style.--template-document-height]="(pageCount * pageHeight + ((pageCount - 1) * pageGap)) + 'px'"
                     [style.--template-page-height]="pageHeight + 'px'"
                     [style.--template-page-gap]="pageGap + 'px'">
@@ -110,9 +136,8 @@
                         class="template-ckeditor"
                         [editor]="wordEditor"
                         [config]="wordEditorConfig"
-                        [(ngModel)]="editorContent"
                         (ready)="onEditorReady($event)"
-                        (change)="onEditorContentChanged()">
+                        (change)="onEditorContentChanged($event)">
                     </ckeditor>
                     <div
                         #fieldLayer
@@ -270,6 +295,7 @@
                             </div>
                         </ng-container>
                     </div>
+                </div>
                 </div>
             </div>
 
@@ -587,6 +613,7 @@
                 <select [(ngModel)]="selectedPipelineDepartmentId">
                     <option [ngValue]="null">Select department</option>
                     <option [ngValue]="selfHodDepartmentValue">Self HOD</option>
+                    <option [ngValue]="selfManagerDepartmentValue">Self Manager</option>
                     <option *ngFor="let department of departments" [ngValue]="department.serDepartmentId">
                         {{ getDepartmentName(department) }}
                     </option>
@@ -751,4 +778,5 @@
             <button type="button" class="btn btn-secondary full-width" (click)="savePipelineRights()">Save Rights</button>
         </div>
     </div>
+
 </div>

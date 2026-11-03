@@ -78,11 +78,14 @@ export class AppLayout {
 
     private updateShareRouteFlag(): void {
         let path = (this.router.url || '').split('?')[0] || '';
+        const query = (this.router.url || '').includes('?') ? (this.router.url || '').split('?')[1] : '';
+        const params = new URLSearchParams(query);
         path = path.replace(/^\/velocity\/?/i, '/');
         if (!path.startsWith('/')) {
             path = '/' + path;
         }
         const segments = path.split('/').filter(Boolean);
-        this.hideAppChrome = segments[0] === 'share';
+        const builderPreviewEmbed = segments[0] === 'template-fill' && params.get('builderPreview') === '1';
+        this.hideAppChrome = segments[0] === 'share' || builderPreviewEmbed;
     }
 }

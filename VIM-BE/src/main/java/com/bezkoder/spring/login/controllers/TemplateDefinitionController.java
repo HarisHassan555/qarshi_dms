@@ -352,6 +352,12 @@ public class TemplateDefinitionController {
             int safePageSize = pageSize == null ? 50 : Math.max(1, Math.min(pageSize, 200));
             String searchText = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
 
+            try {
+                return loadPortalAttachmentFilePage(safePage, safePageSize, searchText);
+            } catch (Exception fastEx) {
+                logger.warn("Portal attachment text list failed, reading stored JSON instead: " + fastEx.getMessage());
+            }
+
             // Light metadata only — do not select large JSON/PDF blobs in the ordered list query.
             @SuppressWarnings("unchecked")
             List<Object[]> rows = entityManager.createQuery(
@@ -362,8 +368,8 @@ public class TemplateDefinitionController {
                                     "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
                                     "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) " +
                                     "AND t.serFormId = a.serFormId " +
-                                    "AND (a.txtStatus = 'COMPLETED' OR a.txtStatus = 'APPROVED' " +
-                                    "OR a.txtStatus = 'completed' OR a.txtStatus = 'approved') " +
+                                    "AND UPPER(a.txtStatus) IN ('COMPLETED', 'APPROVED', 'PENDING', 'IN_PROGRESS', 'HOLD', " +
+                                    "'OPINION_PENDING', 'CEO_PENDING', 'ASSET_PENDING', 'PR_PENDING', 'PO_PENDING', 'PO_VENDOR_TE_PENDING') " +
                                     "ORDER BY a.dteCreatedDate DESC")
                     .getResultList();
 
@@ -393,7 +399,7 @@ public class TemplateDefinitionController {
 
                 String applicationDataRaw = getApplicationJsonById(applicationId);
                 for (Map<String, Object> attachmentMeta : extractCompletedPortalAttachmentMetas(
-                        applicationId, formCode, status, createdDate, templateName, applicationDataRaw)) {
+                        applicationId, formCode, status, createdDate, templateName, applicationDataRaw, false)) {
                     if (matchesPortalAttachmentSearch(attachmentMeta, formCode, templateName, searchText)) {
                         matchedItems.add(attachmentMeta);
                     }
@@ -408,6 +414,7 @@ public class TemplateDefinitionController {
             result.put("total", total);
             result.put("page", safePage);
             result.put("pageSize", safePageSize);
+            result.put("hasMore", toIndex < total);
             return result;
         } catch (Exception ex) {
             logger.error("Error fetching completed portal attachments: " + ex.getMessage(), ex);
@@ -443,8 +450,8 @@ public class TemplateDefinitionController {
                                 "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
                                 "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) " +
                                 "AND t.serFormId = a.serFormId " +
-                                "AND (a.txtStatus = 'COMPLETED' OR a.txtStatus = 'APPROVED' " +
-                                "OR a.txtStatus = 'completed' OR a.txtStatus = 'approved') " +
+                                "AND UPPER(a.txtStatus) IN ('COMPLETED', 'APPROVED', 'PENDING', 'IN_PROGRESS', 'HOLD', " +
+                                "'OPINION_PENDING', 'CEO_PENDING', 'ASSET_PENDING', 'PR_PENDING', 'PO_PENDING', 'PO_VENDOR_TE_PENDING') " +
                                 "ORDER BY a.dteCreatedDate DESC")
                 .getResultList();
 
@@ -479,7 +486,7 @@ public class TemplateDefinitionController {
 
             String applicationDataRaw = application != null ? application.getTxtApplicationData() : getApplicationJsonById(applicationId);
             for (Map<String, Object> attachmentMeta : extractCompletedPortalAttachmentMetas(
-                    applicationId, formCode, status, createdDate, templateName, applicationDataRaw)) {
+                    applicationId, formCode, status, createdDate, templateName, applicationDataRaw, false)) {
                 if (matchesPortalAttachmentSearch(attachmentMeta, formCode, templateName, searchText)) {
                     matchedItems.add(attachmentMeta);
                 }
@@ -494,6 +501,7 @@ public class TemplateDefinitionController {
         result.put("total", total);
         result.put("page", safePage);
         result.put("pageSize", safePageSize);
+        result.put("hasMore", toIndex < total);
         return result;
     }
 
@@ -511,23 +519,23 @@ public class TemplateDefinitionController {
                 throw new IllegalArgumentException("fieldId is required");
             }
 
-            CfgTblCustomFormApplication application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
-            if (application == null || Boolean.TRUE.equals(application.getBlIsDeleted())) {
+            Object[] header = loadPortalApplicationHeader(applicationId);
+            if (header == null || sqlFlag(header[1])) {
                 throw new IllegalArgumentException("Application not found");
             }
-            if (!isCompletedPortalApplicationStatus(String.valueOf(application.getTxtStatus()))) {
-                throw new IllegalArgumentException("Only completed/approved applications can be used for portal attachments");
+            if (!isCompletedPortalApplicationStatus(header[0] == null ? "" : String.valueOf(header[0]))) {
+                throw new IllegalArgumentException("Only completed or pending applications can be used for portal attachments");
             }
 
             Map<String, Object> payload;
             if (PORTAL_APPLICATION_PDF_FIELD_ID.equals(fieldId.trim())) {
-                payload = resolveCompletedApplicationPdfPayload(application);
+                payload = loadCompletedApplicationPdfPayload(applicationId);
             } else {
                 if (attachmentIndex == null || attachmentIndex < 0) {
                     throw new IllegalArgumentException("attachmentIndex is required");
                 }
                 payload = resolvePortalAttachmentPayload(
-                        application.getTxtApplicationData(), fieldId.trim(), attachmentIndex);
+                        getApplicationJsonById(applicationId), fieldId.trim(), attachmentIndex);
             }
             if (payload == null || payload.isEmpty()) {
                 throw new IllegalArgumentException("Attachment content was not found");
@@ -565,7 +573,9 @@ public class TemplateDefinitionController {
         item.put("createdDate", createdDate);
         item.put("templateName", templateName);
         item.put("fieldId", PORTAL_APPLICATION_PDF_FIELD_ID);
-        item.put("fieldLabel", "Completed Document");
+        String normalizedStatus = status == null ? "" : status.trim().toUpperCase(Locale.ROOT);
+        boolean completed = "COMPLETED".equals(normalizedStatus) || "APPROVED".equals(normalizedStatus);
+        item.put("fieldLabel", completed ? "Completed Document" : "Pending Document");
         item.put("attachmentIndex", 0);
         item.put("fileName", fileName);
         item.put("mimeType", "application/pdf");
@@ -628,7 +638,17 @@ public class TemplateDefinitionController {
             return false;
         }
         String normalized = status.trim().toUpperCase(Locale.ROOT);
-        return "COMPLETED".equals(normalized) || "APPROVED".equals(normalized);
+        return "COMPLETED".equals(normalized)
+                || "APPROVED".equals(normalized)
+                || "PENDING".equals(normalized)
+                || "IN_PROGRESS".equals(normalized)
+                || "HOLD".equals(normalized)
+                || "OPINION_PENDING".equals(normalized)
+                || "CEO_PENDING".equals(normalized)
+                || "ASSET_PENDING".equals(normalized)
+                || "PR_PENDING".equals(normalized)
+                || "PO_PENDING".equals(normalized)
+                || "PO_VENDOR_TE_PENDING".equals(normalized);
     }
 
     @Transactional
@@ -2196,6 +2216,10 @@ public class TemplateDefinitionController {
                 if (templatePayload.get("page") != null) {
                     slimTemplatePayload.put("page", templatePayload.get("page"));
                 }
+                // Document body, including table cells filled on template-fill.
+                if (templatePayload.get("html") != null) {
+                    slimTemplatePayload.put("html", templatePayload.get("html"));
+                }
                 payload.put("templatePayload", slimTemplatePayload);
             }
             return writeJson(stripAttachmentPayloads(payload, new ArrayList<>()));
@@ -3114,12 +3138,17 @@ public class TemplateDefinitionController {
         } else if ("initiator".equalsIgnoreCase(step.type)) {
             addIfPresent(step.approverIds, application.getSerSubmittedBy());
         } else {
-            Integer departmentId = toInteger(firstObject(rawStep.get("serDepartmentId"), rawStep.get("departmentId"), nested(rawStep.get("hrTblDepartment"), "serDepartmentId")));
-            if ("initiator_hod".equalsIgnoreCase(valueAsString(rawStep.get("dynamicTarget")))) {
-                departmentId = getUserDepartmentId(application.getSerSubmittedBy());
-            }
-            for (Integer hodId : getDepartmentHeadIds(departmentId)) {
-                addIfPresent(step.approverIds, hodId);
+            String dynamicTarget = valueAsString(rawStep.get("dynamicTarget"));
+            if ("initiator_manager".equalsIgnoreCase(dynamicTarget)) {
+                addIfPresent(step.approverIds, getUserManagerId(application.getSerSubmittedBy()));
+            } else {
+                Integer departmentId = toInteger(firstObject(rawStep.get("serDepartmentId"), rawStep.get("departmentId"), nested(rawStep.get("hrTblDepartment"), "serDepartmentId")));
+                if ("initiator_hod".equalsIgnoreCase(dynamicTarget)) {
+                    departmentId = getUserDepartmentId(application.getSerSubmittedBy());
+                }
+                for (Integer hodId : getDepartmentHeadIds(departmentId)) {
+                    addIfPresent(step.approverIds, hodId);
+                }
             }
         }
         return step;
@@ -3897,6 +3926,17 @@ public class TemplateDefinitionController {
         return user != null && user.getHrTblDepartment() != null ? user.getHrTblDepartment().getSerDepartmentId() : null;
     }
 
+    private Integer getUserManagerId(Integer userId) {
+        if (userId == null) {
+            return null;
+        }
+        CfgTblUser user = entityManager.find(CfgTblUser.class, userId);
+        if (user == null || user.getCfgTblManager() == null) {
+            return null;
+        }
+        return user.getCfgTblManager().getSerUserId();
+    }
+
     private Set<Integer> getDepartmentHeadIds(Integer departmentId) {
         Set<Integer> ids = new LinkedHashSet<>();
         if (departmentId == null) {
@@ -4063,12 +4103,219 @@ public class TemplateDefinitionController {
         return Math.max(0L, decoded);
     }
 
+    /**
+     * Returns one page of file names. Applications are read in small batches and scanning stops
+     * once the requested page is filled, so opening the modal does not read every stored JSON.
+     */
+    private Map<String, Object> loadPortalAttachmentFilePage(int safePage, int safePageSize, String searchText) {
+        int needed = (safePage + 1) * safePageSize;
+        List<Map<String, Object>> matchedItems = new ArrayList<>();
+        int appOffset = 0;
+        int batchSize = Math.max(10, safePageSize);
+        boolean moreApplications = true;
+        while (matchedItems.size() <= needed && moreApplications) {
+            List<Object[]> rows = queryPortalAttachmentTextRows(appOffset, batchSize);
+            if (rows.isEmpty()) {
+                moreApplications = false;
+                break;
+            }
+            moreApplications = rows.size() >= batchSize;
+            appOffset += rows.size();
+            matchedItems.addAll(collectPortalAttachmentItems(rows, true, searchText));
+        }
+        int fromIndex = safePage * safePageSize;
+        int toIndex = Math.min(fromIndex + safePageSize, matchedItems.size());
+        List<Map<String, Object>> pageItems = fromIndex >= matchedItems.size()
+                ? java.util.Collections.emptyList()
+                : new ArrayList<>(matchedItems.subList(fromIndex, toIndex));
+        boolean hasMore = toIndex < matchedItems.size() || moreApplications;
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "Success");
+        result.put("items", pageItems);
+        result.put("page", safePage);
+        result.put("pageSize", safePageSize);
+        result.put("hasMore", hasMore);
+        if (!moreApplications) {
+            result.put("total", matchedItems.size());
+        }
+        return result;
+    }
+
+    private List<Map<String, Object>> collectPortalAttachmentItems(List<Object[]> rows,
+                                                                   boolean metadataOnly,
+                                                                   String searchText) {
+        List<Map<String, Object>> matchedItems = new ArrayList<>();
+        if (rows == null) {
+            return matchedItems;
+        }
+        for (Object[] row : rows) {
+            Integer applicationId = toInteger(row[0]);
+            if (applicationId == null || applicationId <= 0) {
+                continue;
+            }
+            String formCode = row[1] == null ? "" : String.valueOf(row[1]);
+            String status = row[2] == null ? "" : String.valueOf(row[2]);
+            if (!isCompletedPortalApplicationStatus(status)) {
+                continue;
+            }
+            Object createdDate = row[3];
+            String templateName = row[4] == null ? "" : String.valueOf(row[4]);
+            String pdfName = row[5] == null ? "" : String.valueOf(row[5]).trim();
+            boolean hasPdf = sqlFlag(row[6]);
+            if (hasPdf) {
+                Map<String, Object> pdfItem = buildCompletedApplicationPdfMeta(
+                        applicationId, formCode, status, createdDate, templateName, pdfName);
+                if (matchesPortalAttachmentSearch(pdfItem, formCode, templateName, searchText)) {
+                    matchedItems.add(pdfItem);
+                }
+            }
+            String applicationDataRaw = row.length > 7 && row[7] != null ? String.valueOf(row[7]) : "";
+            for (Map<String, Object> attachmentMeta : extractCompletedPortalAttachmentMetas(
+                    applicationId, formCode, status, createdDate, templateName, applicationDataRaw, metadataOnly)) {
+                if (matchesPortalAttachmentSearch(attachmentMeta, formCode, templateName, searchText)) {
+                    matchedItems.add(attachmentMeta);
+                }
+            }
+        }
+        return matchedItems;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Object[]> queryPortalAttachmentTextRows(int offset, int limit) {
+        List<?> idRows = entityManager.createNativeQuery(
+                        "SELECT a.ser_application_id " +
+                                "FROM cfg_tbl_custom_form_application a " +
+                                "INNER JOIN tpl_template_definition t ON t.ser_form_id = a.ser_form_id " +
+                                "WHERE (a.bl_is_deleted IS NULL OR a.bl_is_deleted = 0) " +
+                                "AND (t.bl_is_deleted IS NULL OR t.bl_is_deleted = 0) " +
+                                "AND UPPER(a.txt_status) IN ('COMPLETED', 'APPROVED', 'PENDING', 'IN_PROGRESS', 'HOLD', " +
+                                "'OPINION_PENDING', 'CEO_PENDING', 'ASSET_PENDING', 'PR_PENDING', 'PO_PENDING', 'PO_VENDOR_TE_PENDING') " +
+                                "ORDER BY a.dte_created_date DESC, a.ser_application_id DESC")
+                .setFirstResult(Math.max(0, offset))
+                .setMaxResults(Math.max(1, limit))
+                .getResultList();
+        List<Integer> ids = new ArrayList<>();
+        for (Object idRow : idRows) {
+            Object rawId = idRow instanceof Object[] ? ((Object[]) idRow)[0] : idRow;
+            Integer applicationId = toInteger(rawId);
+            if (applicationId != null && applicationId > 0) {
+                ids.add(applicationId);
+            }
+        }
+        if (ids.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        StringBuilder idPlaceholders = new StringBuilder();
+        for (int index = 0; index < ids.size(); index++) {
+            if (index > 0) {
+                idPlaceholders.append(',');
+            }
+            idPlaceholders.append(":id").append(index);
+        }
+        String strippedJson = "REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(a.txt_application_data, ''), "
+                + "'\"base64\"[ \\t\\r\\n]*:[ \\t\\r\\n]*\"[^\"]*\"', '\"base64\":\"\"'), "
+                + "'\"dataUrl\"[ \\t\\r\\n]*:[ \\t\\r\\n]*\"[^\"]*\"', '\"dataUrl\":\"\"')";
+        javax.persistence.Query detailQuery = entityManager.createNativeQuery(
+                        "SELECT a.ser_application_id, a.txt_form_code, a.txt_status, a.dte_created_date, " +
+                                "t.txt_template_name, a.txt_pdf_name, " +
+                                "CASE WHEN a.blb_pdf_data IS NULL AND a.blb_pdf_stage_0 IS NULL THEN 0 ELSE 1 END, " +
+                                strippedJson + " " +
+                                "FROM cfg_tbl_custom_form_application a " +
+                                "INNER JOIN tpl_template_definition t ON t.ser_form_id = a.ser_form_id " +
+                                "WHERE a.ser_application_id IN (" + idPlaceholders + ")");
+        for (int index = 0; index < ids.size(); index++) {
+            detailQuery.setParameter("id" + index, ids.get(index));
+        }
+        List<Object[]> detailRows = detailQuery.getResultList();
+        Map<Integer, Object[]> byId = new HashMap<>();
+        for (Object[] row : detailRows) {
+            Integer applicationId = toInteger(row[0]);
+            if (applicationId != null) {
+                byId.put(applicationId, row);
+            }
+        }
+        List<Object[]> ordered = new ArrayList<>();
+        for (Integer applicationId : ids) {
+            Object[] row = byId.get(applicationId);
+            if (row != null) {
+                ordered.add(row);
+            }
+        }
+        return ordered;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Object[] loadPortalApplicationHeader(Integer applicationId) {
+        List<Object[]> rows = entityManager.createNativeQuery(
+                        "SELECT txt_status, bl_is_deleted FROM cfg_tbl_custom_form_application " +
+                                "WHERE ser_application_id = :id")
+                .setParameter("id", applicationId)
+                .setMaxResults(1)
+                .getResultList();
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> loadCompletedApplicationPdfPayload(Integer applicationId) {
+        List<Object[]> rows = entityManager.createNativeQuery(
+                        "SELECT txt_form_code, txt_pdf_name, txt_pdf_mime, blb_pdf_data, blb_pdf_stage_0 " +
+                                "FROM cfg_tbl_custom_form_application WHERE ser_application_id = :id")
+                .setParameter("id", applicationId)
+                .setMaxResults(1)
+                .getResultList();
+        if (rows.isEmpty()) {
+            return null;
+        }
+        Object[] row = rows.get(0);
+        CfgTblCustomFormApplication application = new CfgTblCustomFormApplication();
+        application.setSerApplicationId(applicationId);
+        application.setTxtFormCode(row[0] == null ? null : String.valueOf(row[0]));
+        application.setTxtPdfName(row[1] == null ? null : String.valueOf(row[1]));
+        application.setTxtPdfMime(row[2] == null ? null : String.valueOf(row[2]));
+        application.setBlbPdfData(toByteArray(row[3]));
+        application.setBlbPdfStage0(toByteArray(row[4]));
+        return resolveCompletedApplicationPdfPayload(application);
+    }
+
+    private boolean sqlFlag(Object value) {
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue() != 0;
+        }
+        if (value instanceof byte[]) {
+            byte[] bytes = (byte[]) value;
+            return bytes.length > 0 && bytes[0] != 0;
+        }
+        String text = value == null ? "" : String.valueOf(value).trim();
+        return "1".equals(text) || "true".equalsIgnoreCase(text);
+    }
+
+    private byte[] toByteArray(Object value) {
+        if (value instanceof byte[]) {
+            return (byte[]) value;
+        }
+        if (value instanceof java.sql.Blob) {
+            try {
+                java.sql.Blob blob = (java.sql.Blob) value;
+                int length = (int) blob.length();
+                return length > 0 ? blob.getBytes(1, length) : new byte[0];
+            } catch (Exception ex) {
+                logger.warn("Could not read portal PDF bytes: " + ex.getMessage());
+                return null;
+            }
+        }
+        return null;
+    }
+
     private List<Map<String, Object>> extractCompletedPortalAttachmentMetas(Integer applicationId,
                                                                              String formCode,
                                                                              String status,
                                                                              Object createdDate,
                                                                              String templateName,
-                                                                             String applicationDataRaw) {
+                                                                             String applicationDataRaw,
+                                                                             boolean metadataOnly) {
         List<Map<String, Object>> items = new ArrayList<>();
         Map<String, Object> appData = parseMap(applicationDataRaw);
         if (appData.isEmpty()) {
@@ -4120,13 +4367,13 @@ public class TemplateDefinitionController {
                 }
                 for (int index = 0; index < attachments.size(); index++) {
                     Map<String, Object> attachment = attachments.get(index);
-                    if (!looksLikeAttachmentPayload(attachment)) {
-                        continue;
-                    }
                     String fileName = firstNonBlank(
                             valueAsString(attachment.get("fileName")),
                             valueAsString(attachment.get("name")));
                     if (fileName == null || fileName.trim().isEmpty()) {
+                        continue;
+                    }
+                    if (!metadataOnly && !looksLikeAttachmentPayload(attachment)) {
                         continue;
                     }
                     String mimeType = firstNonBlank(

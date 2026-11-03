@@ -733,6 +733,32 @@ public class CustomFormApplicationController {
         }
     }
 
+    @RequestMapping(value = "/approveOpinionFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
+    public String approveOpinionFromEmail(@RequestParam Integer applicationId,
+            @RequestParam Integer userId,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("approveOpinionFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
+        if (!isActiveOpinionAssignedToUser(applicationId, userId)) {
+            return renderEmailActionErrorPage("Opinion Not Available",
+                    "This application is not awaiting your opinion, or the opinion request has already been completed.");
+        }
+        return renderEmailOpinionDecisionForm(applicationId, userId, request, true);
+    }
+
+    @RequestMapping(value = "/rejectOpinionFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
+    public String rejectOpinionFromEmail(@RequestParam Integer applicationId,
+            @RequestParam Integer userId,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        logger.debug("rejectOpinionFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
+        if (!isActiveOpinionAssignedToUser(applicationId, userId)) {
+            return renderEmailActionErrorPage("Opinion Not Available",
+                    "This application is not awaiting your opinion, or the opinion request has already been completed.");
+        }
+        return renderEmailOpinionDecisionForm(applicationId, userId, request, false);
+    }
+
     @RequestMapping(value = "/approveApplicationFromEmail", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
     public String approveApplicationFromEmail(@RequestParam Integer applicationId,
             @RequestParam Integer userId,
@@ -1541,6 +1567,86 @@ public class CustomFormApplicationController {
         return (com.bezkoder.spring.login.sa.dal.daoimpl.CfgTblCustomFormApplicationDAO) customFormApplicationDAO;
     }
 
+    private String renderEmailOpinionDecisionForm(Integer applicationId, Integer userId, HttpServletRequest request,
+            boolean approve) {
+        String contextPath = request != null ? request.getContextPath() : "";
+        String actionUrl = contextPath + "/opinionApplicationFromEmail";
+        String title = approve ? "Approve Opinion" : "Reject Opinion";
+        String subtitle = approve
+                ? "Enter your comments, then approve this opinion. The application returns to the requester."
+                : "Enter your comments, then reject this opinion. The application returns to the requester.";
+        String buttonClass = approve ? "btn-accept" : "btn-reject";
+        String buttonLabel = approve ? "Approve" : "Reject";
+        String buttonId = approve ? "btnOpinionApprove" : "btnOpinionReject";
+        String opinionAction = approve ? "approve" : "reject";
+        String confirmKey = approve ? "opinionApproveDecision" : "opinionRejectDecision";
+        String confirmConfigJson = buildEmailWorkflowConfirmConfigJson(confirmKey);
+        return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>" + escapeHtml(title) + "</title>"
+                + "<link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css'/>"
+                + "<style>body{font-family:Arial,sans-serif;background:#f5f5f5;padding:30px}"
+                + ".container{background:white;padding:28px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:560px;margin:0 auto}"
+                + "h2{margin:0 0 10px 0;color:#2c3e50;font-size:24px}.subtitle{color:#555;margin-bottom:18px}"
+                + "label{display:block;color:#2c3e50;font-weight:600;margin-bottom:8px}"
+                + "textarea{width:100%;min-height:110px;padding:10px;border:1px solid #d5d5d5;border-radius:6px;resize:vertical;font-size:14px;font-family:Arial,sans-serif;box-sizing:border-box}"
+                + ".hint{color:#888;font-size:12px;margin-top:8px}"
+                + ".actions{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}"
+                + "button{border:none;border-radius:6px;padding:10px 18px;font-size:14px;cursor:pointer;font-weight:600}"
+                + ".btn-accept{background:#27ae60;color:#fff}.btn-reject{background:#e74c3c;color:#fff}"
+                + getEmailWorkflowConfirmStyles()
+                + "</style></head><body><div class='container'>"
+                + "<h2>" + escapeHtml(title) + "</h2>"
+                + "<div class='subtitle'>" + escapeHtml(subtitle) + "</div>"
+                + "<form id='emailOpinionDecisionForm' method='post' action='" + escapeHtml(actionUrl) + "'>"
+                + "<input type='hidden' name='applicationId' value='" + applicationId + "'/>"
+                + "<input type='hidden' name='userId' value='" + userId + "'/>"
+                + "<input type='hidden' id='opinionAction' name='opinionAction' value='" + opinionAction + "'/>"
+                + "<label for='remarks'>Comments / remarks <span style='color:#c0392b'>*</span></label>"
+                + "<textarea id='remarks' name='remarks' maxlength='2000' required placeholder='Enter comments (required)'></textarea>"
+                + "<div class='hint'>Required. Max 2000 characters.</div>"
+                + "<div class='actions'>"
+                + "<button type='button' class='" + buttonClass + "' id='" + buttonId + "'>" + buttonLabel + "</button>"
+                + "</div></form></div>"
+                + "<script src='https://cdn.jsdelivr.net/npm/sweetalert2@11'></script>"
+                + "<script>window.__emailOpinionDecisionConfig=" + confirmConfigJson + ";"
+                + "window.__emailActionContextPath='" + escapeHtml(contextPath) + "';</script>"
+                + getEmailOpinionDecisionScript(buttonId)
+                + "</body></html>";
+    }
+
+    private String getEmailOpinionDecisionScript(String buttonId) {
+        return "<script>(function(){var form=document.getElementById('emailOpinionDecisionForm');"
+                + "if(!form||!window.Swal){return;}"
+                + "var config=window.__emailOpinionDecisionConfig||{};"
+                + "var signatureRequiredMessage='Before approving the document, kindly upload your signature.';"
+                + "var signaturePopupClass={popup:'sweet-alerts workflow-confirm-swal',title:'workflow-confirm-title',"
+                + "htmlContainer:'workflow-confirm-body',actions:'workflow-confirm-actions',"
+                + "confirmButton:'workflow-confirm-primary',cancelButton:'workflow-confirm-cancel'};"
+                + "function showSignatureRequiredAlert(){return Swal.fire({title:'Signature required',"
+                + "html:'<p class=\"workflow-confirm-message\">'+signatureRequiredMessage+'</p>',icon:'warning',"
+                + "confirmButtonText:'OK',customClass:signaturePopupClass});}"
+                + "function actorHasSignature(userId){var base=window.__emailActionContextPath||'';"
+                + "return fetch(base+'/getUserSignaturePath?userId='+encodeURIComponent(userId),{credentials:'same-origin'})"
+                + ".then(function(response){return response.json();})"
+                + ".then(function(payload){return payload&&payload.status==='Success'&&payload.hasSignature===true;})"
+                + ".catch(function(){return false;});}"
+                + "function showActionConfirm(){return Swal.fire({title:config.title||'Confirm action?',"
+                + "html:'<p class=\"workflow-confirm-message\">'+(config.text||'')+'</p>',"
+                + "showCancelButton:true,confirmButtonText:config.confirmButtonText||'Confirm',"
+                + "cancelButtonText:'Cancel',confirmButtonColor:config.confirmButtonColor||'#4361ee',"
+                + "reverseButtons:true,focusCancel:true,customClass:signaturePopupClass});}"
+                + "function submitOpinion(){var remarks=document.getElementById('remarks');"
+                + "if(!remarks||!remarks.value||!remarks.value.trim()){if(remarks){remarks.reportValidity();}return;}"
+                + "var userIdInput=form.querySelector('input[name=\"userId\"]');"
+                + "var userId=userIdInput?userIdInput.value:'';"
+                + "actorHasSignature(userId).then(function(hasSignature){"
+                + "if(!hasSignature){showSignatureRequiredAlert();return;}"
+                + "showActionConfirm().then(function(result){if(result.isConfirmed){HTMLFormElement.prototype.submit.call(form);}});"
+                + "});}"
+                + "var actionBtn=document.getElementById('" + buttonId + "');"
+                + "if(actionBtn){actionBtn.addEventListener('click',submitOpinion);}"
+                + "})();</script>";
+    }
+
     private String renderEmailOpinionActionForm(Integer applicationId, Integer userId, HttpServletRequest request) {
         String contextPath = request != null ? request.getContextPath() : "";
         String actionUrl = contextPath + "/opinionApplicationFromEmail";
@@ -1708,6 +1814,16 @@ public class CustomFormApplicationController {
             confirmButtonText = "Accept";
             confirmButtonColor = "#27ae60";
         } else if ("opinionReject".equals(workflowAction)) {
+            title = "Reject opinion?";
+            text = "Submit your opinion as reject and return the application to the requester.";
+            confirmButtonText = "Reject";
+            confirmButtonColor = "#e7515a";
+        } else if ("opinionApproveDecision".equals(workflowAction)) {
+            title = "Approve opinion?";
+            text = "Submit your opinion and return the application to the requester.";
+            confirmButtonText = "Approve";
+            confirmButtonColor = "#27ae60";
+        } else if ("opinionRejectDecision".equals(workflowAction)) {
             title = "Reject opinion?";
             text = "Submit your opinion as reject and return the application to the requester.";
             confirmButtonText = "Reject";

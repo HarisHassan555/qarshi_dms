@@ -5840,19 +5840,32 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     + resolveTemplateApproverNotificationSubjectSuffix(effectiveStatus, displayLevel)
                     + " - " + (application.getTxtFormCode() != null ? application.getTxtFormCode() : "N/A");
             String baseUrl = getBaseUrl();
-            String approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
-                    + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
-            String rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
-                    + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
-            String sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
-                    + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
-            String sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
-                    + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
-            String[] holdUrls = resolveTemplateEmailHoldActionUrls(application, recipient.getSerUserId(), effectiveStatus);
+            boolean opinionDecisionEmail = "OPINION_PENDING".equalsIgnoreCase(effectiveStatus)
+                    || "OPINION_REQUESTED".equalsIgnoreCase(effectiveStatus);
+            String approveUrl;
+            String rejectUrl;
+            String sendBackUrl;
+            String sendBackToInitiatorUrl;
+            String[] holdUrls;
             String opinionUrl = null;
-            if ("OPINION_PENDING".equalsIgnoreCase(effectiveStatus)) {
-                opinionUrl = baseUrl + "/opinionApplicationFromEmail?applicationId="
+            if (opinionDecisionEmail) {
+                approveUrl = baseUrl + "/approveOpinionFromEmail?applicationId="
                         + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
+                rejectUrl = baseUrl + "/rejectOpinionFromEmail?applicationId="
+                        + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
+                sendBackUrl = null;
+                sendBackToInitiatorUrl = null;
+                holdUrls = new String[] { null, null };
+            } else {
+                approveUrl = baseUrl + "/approveApplicationFromEmail?applicationId="
+                        + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
+                rejectUrl = baseUrl + "/rejectApplicationFromEmail?applicationId="
+                        + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
+                sendBackUrl = baseUrl + "/sendBackApplicationFromEmail?applicationId="
+                        + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
+                sendBackToInitiatorUrl = baseUrl + "/sendBackToInitiatorFromEmail?applicationId="
+                        + application.getSerApplicationId() + "&userId=" + recipient.getSerUserId();
+                holdUrls = resolveTemplateEmailHoldActionUrls(application, recipient.getSerUserId(), effectiveStatus);
             }
             String html = generateApprovalEmailHtml(
                     recipient.getTxtUserName() != null ? recipient.getTxtUserName() : "User",
@@ -6160,6 +6173,14 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 safeInt(pipeline.get("departmentId"),
                         safeInt(castMap(pipeline.get("hrTblDepartment")).get("serDepartmentId"), null)));
         String departmentName = resolveDepartmentName(em, departmentId, pipeline);
+
+        if ("initiator_manager".equalsIgnoreCase(dynamicTarget) || isUserDepartmentManagerStage(pipeline, departmentName)) {
+            Integer managerId = loadUserManagerId(em, application.getSerSubmittedBy());
+            if (managerId != null && managerId > 0) {
+                recipientIds.add(managerId);
+            }
+            return recipientIds;
+        }
 
         if ("initiator_hod".equalsIgnoreCase(dynamicTarget) || isUserDepartmentHodStage(pipeline, departmentName)) {
             departmentId = loadUserDepartmentId(em, application.getSerSubmittedBy());
@@ -9772,6 +9793,45 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         return text.contains("USER DEPT") || text.contains("USER DEPTT") || text.contains("HOD");
     }
 
+    private boolean isUserDepartmentManagerStage(Map<String, Object> pipelineMap, String resolvedDepartmentName) {
+        StringBuilder sb = new StringBuilder();
+        if (resolvedDepartmentName != null) {
+            sb.append(resolvedDepartmentName).append(" ");
+        }
+        if (pipelineMap != null) {
+            Object departmentName = pipelineMap.get("departmentName");
+            if (departmentName == null)
+                departmentName = pipelineMap.get("txtDepartmentName");
+            if (departmentName == null)
+                departmentName = pipelineMap.get("role");
+            if (departmentName == null)
+                departmentName = pipelineMap.get("stageName");
+            if (departmentName != null)
+                sb.append(String.valueOf(departmentName)).append(" ");
+            Object hrTblDepartment = pipelineMap.get("hrTblDepartment");
+            if (hrTblDepartment instanceof Map) {
+                Object nestedName = ((Map<?, ?>) hrTblDepartment).get("txtDepartmentName");
+                if (nestedName == null)
+                    nestedName = ((Map<?, ?>) hrTblDepartment).get("departmentName");
+                if (nestedName != null)
+                    sb.append(String.valueOf(nestedName)).append(" ");
+            }
+            Object dynamicTarget = pipelineMap.get("dynamicTarget");
+            if (dynamicTarget != null) {
+                sb.append(String.valueOf(dynamicTarget)).append(" ");
+            }
+        }
+
+        String text = sb.toString().trim().toUpperCase();
+        if (text.isEmpty())
+            return false;
+        if (text.contains("INITIATOR_MANAGER")) {
+            return true;
+        }
+        return (text.contains("USER DEPT") || text.contains("USER DEPTT") || text.contains("USER MANAGER"))
+                && text.contains("MANAGER") && !text.contains("HOD");
+    }
+
     private boolean isCeoUser(CfgTblUser user) {
         if (user == null)
             return false;
@@ -12540,6 +12600,30 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         return loadUserDepartmentId(em, userId, null);
     }
 
+    private Integer loadUserManagerId(EntityManager em, Integer userId) {
+        if (em == null || userId == null || userId <= 0) {
+            return null;
+        }
+        try {
+            CfgTblUser user = em.find(CfgTblUser.class, userId);
+            if (user == null || user.getCfgTblManager() == null || user.getCfgTblManager().getSerUserId() == null) {
+                Object result = em.createNativeQuery(
+                        "select manager_id from cfg_tbl_user where ser_user_id = :id")
+                        .setParameter("id", userId)
+                        .getSingleResult();
+                if (result == null) {
+                    return null;
+                }
+                int managerId = result instanceof Number ? ((Number) result).intValue() : Integer.parseInt(result.toString());
+                return managerId > 0 ? managerId : null;
+            }
+            return user.getCfgTblManager().getSerUserId();
+        } catch (Exception e) {
+            log.warn("Error loading user manager for user {}: {}", userId, e.getMessage());
+            return null;
+        }
+    }
+
     private Integer loadUserDepartmentId(EntityManager em, Integer userId, Map<Integer, Integer> userDepartmentCache) {
         if (userDepartmentCache != null && userId != null && userDepartmentCache.containsKey(userId)) {
             return userDepartmentCache.get(userId);
@@ -15039,7 +15123,11 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         html.append("<div style='font-size:16px;margin-bottom:20px;color:#555;'>Dear ").append(escapeHtml(recipientName)).append(",</div>");
 
         if (showActionButtons) {
-            if ("SENT_BACK".equalsIgnoreCase(status) || "REVISION_REQUIRED".equalsIgnoreCase(status)) {
+            if ("OPINION_PENDING".equalsIgnoreCase(status) || "OPINION_REQUESTED".equalsIgnoreCase(status)) {
+                html.append("<p style='margin:0 0 15px 0;'>Your opinion is requested on this application at Level ")
+                        .append(level)
+                        .append(". Use Approve Opinion or Reject Opinion below. The application returns to the requester either way.</p>");
+            } else if ("SENT_BACK".equalsIgnoreCase(status) || "REVISION_REQUIRED".equalsIgnoreCase(status)) {
                 html.append("<p style='margin:0 0 15px 0;'>This application has been <strong>sent back to you</strong> and now requires your action at Level ")
                         .append(level).append(".</p>");
             } else if ("SENT_BACK_TO_INITIATOR".equalsIgnoreCase(status)) {
@@ -15096,7 +15184,37 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 && ("OPINION_PENDING".equalsIgnoreCase(normalizedStatus)
                         || "OPINION_REQUESTED".equalsIgnoreCase(normalizedStatus));
 
-        if (showActionButtons && (canApproveReject || canSendBack || canSendBackToInitiator || canHold || canUnhold
+        boolean opinionDecisionEmail = showActionButtons && !onHold
+                && ("OPINION_PENDING".equalsIgnoreCase(normalizedStatus)
+                        || "OPINION_REQUESTED".equalsIgnoreCase(normalizedStatus));
+
+        if (opinionDecisionEmail && (approveUrl != null || rejectUrl != null)) {
+            html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:30px 0;'>");
+            html.append("<tr><td align='center' style='padding:10px 20px;'>");
+            if (approveUrl != null) {
+                html.append("<!--[if mso]>");
+                html.append("<v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='").append(approveUrl).append("' style='height:44px;v-text-anchor:middle;width:210px;' arcsize='12%' strokecolor='#27ae60' fillcolor='#27ae60'>");
+                html.append("<w:anchorlock/><center style='color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:600;'>Approve Opinion</center>");
+                html.append("</v:roundrect>");
+                html.append("<![endif]-->");
+                html.append("<!--[if !mso]><!-- -->");
+                html.append("<a href='").append(approveUrl).append("' style='display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;background-color:#27ae60;color:#ffffff !important;'>Approve Opinion</a>");
+                html.append("<!--<![endif]-->");
+            }
+            if (rejectUrl != null) {
+                html.append("<!--[if mso]>");
+                html.append("<v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='").append(rejectUrl).append("' style='height:44px;v-text-anchor:middle;width:200px;' arcsize='12%' strokecolor='#e74c3c' fillcolor='#e74c3c'>");
+                html.append("<w:anchorlock/><center style='color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:600;'>Reject Opinion</center>");
+                html.append("</v:roundrect>");
+                html.append("<![endif]-->");
+                html.append("<!--[if !mso]><!-- -->");
+                html.append("<a href='").append(rejectUrl).append("' style='display:inline-block;padding:12px 30px;margin:5px 10px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;background-color:#e74c3c;color:#ffffff !important;'>Reject Opinion</a>");
+                html.append("<!--<![endif]-->");
+            }
+            html.append("</td></tr>");
+            html.append("</table>");
+            html.append("<p style='text-align:center;color:#7f8c8d;font-size:12px;margin-top:20px;'>You can also review this application in the system dashboard.</p>");
+        } else if (showActionButtons && (canApproveReject || canSendBack || canSendBackToInitiator || canHold || canUnhold
                 || canOpinion)) {
             // Button container using table for Outlook
             html.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='margin:30px 0;'>");

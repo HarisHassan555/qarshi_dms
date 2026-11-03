@@ -131,8 +131,8 @@ export class PermissionComponent implements OnInit {
     private frontendMenuStructure: { [key: string]: string[] } = {
         'Dashboard': [],
         'Master Data': ['Department'],
-        'Velocity': ['Application', 'Applications View', 'Pending Approvals', 'Form Builder', 'Univer Form Builder', 'Budget Approval'],
-        'User Management': ['User', 'Password Policy', 'Change Password', 'Permission']
+        'Velocity': ['Application', 'Applications View', 'Pending Approvals', 'Form Builder', 'Budget Approval'],
+        'User Management': ['User', 'Password Policy', 'Change Password']
     };
 
     constructor(

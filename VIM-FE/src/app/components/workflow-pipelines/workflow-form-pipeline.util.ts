@@ -55,6 +55,9 @@ function backendStepApproverLabel(step: any): string {
     if (step?.dynamicTarget === 'initiator_hod') {
         return 'Self HOD';
     }
+    if (step?.dynamicTarget === 'initiator_manager') {
+        return 'Self Manager';
+    }
     if (step?.dynamicTarget === 'initiator' || step?.txtUserName === 'Initiator') {
         return 'Initiator';
     }

@@ -1,7 +1,7 @@
 <div class="modal-backdrop" (click)="close()">
     <div class="portal-attachments-modal portal-attachments-modal-windows" (click)="$event.stopPropagation()">
         <div class="modal-header">
-            <h3>Portal Attachments (Completed)</h3>
+            <h3>Portal Attachments</h3>
             <button type="button" title="Close" (click)="close()">x</button>
         </div>
         <div class="portal-attachments-toolbar">
@@ -32,9 +32,9 @@
                 </button>
             </div>
         </div>
-        <div class="portal-attachments-loading" *ngIf="loading">Loading completed portal files...</div>
+        <div class="portal-attachments-loading" *ngIf="loading">Loading portal files...</div>
         <div class="portal-attachments-empty" *ngIf="!loading && filteredItems.length === 0">
-            No completed portal documents found. Completed applications with a saved PDF will appear here.
+            No completed or pending portal documents found.
         </div>
         <div class="portal-attachments-grid" *ngIf="!loading && filteredItems.length > 0 && viewMode === 'details'">
             <div
@@ -104,6 +104,15 @@
         </div>
         <div class="portal-attachments-footer">
             <div class="portal-attachments-selected-count">{{ selectedCount }} selected</div>
+            <div class="portal-attachments-pager">
+                <button type="button" class="btn btn-secondary" [disabled]="loading || page === 0" (click)="previousPage()">
+                    Previous
+                </button>
+                <span>{{ pageLabel }}</span>
+                <button type="button" class="btn btn-secondary" [disabled]="loading || !hasMore" (click)="nextPage()">
+                    Next
+                </button>
+            </div>
             <div class="portal-attachments-footer-actions">
                 <button type="button" class="btn btn-secondary" (click)="close()">Cancel</button>
                 <button

@@ -1,1 +1,15 @@
 @import '@univerjs/preset-docs-core/lib/index.css';
+
+/* Embedded routes (document share, builder form preview iframe): no sidebar/header chrome */
+.document-share-layout .main-content {
+    margin-inline-start: 0 !important;
+    width: 100%;
+}
+
+.document-share-layout .main-container {
+    width: 100%;
+}
+
+.document-share-layout .animation {
+    padding: 0 !important;
+}

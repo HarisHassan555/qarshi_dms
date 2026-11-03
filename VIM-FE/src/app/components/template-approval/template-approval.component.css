@@ -578,10 +578,14 @@
 }
 
 :host ::ng-deep .template-approval-page .filled-field:not(.radio-option-filled-field):not(.check-mark-filled-field):not(.document-region) > .filled-field-value:not(.word-editor-filled-value) {
-    align-items: center !important;
-    display: flex !important;
-    line-height: 1.2 !important;
+    box-sizing: border-box !important;
+    display: block !important;
+    height: 100% !important;
+    line-height: 1.05 !important;
+    overflow: hidden !important;
     padding: 0 !important;
+    white-space: pre-wrap !important;
+    width: 100% !important;
 }
 
 :host ::ng-deep .word-editor-filled-value .word-editor-value {

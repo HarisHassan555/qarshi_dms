@@ -9,6 +9,7 @@ import { urls } from 'src/app/utils/urls';
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
 import { applyWordEditorAlignmentClasses, getTemplateFieldNgStyle } from 'src/app/utils/word-editor-display.util';
 import { normalizeDocumentBodyHtmlForDisplay } from 'src/app/utils/document-body-html.util';
+import { finalizeTableFormulaHtml } from 'src/app/utils/template-table-formula.util';
 import {
     resolveDocumentHeaderAddress,
     resolveDocumentHeaderBrandTitle,
@@ -1566,7 +1567,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             }
             node.replaceWith(this.createInlineValue(doc, field));
         });
-        return normalizeDocumentBodyHtmlForDisplay(doc.body.innerHTML);
+        return normalizeDocumentBodyHtmlForDisplay(finalizeTableFormulaHtml(doc.body.innerHTML));
     }
 
     private createInlineValue(doc: Document, field: TemplateField): HTMLElement {
@@ -2332,6 +2333,9 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         if (step.dynamicTarget === 'initiator_hod') {
             names.push('user hod', 'user dept hod', 'user deptt. (hod)', 'user deptt. hod');
         }
+        if (step.dynamicTarget === 'initiator_manager') {
+            names.push('user manager', 'self manager', 'initiator manager');
+        }
 
         return names;
     }
@@ -2359,6 +2363,9 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         if (step.dynamicTarget === 'initiator_hod') {
             return 'Self HOD';
         }
+        if (step.dynamicTarget === 'initiator_manager') {
+            return 'Self Manager';
+        }
         return String(step.type || 'Step').replace(/_/g, ' ');
     }
 
@@ -2379,6 +2386,9 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         }
         if (step.dynamicTarget === 'initiator_hod') {
             return 'Current HOD';
+        }
+        if (step.dynamicTarget === 'initiator_manager') {
+            return 'Current Manager';
         }
         return step.name || '--';
     }

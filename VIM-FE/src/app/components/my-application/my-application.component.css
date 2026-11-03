@@ -264,10 +264,14 @@
 }
 
 :host ::ng-deep .readonly-stage .filled-field:not(.radio-option-filled-field):not(.check-mark-filled-field):not(.document-region) > .filled-field-value:not(.word-editor-filled-value) {
-    align-items: center;
-    display: flex;
-    line-height: 1.2;
+    box-sizing: border-box;
+    display: block;
+    height: 100%;
+    line-height: 1.05;
+    overflow: hidden;
     padding: 0;
+    white-space: pre-wrap;
+    width: 100%;
 }
 
 

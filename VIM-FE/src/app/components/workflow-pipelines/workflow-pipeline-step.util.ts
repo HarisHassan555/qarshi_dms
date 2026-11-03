@@ -26,6 +26,7 @@ export const WORKFLOW_PIPELINE_STEP_TYPES: { value: Exclude<WorkflowPipelineStep
 ];
 
 export const SELF_HOD_DEPARTMENT_ID = -1;
+export const SELF_MANAGER_DEPARTMENT_ID = -2;
 
 export function createWorkflowStepId(): string {
     return `step-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -100,6 +101,9 @@ export function pipelineStepTargetLabel(step: WorkflowPipelineStep): string {
     }
     if (step.dynamicTarget === 'initiator_hod') {
         return 'Self HOD';
+    }
+    if (step.dynamicTarget === 'initiator_manager') {
+        return 'Self Manager';
     }
     if (step.type === 'department') {
         return departmentDisplayName(step.hrTblDepartment as Record<string, unknown>) || step.name;

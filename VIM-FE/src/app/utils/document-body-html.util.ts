@@ -9,40 +9,37 @@ function hasExplicitTableWidth(table: HTMLTableElement): boolean {
   return !!attr;
 }
 
+function isWordEditorTable(node: Element): boolean {
+  return !!node.closest('.word-editor-value, .ql-editor, .inline-filled-word-editor-value, .word-editor-filled-value');
+}
+
 function normalizeDocumentTableElement(table: HTMLTableElement): void {
-  table.style.borderCollapse = 'collapse';
+  table.style.borderCollapse = 'separate';
+  table.style.borderSpacing = '0';
   table.style.boxSizing = 'border-box';
   table.style.maxWidth = '100%';
+  table.style.marginLeft = 'auto';
+  table.style.marginRight = 'auto';
+  table.style.tableLayout = 'auto';
 
   if (!hasExplicitTableWidth(table)) {
-    table.style.width = '100%';
-  } else {
-    const inlineWidth = (table.style.width || '').trim();
-    if (inlineWidth.endsWith('px')) {
-      const px = Number.parseFloat(inlineWidth);
-      if (Number.isFinite(px) && px > 0 && px <= 720) {
-        table.style.width = '100%';
-      }
-    }
+    table.style.width = 'auto';
   }
-
-  const hasColgroup = !!table.querySelector('colgroup col');
-  table.style.tableLayout = hasColgroup ? 'fixed' : 'auto';
 
   table.querySelectorAll('td, th').forEach((cellNode) => {
     const cell = cellNode as HTMLElement;
-    cell.style.setProperty('border', DOCUMENT_TABLE_CELL_BORDER, 'important');
+    if (!cell.style.border && !cell.style.borderTop && !cell.style.borderLeft) {
+      cell.style.border = DOCUMENT_TABLE_CELL_BORDER;
+    }
     if (!cell.style.padding) {
-      cell.style.padding = '8px';
+      cell.style.padding = '6px';
     }
     if (!cell.style.verticalAlign) {
       cell.style.verticalAlign = 'top';
     }
-    cell.style.removeProperty('max-width');
-    cell.style.minWidth = '2em';
     cell.style.boxSizing = 'border-box';
-    cell.style.overflowWrap = 'anywhere';
-    cell.style.wordBreak = 'break-word';
+    cell.style.removeProperty('overflow-wrap');
+    cell.style.removeProperty('word-break');
 
     const hasContent = !!(cell.textContent || '').replace(/\u00a0/g, ' ').trim()
       || cell.querySelector('img,table,ul,ol,p,span.template-field');
@@ -66,12 +63,18 @@ export function normalizeDocumentBodyHtmlForDisplay(html: string): string {
 
   wrapper.querySelectorAll('figure.table').forEach((figureNode) => {
     const figure = figureNode as HTMLElement;
-    figure.style.display = 'block';
+    if (isWordEditorTable(figure)) {
+      return;
+    }
+    figure.style.display = 'table';
+    figure.style.width = figure.style.width || 'auto';
     figure.style.maxWidth = '100%';
     figure.style.boxSizing = 'border-box';
+    figure.style.marginLeft = 'auto';
+    figure.style.marginRight = 'auto';
     if (!figure.style.marginTop && !figure.style.marginBottom) {
-      figure.style.marginTop = '12px';
-      figure.style.marginBottom = '12px';
+      figure.style.marginTop = '0.9em';
+      figure.style.marginBottom = '0.9em';
     }
 
     const table = figure.querySelector('table');
@@ -82,10 +85,7 @@ export function normalizeDocumentBodyHtmlForDisplay(html: string): string {
 
   wrapper.querySelectorAll('table').forEach((tableNode) => {
     const table = tableNode as HTMLTableElement;
-    if (table.closest('figure.table')) {
-      return;
-    }
-    if (table.closest('.word-editor-value, .ql-editor, .inline-filled-word-editor-value')) {
+    if (table.closest('figure.table') || isWordEditorTable(table)) {
       return;
     }
     normalizeDocumentTableElement(table);

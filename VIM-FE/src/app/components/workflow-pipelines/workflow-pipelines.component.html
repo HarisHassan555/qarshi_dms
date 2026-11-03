@@ -230,6 +230,7 @@
                         <select class="form-select" [(ngModel)]="stepDepartmentId" [ngModelOptions]="{ standalone: true }">
                             <option [ngValue]="null">— Select —</option>
                             <option [ngValue]="selfHodDepartmentId">Self HOD (initiator's department head)</option>
+                            <option [ngValue]="selfManagerDepartmentId">Self Manager (initiator's reporting manager)</option>
                             <option *ngFor="let d of departments" [ngValue]="d.serDepartmentId">{{ d.txtDepartmentName }}</option>
                         </select>
                     </div>

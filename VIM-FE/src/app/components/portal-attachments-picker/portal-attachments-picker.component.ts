@@ -51,9 +51,14 @@ export class PortalAttachmentsPickerComponent implements OnInit, AfterViewInit, 
     importing = false;
     viewMode: 'details' | 'list' = 'details';
     searchText = '';
+    page = 0;
+    readonly pageSize = 10;
+    hasMore = false;
+    total: number | null = null;
     allItems: PortalAttachmentItem[] = [];
     filteredItems: PortalAttachmentItem[] = [];
     selectedKeys = new Set<string>();
+    private selectedItems = new Map<string, PortalAttachmentItem>();
 
     showPreview = false;
     previewLoading = false;
@@ -66,6 +71,7 @@ export class PortalAttachmentsPickerComponent implements OnInit, AfterViewInit, 
     private searchTimer: ReturnType<typeof setTimeout> | null = null;
     private searchListener: ((event: Event) => void) | null = null;
     private searchBound = false;
+    private loadSeq = 0;
 
     constructor(
         private templateWorkflowService: TemplateWorkflowService,
@@ -77,6 +83,14 @@ export class PortalAttachmentsPickerComponent implements OnInit, AfterViewInit, 
 
     get selectedCount(): number {
         return this.selectedKeys.size;
+    }
+
+    get pageLabel(): string {
+        if (this.total != null && this.total >= 0) {
+            const pages = Math.max(1, Math.ceil(this.total / this.pageSize));
+            return `Page ${this.page + 1} of ${pages}`;
+        }
+        return `Page ${this.page + 1}`;
     }
 
     async ngOnInit(): Promise<void> {
@@ -115,11 +129,29 @@ export class PortalAttachmentsPickerComponent implements OnInit, AfterViewInit, 
         const next = new Set(this.selectedKeys);
         if (checked) {
             next.add(key);
+            this.selectedItems.set(key, item);
         } else {
             next.delete(key);
+            this.selectedItems.delete(key);
         }
         this.selectedKeys = next;
         this.cdr.markForCheck();
+    }
+
+    previousPage(): void {
+        if (this.loading || this.page <= 0) {
+            return;
+        }
+        this.page -= 1;
+        void this.loadItems();
+    }
+
+    nextPage(): void {
+        if (this.loading || !this.hasMore) {
+            return;
+        }
+        this.page += 1;
+        void this.loadItems();
     }
 
     isImageFile(fileName: string): boolean {
@@ -172,7 +204,7 @@ export class PortalAttachmentsPickerComponent implements OnInit, AfterViewInit, 
         if (this.importing || this.selectedKeys.size === 0) {
             return;
         }
-        const selectedItems = this.filteredItems.filter((item) => this.isSelected(item));
+        const selectedItems = Array.from(this.selectedItems.values());
         if (!selectedItems.length) {
             return;
         }
@@ -196,26 +228,49 @@ export class PortalAttachmentsPickerComponent implements OnInit, AfterViewInit, 
     }
 
     private async loadItems(): Promise<void> {
+        const requestSeq = ++this.loadSeq;
         this.loading = true;
         this.cdr.markForCheck();
         try {
             const response = await firstValueFrom(
-                this.templateWorkflowService.getCompletedTemplatePortalAttachments(0, 200, '')
+                this.templateWorkflowService.getCompletedTemplatePortalAttachments(
+                    this.page,
+                    this.pageSize,
+                    this.searchText
+                )
             );
+            if (requestSeq !== this.loadSeq) {
+                return;
+            }
             this.allItems = Array.isArray(response?.items) ? response.items : [];
-            this.applySearchFilter(this.searchText);
-            this.selectedKeys = new Set<string>();
+            this.filteredItems = [...this.allItems];
+            const reportedTotal = Number(response?.total);
+            this.total = Number.isFinite(reportedTotal) && reportedTotal >= 0 ? reportedTotal : null;
+            this.hasMore = response?.hasMore === true
+                || (this.total != null && (this.page + 1) * this.pageSize < this.total);
+            if (this.page > 0 && this.filteredItems.length === 0 && !this.hasMore) {
+                this.page -= 1;
+                void this.loadItems();
+                return;
+            }
         } catch (error: any) {
+            if (requestSeq !== this.loadSeq) {
+                return;
+            }
             this.allItems = [];
             this.filteredItems = [];
+            this.hasMore = false;
+            this.total = null;
             this.notificationService.showMessage(
                 error?.error?.message || error?.message || 'Failed to load portal attachments.',
                 'danger'
             );
         } finally {
-            this.loading = false;
-            this.cdr.markForCheck();
-            this.bindSearchOutsideAngular();
+            if (requestSeq === this.loadSeq) {
+                this.loading = false;
+                this.cdr.markForCheck();
+                this.bindSearchOutsideAngular();
+            }
         }
     }
 
@@ -236,11 +291,15 @@ export class PortalAttachmentsPickerComponent implements OnInit, AfterViewInit, 
                     }
                     this.searchTimer = setTimeout(() => {
                         this.ngZone.run(() => {
+                            const nextSearch = value.trim();
+                            if (nextSearch === this.searchText.trim() && this.page === 0) {
+                                return;
+                            }
                             this.searchText = value;
-                            this.applySearchFilter(value);
-                            this.cdr.markForCheck();
+                            this.page = 0;
+                            void this.loadItems();
                         });
-                    }, 200);
+                    }, 300);
                 };
                 input.addEventListener('input', this.searchListener);
                 this.searchBound = true;
@@ -255,27 +314,6 @@ export class PortalAttachmentsPickerComponent implements OnInit, AfterViewInit, 
         }
         this.searchListener = null;
         this.searchBound = false;
-    }
-
-    private applySearchFilter(rawSearch: string): void {
-        const search = String(rawSearch || '').trim().toLowerCase();
-        if (!search) {
-            this.filteredItems = [...this.allItems];
-            return;
-        }
-        this.filteredItems = this.allItems.filter((item) => {
-            const haystack = [
-                item.fileName,
-                item.templateName,
-                item.formCode,
-                item.fieldLabel,
-                item.status,
-                String(item.applicationId || '')
-            ]
-                .map((value) => String(value || '').toLowerCase())
-                .join(' ');
-            return haystack.includes(search);
-        });
     }
 
     private getKey(item: PortalAttachmentItem): string {

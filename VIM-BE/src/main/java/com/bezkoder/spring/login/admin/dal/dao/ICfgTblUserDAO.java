@@ -21,6 +21,9 @@ public interface ICfgTblUserDAO {
 
 	String updateUserDepartment(Integer userId, HrTblDepartment department);
 
+	String batchAssignUsersToDepartment(Integer departmentId, List<Integer> userIds,
+			String departmentHeadIds, String departmentManagerIds);
+
 	String generateUserNo(String type);
 
 	String getUserById(String userId);

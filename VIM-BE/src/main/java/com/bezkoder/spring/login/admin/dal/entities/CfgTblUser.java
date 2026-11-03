@@ -289,6 +289,7 @@ public class CfgTblUser implements Serializable {
 	@JoinColumn(name = "ser_manager_id")*/
 	@ManyToOne
 	@JoinColumn(name = "manager_id")
+	@JsonIgnoreProperties({"cfgTblManager", "txtPassword", "cfgTblUserRoles", "cfgTblPasswordPolicy", "cfgTblCustomer", "hrTblDepartment"})
 	private CfgTblUser cfgTblManager;
 
 	public CfgTblUser getCfgTblManager() {

@@ -161,7 +161,11 @@ public class DepartmentController {
 			@SuppressWarnings("unchecked")
 			List<Integer> userIds = (List<Integer>) requestBody.get("userIds");
 			Object headIdObj = requestBody.get("departmentHeadId");
-			boolean hasHead = headIdObj != null && !String.valueOf(headIdObj).isEmpty();
+			Object managerIdObj = requestBody.get("departmentManagerId");
+			String headIdStr = headIdObj != null ? String.valueOf(headIdObj).trim() : "";
+			String managerIdStr = managerIdObj != null ? String.valueOf(managerIdObj).trim() : "";
+			boolean hasHead = !headIdStr.isEmpty();
+			boolean hasManager = !managerIdStr.isEmpty();
 			
 			if (departmentId == null) {
 				return "{\"status\":\"Failure\",\"message\":\"Department ID is required\"}";
@@ -170,88 +174,19 @@ public class DepartmentController {
 			if (userIds == null || userIds.isEmpty()) {
 				return "{\"status\":\"Failure\",\"message\":\"User IDs are required\"}";
 			}
-			
-			// Get the department
-			HrTblDepartment department = null;
-			List<HrTblDepartment> departments = departmentService.getAllDepartments();
-			for (HrTblDepartment dept : departments) {
-				if (dept.getSerDepartmentId().equals(departmentId)) {
-					department = dept;
-					break;
-				}
+
+			String normalizedHeadIds = hasHead ? normalizeDepartmentHeadIds(headIdStr) : "";
+			String normalizedManagerIds = hasManager ? normalizeDepartmentHeadIds(managerIdStr) : "";
+
+			if (!validateAssigneeUserIds(userIds, normalizedHeadIds)) {
+				return "{\"status\":\"Failure\",\"message\":\"Department head must be selected from the assigned users\"}";
 			}
-			
-			if (department == null) {
-				return "{\"status\":\"Failure\",\"message\":\"Department not found\"}";
-			}
-			
-			// Set department head if provided
-			if (hasHead) {
-				String headIdStr = String.valueOf(headIdObj);
-				// Verify that all department heads are in the selected users list
-				String[] headIdsArr = headIdStr.split(",");
-				for (String hid : headIdsArr) {
-					try {
-						Integer headIdInt = Integer.parseInt(hid.trim());
-						if (!userIds.contains(headIdInt)) {
-							return "{\"status\":\"Failure\",\"message\":\"Department head must be selected from the assigned users\"}";
-						}
-					} catch (NumberFormatException e) {}
-				}
-				department.setSerDepartmentHeadId(headIdStr);
-				departmentService.updateDepartment(department);
-			} else {
-				// Clear department head if not provided
-				department.setSerDepartmentHeadId(null);
-				departmentService.updateDepartment(department);
-			}
-			
-			// Get all users and update those in the list
-			List<CfgTblUser> allUsers = userService.getAllUser();
-			int updatedCount = 0;
-			Set<Integer> affectedDepartmentIds = new LinkedHashSet<>();
-			affectedDepartmentIds.add(departmentId);
-			
-			for (CfgTblUser user : allUsers) {
-				if (userIds.contains(user.getSerUserId())) {
-					Integer previousDepartmentId = user.getHrTblDepartment() != null
-							? user.getHrTblDepartment().getSerDepartmentId()
-							: null;
-					if (previousDepartmentId != null && !previousDepartmentId.equals(departmentId)) {
-						affectedDepartmentIds.add(previousDepartmentId);
-					}
-					// Assign user to department
-					userService.updateUserDepartment(user.getSerUserId(), department);
-					user.setHrTblDepartment(department);
-					updatedCount++;
-				} else if (user.getHrTblDepartment() != null && 
-						   user.getHrTblDepartment().getSerDepartmentId() != null &&
-						   user.getHrTblDepartment().getSerDepartmentId().equals(departmentId)) {
-					// Remove user from department if not in the new list
-					userService.updateUserDepartment(user.getSerUserId(), null);
-					user.setHrTblDepartment(null);
-				}
+			if (!validateAssigneeUserIds(userIds, normalizedManagerIds)) {
+				return "{\"status\":\"Failure\",\"message\":\"Department manager must be selected from the assigned users\"}";
 			}
 
-			for (Integer affectedDepartmentId : affectedDepartmentIds) {
-				HrTblDepartment affectedDepartment = findDepartmentById(departments, affectedDepartmentId);
-				if (affectedDepartment == null) {
-					continue;
-				}
-
-				String cleanedHeadIds = getValidDepartmentHeadIds(affectedDepartment, allUsers);
-				String currentHeadIds = normalizeDepartmentHeadIds(affectedDepartment.getSerDepartmentHeadId());
-				if (!currentHeadIds.equals(cleanedHeadIds)) {
-					affectedDepartment.setSerDepartmentHeadId(cleanedHeadIds.isEmpty() ? null : cleanedHeadIds);
-					departmentService.updateDepartment(affectedDepartment);
-				}
-			}
-			
-			String message = updatedCount + " user(s) assigned to department";
-			if (hasHead) {
-				message += " with department head assigned";
-			}
-			return "{\"status\":\"Success\",\"message\":\"" + message + "\"}";
+			return userService.batchAssignUsersToDepartment(departmentId, userIds, normalizedHeadIds,
+					normalizedManagerIds);
 		} catch (Exception ex) {
 			logger.error("Error assigning users to department: " + ex.getMessage(), ex);
 			return "{\"status\":\"Failure\",\"message\":\"" + ex.getMessage() + "\"}";
@@ -272,36 +207,60 @@ public class DepartmentController {
 	}
 
 	private String getValidDepartmentHeadIds(HrTblDepartment department, List<CfgTblUser> allUsers) {
+		return getValidDepartmentAssigneeIds(department, allUsers, department.getSerDepartmentHeadId());
+	}
+
+	private String getValidDepartmentManagerIds(HrTblDepartment department, List<CfgTblUser> allUsers) {
+		return getValidDepartmentAssigneeIds(department, allUsers, department.getSerDepartmentManagerId());
+	}
+
+	private String getValidDepartmentAssigneeIds(HrTblDepartment department, List<CfgTblUser> allUsers, String rawIds) {
 		if (department == null || department.getSerDepartmentId() == null) {
 			return "";
 		}
 
-		String normalizedHeadIds = normalizeDepartmentHeadIds(department.getSerDepartmentHeadId());
-		if (normalizedHeadIds.isEmpty()) {
+		String normalizedIds = normalizeDepartmentHeadIds(rawIds);
+		if (normalizedIds.isEmpty()) {
 			return "";
 		}
 
-		List<String> validHeadIds = new ArrayList<>();
-		for (String headId : normalizedHeadIds.split(",")) {
-			Integer parsedHeadId = parseInteger(headId);
-			if (parsedHeadId == null) {
+		List<String> validIds = new ArrayList<>();
+		for (String assigneeId : normalizedIds.split(",")) {
+			Integer parsedId = parseInteger(assigneeId);
+			if (parsedId == null) {
 				continue;
 			}
 
 			for (CfgTblUser user : allUsers) {
-				if (user == null || user.getSerUserId() == null || !parsedHeadId.equals(user.getSerUserId())) {
+				if (user == null || user.getSerUserId() == null || !parsedId.equals(user.getSerUserId())) {
 					continue;
 				}
 
 				if (user.getHrTblDepartment() != null
 						&& department.getSerDepartmentId().equals(user.getHrTblDepartment().getSerDepartmentId())) {
-					validHeadIds.add(String.valueOf(parsedHeadId));
+					validIds.add(String.valueOf(parsedId));
 				}
 				break;
 			}
 		}
 
-		return String.join(",", validHeadIds);
+		return String.join(",", validIds);
+	}
+
+	private boolean validateAssigneeUserIds(List<Integer> userIds, String assigneeIdsCsv) {
+		if (assigneeIdsCsv == null || assigneeIdsCsv.trim().isEmpty()) {
+			return true;
+		}
+		for (String idPart : assigneeIdsCsv.split(",")) {
+			Integer assigneeId = parseInteger(idPart);
+			if (assigneeId == null) {
+				continue;
+			}
+			if (!userIds.contains(assigneeId)) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private String normalizeDepartmentHeadIds(String headIds) {

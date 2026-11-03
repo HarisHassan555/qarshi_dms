@@ -2,6 +2,52 @@
     color: #172033;
 }
 
+.template-fill-page--builder-preview {
+    min-height: 100vh;
+}
+
+.builder-preview-banner {
+    background: #eef4ff;
+    border-bottom: 1px solid #c7d7f5;
+    color: #1e3a5f;
+    padding: 10px 14px;
+}
+
+.builder-preview-banner-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 960px;
+}
+
+.builder-preview-banner-text span {
+    font-size: 13px;
+    opacity: 0.92;
+}
+
+.builder-preview-signature-placeholder {
+    color: #64748b;
+    display: inline-block;
+    font-size: 12px;
+    font-style: italic;
+    padding: 4px 0;
+}
+
+.template-fill-page--builder-preview .fill-workspace {
+    display: block;
+}
+
+.template-fill-page--builder-preview .fill-stage {
+    border: 0;
+    border-radius: 0;
+    min-height: calc(100vh - 8px);
+    padding: 8px 12px 12px;
+}
+
+.template-fill-page--builder-preview .fill-stage-zoom-bar {
+    background: #dbe3ef;
+}
+
 .fill-header {
     align-items: center;
     display: flex;
@@ -149,6 +195,16 @@
     grid-template-columns: 300px minmax(0, 1fr);
 }
 
+.fill-workspace.fill-workspace--builder-preview {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.builder-preview-note {
+    color: #64748b;
+    font-size: 14px;
+    margin: 4px 0 0;
+}
+
 .fill-values-panel {
     background: #ffffff;
     border: 1px solid #e2e8f0;
@@ -218,6 +274,65 @@
     table-layout: fixed;
 }
 
+.fillable-table th.fill-table-index,
+.inline-fillable-table th.fill-table-index {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    box-sizing: border-box;
+    color: #94a3b8;
+    font-family: Arial, sans-serif;
+    font-size: 10px;
+    font-weight: 600;
+    height: auto;
+    line-height: 1;
+    padding: 0;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.fillable-table tr.table-index-row,
+.inline-fillable-table tr.table-index-row {
+    height: 16px;
+}
+
+.fillable-table tr.table-index-row th.fill-table-index,
+.inline-fillable-table tr.table-index-row th.fill-table-index {
+    height: 16px;
+    max-height: 16px;
+    padding: 0;
+}
+
+.fillable-table th.fill-table-index:first-child,
+.inline-fillable-table th.fill-table-index:first-child,
+.fillable-table th.fill-table-index-corner,
+.inline-fillable-table th.fill-table-index-corner {
+    max-width: 22px;
+    min-width: 22px;
+    width: 22px;
+}
+
+.fill-table-index-remove {
+    background: transparent;
+    border: 0;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    height: 16px;
+    line-height: 14px;
+    padding: 0;
+    width: 100%;
+}
+
+.fill-table-index-remove:hover {
+    color: #b91c1c;
+}
+
+.fillable-table td.document-table-target-cell {
+    outline: 2px solid #2563eb;
+    outline-offset: -2px;
+}
+
 .fillable-table th,
 .fillable-table td {
     border: 1px solid #cbd5e1;
@@ -242,6 +357,11 @@
     width: 100%;
 }
 
+.table-formula-expression-input {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 12px;
+}
+
 .table-row-actions-heading,
 .table-row-actions {
     width: 78px;
@@ -261,6 +381,24 @@
 .inline-fillable-table th,
 .inline-fillable-table td {
     padding: 3px;
+}
+
+.inline-table-shell .table-editor-scroll,
+.table-field-panel .table-editor-scroll {
+    flex: 0 1 auto;
+    height: auto;
+    max-height: 100%;
+}
+
+.inline-fillable-table,
+.table-field-panel .fillable-table {
+    height: auto;
+}
+
+.inline-fillable-table th.fill-table-index,
+.table-field-panel th.fill-table-index {
+    padding: 0;
+    vertical-align: middle;
 }
 
 .inline-fillable-table input {
@@ -852,6 +990,8 @@
     display: grid;
     gap: 8px;
     margin-top: 10px;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .attachment-item {
@@ -859,6 +999,12 @@
     display: flex;
     gap: 8px;
     justify-content: space-between;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.attachment-item > .btn {
+    flex: 0 0 auto;
 }
 
 .attachment-link-button {
@@ -874,6 +1020,12 @@
     text-align: left;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.attachment-item .attachment-link-button {
+    flex: 1 1 0;
+    min-width: 0;
+    width: 0;
 }
 
 .attachment-link-button:hover {
@@ -987,6 +1139,62 @@
 
 .pdf-background-frame {
     background: #ffffff;
+}
+
+.fill-table-context-menu {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+    display: flex;
+    flex-direction: column;
+    min-width: 148px;
+    padding: 4px;
+    position: fixed;
+    z-index: 80;
+}
+
+.fill-table-context-menu button {
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    color: #172033;
+    cursor: pointer;
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 10px;
+    text-align: left;
+}
+
+.fill-table-context-menu button:hover {
+    background: #f1f5f9;
+}
+
+:host ::ng-deep .document-html td.document-table-target-cell,
+:host ::ng-deep .document-html th.document-table-target-cell {
+    outline: 2px solid #2563eb;
+    outline-offset: -2px;
+}
+
+:host ::ng-deep .document-html td.document-fill-cell,
+:host ::ng-deep .document-html th.document-fill-cell {
+    cursor: text;
+    min-width: 4em;
+}
+
+:host ::ng-deep .document-html td.document-fill-cell:focus,
+:host ::ng-deep .document-html th.document-fill-cell:focus {
+    background: #eff6ff;
+    outline: 2px solid #93c5fd;
+    outline-offset: -2px;
+}
+
+:host ::ng-deep .document-html td.document-formula-cell,
+:host ::ng-deep .document-html th.document-formula-cell {
+    background: #f8fafc;
+    color: #0f172a;
+    font-weight: 600;
 }
 
 .document-html {

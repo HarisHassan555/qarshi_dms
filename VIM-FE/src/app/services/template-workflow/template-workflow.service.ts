@@ -484,7 +484,8 @@ export class TemplateWorkflowService {
             ...normalizedValues,
             templateValues: normalizedValues,
             footerFields: userPipeline,
-            templatePayload: template.payload
+            templatePayload: template.payload,
+            documentHtml: String(template.payload?.html || '')
         };
         const applicationId = Number(options?.applicationId);
         const payload: any = {
@@ -528,7 +529,8 @@ export class TemplateWorkflowService {
             ...normalizedValues,
             templateValues: normalizedValues,
             footerFields: userPipeline,
-            templatePayload: template.payload
+            templatePayload: template.payload,
+            documentHtml: String(template.payload?.html || '')
         };
         const numericApplicationId = Number(applicationId);
         const payload: any = {
@@ -663,7 +665,8 @@ export class TemplateWorkflowService {
                 ...normalizedValues
             },
             footerFields: userPipeline.length > 0 ? userPipeline : (existingData.footerFields || []),
-            templatePayload
+            templatePayload,
+            documentHtml: String(templatePayload?.html || existingData.documentHtml || '')
         };
 
         const payload = {
@@ -1006,17 +1009,24 @@ export class TemplateWorkflowService {
             };
 
             if (step.type === 'department') {
+                const isInitiatorHod = step.dynamicTarget === 'initiator_hod';
+                const isInitiatorManager = step.dynamicTarget === 'initiator_manager';
+                const dynamicDepartmentStep = isInitiatorHod || isInitiatorManager;
                 result.push({
                     ...base,
                     type: 'department',
-                    serDepartmentId: step.dynamicTarget === 'initiator_hod' ? null : (step.serDepartmentId ?? step.hrTblDepartment?.serDepartmentId ?? null),
-                    departmentId: step.dynamicTarget === 'initiator_hod' ? null : (step.serDepartmentId ?? step.hrTblDepartment?.serDepartmentId ?? null),
-                    txtDepartmentName: step.dynamicTarget === 'initiator_hod'
+                    serDepartmentId: dynamicDepartmentStep ? null : (step.serDepartmentId ?? step.hrTblDepartment?.serDepartmentId ?? null),
+                    departmentId: dynamicDepartmentStep ? null : (step.serDepartmentId ?? step.hrTblDepartment?.serDepartmentId ?? null),
+                    txtDepartmentName: isInitiatorHod
                         ? 'User Dept HOD'
-                        : (step.hrTblDepartment?.txtDepartmentName || step.name || null),
-                    departmentName: step.dynamicTarget === 'initiator_hod'
+                        : isInitiatorManager
+                            ? 'User Manager'
+                            : (step.hrTblDepartment?.txtDepartmentName || step.name || null),
+                    departmentName: isInitiatorHod
                         ? 'User Dept HOD'
-                        : (step.hrTblDepartment?.txtDepartmentName || step.name || null),
+                        : isInitiatorManager
+                            ? 'User Manager'
+                            : (step.hrTblDepartment?.txtDepartmentName || step.name || null),
                     dynamicTarget: step.dynamicTarget,
                     hrTblDepartment: step.hrTblDepartment
                 });

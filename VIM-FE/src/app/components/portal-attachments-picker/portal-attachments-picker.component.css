@@ -288,6 +288,20 @@
 .portal-attachments-selected-count {
     color: #64748b;
     font-size: 13px;
+    min-width: 88px;
+}
+
+.portal-attachments-pager {
+    align-items: center;
+    color: #475569;
+    display: flex;
+    font-size: 13px;
+    gap: 8px;
+}
+
+.portal-attachments-pager .btn {
+    min-width: 88px;
+    padding: 6px 10px;
 }
 
 .portal-attachments-footer-actions {

@@ -4,6 +4,7 @@ import com.bezkoder.spring.login.admin.bll.dto.ChangePasswordDTO;
 import com.bezkoder.spring.login.admin.bll.services.ICommonService;
 import com.bezkoder.spring.login.admin.bll.services.IUserService;
 import com.bezkoder.spring.login.backgroundjob.BackgroundJobService;
+import com.bezkoder.spring.login.sa.bll.servicesimpl.UserSapManagerSyncService;
 import com.bezkoder.spring.login.admin.dal.daoimpl.LoginDAOImpl;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
 import com.bezkoder.spring.login.admin.utility.common.UserProfilePictureStorageUtil;
@@ -39,7 +40,10 @@ public class UserController {
 	private LoginDAOImpl loginDaoImpl;
 
 	@Autowired
-	private BackgroundJobService backgroundJobService;
+	private         BackgroundJobService backgroundJobService;
+
+	@Autowired
+	private UserSapManagerSyncService userSapManagerSyncService;
 
 	@RequestMapping(value = "/suggestUserLoginName", method = RequestMethod.GET)
 	public Map<String, String> suggestUserLoginName(
@@ -55,6 +59,17 @@ public class UserController {
 		logger.debug("getAllUseres()");
 		List<CfgTblUser> users = userService.getAllUser();
 		return users;
+	}
+
+	@RequestMapping(value = "/resolveUserManagerFromSap", method = RequestMethod.GET)
+	public Map<String, Object> resolveUserManagerFromSap(
+			@RequestParam(value = "employeeId", required = false) String employeeId) {
+		return userSapManagerSyncService.resolveManagerFromSapEmployeeId(employeeId);
+	}
+
+	@RequestMapping(value = "/syncUserManagersFromSap", method = RequestMethod.POST)
+	public Map<String, Object> syncUserManagersFromSap() {
+		return userSapManagerSyncService.syncAllUserManagersFromSap();
 	}
 
 	@RequestMapping(value = "/getActiveUser", method = RequestMethod.GET)
@@ -108,20 +123,25 @@ public class UserController {
 			if (lstUser != null && !lstUser.isEmpty()) {
 				response.put("status", "AX");
 				return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
-			} else {
-				userService.addNewUser(cfgTblUser);
-				response.put("status", "Success");
-				boolean welcomeEmail = !Boolean.FALSE.equals(cfgTblUser.getSendWelcomeEmail())
-						|| Boolean.TRUE.equals(cfgTblUser.getCreatedFromSapHcm());
-				response.put("welcomeEmail", welcomeEmail ? "true" : "false");
-				if (backgroundJobService != null && backgroundJobService.isEnabled()) {
-					response.put("credentialEmailQueued", "true");
-				}
-				return ResponseEntity.ok(response); // 200 OK
 			}
+			String managerError = userSapManagerSyncService.prepareManagerForSapUserCreate(cfgTblUser);
+			if (managerError != null) {
+				response.put("status", "Failure");
+				response.put("message", managerError);
+				return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+			}
+			userService.addNewUser(cfgTblUser);
+			response.put("status", "Success");
+			boolean welcomeEmail = !Boolean.FALSE.equals(cfgTblUser.getSendWelcomeEmail())
+					|| Boolean.TRUE.equals(cfgTblUser.getCreatedFromSapHcm());
+			response.put("welcomeEmail", welcomeEmail ? "true" : "false");
+			if (backgroundJobService != null && backgroundJobService.isEnabled()) {
+				response.put("credentialEmailQueued", "true");
+			}
+			return ResponseEntity.ok(response);
 		} catch (Exception ex) {
 			response.put("status", "Failure");
-			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response); // 500 Internal Server Error
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
 		}
 	}
 

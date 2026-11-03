@@ -33,6 +33,11 @@
                         {{ value.departmentHeadName || '-' }}
                     </span>
                 </ng-template>
+                <ng-template slot="departmentManagerName" let-value="data">
+                    <span class="font-medium text-gray-900 dark:text-white">
+                        {{ value.departmentManagerName || '-' }}
+                    </span>
+                </ng-template>
                 <ng-template slot="blnStatus" let-value="data">
                     <span class="badge"
                         [ngClass]="[value.blnStatus === true ? 'badge-outline-success' : 'badge-outline-danger']">
@@ -171,6 +176,43 @@
                                 <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
                             </svg>
                         </div>
+                        <!-- User-check icon for department manager -->
+                        <div *ngIf="isUserSelected(user.serUserId)"
+                             class="ml-2 cursor-pointer flex-shrink-0 p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                             (click)="toggleDepartmentManager(user.serUserId)"
+                             (mousedown)="$event.preventDefault()"
+                             title="Click to set as department manager">
+                            <svg *ngIf="selectedDepartmentManagerIds.includes(user.serUserId)"
+                                 xmlns="http://www.w3.org/2000/svg"
+                                 width="24"
+                                 height="24"
+                                 viewBox="0 0 24 24"
+                                 fill="none"
+                                 stroke="currentColor"
+                                 stroke-width="1.75"
+                                 stroke-linecap="round"
+                                 stroke-linejoin="round"
+                                 class="w-6 h-6 text-success">
+                                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                                <circle cx="9" cy="7" r="4"/>
+                                <path d="M17 11l2 2 4-4"/>
+                            </svg>
+                            <svg *ngIf="!selectedDepartmentManagerIds.includes(user.serUserId)"
+                                 xmlns="http://www.w3.org/2000/svg"
+                                 width="24"
+                                 height="24"
+                                 viewBox="0 0 24 24"
+                                 fill="none"
+                                 stroke="currentColor"
+                                 stroke-width="1.75"
+                                 stroke-linecap="round"
+                                 stroke-linejoin="round"
+                                 class="w-6 h-6 text-gray-400 hover:text-success">
+                                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                                <circle cx="9" cy="7" r="4"/>
+                                <path d="M17 11l2 2 4-4" opacity="0.35"/>
+                            </svg>
+                        </div>
                     </div>
                 </div>
                 <div *ngIf="allUsers && allUsers.length > 0 && filteredUsersForAssign.length === 0" class="text-center py-8 text-gray-500">
@@ -193,12 +235,23 @@
                             </span>
                         </span>
                     </span>
+                    <span *ngIf="selectedDepartmentManagerIds.length > 0" class="ml-2">
+                        | <strong>Managers:</strong> {{ getAssigneeNamesForIds(selectedDepartmentManagerIds) }}
+                    </span>
                 </p>
                 <p class="text-xs text-gray-600 dark:text-gray-400 mt-1" *ngIf="selectedUserIds.length > 0">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" class="inline w-4 h-4 text-yellow-500 mr-1">
                         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
                     </svg>
-                    Click the star icon next to a selected user to set them as department head
+                    Star = department head (HOD)
+                    <span class="inline-flex items-center mx-1 text-success" aria-hidden="true">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="inline w-4 h-4">
+                            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                            <circle cx="9" cy="7" r="4"/>
+                            <path d="M17 11l2 2 4-4"/>
+                        </svg>
+                    </span>
+                    User with check = department manager
                 </p>
             </div>
         </div>
