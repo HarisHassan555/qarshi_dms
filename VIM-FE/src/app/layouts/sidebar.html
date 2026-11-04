@@ -5,10 +5,10 @@
             <div class="flex items-center justify-between px-4 py-3">
                 <div class="flex items-center justify-center">
                     <a routerLink="/" class="main-logo flex min-w-0 shrink items-center gap-2">
-                        <img class="ml-[5px] w-16 flex-none" src="assets/images/qarshi-logo.png" alt="Qarshi" />
+                        <img class="ml-[5px] h-12 w-16 flex-none object-contain" [src]="applicationLogoUrl" [alt]="applicationName" />
                         <span
                             class="min-w-0 text-base font-semibold leading-snug text-slate-800 dark:text-white-light lg:inline">
-                            Qarshi Workflow
+                            {{ applicationName }}
                         </span>
                     </a>
                 </div>

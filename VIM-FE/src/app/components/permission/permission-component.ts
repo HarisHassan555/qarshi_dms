@@ -132,7 +132,8 @@ export class PermissionComponent implements OnInit {
         'Dashboard': [],
         'Master Data': ['Department'],
         'Velocity': ['Application', 'Applications View', 'Pending Approvals', 'Form Builder', 'Budget Approval'],
-        'User Management': ['User', 'Password Policy', 'Change Password']
+        'User Management': ['User', 'Password Policy', 'Change Password'],
+        'App Settings': ['Basic Settings']
     };
 
     constructor(

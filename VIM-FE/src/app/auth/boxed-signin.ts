@@ -1,6 +1,7 @@
 import { animate, style, transition, trigger } from '@angular/animations';
-import { Component } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { FormBuilder, Validators } from '@angular/forms';
+import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 import {ActivatedRoute, Router} from '@angular/router';
 import { Store } from '@ngrx/store';
 import { TranslateService } from '@ngx-translate/core';
@@ -10,6 +11,7 @@ import { UserService } from '../services/user/user.service';
 import { SharedDataService } from '../services/shared-data/shared-data.service';
 import {NotificationService} from "../NotificationService";
 import { DocumentHeaderBrandingService } from '../services/document-header-branding/document-header-branding.service';
+import { ApplicationSettingService } from '../services/application-setting/application-setting.service';
 
 @Component({
     moduleId: module.id,
@@ -21,9 +23,12 @@ import { DocumentHeaderBrandingService } from '../services/document-header-brand
         ]),
     ],
 })
-export class BoxedSigninComponent {
+export class BoxedSigninComponent implements OnInit, OnDestroy {
     store: any;
     showPassword: boolean = false;
+    applicationName = 'Qarshi Workflow';
+    applicationLogoUrl: SafeUrl | string = 'assets/images/qarshi-logo.png';
+    private applicationLogoBlobUrl: string | null = null;
 
     public signinForm = this.formBuilder.group({
         username: ['', Validators.required],
@@ -39,13 +44,53 @@ export class BoxedSigninComponent {
         private authService: AuthService,
         private userService: UserService,
         private sharedDataService: SharedDataService,
-        public translate: TranslateService, public storeData: Store<any>, public router: Router, private appSetting: AppService,private notificationService: NotificationService,private route: ActivatedRoute, private documentHeaderBranding: DocumentHeaderBrandingService) {
+        public translate: TranslateService, public storeData: Store<any>, public router: Router, private appSetting: AppService,private notificationService: NotificationService,private route: ActivatedRoute, private documentHeaderBranding: DocumentHeaderBrandingService, private applicationSettingService: ApplicationSettingService, private sanitizer: DomSanitizer) {
         this.initStore();
         this.route.queryParams.subscribe(params => {
             if (params['error']) {
                 // Show the error message as a notification
                 this.notificationService.showMessage(params['error'], 'danger');
             }
+        });
+    }
+
+    ngOnInit(): void {
+        this.loadApplicationBrand();
+    }
+
+    ngOnDestroy(): void {
+        if (this.applicationLogoBlobUrl) {
+            URL.revokeObjectURL(this.applicationLogoBlobUrl);
+        }
+    }
+
+    private loadApplicationBrand(): void {
+        this.applicationSettingService.getPublicBranding().subscribe({
+            next: (brand) => {
+                const name = (brand?.applicationName || '').trim();
+                this.applicationName = name || 'Qarshi Workflow';
+                if (!brand?.hasLogo) {
+                    this.applicationLogoUrl = 'assets/images/qarshi-logo.png';
+                    return;
+                }
+                this.applicationSettingService.getPublicLogo().subscribe({
+                    next: (blob) => {
+                        if (!blob || blob.size === 0) {
+                            return;
+                        }
+                        const typed = blob.type ? blob : new Blob([blob], { type: 'image/png' });
+                        const objectUrl = URL.createObjectURL(typed);
+                        if (this.applicationLogoBlobUrl) {
+                            URL.revokeObjectURL(this.applicationLogoBlobUrl);
+                        }
+                        this.applicationLogoBlobUrl = objectUrl;
+                        this.applicationLogoUrl = this.sanitizer.bypassSecurityTrustUrl(objectUrl);
+                    },
+                    error: () => {
+                        this.applicationLogoUrl = 'assets/images/qarshi-logo.png';
+                    },
+                });
+            },
         });
     }
     async initStore() {

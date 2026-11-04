@@ -145,6 +145,9 @@ export class ProductTourService {
     if (page === 'delegation-management') {
       return 'Delegation Management';
     }
+    if (page === 'basic-settings') {
+      return 'Basic Settings';
+    }
     if (page === 'email-templates') {
       return 'Email Templates';
     }

@@ -1,0 +1,20 @@
+.settings-image-preview,
+.settings-hero-preview {
+    display: block;
+    background: #f8fafc;
+    border: 1px solid #e0e6ed;
+}
+
+.settings-image-preview {
+    height: 96px;
+    width: auto;
+    max-width: 220px;
+    object-fit: contain;
+}
+
+.settings-hero-preview {
+    max-height: 160px;
+    width: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+}

@@ -10,6 +10,7 @@ import { ProfileDrawerService } from '../services/profile-drawer/profile-drawer.
 import { SharedDataService } from '../services/shared-data/shared-data.service';
 import { UserService } from '../services/user/user.service';
 import { catchError, Observable, of, Subject, Subscription, switchMap, takeUntil, tap } from 'rxjs';
+import { ApplicationSettingService } from '../services/application-setting/application-setting.service';
 import { appMenuRouterLink, normalizeAppMenuPath } from '../utils/urls';
 
 @Component({
@@ -30,6 +31,9 @@ export class SidebarComponent implements OnInit, OnDestroy {
     isDashboardPresent!: boolean;
 
     sidebarProfilePhotoSafeUrl: SafeUrl | null = null;
+    applicationName = 'Qarshi Workflow';
+    applicationLogoUrl: SafeUrl | string = 'assets/images/qarshi-logo.png';
+    private applicationLogoBlobUrl: string | null = null;
     private sidebarProfilePhotoBlobUrl: string | null = null;
     private profilePhotoUpdatedSub?: Subscription;
 
@@ -44,7 +48,8 @@ export class SidebarComponent implements OnInit, OnDestroy {
         private ngZone: NgZone,
         private userService: UserService,
         private sanitizer: DomSanitizer,
-        private profileDrawerService: ProfileDrawerService
+        private profileDrawerService: ProfileDrawerService,
+        private applicationSettingService: ApplicationSettingService
     ) {
         this.initStore();
     }
@@ -59,6 +64,10 @@ export class SidebarComponent implements OnInit, OnDestroy {
     ngOnInit() {
         this.getUser();
         this.loadSidebarProfilePhoto();
+        this.loadApplicationBrand();
+        this.applicationSettingService.brandingChanged$
+            .pipe(takeUntil(this.destroy$))
+            .subscribe(() => this.loadApplicationBrand());
         this.profilePhotoUpdatedSub = this.profileDrawerService.profilePhotoUpdated$.subscribe(() =>
             this.loadSidebarProfilePhoto()
         );
@@ -76,6 +85,7 @@ export class SidebarComponent implements OnInit, OnDestroy {
     ngOnDestroy(): void {
         this.profilePhotoUpdatedSub?.unsubscribe();
         this.revokeSidebarProfilePhoto();
+        this.revokeApplicationLogo();
         this.destroy$.next();
         this.destroy$.complete();
     }
@@ -161,6 +171,47 @@ export class SidebarComponent implements OnInit, OnDestroy {
             this.sidebarProfilePhotoBlobUrl = null;
         }
         this.sidebarProfilePhotoSafeUrl = null;
+    }
+
+    private loadApplicationBrand(): void {
+        this.applicationSettingService.getPublicBranding().subscribe({
+            next: (brand) => {
+                const name = (brand?.applicationName || '').trim();
+                this.applicationName = name || 'Qarshi Workflow';
+                if (!brand?.hasLogo) {
+                    this.revokeApplicationLogo();
+                    this.applicationLogoUrl = 'assets/images/qarshi-logo.png';
+                    return;
+                }
+                this.applicationSettingService.getPublicLogo().subscribe({
+                    next: (blob) => {
+                        if (!blob || blob.size === 0) {
+                            return;
+                        }
+                        const typed = blob.type ? blob : new Blob([blob], { type: 'image/png' });
+                        const objectUrl = URL.createObjectURL(typed);
+                        this.revokeApplicationLogo();
+                        this.applicationLogoBlobUrl = objectUrl;
+                        this.applicationLogoUrl = this.sanitizer.bypassSecurityTrustUrl(objectUrl);
+                    },
+                    error: () => {
+                        this.revokeApplicationLogo();
+                        this.applicationLogoUrl = 'assets/images/qarshi-logo.png';
+                    },
+                });
+            },
+            error: () => {
+                this.applicationName = 'Qarshi Workflow';
+                this.applicationLogoUrl = 'assets/images/qarshi-logo.png';
+            },
+        });
+    }
+
+    private revokeApplicationLogo(): void {
+        if (this.applicationLogoBlobUrl) {
+            URL.revokeObjectURL(this.applicationLogoBlobUrl);
+            this.applicationLogoBlobUrl = null;
+        }
     }
 
     getUser() {

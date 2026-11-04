@@ -3,19 +3,19 @@
         <div class="relative min-h-[340px] overflow-hidden rounded-lg" data-tour="dashboard-hero">
             <div
                 class="absolute inset-0 bg-cover bg-center bg-no-repeat"
-                style="background-image: url('assets/images/Qarshi_Walpaper_Final.jpg.jpeg');"></div>
+                [style.background-image]="heroBackground"></div>
             <div class="absolute inset-0 bg-slate-950/60"></div>
 
             <div class="relative z-10 flex min-h-[340px] flex-col justify-between px-6 py-8 text-white md:px-10">
                 <div class="max-w-3xl">
                     <span class="badge rounded-full border-white/30 bg-white/10 text-[11px] font-semibold uppercase tracking-[0.28em] text-white/80">
-                        {{ scopeLabel }}
+                        {{ applicationName }}
                     </span>
                     <h1 class="mt-5 text-4xl font-bold md:text-5xl">
                         Welcome, {{ username || 'User' }}
                     </h1>
                     <p class="mt-4 max-w-2xl text-sm leading-6 text-white/80 md:text-base">
-                        Qarshi Workflow Management System with a quick view of application load, current approval stages,
+                        {{ applicationName }} with a quick view of application load, current approval stages,
                         and the items that need attention right now.
                     </p>
                 </div>

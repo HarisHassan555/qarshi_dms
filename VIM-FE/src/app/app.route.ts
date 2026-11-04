@@ -102,6 +102,7 @@ import { TemplateApprovalComponent } from './components/template-approval/templa
 import { TemplateApprovedApplicationsComponent } from './components/template-approved-applications/template-approved-applications.component';
 import { MyApplicationComponent } from './components/my-application/my-application.component';
 import { UniverFormBuilderComponent } from './components/univer-form-builder/univer-form-builder.component';
+import { BasicSettingsComponent } from './components/basic-settings/basic-settings.component';
 import { ReportsComponent } from './components/reports/reports.component';
 import { DocumentShareViewComponent } from './components/document-share-view/document-share-view.component';
 
@@ -188,6 +189,7 @@ export const routes: Routes = [
             { path: 'service-order', canActivate: [canActivate], component: ServiceOrderComponent, title: 'Service Order' },
             { path: 'menu-list', canActivate: [canActivate], component: MenuListComponent, title: 'Menu List' },
             { path: 'submenu-list', canActivate: [canActivate], component: SubmenuListComponent, title: 'Submenu List' },
+            { path: 'basic-settings', canActivate: [canActivate], component: BasicSettingsComponent, title: 'Basic Settings' },
             { path: 'vendor-view', canActivate: [canActivate], component: VendorListComponent, title: 'Vendor' },
             { path: 'payment', canActivate: [canActivate], component: PaymentComponent, title: 'Payment' },
             { path: 'OrderDepartment', canActivate: [canActivate], component: DeparmentComponent, title: 'Order By Department' },

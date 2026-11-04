@@ -176,6 +176,7 @@ import { ReportsComponent } from './components/reports/reports.component';
 import { AllApplicationsComponent } from './components/all-applications/all-applications.component';
 import { DocumentShareLinkButtonComponent } from './components/document-share-link-button/document-share-link-button.component';
 import { DocumentShareViewComponent } from './components/document-share-view/document-share-view.component';
+import { BasicSettingsComponent } from './components/basic-settings/basic-settings.component';
 
 
 @NgModule({
@@ -331,7 +332,8 @@ import { DocumentShareViewComponent } from './components/document-share-view/doc
         PortalAttachmentsPickerComponent,
         ReportsComponent,
         DocumentShareLinkButtonComponent,
-        DocumentShareViewComponent
+        DocumentShareViewComponent,
+        BasicSettingsComponent
     ],
 
     providers: [

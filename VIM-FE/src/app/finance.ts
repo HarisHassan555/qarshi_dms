@@ -1,7 +1,9 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
+import { DomSanitizer, SafeStyle } from '@angular/platform-browser';
 import { Router } from '@angular/router';
 import { firstValueFrom, Observable } from 'rxjs';
 import { ActivityLogService } from './services/activity-log/activity-log.service';
+import { ApplicationSettingService } from './services/application-setting/application-setting.service';
 import { SharedDataService } from './services/shared-data/shared-data.service';
 import { TemplateWorkflowService } from './services/template-workflow/template-workflow.service';
 import { UserService } from './services/user/user.service';
@@ -72,7 +74,7 @@ interface DashboardCsvColumn {
     templateUrl: './finance.html',
     styleUrls: ['./finance.css'],
 })
-export class FinanceComponent implements OnInit {
+export class FinanceComponent implements OnInit, OnDestroy {
     user: any = null;
     username = '';
     isAdmin = false;
@@ -82,6 +84,9 @@ export class FinanceComponent implements OnInit {
     recentApplications: DashboardApplicationItem[] = [];
     recentActivities: DashboardActivityEntry[] = [];
     scopeLabel = 'Your workflow';
+    applicationName = 'Qarshi Workflow';
+    heroBackground: SafeStyle;
+    private heroObjectUrl = '';
     totalApplications = 0;
     pendingApplications = 0;
     completedApplications = 0;
@@ -119,14 +124,55 @@ export class FinanceComponent implements OnInit {
         private sharedDataService: SharedDataService,
         private templateWorkflowService: TemplateWorkflowService,
         private userService: UserService,
-        private router: Router
+        private router: Router,
+        private applicationSettingService: ApplicationSettingService,
+        private sanitizer: DomSanitizer
     ) {
+        this.heroBackground = this.sanitizer.bypassSecurityTrustStyle(
+            "url('assets/images/Qarshi_Walpaper_Final.jpg.jpeg')"
+        );
         this.hydrateUserFromStorage();
     }
 
     async ngOnInit(): Promise<void> {
+        this.loadHeroBranding();
         await this.loadDashboard();
         this.getUser();
+    }
+
+    ngOnDestroy(): void {
+        if (this.heroObjectUrl) {
+            URL.revokeObjectURL(this.heroObjectUrl);
+        }
+    }
+
+    private loadHeroBranding(): void {
+        this.applicationSettingService.getCurrent().subscribe({
+            next: (row) => {
+                const name = (row?.txtApplicationName || '').trim();
+                if (name) {
+                    this.applicationName = name;
+                }
+                const settingId = Number(row?.serApplicationSettingId);
+                if (!settingId || !row?.txtDashboardHeroImagePath) {
+                    return;
+                }
+                this.applicationSettingService.getImage(settingId, 'hero').subscribe({
+                    next: (blob) => {
+                        if (!blob || blob.size === 0) {
+                            return;
+                        }
+                        const typed = blob.type ? blob : new Blob([blob], { type: 'image/jpeg' });
+                        const objectUrl = URL.createObjectURL(typed);
+                        if (this.heroObjectUrl) {
+                            URL.revokeObjectURL(this.heroObjectUrl);
+                        }
+                        this.heroObjectUrl = objectUrl;
+                        this.heroBackground = this.sanitizer.bypassSecurityTrustStyle(`url("${objectUrl}")`);
+                    },
+                });
+            },
+        });
     }
 
     get hasBoardData(): boolean {

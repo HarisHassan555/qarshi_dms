@@ -110,6 +110,7 @@ public class WebSecurityConfig { // extends WebSecurityConfigurerAdapter {
                   .antMatchers("/{path:[^\\.]*}", "/**/{path:[^\\.]*}").permitAll()
                   .antMatchers("/login", "/getloginCustomer", "/allMenu", "/resources/**", "/updatePasswordReconfirm").permitAll()
                   .antMatchers("/getSignature", "/getUserSignaturePath").permitAll()
+                  .antMatchers("/getPublicApplicationBranding", "/getPublicApplicationLogo").permitAll()
               .antMatchers("/ws/chat", "/ws/chat/**", "/ws/notifications", "/ws/notifications/**").permitAll()
                   .antMatchers("/approveApplicationFromEmail", "/rejectApplicationFromEmail", "/sendBackApplicationFromEmail", "/sendBackToInitiatorFromEmail",
                           "/holdTemplateApplicationFromEmail", "/unholdTemplateApplicationFromEmail",

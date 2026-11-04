@@ -1,0 +1,104 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-3 px-5 md:flex-row md:items-center">
+            <div>
+                <h5 class="text-xl font-bold dark:text-white-light">Basic Settings</h5>
+                <p class="mt-1 text-sm text-gray-500">Application name, address, logo, dashboard hero image, and SMTP.</p>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto flex gap-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm" (click)="load()" [disabled]="loading || saving">Refresh</button>
+                <button type="button" class="btn btn-danger btn-sm" (click)="deleteSetting()" [disabled]="deleting || settingId == null">
+                    {{ deleting ? 'Deleting...' : 'Delete' }}
+                </button>
+                <button type="button" class="btn btn-primary btn-sm" (click)="save()" [disabled]="saving">
+                    {{ saving ? 'Saving...' : (settingId == null ? 'Save' : 'Update') }}
+                </button>
+            </div>
+        </div>
+
+        <div class="mb-4 flex gap-2 border-b border-[#e0e6ed] px-5 dark:border-[#1b2e4b]">
+            <button type="button" class="btn btn-sm mb-2" [ngClass]="activeTab === 'basic' ? 'btn-primary' : 'btn-outline-primary'" (click)="setTab('basic')">
+                Basic Information
+            </button>
+            <button type="button" class="btn btn-sm mb-2" [ngClass]="activeTab === 'smtp' ? 'btn-primary' : 'btn-outline-primary'" (click)="setTab('smtp')">
+                SMTP
+            </button>
+        </div>
+
+        <div class="px-5 text-sm text-gray-500" *ngIf="loading">Loading…</div>
+        <div class="px-5 text-sm text-danger" *ngIf="loadError">{{ loadError }}</div>
+
+        <form class="space-y-5 px-5 text-sm" [formGroup]="form" novalidate>
+            <div *ngIf="activeTab === 'basic'" class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div>
+                    <label for="txtApplicationName">Application name*</label>
+                    <input id="txtApplicationName" type="text" class="form-input" formControlName="txtApplicationName" placeholder="Qarshi Workflow" />
+                    <p class="mt-1 text-danger" *ngIf="submitted && form.controls['txtApplicationName'].invalid">Application name is required</p>
+                </div>
+                <div>
+                    <label for="txtEmail">Email</label>
+                    <input id="txtEmail" type="email" class="form-input" formControlName="txtEmail" placeholder="name@company.com" />
+                    <p class="mt-1 text-danger" *ngIf="submitted && form.controls['txtEmail'].invalid">Enter a valid email address</p>
+                </div>
+                <div class="lg:col-span-2">
+                    <label for="txtAddress">Address</label>
+                    <textarea id="txtAddress" rows="3" class="form-textarea" formControlName="txtAddress" placeholder="Application address"></textarea>
+                </div>
+                <div class="flex items-center gap-2">
+                    <input id="blIsActive" type="checkbox" class="form-checkbox" formControlName="blIsActive" />
+                    <label for="blIsActive" class="mb-0">Active</label>
+                </div>
+
+                <div class="lg:col-span-2 grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div class="rounded border border-[#e0e6ed] p-4 dark:border-[#1b2e4b]">
+                        <label for="logoFile">Logo</label>
+                        <input id="logoFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="form-input" (change)="onImageSelected('logo', $event)" />
+                        <p class="mt-1 text-xs text-gray-500">Stored as a file. The database keeps the file path only.</p>
+                        <img *ngIf="logoPreview" [src]="logoPreview" alt="Logo preview" class="settings-image-preview mt-3" />
+                        <button *ngIf="logoPreview" type="button" class="btn btn-outline-danger btn-sm mt-3" (click)="removeImage('logo')">Remove logo</button>
+                    </div>
+                    <div class="rounded border border-[#e0e6ed] p-4 dark:border-[#1b2e4b]">
+                        <label for="heroFile">Dashboard hero image</label>
+                        <input id="heroFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="form-input" (change)="onImageSelected('hero', $event)" />
+                        <p class="mt-1 text-xs text-gray-500">Stored as a file. The database keeps the file path only.</p>
+                        <img *ngIf="heroPreview" [src]="heroPreview" alt="Dashboard hero preview" class="settings-hero-preview mt-3" />
+                        <button *ngIf="heroPreview" type="button" class="btn btn-outline-danger btn-sm mt-3" (click)="removeImage('hero')">Remove hero image</button>
+                    </div>
+                </div>
+            </div>
+
+            <div *ngIf="activeTab === 'smtp'" class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                    <label for="txtSmtpHost">SMTP host</label>
+                    <input id="txtSmtpHost" type="text" class="form-input" formControlName="txtSmtpHost" placeholder="smtp.gmail.com" />
+                </div>
+                <div>
+                    <label for="txtSmtpPort">SMTP port</label>
+                    <input id="txtSmtpPort" type="number" class="form-input" formControlName="txtSmtpPort" placeholder="465" />
+                </div>
+                <div>
+                    <label for="txtSmtpUsername">SMTP username</label>
+                    <input id="txtSmtpUsername" type="text" class="form-input" formControlName="txtSmtpUsername" placeholder="mailbox@company.com" autocomplete="off" />
+                </div>
+                <div>
+                    <label for="txtSmtpPassword">SMTP password</label>
+                    <input id="txtSmtpPassword" type="password" class="form-input" formControlName="txtSmtpPassword" autocomplete="new-password" />
+                </div>
+                <div class="md:col-span-2 flex flex-wrap gap-6">
+                    <label class="mb-0 flex items-center gap-2">
+                        <input type="checkbox" class="form-checkbox" formControlName="blSmtpAuth" />
+                        Authentication
+                    </label>
+                    <label class="mb-0 flex items-center gap-2">
+                        <input type="checkbox" class="form-checkbox" formControlName="blSmtpSslEnable" />
+                        SSL
+                    </label>
+                    <label class="mb-0 flex items-center gap-2">
+                        <input type="checkbox" class="form-checkbox" formControlName="blSmtpStarttlsEnable" />
+                        STARTTLS
+                    </label>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>

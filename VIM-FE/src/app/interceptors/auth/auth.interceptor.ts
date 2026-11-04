@@ -27,12 +27,13 @@ export class AuthInterceptor implements HttpInterceptor {
         const isUpdateApplicationPdf = request.url.includes("updateApplicationPdf");
         const isEmailApproval = request.url.includes("approveApplicationFromEmail") || request.url.includes("rejectApplicationFromEmail");
         const isPublicDocumentShare = request.url.includes("public/documentShare");
+        const isPublicApplicationBranding = request.url.includes("getPublicApplication");
         const isOpenMeteo = request.url.includes('api.open-meteo.com');
         const isFormDataRequest = request.body instanceof FormData;
         let ok: string;
 
 
-        if (isLoginUrl || isEmailApproval || isOpenMeteo || isPublicDocumentShare) {
+        if (isLoginUrl || isEmailApproval || isOpenMeteo || isPublicDocumentShare || isPublicApplicationBranding) {
             return next.handle(request);
         }
 
