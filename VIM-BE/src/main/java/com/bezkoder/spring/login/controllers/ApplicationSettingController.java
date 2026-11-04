@@ -64,12 +64,13 @@ public class ApplicationSettingController {
             @RequestParam(value = "blSmtpSslEnable", required = false) String blSmtpSslEnable,
             @RequestParam(value = "blSmtpStarttlsEnable", required = false) String blSmtpStarttlsEnable,
             @RequestParam(value = "blIsActive", required = false) String blIsActive,
+            @RequestParam(value = "blIsDemo", required = false) String blIsDemo,
             @RequestParam(value = "logo", required = false) MultipartFile logo,
             @RequestParam(value = "hero", required = false) MultipartFile hero) {
         try {
             CfgTblApplicationSetting saved = applicationSettingService.create(
                     input(txtApplicationName, txtAddress, txtEmail, txtSmtpHost, txtSmtpPort, txtSmtpUsername,
-                            txtSmtpPassword, blSmtpAuth, blSmtpSslEnable, blSmtpStarttlsEnable, blIsActive, false, false),
+                            txtSmtpPassword, blSmtpAuth, blSmtpSslEnable, blSmtpStarttlsEnable, blIsActive, blIsDemo, false, false),
                     logo, hero);
             return ResponseEntity.ok(saved);
         } catch (IllegalArgumentException ex) {
@@ -94,6 +95,7 @@ public class ApplicationSettingController {
             @RequestParam(value = "blSmtpSslEnable", required = false) String blSmtpSslEnable,
             @RequestParam(value = "blSmtpStarttlsEnable", required = false) String blSmtpStarttlsEnable,
             @RequestParam(value = "blIsActive", required = false) String blIsActive,
+            @RequestParam(value = "blIsDemo", required = false) String blIsDemo,
             @RequestParam(value = "clearLogo", required = false) String clearLogo,
             @RequestParam(value = "clearHero", required = false) String clearHero,
             @RequestParam(value = "logo", required = false) MultipartFile logo,
@@ -102,7 +104,7 @@ public class ApplicationSettingController {
             CfgTblApplicationSetting saved = applicationSettingService.update(
                     serApplicationSettingId,
                     input(txtApplicationName, txtAddress, txtEmail, txtSmtpHost, txtSmtpPort, txtSmtpUsername,
-                            txtSmtpPassword, blSmtpAuth, blSmtpSslEnable, blSmtpStarttlsEnable, blIsActive,
+                            txtSmtpPassword, blSmtpAuth, blSmtpSslEnable, blSmtpStarttlsEnable, blIsActive, blIsDemo,
                             truthy(clearLogo), truthy(clearHero)),
                     logo, hero);
             return ResponseEntity.ok(saved);
@@ -188,7 +190,7 @@ public class ApplicationSettingController {
     private ApplicationSettingService.SettingInput input(String name, String address, String email, String host,
                                                          String port, String username, String password,
                                                          String auth, String ssl, String starttls, String active,
-                                                         boolean clearLogo, boolean clearHero) {
+                                                         String demo, boolean clearLogo, boolean clearHero) {
         ApplicationSettingService.SettingInput input = new ApplicationSettingService.SettingInput();
         input.applicationName = name;
         input.address = address;
@@ -201,6 +203,7 @@ public class ApplicationSettingController {
         input.smtpSsl = flag(ssl);
         input.smtpStarttls = flag(starttls);
         input.active = flag(active);
+        input.demo = flag(demo);
         input.clearLogo = clearLogo;
         input.clearHero = clearHero;
         return input;

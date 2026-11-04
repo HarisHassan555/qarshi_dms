@@ -18,6 +18,7 @@ export interface ApplicationSetting {
     blSmtpSslEnable?: boolean;
     blSmtpStarttlsEnable?: boolean;
     blIsActive?: boolean;
+    blIsDemo?: boolean;
 }
 
 export interface PublicApplicationBranding {

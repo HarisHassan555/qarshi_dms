@@ -48,6 +48,20 @@
                     <input id="blIsActive" type="checkbox" class="form-checkbox" formControlName="blIsActive" />
                     <label for="blIsActive" class="mb-0">Active</label>
                 </div>
+                <div>
+                    <span class="mb-2 block">Demo mode</span>
+                    <div class="flex flex-wrap gap-6">
+                        <label class="mb-0 flex items-center gap-2">
+                            <input type="radio" class="form-radio" formControlName="blIsDemo" [value]="true" />
+                            Yes
+                        </label>
+                        <label class="mb-0 flex items-center gap-2">
+                            <input type="radio" class="form-radio" formControlName="blIsDemo" [value]="false" />
+                            No
+                        </label>
+                    </div>
+                    <p class="mt-1 text-xs text-gray-500">Yes will use static demo data. No keeps the live database data.</p>
+                </div>
 
                 <div class="lg:col-span-2 grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div class="rounded border border-[#e0e6ed] p-4 dark:border-[#1b2e4b]">

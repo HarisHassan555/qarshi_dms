@@ -62,6 +62,9 @@ public class CfgTblApplicationSetting implements Serializable {
     @Column(name = "bl_is_active")
     private Boolean blIsActive;
 
+    @Column(name = "bl_is_demo")
+    private Boolean blIsDemo;
+
     @Column(name = "bl_is_deleted")
     private Boolean blIsDeleted;
 
@@ -187,6 +190,14 @@ public class CfgTblApplicationSetting implements Serializable {
 
     public void setBlIsActive(Boolean blIsActive) {
         this.blIsActive = blIsActive;
+    }
+
+    public Boolean getBlIsDemo() {
+        return blIsDemo;
+    }
+
+    public void setBlIsDemo(Boolean blIsDemo) {
+        this.blIsDemo = blIsDemo;
     }
 
     public Boolean getBlIsDeleted() {

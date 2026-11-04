@@ -40,6 +40,7 @@ export class BasicSettingsComponent implements OnInit, OnDestroy {
             txtAddress: [''],
             txtEmail: ['', Validators.email],
             blIsActive: [true],
+            blIsDemo: [false],
             txtSmtpHost: [''],
             txtSmtpPort: [''],
             txtSmtpUsername: [''],
@@ -175,6 +176,7 @@ export class BasicSettingsComponent implements OnInit, OnDestroy {
                 txtAddress: '',
                 txtEmail: '',
                 blIsActive: true,
+                blIsDemo: false,
                 txtSmtpHost: '',
                 txtSmtpPort: '',
                 txtSmtpUsername: '',
@@ -191,6 +193,7 @@ export class BasicSettingsComponent implements OnInit, OnDestroy {
             txtAddress: row.txtAddress || '',
             txtEmail: row.txtEmail || '',
             blIsActive: row.blIsActive !== false,
+            blIsDemo: row.blIsDemo === true,
             txtSmtpHost: row.txtSmtpHost || '',
             txtSmtpPort: row.txtSmtpPort ?? '',
             txtSmtpUsername: row.txtSmtpUsername || '',
@@ -241,6 +244,7 @@ export class BasicSettingsComponent implements OnInit, OnDestroy {
         data.append('txtAddress', value.txtAddress || '');
         data.append('txtEmail', value.txtEmail || '');
         data.append('blIsActive', String(!!value.blIsActive));
+        data.append('blIsDemo', String(value.blIsDemo === true || value.blIsDemo === 'true'));
         data.append('txtSmtpHost', value.txtSmtpHost || '');
         data.append('txtSmtpPort', value.txtSmtpPort === null || value.txtSmtpPort === undefined ? '' : String(value.txtSmtpPort));
         data.append('txtSmtpUsername', value.txtSmtpUsername || '');

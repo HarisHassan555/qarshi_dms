@@ -85,6 +85,7 @@ public class ApplicationSettingService {
         row.setBlSmtpSslEnable(input.smtpSsl);
         row.setBlSmtpStarttlsEnable(input.smtpStarttls);
         row.setBlIsActive(input.active == null ? Boolean.TRUE : input.active);
+        row.setBlIsDemo(Boolean.TRUE.equals(input.demo));
     }
 
     private void applyImages(CfgTblApplicationSetting row, MultipartFile logo, MultipartFile hero,
@@ -190,6 +191,7 @@ public class ApplicationSettingService {
         public Boolean smtpSsl;
         public Boolean smtpStarttls;
         public Boolean active;
+        public Boolean demo;
         public boolean clearLogo;
         public boolean clearHero;
     }

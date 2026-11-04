@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS cfg_tbl_application_setting (
     bl_smtp_ssl_enable BIT(1) NULL,
     bl_smtp_starttls_enable BIT(1) NULL,
     bl_is_active BIT(1) NULL DEFAULT 1,
+    bl_is_demo BIT(1) NOT NULL DEFAULT 0,
     bl_is_deleted BIT(1) NULL DEFAULT 0,
     ser_created_user INT NULL,
     dte_created_date DATETIME NULL,
