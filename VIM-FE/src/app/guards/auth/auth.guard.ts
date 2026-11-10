@@ -107,7 +107,8 @@ export const canActivate: CanActivateFn = (
     'SES', 'auditLog', 'transactions-details', 'report', 'order-details', 'application', 'applicationsview', 
     'application-details', 'formbuilder', 'CAPF', 'approveApplicationFromEmail', 'rejectApplicationFromEmail',
     'univer-form-builder', 'pending-approvals', 'department-application', 'approved-applications', 'assign-asset-code', 'pr-code', 'po-code', 'menu-list', 'submenu-list',
-    'roles', 'chat', 'notification-management', 'workflow-pipelines', 'organizations', 'sub-areas', 'divisions', 'sap-hcm-employees'];
+    'roles', 'chat', 'notification-management', 'workflow-pipelines', 'organizations', 'sub-areas', 'divisions', 'sap-hcm-employees',
+    'official-document-archive'];
 
   let user: any = localStorage.getItem('user');
   if (user && user !== null) {

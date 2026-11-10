@@ -1,0 +1,130 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-3 px-5 md:flex-row md:items-start md:justify-between">
+            <div class="max-w-2xl">
+                <h5 class="text-xl font-bold dark:text-white-light">Official Document Archive</h5>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Scan or upload company documents (invoices, records, contracts). Gemini generates a searchable title,
+                    summary, and category label when <code class="text-xs">GEMINI_API_KEY</code> is set on the server.
+                </p>
+                <p class="mt-1 text-xs" [ngClass]="geminiConfigured ? 'text-success' : 'text-warning'">
+                    {{ geminiConfigured ? 'AI indexing is enabled.' : 'AI indexing is off until GEMINI_API_KEY is configured.' }}
+                </p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <input #fileInput type="file" class="hidden" accept=".pdf,image/*" (change)="onFileChosen($event)" />
+                <input
+                    #scanInput
+                    type="file"
+                    class="hidden"
+                    accept="image/*"
+                    capture="environment"
+                    (change)="onFileChosen($event)"
+                />
+                <button type="button" class="btn btn-outline-primary btn-sm" (click)="triggerScan()" [disabled]="uploading">
+                    {{ uploading ? 'Uploading…' : 'Scan with camera' }}
+                </button>
+                <button type="button" class="btn btn-primary btn-sm" (click)="triggerUpload()" [disabled]="uploading">
+                    {{ uploading ? 'Uploading…' : 'Upload document' }}
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" (click)="load()" [disabled]="loading">
+                    Refresh
+                </button>
+            </div>
+        </div>
+
+        <div class="mb-4 grid grid-cols-1 gap-3 px-5 md:grid-cols-3">
+            <div class="md:col-span-2">
+                <label class="text-xs text-gray-500">Search title, summary, or filename</label>
+                <input
+                    type="search"
+                    class="form-input"
+                    [(ngModel)]="search"
+                    (ngModelChange)="onSearchChange()"
+                    placeholder="e.g. vendor invoice, employment contract…"
+                />
+            </div>
+            <div>
+                <label class="text-xs text-gray-500">Category</label>
+                <select class="form-select" [(ngModel)]="selectedLabel" (ngModelChange)="onLabelChange()">
+                    <option value="">All categories</option>
+                    <option *ngFor="let l of labels" [value]="l">{{ formatLabel(l) }}</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="px-5 text-sm text-danger" *ngIf="loadError">{{ loadError }}</div>
+        <div class="px-5 text-sm text-gray-500" *ngIf="loading && !documents.length">Loading…</div>
+
+        <div class="table-responsive px-5" *ngIf="documents.length">
+            <table class="table-hover table-striped table">
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Category</th>
+                        <th>Summary</th>
+                        <th>Pages</th>
+                        <th>Archived</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr *ngFor="let doc of documents">
+                        <td>
+                            <div class="font-semibold">{{ doc.txtTitle || doc.txtOriginalFileName }}</div>
+                            <div class="text-xs text-gray-500">{{ doc.txtOriginalFileName }}</div>
+                            <span class="badge bg-primary/10 text-primary text-xs" *ngIf="doc.blAiAnalyzed">AI</span>
+                        </td>
+                        <td><span class="badge bg-dark/10 dark:bg-white-dark/20">{{ formatLabel(doc.txtLabel) }}</span></td>
+                        <td class="max-w-md text-sm text-gray-600 dark:text-gray-300">
+                            {{ doc.txtSummary || '—' }}
+                        </td>
+                        <td>{{ doc.intPageCount || '—' }}</td>
+                        <td class="whitespace-nowrap text-xs">{{ formatDate(doc.dteCreatedDate) }}</td>
+                        <td>
+                            <div class="flex flex-wrap justify-center gap-1">
+                                <button type="button" class="btn btn-outline-primary btn-xs" (click)="openPreview(doc)">
+                                    View
+                                </button>
+                                <button
+                                    type="button"
+                                    class="btn btn-outline-secondary btn-xs"
+                                    (click)="reanalyze(doc)"
+                                    [disabled]="!geminiConfigured"
+                                    title="Re-run Gemini analysis"
+                                >
+                                    Re-index
+                                </button>
+                                <button type="button" class="btn btn-outline-danger btn-xs" (click)="deleteDoc(doc)">
+                                    Delete
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="px-5 py-8 text-center text-sm text-gray-500" *ngIf="!loading && !documents.length && !loadError">
+            No documents yet. Upload or scan your first official document.
+        </div>
+
+        <div class="mt-4 flex items-center justify-between px-5 text-sm" *ngIf="total > pageSize">
+            <span>{{ total }} document(s)</span>
+            <div class="flex gap-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm" (click)="prevPage()" [disabled]="page === 0">
+                    Previous
+                </button>
+                <span class="self-center">Page {{ page + 1 }}</span>
+                <button
+                    type="button"
+                    class="btn btn-outline-secondary btn-sm"
+                    (click)="nextPage()"
+                    [disabled]="(page + 1) * pageSize >= total"
+                >
+                    Next
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

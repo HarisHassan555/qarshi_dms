@@ -39,6 +39,7 @@ const PAGE_SECTION: Record<string, string> = {
   reports: 'Velocity',
   'password-policy': 'User Management',
   'basic-settings': 'App Settings',
+  'official-document-archive': 'Velocity',
 };
 
 @Injectable({

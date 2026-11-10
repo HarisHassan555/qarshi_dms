@@ -176,6 +176,7 @@ import { ReportsComponent } from './components/reports/reports.component';
 import { AllApplicationsComponent } from './components/all-applications/all-applications.component';
 import { DocumentShareLinkButtonComponent } from './components/document-share-link-button/document-share-link-button.component';
 import { DocumentShareViewComponent } from './components/document-share-view/document-share-view.component';
+import { OfficialDocumentArchiveComponent } from './components/official-document-archive/official-document-archive.component';
 import { BasicSettingsComponent } from './components/basic-settings/basic-settings.component';
 
 
@@ -333,7 +334,8 @@ import { BasicSettingsComponent } from './components/basic-settings/basic-settin
         ReportsComponent,
         DocumentShareLinkButtonComponent,
         DocumentShareViewComponent,
-        BasicSettingsComponent
+        BasicSettingsComponent,
+        OfficialDocumentArchiveComponent
     ],
 
     providers: [
