@@ -105,6 +105,7 @@ import { UniverFormBuilderComponent } from './components/univer-form-builder/uni
 import { BasicSettingsComponent } from './components/basic-settings/basic-settings.component';
 import { ReportsComponent } from './components/reports/reports.component';
 import { DocumentShareViewComponent } from './components/document-share-view/document-share-view.component';
+import { OfficialDocumentArchiveComponent } from './components/official-document-archive/official-document-archive.component';
 
 
 export const routes: Routes = [
@@ -238,6 +239,12 @@ export const routes: Routes = [
             { path: 'workflow-pipelines', canActivate: [canActivate], component: WorkflowPipelinesComponent, title: 'Workflow Pipelines' },
             { path: 'email-templates', canActivate: [canActivate], component: EmailTemplatesComponent, title: 'Email Templates' },
             { path: 'reports', canActivate: [canActivate], component: ReportsComponent, title: 'Reports' },
+            {
+                path: 'official-document-archive',
+                canActivate: [canActivate],
+                component: OfficialDocumentArchiveComponent,
+                title: 'Official Document Archive',
+            },
 
 
 
