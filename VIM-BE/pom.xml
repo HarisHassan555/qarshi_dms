@@ -194,7 +194,7 @@
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 				<configuration>
-					<mainClass>com.bezkoder.SpringBootSecurityJwtApplication</mainClass>
+					<mainClass>com.bezkoder.spring.login.SpringBootSecurityJwtApplication</mainClass>
 					<jvmArguments>--add-opens java.base/java.security=ALL-UNNAMED</jvmArguments>
 				</configuration>
 			</plugin>
