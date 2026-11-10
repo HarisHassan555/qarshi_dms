@@ -53,11 +53,7 @@ export class SapHcmEmployeesComponent implements OnInit {
     profilePictureBase64: string | null = null;
     isRoleVendor = false;
     isRoleAdmin = false;
-    managerSapHint = '';
-    managerRequiredEmployeeCode = '';
-    managerRequiredEmployeeName = '';
-    managerUserFound = true;
-    managerRequiredForCreate = false;
+    createUserManagerOptions: any[] = [];
 
     companyOptions: string[] = [];
     departmentOptions: string[] = [];
@@ -360,7 +356,7 @@ export class SapHcmEmployeesComponent implements OnInit {
             this.refreshOrgFilters();
             this.prefillSuggestedLoginName(employeeId, String(employee.empName || '').trim());
             this.prefillSapPhotoAsProfile(employee);
-            this.applyManagerFromSapForCreate(employee);
+            this.refreshCreateUserManagerOptions();
             this.createUserModal?.open();
         };
 
@@ -601,11 +597,6 @@ export class SapHcmEmployeesComponent implements OnInit {
         if (this.createUserForm.invalid) {
             return;
         }
-        const managerError = this.validateManagerBeforeCreateUser();
-        if (managerError) {
-            this.notificationService.showMessage(managerError, 'danger');
-            return;
-        }
         const payload = this.buildCreateUserPayload();
         if (this.isLoginNameDuplicate(payload.txtLoginName)) {
             const loginNameControl = this.createUserForm.controls['txtLoginName'];
@@ -618,9 +609,6 @@ export class SapHcmEmployeesComponent implements OnInit {
             payload.cfgTblManager = null;
         } else {
             payload.cfgTblCustomer = null;
-            if (this.isRoleAdmin) {
-                payload.cfgTblManager = null;
-            }
         }
         this.userService.save(payload).subscribe({
             next: (response: any) => {
@@ -641,6 +629,7 @@ export class SapHcmEmployeesComponent implements OnInit {
                     this.createUserModal?.close();
                     this.userService.getUsers().subscribe((data) => {
                         this.users = Array.isArray(data) ? data : [];
+                        this.refreshCreateUserManagerOptions();
                     });
                 } else if (status === 'AX') {
                     this.notificationService.showMessage('User already exists with the same details', 'danger');
@@ -656,107 +645,21 @@ export class SapHcmEmployeesComponent implements OnInit {
         });
     }
 
-    applyManagerFromSapForCreate(employee: SapHcmEmployeeRecord | null): void {
-        this.managerSapHint = '';
-        this.managerRequiredEmployeeCode = '';
-        this.managerRequiredEmployeeName = '';
-        this.managerUserFound = true;
-        this.managerRequiredForCreate = false;
-
-        if (!employee || this.isRoleVendor || this.isRoleAdmin) {
-            this.createUserForm.patchValue({ cfgTblManager: { serUserId: '' } });
-            return;
-        }
-
-        const reportTo = this.normalizeSapReportTo(employee.reportTo);
-        if (!reportTo) {
-            this.managerSapHint = 'SAP has no report-to manager for this employee.';
-            this.createUserForm.patchValue({ cfgTblManager: { serUserId: '' } });
-            return;
-        }
-
-        this.managerRequiredForCreate = true;
-        this.managerRequiredEmployeeCode = reportTo;
-        this.managerRequiredEmployeeName = String(employee.reportToName || '').trim();
-
-        const employeeId = String(employee.employee || '').trim();
-        this.userService.resolveManagerFromSap(employeeId).subscribe({
-            next: (res) => {
-                const managerUserId = Number(res?.['managerUserId']);
-                const reportToName = String(res?.['reportToName'] || this.managerRequiredEmployeeName || '').trim();
-                if (reportToName) {
-                    this.managerSapHint = `SAP report-to: ${reportToName} (${reportTo})`;
-                } else {
-                    this.managerSapHint = `SAP report-to employee ID: ${reportTo}`;
-                }
-
-                if (Number.isFinite(managerUserId) && managerUserId > 0) {
-                    this.managerUserFound = true;
-                    this.createUserForm.patchValue({
-                        cfgTblManager: { serUserId: managerUserId },
-                    });
-                    return;
-                }
-
-                this.managerUserFound = false;
-                this.createUserForm.patchValue({ cfgTblManager: { serUserId: '' } });
-                this.managerSapHint += ' — not found in Users. Create the manager user first.';
-            },
-            error: () => {
-                this.managerUserFound = false;
-                this.managerSapHint = 'Could not resolve manager from SAP.';
-            },
-        });
+    private refreshCreateUserManagerOptions(): void {
+        this.createUserManagerOptions = Array.isArray(this.users) ? [...this.users] : [];
     }
 
-    validateManagerBeforeCreateUser(): string | null {
-        if (this.isRoleVendor || this.isRoleAdmin || !this.managerRequiredForCreate) {
-            return null;
-        }
-        const managerId = Number(this.createUserForm.get('cfgTblManager.serUserId')?.value);
-        if (Number.isFinite(managerId) && managerId > 0) {
-            const exists = (this.users || []).some((u) => Number(u?.serUserId) === managerId);
-            if (exists) {
-                return null;
-            }
-        }
-
-        const code = this.managerRequiredEmployeeCode;
-        const name = this.managerRequiredEmployeeName;
-        if (name) {
-            return `Cannot create this user: manager "${name}" (Employee ID ${code}) is not in Users yet. Create the manager user first, then create this user.`;
-        }
-        return `Cannot create this user: manager with Employee ID ${code} is not in Users yet. Create the manager user first, then create this user.`;
-    }
-
-    normalizeSapReportTo(raw: string | undefined | null): string | null {
-        const code = String(raw || '').trim();
-        if (!code || code === '0' || code.toUpperCase() === '00000000') {
-            return null;
-        }
-        return code;
-    }
+    compareUserIds = (a: any, b: any): boolean => Number(a) === Number(b);
 
     get createUserCfgTblManager(): FormGroup {
         return this.createUserForm.get('cfgTblManager') as FormGroup;
     }
 
-    get createUserManagerOptions(): any[] {
-        return Array.isArray(this.users) ? this.users : [];
-    }
-
-    get selectedCreateUserManagerLabel(): string {
-        const managerId = Number(this.createUserForm?.get('cfgTblManager.serUserId')?.value);
-        if (!Number.isFinite(managerId) || managerId <= 0) {
-            return '';
+    private clearManagerForVendorRole(): void {
+        if (!this.isRoleVendor) {
+            return;
         }
-        const user = (this.users || []).find((u) => Number(u?.serUserId) === managerId);
-        if (!user) {
-            return '';
-        }
-        const name = String(user.txtUserName || '').trim();
-        const empId = String(user.txtCnic || '').trim();
-        return name && empId ? `${name} (${empId})` : name || empId;
+        this.createUserForm.patchValue({ cfgTblManager: { serUserId: '' } });
     }
 
     onCreateUserRoleChange($event: Event): void {
@@ -818,7 +721,7 @@ export class SapHcmEmployeesComponent implements OnInit {
             this.createUserForm.get('cfgTblCustomer.serCustomerId')?.clearValidators();
         }
         this.createUserForm.get('cfgTblCustomer.serCustomerId')?.updateValueAndValidity();
-        this.applyManagerFromSapForCreate(this.createUserSource);
+        this.clearManagerForVendorRole();
     }
 
     private buildCreateUserPayload(): any {

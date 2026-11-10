@@ -409,6 +409,49 @@ export function shiftExcelFormulaReferencesForInsertion(
     );
 }
 
+/** Shifts or clears references when a row or column is removed, the way a spreadsheet does. */
+export function shiftExcelFormulaReferencesForDeletion(
+    expression: string,
+    axis: 'row' | 'column',
+    deleteAt: number
+): string {
+    const pivot = Math.round(Number(deleteAt) || 0);
+    if (pivot < 1) {
+        return String(expression || '');
+    }
+    return String(expression || '').replace(
+        /(\$?)([A-Za-z]{1,3})(\$?)(\d+)/g,
+        (match, columnLock: string, letters: string, rowLock: string, rowDigits: string, offset: number, source: string) => {
+            const previous = source.charAt(offset - 1);
+            if (previous && /[A-Za-z]/.test(previous)) {
+                return match;
+            }
+            let column = excelColumnLettersToIndex(letters);
+            let row = Number(rowDigits);
+            if (!Number.isFinite(column) || !Number.isFinite(row) || column < 1 || row < 1) {
+                return match;
+            }
+            if (axis === 'column' && !columnLock) {
+                if (column === pivot) {
+                    return '#REF!';
+                }
+                if (column > pivot) {
+                    column -= 1;
+                }
+            }
+            if (axis === 'row' && !rowLock) {
+                if (row === pivot) {
+                    return '#REF!';
+                }
+                if (row > pivot) {
+                    row -= 1;
+                }
+            }
+            return `${columnLock}${formatExcelColumnLabel(column)}${rowLock}${row}`;
+        }
+    );
+}
+
 export function formatExcelColumnLabel(columnIndex: number): string {
     let letters = '';
     let index = Math.max(1, Math.round(columnIndex));

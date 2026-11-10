@@ -1,5 +1,5 @@
 import { Component, OnInit, ViewChild } from '@angular/core';
-import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { FormBuilder, FormGroup } from '@angular/forms';
 import { ModalComponent } from 'angular-custom-modal';
 import { NotificationService } from 'src/app/NotificationService';
 import { OrgStructureService } from 'src/app/services/org-structure/org-structure.service';
@@ -24,6 +24,7 @@ export class OrganizationsComponent implements OnInit {
     logoPreview = '';
     logoBase64: string | null = null;
     editOrgCode = '';
+    editOrgName = '';
 
     cols = [
         { field: 'logo', title: 'Logo', width: '80px', sort: false },
@@ -44,7 +45,6 @@ export class OrganizationsComponent implements OnInit {
     ngOnInit(): void {
         this.brandingForm = this.fb.group({
             serOrganizationId: [null],
-            txtOrganizationName: ['', Validators.required],
             txtAddress: [''],
             logo: [''],
         });
@@ -76,9 +76,9 @@ export class OrganizationsComponent implements OnInit {
         this.brandingSubmit = false;
         this.logoBase64 = null;
         this.editOrgCode = row?.txtOrganizationCode || '';
+        this.editOrgName = row?.txtOrganizationName || '';
         this.brandingForm.reset({
             serOrganizationId: row?.serOrganizationId,
-            txtOrganizationName: row?.txtOrganizationName || '',
             txtAddress: row?.txtAddress || '',
             logo: row?.logo || '',
         });
@@ -135,7 +135,6 @@ export class OrganizationsComponent implements OnInit {
         this.saving = true;
         const payload: any = {
             serOrganizationId,
-            txtOrganizationName: this.brandingForm.get('txtOrganizationName')?.value,
             txtAddress: this.brandingForm.get('txtAddress')?.value,
             logo: this.brandingForm.get('logo')?.value,
         };

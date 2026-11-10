@@ -10,6 +10,7 @@ import com.bezkoder.spring.login.admin.dal.entities.CfgTblRole;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
 import com.bezkoder.spring.login.admin.utility.common.IpGeolocationService;
 import com.bezkoder.spring.login.admin.utility.common.RequestMetadataUtil;
+import com.bezkoder.spring.login.sa.dal.entities.AllApplicationPagePermission;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApplication;
 import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 import com.bezkoder.spring.login.sa.dal.entities.TemplateDefinition;
@@ -368,7 +369,7 @@ public class TemplateDefinitionController {
                                     "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
                                     "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) " +
                                     "AND t.serFormId = a.serFormId " +
-                                    "AND UPPER(a.txtStatus) IN ('COMPLETED', 'APPROVED', 'PENDING', 'IN_PROGRESS', 'HOLD', " +
+                                    "AND UPPER(a.txtStatus) IN ('COMPLETED', 'APPROVED', 'PENDING', 'IN_PROGRESS', " +
                                     "'OPINION_PENDING', 'CEO_PENDING', 'ASSET_PENDING', 'PR_PENDING', 'PO_PENDING', 'PO_VENDOR_TE_PENDING') " +
                                     "ORDER BY a.dteCreatedDate DESC")
                     .getResultList();
@@ -389,20 +390,10 @@ public class TemplateDefinitionController {
                 String pdfName = row[6] == null ? "" : String.valueOf(row[6]).trim();
                 boolean hasPdf = Boolean.TRUE.equals(row[7]) || "true".equalsIgnoreCase(String.valueOf(row[7]));
 
-                if (hasPdf) {
-                    Map<String, Object> pdfItem = buildCompletedApplicationPdfMeta(
-                            applicationId, formCode, status, createdDate, templateName, pdfName);
-                    if (matchesPortalAttachmentSearch(pdfItem, formCode, templateName, searchText)) {
-                        matchedItems.add(pdfItem);
-                    }
-                }
-
-                String applicationDataRaw = getApplicationJsonById(applicationId);
-                for (Map<String, Object> attachmentMeta : extractCompletedPortalAttachmentMetas(
-                        applicationId, formCode, status, createdDate, templateName, applicationDataRaw, false)) {
-                    if (matchesPortalAttachmentSearch(attachmentMeta, formCode, templateName, searchText)) {
-                        matchedItems.add(attachmentMeta);
-                    }
+                Map<String, Object> applicationItem = buildCompletedApplicationPdfMeta(
+                        applicationId, formCode, status, createdDate, templateName, pdfName, hasPdf);
+                if (matchesPortalAttachmentSearch(applicationItem, formCode, templateName, searchText)) {
+                    matchedItems.add(applicationItem);
                 }
             }
 
@@ -450,7 +441,7 @@ public class TemplateDefinitionController {
                                 "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
                                 "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) " +
                                 "AND t.serFormId = a.serFormId " +
-                                "AND UPPER(a.txtStatus) IN ('COMPLETED', 'APPROVED', 'PENDING', 'IN_PROGRESS', 'HOLD', " +
+                                "AND UPPER(a.txtStatus) IN ('COMPLETED', 'APPROVED', 'PENDING', 'IN_PROGRESS', " +
                                 "'OPINION_PENDING', 'CEO_PENDING', 'ASSET_PENDING', 'PR_PENDING', 'PO_PENDING', 'PO_VENDOR_TE_PENDING') " +
                                 "ORDER BY a.dteCreatedDate DESC")
                 .getResultList();
@@ -476,20 +467,10 @@ public class TemplateDefinitionController {
                 byte[] stage0 = application.getBlbPdfForStage(0);
                 hasPdf = stage0 != null && stage0.length > 0;
             }
-            if (hasPdf) {
-                Map<String, Object> pdfItem = buildCompletedApplicationPdfMeta(
-                        applicationId, formCode, status, createdDate, templateName, pdfName);
-                if (matchesPortalAttachmentSearch(pdfItem, formCode, templateName, searchText)) {
-                    matchedItems.add(pdfItem);
-                }
-            }
-
-            String applicationDataRaw = application != null ? application.getTxtApplicationData() : getApplicationJsonById(applicationId);
-            for (Map<String, Object> attachmentMeta : extractCompletedPortalAttachmentMetas(
-                    applicationId, formCode, status, createdDate, templateName, applicationDataRaw, false)) {
-                if (matchesPortalAttachmentSearch(attachmentMeta, formCode, templateName, searchText)) {
-                    matchedItems.add(attachmentMeta);
-                }
+            Map<String, Object> applicationItem = buildCompletedApplicationPdfMeta(
+                    applicationId, formCode, status, createdDate, templateName, pdfName, hasPdf);
+            if (matchesPortalAttachmentSearch(applicationItem, formCode, templateName, searchText)) {
+                matchedItems.add(applicationItem);
             }
         }
 
@@ -553,12 +534,67 @@ public class TemplateDefinitionController {
         }
     }
 
+    /**
+     * Loads one attachment's bytes for View Attachments on approval / my-application /
+     * template-fill. Application list responses strip base64/dataUrl for size, so the UI
+     * fetches content on demand through this endpoint.
+     */
+    @RequestMapping(value = "/getTemplateApplicationAttachmentContent", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> getTemplateApplicationAttachmentContent(@RequestParam Integer applicationId,
+                                                                       @RequestParam String fieldId,
+                                                                       @RequestParam(defaultValue = "0") Integer attachmentIndex,
+                                                                       HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            if (applicationId == null || applicationId <= 0) {
+                throw new IllegalArgumentException("applicationId is required");
+            }
+            if (fieldId == null || fieldId.trim().isEmpty()) {
+                throw new IllegalArgumentException("fieldId is required");
+            }
+            if (attachmentIndex == null || attachmentIndex < 0) {
+                throw new IllegalArgumentException("attachmentIndex is required");
+            }
+
+            Object[] header = loadPortalApplicationHeader(applicationId);
+            if (header == null || sqlFlag(header[1])) {
+                throw new IllegalArgumentException("Application not found");
+            }
+
+            Map<String, Object> payload = resolvePortalAttachmentPayload(
+                    getApplicationJsonById(applicationId), fieldId.trim(), attachmentIndex);
+            if (payload == null || payload.isEmpty()) {
+                throw new IllegalArgumentException("Attachment content was not found");
+            }
+
+            result.put("status", "Success");
+            result.put("attachment", payload);
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error fetching template application attachment content: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            return result;
+        }
+    }
+
     private Map<String, Object> buildCompletedApplicationPdfMeta(Integer applicationId,
                                                                  String formCode,
                                                                  String status,
                                                                  Object createdDate,
                                                                  String templateName,
                                                                  String pdfName) {
+        return buildCompletedApplicationPdfMeta(applicationId, formCode, status, createdDate, templateName, pdfName, true);
+    }
+
+    private Map<String, Object> buildCompletedApplicationPdfMeta(Integer applicationId,
+                                                                 String formCode,
+                                                                 String status,
+                                                                 Object createdDate,
+                                                                 String templateName,
+                                                                 String pdfName,
+                                                                 boolean hasPdf) {
         String safeFormCode = formCode == null || formCode.trim().isEmpty() ? ("APP-" + applicationId) : formCode.trim();
         String fileName = pdfName != null && !pdfName.trim().isEmpty()
                 ? pdfName.trim()
@@ -575,11 +611,12 @@ public class TemplateDefinitionController {
         item.put("fieldId", PORTAL_APPLICATION_PDF_FIELD_ID);
         String normalizedStatus = status == null ? "" : status.trim().toUpperCase(Locale.ROOT);
         boolean completed = "COMPLETED".equals(normalizedStatus) || "APPROVED".equals(normalizedStatus);
-        item.put("fieldLabel", completed ? "Completed Document" : "Pending Document");
+        item.put("fieldLabel", completed ? "Completed Application" : "Pending Application");
         item.put("attachmentIndex", 0);
         item.put("fileName", fileName);
         item.put("mimeType", "application/pdf");
-        item.put("sourceType", "APPLICATION_PDF");
+        item.put("sourceType", "APPLICATION");
+        item.put("hasPdf", hasPdf);
         return item;
     }
 
@@ -629,6 +666,7 @@ public class TemplateDefinitionController {
         String haystack = String.valueOf(item.getOrDefault("fileName", "")).toLowerCase(Locale.ROOT)
                 + " " + (formCode == null ? "" : formCode.toLowerCase(Locale.ROOT))
                 + " " + (templateName == null ? "" : templateName.toLowerCase(Locale.ROOT))
+                + " " + String.valueOf(item.getOrDefault("status", "")).toLowerCase(Locale.ROOT)
                 + " " + String.valueOf(item.getOrDefault("fieldLabel", "")).toLowerCase(Locale.ROOT);
         return haystack.contains(searchText);
     }
@@ -642,7 +680,6 @@ public class TemplateDefinitionController {
                 || "APPROVED".equals(normalized)
                 || "PENDING".equals(normalized)
                 || "IN_PROGRESS".equals(normalized)
-                || "HOLD".equals(normalized)
                 || "OPINION_PENDING".equals(normalized)
                 || "CEO_PENDING".equals(normalized)
                 || "ASSET_PENDING".equals(normalized)
@@ -685,7 +722,10 @@ public class TemplateDefinitionController {
             ensureActorHasUploadedSignature(actor.performedBy);
             int targetLevel = Math.max(0, currentLevel - 1);
             TemplateStep targetStep = context.stepAt(targetLevel);
-            appendTemplateHistory(application, currentStep, actor.performedBy, actor.onBehalfOf, "SENT_BACK", remarks, displayLevelForIndex(targetLevel));
+            String approvedIp = RequestMetadataUtil.resolveClientIp(request);
+            String approvedVia = resolveTemplateApprovalVia(requestBody);
+            appendTemplateHistory(application, currentStep, actor.performedBy, actor.onBehalfOf, "SENT_BACK", remarks,
+                    displayLevelForIndex(targetLevel), approvedIp, approvedVia);
             application.setTxtApprovalHistory(writeJson(activeTemplateHistory(parseHistory(application.getTxtApprovalHistory()))));
             application.setTxtStatus("IN_PROGRESS");
             application.setIntCurrentApprovalLevel(displayLevelForIndex(targetLevel));
@@ -722,7 +762,10 @@ public class TemplateDefinitionController {
             TemplateWorkflowActor actor = resolveTemplateWorkflowActor(requestBody, application, context, currentStep,
                     "You are not authorized to send back this template application");
             ensureActorHasUploadedSignature(actor.performedBy);
-            appendTemplateHistory(application, currentStep, actor.performedBy, actor.onBehalfOf, "SENT_BACK_TO_INITIATOR", remarks, 1);
+            String approvedIp = RequestMetadataUtil.resolveClientIp(request);
+            String approvedVia = resolveTemplateApprovalVia(requestBody);
+            appendTemplateHistory(application, currentStep, actor.performedBy, actor.onBehalfOf, "SENT_BACK_TO_INITIATOR", remarks,
+                    1, approvedIp, approvedVia);
             application.setTxtApprovalHistory(writeJson(activeTemplateHistory(parseHistory(application.getTxtApprovalHistory()))));
             application.setTxtStatus("PENDING");
             application.setIntCurrentApprovalLevel(1);
@@ -765,7 +808,7 @@ public class TemplateDefinitionController {
             TemplateStep firstStep = context.stepAt(0);
             String clientIp = RequestMetadataUtil.resolveClientIp(request);
             appendTemplateHistory(application, context.initiatorStep(), actorId, "RESUBMITTED_BY_INITIATOR", remarks, 1,
-                    clientIp, "SYSTEM");
+                    clientIp, resolveTemplateApprovalVia(requestBody));
             application.setTxtApprovalHistory(writeJson(activeTemplateHistory(parseHistory(application.getTxtApprovalHistory()))));
             application.setTxtStatus("IN_PROGRESS");
             application.setIntCurrentApprovalLevel(displayLevelForIndex(0));
@@ -820,7 +863,9 @@ public class TemplateDefinitionController {
             opinion.put("requestedDate", now().toString());
             appData.put("templateOpinionRequest", opinion);
             application.setTxtApplicationData(writeJson(appData));
-            appendTemplateHistory(application, currentStep, actorId, "OPINION_REQUESTED", remarks, displayLevelForIndex(safeLevel(application)));
+            appendTemplateHistory(application, currentStep, actorId, "OPINION_REQUESTED", remarks,
+                    displayLevelForIndex(safeLevel(application)), RequestMetadataUtil.resolveClientIp(request),
+                    resolveTemplateApprovalVia(requestBody));
             application.setTxtStatus("OPINION_PENDING");
             application.setSerCurrentApprover(opinionUserId);
             application.setTxtRemarks(remarks);
@@ -860,7 +905,9 @@ public class TemplateDefinitionController {
             int returnLevel = toInteger(opinion.get("returnLevel")) != null ? toInteger(opinion.get("returnLevel")) : safeLevel(application);
             TemplateWorkflowContext context = buildTemplateWorkflowContext(application);
             appendTemplateHistory(application, context.stepAt(returnLevel), actorId,
-                    "reject".equalsIgnoreCase(action) ? "OPINION_REJECTED" : "OPINION_APPROVED", remarks, displayLevelForIndex(returnLevel));
+                    "reject".equalsIgnoreCase(action) ? "OPINION_REJECTED" : "OPINION_APPROVED", remarks,
+                    displayLevelForIndex(returnLevel), RequestMetadataUtil.resolveClientIp(request),
+                    resolveTemplateApprovalVia(requestBody));
             opinion.put("active", false);
             opinion.put("action", action);
             opinion.put("completedDate", now().toString());
@@ -921,7 +968,8 @@ public class TemplateDefinitionController {
             application.setTxtApplicationData(writeJson(appData));
 
             appendTemplateHistory(application, currentStep, actor.performedBy, actor.onBehalfOf, "HOLD", reason.trim(),
-                    displayLevelForIndex(safeLevel(application)));
+                    displayLevelForIndex(safeLevel(application)), RequestMetadataUtil.resolveClientIp(request),
+                    resolveTemplateApprovalVia(requestBody));
             application.setTxtStatus("HOLD");
             application.setTxtRemarks(reason.trim());
             touchTemplateApplication(application, actor.performedBy);
@@ -985,7 +1033,8 @@ public class TemplateDefinitionController {
                     ? remarks.trim()
                     : "Application taken off Hold";
             appendTemplateHistory(application, currentStep, actor.performedBy, actor.onBehalfOf, "UNHOLD", unholdRemarks,
-                    displayLevelForIndex(resumeLevelIndex));
+                    displayLevelForIndex(resumeLevelIndex), RequestMetadataUtil.resolveClientIp(request),
+                    resolveTemplateApprovalVia(requestBody));
 
             holdState.put("active", false);
             holdState.put("unheldBy", actor.performedBy);
@@ -1286,6 +1335,7 @@ public class TemplateDefinitionController {
             List<Integer> submittedByFilter = splitIntegerCsvParam(submittedByUserIds);
             String fromDate = normalizeDateParam(dateFrom);
             String toDate = normalizeDateParam(dateTo);
+            List<AllApplicationPagePermission> pageScopes = loadAllApplicationPagePermissions(actorId);
 
             StringBuilder whereClause = new StringBuilder(
                     "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
@@ -1315,6 +1365,7 @@ public class TemplateDefinitionController {
                         "OR LOWER(COALESCE(u.txtUserName, '')) LIKE :search " +
                         "OR LOWER(COALESCE(u.txtDepartmentName, '')) LIKE :search) ");
             }
+            appendAllApplicationPagePermissionClause(whereClause, pageScopes);
 
             String where = whereClause.toString();
             javax.persistence.Query countQuery = entityManager.createQuery(
@@ -1325,6 +1376,7 @@ public class TemplateDefinitionController {
                             where);
             bindAuditAllApplicationsParams(countQuery, departmentIdFilter, serFormIdFilter, statusFilter,
                     submittedByFilter, fromDate, toDate, hasSearch, searchText);
+            bindAllApplicationPagePermissionParams(countQuery, pageScopes);
 
             Long total = (Long) countQuery.getSingleResult();
 
@@ -1339,6 +1391,7 @@ public class TemplateDefinitionController {
                             "ORDER BY a.dteCreatedDate DESC");
             bindAuditAllApplicationsParams(rowQuery, departmentIdFilter, serFormIdFilter, statusFilter,
                     submittedByFilter, fromDate, toDate, hasSearch, searchText);
+            bindAllApplicationPagePermissionParams(rowQuery, pageScopes);
 
             @SuppressWarnings("unchecked")
             List<Object[]> rows = rowQuery
@@ -1392,15 +1445,23 @@ public class TemplateDefinitionController {
                 return result;
             }
 
+            List<AllApplicationPagePermission> pageScopes = loadAllApplicationPagePermissions(actorId);
+            StringBuilder scopeWhere = new StringBuilder(
+                    "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) ");
+            appendAllApplicationPagePermissionClause(scopeWhere, pageScopes);
+            String scopedWhere = scopeWhere.toString();
+
             @SuppressWarnings("unchecked")
-            List<Object[]> departmentRows = entityManager.createQuery(
-                    "SELECT DISTINCT d.serDepartmentId, d.txtDepartmentName " +
-                            "FROM CfgTblCustomFormApplication a " +
-                            "INNER JOIN CfgTblUser u ON u.serUserId = a.serSubmittedBy " +
-                            "INNER JOIN HrTblDepartment d ON d.serDepartmentId = u.hrTblDepartment.serDepartmentId " +
-                            "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
-                            "AND (d.blIsDeleted IS NULL OR d.blIsDeleted = false) " +
-                            "ORDER BY d.txtDepartmentName ASC")
+            List<Object[]> departmentRows = bindAllApplicationPagePermissionParams(
+                    entityManager.createQuery(
+                            "SELECT DISTINCT d.serDepartmentId, d.txtDepartmentName " +
+                                    "FROM CfgTblCustomFormApplication a " +
+                                    "INNER JOIN CfgTblUser u ON u.serUserId = a.serSubmittedBy " +
+                                    "INNER JOIN HrTblDepartment d ON d.serDepartmentId = u.hrTblDepartment.serDepartmentId " +
+                                    scopedWhere +
+                                    "AND (d.blIsDeleted IS NULL OR d.blIsDeleted = false) " +
+                                    "ORDER BY d.txtDepartmentName ASC"),
+                    pageScopes)
                     .getResultList();
             List<Map<String, Object>> departments = new ArrayList<>();
             for (Object[] row : departmentRows) {
@@ -1411,13 +1472,16 @@ public class TemplateDefinitionController {
             }
 
             @SuppressWarnings("unchecked")
-            List<Object[]> templateRows = entityManager.createQuery(
-                    "SELECT DISTINCT t.serFormId, t.txtTemplateName " +
-                            "FROM CfgTblCustomFormApplication a " +
-                            "INNER JOIN TemplateDefinition t ON t.serFormId = a.serFormId " +
-                            "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
-                            "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) " +
-                            "ORDER BY t.txtTemplateName ASC")
+            List<Object[]> templateRows = bindAllApplicationPagePermissionParams(
+                    entityManager.createQuery(
+                            "SELECT DISTINCT t.serFormId, t.txtTemplateName " +
+                                    "FROM CfgTblCustomFormApplication a " +
+                                    "INNER JOIN TemplateDefinition t ON t.serFormId = a.serFormId " +
+                                    "LEFT JOIN CfgTblUser u ON u.serUserId = a.serSubmittedBy " +
+                                    scopedWhere +
+                                    "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) " +
+                                    "ORDER BY t.txtTemplateName ASC"),
+                    pageScopes)
                     .getResultList();
             List<Map<String, Object>> templates = new ArrayList<>();
             for (Object[] row : templateRows) {
@@ -1428,23 +1492,28 @@ public class TemplateDefinitionController {
             }
 
             @SuppressWarnings("unchecked")
-            List<String> statuses = entityManager.createQuery(
-                    "SELECT DISTINCT UPPER(COALESCE(a.txtStatus, '')) " +
-                            "FROM CfgTblCustomFormApplication a " +
-                            "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
-                            "AND COALESCE(a.txtStatus, '') <> '' " +
-                            "ORDER BY 1 ASC",
-                    String.class)
+            List<String> statuses = bindAllApplicationPagePermissionParams(
+                    entityManager.createQuery(
+                            "SELECT DISTINCT UPPER(COALESCE(a.txtStatus, '')) " +
+                                    "FROM CfgTblCustomFormApplication a " +
+                                    "LEFT JOIN CfgTblUser u ON u.serUserId = a.serSubmittedBy " +
+                                    scopedWhere +
+                                    "AND COALESCE(a.txtStatus, '') <> '' " +
+                                    "ORDER BY 1 ASC",
+                            String.class),
+                    pageScopes)
                     .getResultList();
 
             @SuppressWarnings("unchecked")
-            List<Object[]> submitterRows = entityManager.createQuery(
-                    "SELECT DISTINCT u.serUserId, COALESCE(u.txtUserName, CONCAT('User ', u.serUserId)) " +
-                            "FROM CfgTblCustomFormApplication a " +
-                            "INNER JOIN CfgTblUser u ON u.serUserId = a.serSubmittedBy " +
-                            "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
-                            "AND (u.blIsDeleted IS NULL OR u.blIsDeleted = false) " +
-                            "ORDER BY 2 ASC")
+            List<Object[]> submitterRows = bindAllApplicationPagePermissionParams(
+                    entityManager.createQuery(
+                            "SELECT DISTINCT u.serUserId, COALESCE(u.txtUserName, CONCAT('User ', u.serUserId)) " +
+                                    "FROM CfgTblCustomFormApplication a " +
+                                    "INNER JOIN CfgTblUser u ON u.serUserId = a.serSubmittedBy " +
+                                    scopedWhere +
+                                    "AND (u.blIsDeleted IS NULL OR u.blIsDeleted = false) " +
+                                    "ORDER BY 2 ASC"),
+                    pageScopes)
                     .getResultList();
             List<Map<String, Object>> submitters = new ArrayList<>();
             for (Object[] row : submitterRows) {
@@ -1459,6 +1528,7 @@ public class TemplateDefinitionController {
             result.put("templates", templates);
             result.put("statuses", statuses);
             result.put("submitters", submitters);
+            result.put("scoped", pageScopes != null && !pageScopes.isEmpty());
             return result;
         } catch (Exception ex) {
             logger.error("Error loading audit all applications filter options: " + ex.getMessage(), ex);
@@ -1590,6 +1660,276 @@ public class TemplateDefinitionController {
         }
         String normalized = roleName.trim().toUpperCase(Locale.ROOT);
         return normalized.contains("ADMIN");
+    }
+
+    /**
+     * Loads All Applications page scope rows for the actor.
+     * Admin => empty list (unrestricted).
+     * No rows for role/user => empty list (unrestricted / backward compatible).
+     * Otherwise => restrict list to matching apps.
+     */
+    private List<AllApplicationPagePermission> loadAllApplicationPagePermissions(int actorId) {
+        if (actorId <= 0) {
+            return java.util.Collections.emptyList();
+        }
+        CfgTblUser user = commonService.getCurrentUser(actorId);
+        if (user == null || user.getCfgTblRole() == null || user.getCfgTblRole().getSerRoleId() == null) {
+            return java.util.Collections.emptyList();
+        }
+        if (isAdminRoleName(user.getCfgTblRole().getTxtRoleName())) {
+            return java.util.Collections.emptyList();
+        }
+        Integer roleId = user.getCfgTblRole().getSerRoleId();
+        try {
+            return entityManager.createQuery(
+                            "SELECT p FROM AllApplicationPagePermission p " +
+                                    "WHERE p.serRoleId = :roleId " +
+                                    "AND (p.blIsDeleted IS NULL OR p.blIsDeleted = false) " +
+                                    "AND (p.blIsEnabled IS NULL OR p.blIsEnabled = true) " +
+                                    "AND (p.blnStatus IS NULL OR p.blnStatus = true) " +
+                                    "AND (p.serUserId IS NULL OR p.serUserId = :userId) " +
+                                    "ORDER BY p.serPermissionId ASC",
+                            AllApplicationPagePermission.class)
+                    .setParameter("roleId", roleId)
+                    .setParameter("userId", actorId)
+                    .getResultList();
+        } catch (Exception ex) {
+            // Table may not exist yet before migration is applied.
+            logger.warn("Unable to load all_application_page_permission rows: " + ex.getMessage());
+            return java.util.Collections.emptyList();
+        }
+    }
+
+    private void appendAllApplicationPagePermissionClause(StringBuilder whereClause,
+                                                          List<AllApplicationPagePermission> scopes) {
+        if (whereClause == null || scopes == null || scopes.isEmpty()) {
+            return;
+        }
+        List<String> rowClauses = new ArrayList<>();
+        for (int i = 0; i < scopes.size(); i++) {
+            AllApplicationPagePermission row = scopes.get(i);
+            if (row == null) {
+                continue;
+            }
+            List<String> parts = new ArrayList<>();
+            if (row.getSerDepartmentId() != null && row.getSerDepartmentId() > 0) {
+                parts.add("u.hrTblDepartment.serDepartmentId = :scopeDept" + i);
+            }
+            if (row.getSerSubmitterUserId() != null && row.getSerSubmitterUserId() > 0) {
+                parts.add("a.serSubmittedBy = :scopeSubmitter" + i);
+            }
+            if (row.getSerApproverUserId() != null && row.getSerApproverUserId() > 0) {
+                parts.add("(a.serCurrentApprover = :scopeApprover" + i +
+                        " OR LOWER(COALESCE(a.txtApprovalHistory, '')) LIKE :scopeApproverHistUser" + i +
+                        " OR LOWER(COALESCE(a.txtApprovalHistory, '')) LIKE :scopeApproverHistApproved" + i +
+                        " OR LOWER(COALESCE(a.txtPriorApprovals, '')) LIKE :scopeApproverHistUser" + i +
+                        " OR LOWER(COALESCE(a.txtPriorApprovals, '')) LIKE :scopeApproverHistApproved" + i + ")");
+            }
+            if (row.getSerFormId() != null && row.getSerFormId() > 0) {
+                parts.add("a.serFormId = :scopeForm" + i);
+            }
+            if (row.getSerApplicationId() != null && row.getSerApplicationId() > 0) {
+                parts.add("a.serApplicationId = :scopeApp" + i);
+            }
+            if (parts.isEmpty()) {
+                // Explicit empty scope row means "no apps" for this row; skip rather than match all.
+                continue;
+            }
+            rowClauses.add("(" + String.join(" AND ", parts) + ")");
+        }
+        if (rowClauses.isEmpty()) {
+            whereClause.append("AND 1 = 0 ");
+            return;
+        }
+        whereClause.append("AND (").append(String.join(" OR ", rowClauses)).append(") ");
+    }
+
+    private javax.persistence.Query bindAllApplicationPagePermissionParams(javax.persistence.Query query,
+                                                                           List<AllApplicationPagePermission> scopes) {
+        if (query == null || scopes == null || scopes.isEmpty()) {
+            return query;
+        }
+        for (int i = 0; i < scopes.size(); i++) {
+            AllApplicationPagePermission row = scopes.get(i);
+            if (row == null) {
+                continue;
+            }
+            if (row.getSerDepartmentId() != null && row.getSerDepartmentId() > 0) {
+                query.setParameter("scopeDept" + i, row.getSerDepartmentId());
+            }
+            if (row.getSerSubmitterUserId() != null && row.getSerSubmitterUserId() > 0) {
+                query.setParameter("scopeSubmitter" + i, row.getSerSubmitterUserId());
+            }
+            if (row.getSerApproverUserId() != null && row.getSerApproverUserId() > 0) {
+                int approverId = row.getSerApproverUserId();
+                query.setParameter("scopeApprover" + i, approverId);
+                query.setParameter("scopeApproverHistUser" + i, "%\"userid\":" + approverId + "%");
+                query.setParameter("scopeApproverHistApproved" + i, "%\"approvedby\":" + approverId + "%");
+            }
+            if (row.getSerFormId() != null && row.getSerFormId() > 0) {
+                query.setParameter("scopeForm" + i, row.getSerFormId());
+            }
+            if (row.getSerApplicationId() != null && row.getSerApplicationId() > 0) {
+                query.setParameter("scopeApp" + i, row.getSerApplicationId());
+            }
+        }
+        return query;
+    }
+
+    @RequestMapping(value = "/getAllApplicationPagePermissions", method = RequestMethod.GET,
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> getAllApplicationPagePermissions(@RequestParam Integer roleId,
+                                                                @RequestParam(required = false) Integer userId,
+                                                                HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            if (roleId == null || roleId <= 0) {
+                throw new IllegalArgumentException("roleId is required");
+            }
+            StringBuilder jpql = new StringBuilder(
+                    "SELECT p FROM AllApplicationPagePermission p " +
+                            "WHERE p.serRoleId = :roleId " +
+                            "AND (p.blIsDeleted IS NULL OR p.blIsDeleted = false) ");
+            if (userId != null && userId > 0) {
+                jpql.append("AND (p.serUserId IS NULL OR p.serUserId = :userId) ");
+            }
+            jpql.append("ORDER BY p.serPermissionId ASC");
+            javax.persistence.TypedQuery<AllApplicationPagePermission> query = entityManager.createQuery(
+                    jpql.toString(), AllApplicationPagePermission.class);
+            query.setParameter("roleId", roleId);
+            if (userId != null && userId > 0) {
+                query.setParameter("userId", userId);
+            }
+            List<AllApplicationPagePermission> rows = query.getResultList();
+            result.put("status", "Success");
+            result.put("items", rows);
+            result.put("total", rows.size());
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error loading all_application_page_permission: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            result.put("items", java.util.Collections.emptyList());
+            return result;
+        }
+    }
+
+    @Transactional
+    @RequestMapping(value = "/saveAllApplicationPagePermissions", method = RequestMethod.POST,
+            headers = "Accept=application/json",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> saveAllApplicationPagePermissions(@RequestBody Map<String, Object> body,
+                                                                 HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Integer roleId = toInteger(body.get("serRoleId"));
+            if (roleId == null || roleId <= 0) {
+                roleId = toInteger(body.get("roleId"));
+            }
+            if (roleId == null || roleId <= 0) {
+                throw new IllegalArgumentException("serRoleId is required");
+            }
+            Integer viewerUserId = toInteger(body.get("serUserId"));
+            if (viewerUserId == null) {
+                viewerUserId = toInteger(body.get("userId"));
+            }
+            boolean replaceForRole = body.get("replaceForRole") == null
+                    || Boolean.TRUE.equals(body.get("replaceForRole"))
+                    || "true".equalsIgnoreCase(String.valueOf(body.get("replaceForRole")));
+
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> items = body.get("items") instanceof List
+                    ? (List<Map<String, Object>>) body.get("items")
+                    : (body.get("permissions") instanceof List
+                    ? (List<Map<String, Object>>) body.get("permissions")
+                    : java.util.Collections.emptyList());
+
+            int actorId = commonService.getCurrentLoggedInUser();
+            Timestamp now = new Timestamp(System.currentTimeMillis());
+
+            if (replaceForRole) {
+                List<AllApplicationPagePermission> existing;
+                if (viewerUserId != null && viewerUserId > 0) {
+                    existing = entityManager.createQuery(
+                                    "SELECT p FROM AllApplicationPagePermission p WHERE p.serRoleId = :roleId " +
+                                            "AND (p.blIsDeleted IS NULL OR p.blIsDeleted = false) AND p.serUserId = :userId",
+                                    AllApplicationPagePermission.class)
+                            .setParameter("roleId", roleId)
+                            .setParameter("userId", viewerUserId)
+                            .getResultList();
+                } else {
+                    existing = entityManager.createQuery(
+                                    "SELECT p FROM AllApplicationPagePermission p WHERE p.serRoleId = :roleId " +
+                                            "AND (p.blIsDeleted IS NULL OR p.blIsDeleted = false) AND p.serUserId IS NULL",
+                                    AllApplicationPagePermission.class)
+                            .setParameter("roleId", roleId)
+                            .getResultList();
+                }
+                for (AllApplicationPagePermission row : existing) {
+                    row.setBlIsDeleted(true);
+                    row.setBlIsEnabled(false);
+                    row.setDteModifiedDate(now);
+                    row.setSerModifiedUser(actorId > 0 ? actorId : null);
+                    entityManager.merge(row);
+                }
+            }
+
+            List<AllApplicationPagePermission> saved = new ArrayList<>();
+            for (Map<String, Object> item : items) {
+                if (item == null) {
+                    continue;
+                }
+                AllApplicationPagePermission row = new AllApplicationPagePermission();
+                Integer existingId = toInteger(item.get("serPermissionId"));
+                if (existingId != null && existingId > 0 && !replaceForRole) {
+                    AllApplicationPagePermission found = entityManager.find(AllApplicationPagePermission.class, existingId);
+                    if (found != null) {
+                        row = found;
+                    }
+                }
+                row.setSerRoleId(roleId);
+                Integer itemUserId = toInteger(item.get("serUserId"));
+                if (itemUserId == null) {
+                    itemUserId = viewerUserId;
+                }
+                row.setSerUserId(itemUserId != null && itemUserId > 0 ? itemUserId : null);
+                row.setSerDepartmentId(positiveOrNull(toInteger(item.get("serDepartmentId"))));
+                row.setSerSubmitterUserId(positiveOrNull(toInteger(item.get("serSubmitterUserId"))));
+                row.setSerApproverUserId(positiveOrNull(toInteger(item.get("serApproverUserId"))));
+                row.setSerFormId(positiveOrNull(toInteger(item.get("serFormId"))));
+                row.setSerApplicationId(positiveOrNull(toInteger(item.get("serApplicationId"))));
+                row.setBlIsEnabled(item.get("blIsEnabled") == null || Boolean.TRUE.equals(item.get("blIsEnabled")));
+                row.setBlnStatus(item.get("blnStatus") == null || Boolean.TRUE.equals(item.get("blnStatus")));
+                row.setBlIsDeleted(false);
+                row.setDteModifiedDate(now);
+                row.setSerModifiedUser(actorId > 0 ? actorId : null);
+                if (row.getSerPermissionId() == null) {
+                    row.setDteCreatedDate(now);
+                    row.setSerCreatedUser(actorId > 0 ? actorId : null);
+                    entityManager.persist(row);
+                } else {
+                    entityManager.merge(row);
+                }
+                saved.add(row);
+            }
+            entityManager.flush();
+            result.put("status", "Success");
+            result.put("items", saved);
+            result.put("total", saved.size());
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error saving all_application_page_permission: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            return result;
+        }
+    }
+
+    private Integer positiveOrNull(Integer value) {
+        return value != null && value > 0 ? value : null;
     }
 
     @RequestMapping(value = "/searchVelocityReports", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
@@ -3411,12 +3751,10 @@ public class TemplateDefinitionController {
             return "SYSTEM";
         }
         String approvedVia = valueAsString(requestBody.get("approvedVia"));
-        if (approvedVia != null && !approvedVia.trim().isEmpty()) {
-            return approvedVia.trim();
+        if (approvedVia != null && "EMAIL".equalsIgnoreCase(approvedVia.trim())) {
+            return "EMAIL";
         }
-        boolean deferEmail = Boolean.TRUE.equals(requestBody.get("deferEmail"))
-                || "true".equalsIgnoreCase(String.valueOf(requestBody.get("deferEmail")));
-        return deferEmail ? "TEMPLATE_PORTAL_DEFER_EMAIL" : "SYSTEM";
+        return "PORTAL";
     }
 
     private boolean isEmailTemplateWorkflowAction(Map<String, Object> requestBody) {
@@ -3551,10 +3889,10 @@ public class TemplateDefinitionController {
         entry.put("designation", initiator != null ? initiator.getTxtDesignation() : "");
         entry.put("txtDesignation", initiator != null ? initiator.getTxtDesignation() : "");
         entry.put("approvedDate", application.getDteCreatedDate() != null ? application.getDteCreatedDate().toString() : now().toString());
+        entry.put("approvedVia", "PORTAL");
         String clientIp = RequestMetadataUtil.resolveClientIp(request);
         if (clientIp != null && !clientIp.trim().isEmpty()) {
             entry.put("approvedIp", clientIp.trim());
-            entry.put("approvedVia", "SYSTEM");
             applyApprovalGeoToEntry(entry, clientIp.trim());
         }
 
@@ -4162,19 +4500,10 @@ public class TemplateDefinitionController {
             String templateName = row[4] == null ? "" : String.valueOf(row[4]);
             String pdfName = row[5] == null ? "" : String.valueOf(row[5]).trim();
             boolean hasPdf = sqlFlag(row[6]);
-            if (hasPdf) {
-                Map<String, Object> pdfItem = buildCompletedApplicationPdfMeta(
-                        applicationId, formCode, status, createdDate, templateName, pdfName);
-                if (matchesPortalAttachmentSearch(pdfItem, formCode, templateName, searchText)) {
-                    matchedItems.add(pdfItem);
-                }
-            }
-            String applicationDataRaw = row.length > 7 && row[7] != null ? String.valueOf(row[7]) : "";
-            for (Map<String, Object> attachmentMeta : extractCompletedPortalAttachmentMetas(
-                    applicationId, formCode, status, createdDate, templateName, applicationDataRaw, metadataOnly)) {
-                if (matchesPortalAttachmentSearch(attachmentMeta, formCode, templateName, searchText)) {
-                    matchedItems.add(attachmentMeta);
-                }
+            Map<String, Object> applicationItem = buildCompletedApplicationPdfMeta(
+                    applicationId, formCode, status, createdDate, templateName, pdfName, hasPdf);
+            if (matchesPortalAttachmentSearch(applicationItem, formCode, templateName, searchText)) {
+                matchedItems.add(applicationItem);
             }
         }
         return matchedItems;
@@ -4188,7 +4517,7 @@ public class TemplateDefinitionController {
                                 "INNER JOIN tpl_template_definition t ON t.ser_form_id = a.ser_form_id " +
                                 "WHERE (a.bl_is_deleted IS NULL OR a.bl_is_deleted = 0) " +
                                 "AND (t.bl_is_deleted IS NULL OR t.bl_is_deleted = 0) " +
-                                "AND UPPER(a.txt_status) IN ('COMPLETED', 'APPROVED', 'PENDING', 'IN_PROGRESS', 'HOLD', " +
+                                "AND UPPER(a.txt_status) IN ('COMPLETED', 'APPROVED', 'PENDING', 'IN_PROGRESS', " +
                                 "'OPINION_PENDING', 'CEO_PENDING', 'ASSET_PENDING', 'PR_PENDING', 'PO_PENDING', 'PO_VENDOR_TE_PENDING') " +
                                 "ORDER BY a.dte_created_date DESC, a.ser_application_id DESC")
                 .setFirstResult(Math.max(0, offset))

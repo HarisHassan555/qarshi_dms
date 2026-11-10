@@ -1,7 +1,7 @@
 <div class="modal-backdrop" (click)="close()">
     <div class="portal-attachments-modal portal-attachments-modal-windows" (click)="$event.stopPropagation()">
         <div class="modal-header">
-            <h3>Portal Attachments</h3>
+            <h3>Portal Applications</h3>
             <button type="button" title="Close" (click)="close()">x</button>
         </div>
         <div class="portal-attachments-toolbar">
@@ -9,9 +9,9 @@
                 #portalSearchInput
                 type="text"
                 class="form-input portal-attachments-search"
-                placeholder="Search by file, form code, or template..."
+                placeholder="Search by form code, template, or status..."
                 [value]="searchText" />
-            <div class="portal-view-toggle" role="group" aria-label="Portal attachment view mode">
+            <div class="portal-view-toggle" role="group" aria-label="Portal application view mode">
                 <button
                     type="button"
                     class="portal-view-toggle-btn"
@@ -32,37 +32,43 @@
                 </button>
             </div>
         </div>
-        <div class="portal-attachments-loading" *ngIf="loading">Loading portal files...</div>
+        <div class="portal-attachments-loading" *ngIf="loading">Loading pending and completed applications...</div>
         <div class="portal-attachments-empty" *ngIf="!loading && filteredItems.length === 0">
-            No completed or pending portal documents found.
+            No pending or completed applications found.
         </div>
         <div class="portal-attachments-grid" *ngIf="!loading && filteredItems.length > 0 && viewMode === 'details'">
             <div
                 class="portal-file-card"
                 *ngFor="let item of filteredItems"
-                [class.is-selected]="isSelected(item)">
-                <div class="portal-file-icon" [class.is-image]="isImageFile(item.fileName)" aria-hidden="true">
-                    <icon-gallery *ngIf="isImageFile(item.fileName)" class="h-10 w-10"></icon-gallery>
-                    <icon-file *ngIf="!isImageFile(item.fileName)" class="h-10 w-10"></icon-file>
+                [class.is-selected]="isSelected(item)"
+                [class.is-unavailable]="!canUseDocument(item)">
+                <div class="portal-file-icon" aria-hidden="true">
+                    <icon-file class="h-10 w-10"></icon-file>
                 </div>
-                <div class="portal-file-name" [title]="item.fileName">{{ item.fileName }}</div>
-                <div class="portal-file-meta" [title]="(item.templateName || 'Template') + ' · ' + (item.formCode || ('App #' + item.applicationId))">
-                    {{ item.templateName || 'Template' }} · {{ item.formCode || ('App #' + item.applicationId) }}
+                <div class="portal-file-name" [title]="getApplicationTitle(item)">{{ getApplicationTitle(item) }}</div>
+                <div class="portal-file-meta" [title]="getApplicationSubtitle(item)">
+                    {{ item.formCode || ('App #' + item.applicationId) }}
+                </div>
+                <div class="portal-status-row">
+                    <span class="portal-status-badge" [ngClass]="getStatusBadgeClass(item.status)">
+                        {{ formatStatus(item.status) || 'Unknown' }}
+                    </span>
+                    <span class="portal-pdf-missing" *ngIf="!canUseDocument(item)">No PDF</span>
                 </div>
                 <div class="portal-file-actions">
                     <label class="portal-file-select" (click)="$event.stopPropagation()">
                         <input
                             type="checkbox"
                             [checked]="isSelected(item)"
-                            [disabled]="importing"
+                            [disabled]="importing || !canUseDocument(item)"
                             (change)="toggleSelection(item, $event)" />
                         <span>Select</span>
                     </label>
                     <button
                         type="button"
                         class="portal-file-view-btn"
-                        title="View file"
-                        [disabled]="previewLoading"
+                        title="View application document"
+                        [disabled]="previewLoading || !canUseDocument(item)"
                         (click)="previewItem(item, $event)">
                         <icon-eye class="h-4 w-4"></icon-eye>
                     </button>
@@ -73,30 +79,33 @@
             <div
                 class="portal-file-row"
                 *ngFor="let item of filteredItems"
-                [class.is-selected]="isSelected(item)">
+                [class.is-selected]="isSelected(item)"
+                [class.is-unavailable]="!canUseDocument(item)">
                 <label class="portal-file-select portal-file-select-compact" (click)="$event.stopPropagation()">
                     <input
                         type="checkbox"
                         [checked]="isSelected(item)"
-                        [disabled]="importing"
+                        [disabled]="importing || !canUseDocument(item)"
                         (change)="toggleSelection(item, $event)" />
                 </label>
-                <div class="portal-file-row-icon" [class.is-image]="isImageFile(item.fileName)" aria-hidden="true">
-                    <icon-gallery *ngIf="isImageFile(item.fileName)" class="h-5 w-5"></icon-gallery>
-                    <icon-file *ngIf="!isImageFile(item.fileName)" class="h-5 w-5"></icon-file>
+                <div class="portal-file-row-icon" aria-hidden="true">
+                    <icon-file class="h-5 w-5"></icon-file>
                 </div>
                 <div class="portal-file-row-main">
-                    <div class="portal-file-name" [title]="item.fileName">{{ item.fileName }}</div>
+                    <div class="portal-file-name" [title]="getApplicationTitle(item)">{{ getApplicationTitle(item) }}</div>
                     <div class="portal-file-meta">
-                        {{ item.templateName || 'Template' }} · {{ item.formCode || ('App #' + item.applicationId) }}
-                        · {{ item.fieldLabel || 'Attachment' }}
+                        {{ getApplicationSubtitle(item) }}
+                        <span *ngIf="!canUseDocument(item)"> · No PDF</span>
                     </div>
                 </div>
+                <span class="portal-status-badge" [ngClass]="getStatusBadgeClass(item.status)">
+                    {{ formatStatus(item.status) || 'Unknown' }}
+                </span>
                 <button
                     type="button"
                     class="portal-file-view-btn"
-                    title="View file"
-                    [disabled]="previewLoading"
+                    title="View application document"
+                    [disabled]="previewLoading || !canUseDocument(item)"
                     (click)="previewItem(item, $event)">
                     <icon-eye class="h-4 w-4"></icon-eye>
                 </button>
@@ -130,7 +139,7 @@
 <div class="modal-backdrop portal-preview-backdrop" *ngIf="showPreview" (click)="closePreview()">
     <div class="portal-preview-modal" (click)="$event.stopPropagation()">
         <div class="modal-header">
-            <h3>{{ previewName || 'File preview' }}</h3>
+            <h3>{{ previewName || 'Application preview' }}</h3>
             <button type="button" title="Close" (click)="closePreview()">x</button>
         </div>
         <div class="portal-preview-body">
@@ -139,14 +148,14 @@
             <iframe
                 *ngIf="!previewLoading && !previewError && previewUrl && previewIsPdf"
                 class="portal-preview-frame"
-                title="Portal file preview"
+                title="Portal application preview"
                 [src]="previewUrl">
             </iframe>
             <img
                 *ngIf="!previewLoading && !previewError && previewUrl && !previewIsPdf"
                 class="portal-preview-image"
                 [src]="previewUrl"
-                [alt]="previewName || 'Attachment preview'" />
+                [alt]="previewName || 'Application preview'" />
         </div>
     </div>
 </div>

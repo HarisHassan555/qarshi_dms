@@ -6,7 +6,6 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
-import java.util.Optional;
 
 @Repository
 public interface HrTblOrganizationRepository extends JpaRepository<HrTblOrganization, Integer> {
@@ -15,5 +14,10 @@ public interface HrTblOrganizationRepository extends JpaRepository<HrTblOrganiza
 
     @Query("SELECT o FROM HrTblOrganization o WHERE LOWER(TRIM(o.txtOrganizationName)) = LOWER(TRIM(:name)) "
             + "AND (o.blIsDeleted IS NULL OR o.blIsDeleted = false)")
-    Optional<HrTblOrganization> findActiveByNameIgnoreCase(@Param("name") String name);
+    List<HrTblOrganization> findActiveByNameIgnoreCase(@Param("name") String name);
+
+    @Query("SELECT o FROM HrTblOrganization o WHERE (o.blIsDeleted IS NULL OR o.blIsDeleted = false) AND ("
+            + "LOWER(TRIM(o.txtOrganizationName)) = LOWER(TRIM(:name)) "
+            + "OR LOWER(TRIM(COALESCE(o.txtOrganizationCode, ''))) = LOWER(TRIM(:code)))")
+    List<HrTblOrganization> findActiveByNameOrCode(@Param("name") String name, @Param("code") String code);
 }

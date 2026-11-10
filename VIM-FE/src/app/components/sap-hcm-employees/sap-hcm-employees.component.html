@@ -263,11 +263,11 @@
                         <p class="mt-1 text-danger">Designation is required</p>
                     </ng-container>
                 </div>
-                <div *ngIf="!isRoleVendor && !isRoleAdmin" [formGroup]="createUserCfgTblManager">
-                    <label for="sapCreateManager">Manager (from SAP report-to)</label>
+                <div *ngIf="!isRoleVendor" formGroupName="cfgTblManager">
+                    <label for="sapCreateManager">Line Manager</label>
                     <ng-select id="sapCreateManager" [items]="createUserManagerOptions" bindLabel="txtUserName" bindValue="serUserId"
-                        formControlName="serUserId" placeholder="Manager auto-selected from SAP" [clearable]="false" [searchable]="true"
-                        [disabled]="managerUserFound && managerRequiredForCreate">
+                        formControlName="serUserId" placeholder="Select line manager" [clearable]="true" [searchable]="true"
+                        appendTo="body" [compareWith]="compareUserIds">
                         <ng-template ng-label-tmp let-item="item">
                             {{ item?.txtUserName }}<span *ngIf="item?.txtCnic"> ({{ item.txtCnic }})</span>
                         </ng-template>
@@ -275,8 +275,8 @@
                             {{ item?.txtUserName }}<span *ngIf="item?.txtCnic"> — {{ item.txtCnic }}</span>
                         </ng-template>
                     </ng-select>
-                    <p class="mt-1 text-xs" [ngClass]="managerUserFound ? 'text-gray-500' : 'text-danger'">
-                        {{ managerSapHint || 'Resolved from SAP txt_report_to when the modal opens.' }}
+                    <p class="mt-1 text-xs text-gray-500">
+                        Optional. Any user can be selected as line manager.
                     </p>
                 </div>
             </div>
@@ -322,7 +322,6 @@
     </ng-template>
     <ng-template #modalFooter>
         <button type="button" (click)="createUserModal.close()" class="btn btn-outline-danger">Close</button>
-        <button type="button" (click)="submitCreateUser()" class="btn btn-primary ltr:ml-4 rtl:mr-4"
-            [disabled]="managerRequiredForCreate && !managerUserFound && !isRoleVendor && !isRoleAdmin">Save</button>
+        <button type="button" (click)="submitCreateUser()" class="btn btn-primary ltr:ml-4 rtl:mr-4">Save</button>
     </ng-template>
 </modal>

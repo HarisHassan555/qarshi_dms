@@ -96,6 +96,10 @@ export class FinanceComponent implements OnInit {
     availableDepartments: string[] = [];
     availableStatuses: string[] = [];
     availableFormTypes: string[] = [];
+    statusDonutChart: any = null;
+    submissionsLineChart: any = null;
+    categoryBarChart: any = null;
+    categoryBarMode: 'department' | 'formType' = 'department';
     showDashboardCsvModal = false;
     availableDashboardCsvColumns: DashboardCsvColumn[] = [];
     selectedDashboardCsvColumns: DashboardCsvColumn[] = [];
@@ -148,6 +152,24 @@ export class FinanceComponent implements OnInit {
         this.filterStatus = '';
         this.filterFormType = '';
         this.refreshDashboardView();
+    }
+
+    setCategoryBarMode(mode: 'department' | 'formType'): void {
+        if (this.categoryBarMode === mode) {
+            return;
+        }
+        this.categoryBarMode = mode;
+        this.rebuildDashboardCharts(this.getFilteredDashboardItems());
+    }
+
+    get hasChartData(): boolean {
+        return !!(this.statusDonutChart || this.submissionsLineChart || this.categoryBarChart);
+    }
+
+    get categoryBarTitle(): string {
+        return this.categoryBarMode === 'department'
+            ? 'Applications by Department'
+            : 'Applications by Form Type';
     }
 
     openDashboardCsvModal(): void {
@@ -382,6 +404,9 @@ export class FinanceComponent implements OnInit {
             this.boardColumns = [];
             this.recentApplications = [];
             this.recentActivities = [];
+            this.statusDonutChart = null;
+            this.submissionsLineChart = null;
+            this.categoryBarChart = null;
         } finally {
             this.isLoadingDashboard = false;
         }
@@ -675,6 +700,319 @@ export class FinanceComponent implements OnInit {
         this.recentApplications = [...filteredItems]
             .sort((left, right) => this.getCreatedAtMillis(right) - this.getCreatedAtMillis(left))
             .slice(0, 6);
+        this.rebuildDashboardCharts(filteredItems);
+    }
+
+    private rebuildDashboardCharts(items: DashboardApplicationItem[]): void {
+        this.statusDonutChart = this.buildStatusDonutChart(items);
+        this.submissionsLineChart = this.buildSubmissionsLineChart(items);
+        this.categoryBarChart = this.buildCategoryBarChart(items);
+    }
+
+    private buildStatusDonutChart(items: DashboardApplicationItem[]): any {
+        const counts = new Map<string, number>();
+        items.forEach((item) => {
+            const label = this.humanizeStatus(item.txtStatus || 'Unknown');
+            counts.set(label, (counts.get(label) || 0) + 1);
+        });
+        const labels = Array.from(counts.keys()).sort((left, right) => left.localeCompare(right));
+        const series = labels.map((label) => counts.get(label) || 0);
+        if (!labels.length) {
+            return null;
+        }
+        return {
+            chart: {
+                type: 'donut',
+                height: 320,
+                fontFamily: 'Nunito, sans-serif',
+                toolbar: { show: false },
+            },
+            series,
+            labels,
+            colors: labels.map((label) => this.getChartColorForStatus(label)),
+            legend: {
+                position: 'bottom',
+                horizontalAlign: 'center',
+                fontSize: '13px',
+            },
+            dataLabels: { enabled: false },
+            stroke: {
+                show: true,
+                width: 2,
+                colors: ['#fff'],
+            },
+            plotOptions: {
+                pie: {
+                    donut: {
+                        size: '68%',
+                        labels: {
+                            show: true,
+                            name: { show: true, fontSize: '14px', offsetY: -6 },
+                            value: {
+                                show: true,
+                                fontSize: '22px',
+                                offsetY: 8,
+                                formatter: (value: string) => value,
+                            },
+                            total: {
+                                show: true,
+                                label: 'Total',
+                                fontSize: '14px',
+                                color: '#64748b',
+                                formatter: (w: any) =>
+                                    (w?.globals?.seriesTotals || []).reduce(
+                                        (sum: number, value: number) => sum + value,
+                                        0
+                                    ),
+                            },
+                        },
+                    },
+                },
+            },
+            tooltip: {
+                y: {
+                    formatter: (value: number) => `${value} application${value === 1 ? '' : 's'}`,
+                },
+            },
+        };
+    }
+
+    private buildSubmissionsLineChart(items: DashboardApplicationItem[]): any {
+        const dayCounts = new Map<string, number>();
+        items.forEach((item) => {
+            const dayKey = this.toDayKey(item.dteCreatedDate);
+            if (!dayKey) {
+                return;
+            }
+            dayCounts.set(dayKey, (dayCounts.get(dayKey) || 0) + 1);
+        });
+
+        const labels = this.buildSubmissionDayLabels(dayCounts, items);
+        const seriesData = labels.map((label) => dayCounts.get(label) || 0);
+        if (!labels.length) {
+            return null;
+        }
+
+        return {
+            chart: {
+                type: 'area',
+                height: 320,
+                fontFamily: 'Nunito, sans-serif',
+                toolbar: { show: false },
+                zoom: { enabled: false },
+            },
+            series: [{ name: 'Submissions', data: seriesData }],
+            labels,
+            colors: ['#2563eb'],
+            dataLabels: { enabled: false },
+            stroke: {
+                curve: 'smooth',
+                width: 2,
+            },
+            fill: {
+                type: 'gradient',
+                gradient: {
+                    shadeIntensity: 1,
+                    opacityFrom: 0.28,
+                    opacityTo: 0.05,
+                    stops: [45, 100],
+                },
+            },
+            grid: {
+                borderColor: '#e2e8f0',
+                strokeDashArray: 4,
+            },
+            xaxis: {
+                labels: {
+                    rotate: labels.length > 10 ? -35 : 0,
+                    style: { fontSize: '11px' },
+                },
+                axisBorder: { show: false },
+                axisTicks: { show: false },
+            },
+            yaxis: {
+                min: 0,
+                tickAmount: 4,
+                labels: {
+                    formatter: (value: number) => String(Math.round(value)),
+                    style: { fontSize: '11px' },
+                },
+            },
+            tooltip: {
+                y: {
+                    formatter: (value: number) => `${value} submission${value === 1 ? '' : 's'}`,
+                },
+            },
+        };
+    }
+
+    private buildCategoryBarChart(items: DashboardApplicationItem[]): any {
+        const counts = new Map<string, number>();
+        items.forEach((item) => {
+            const raw = this.categoryBarMode === 'department'
+                ? item.departmentName
+                : item.templateName;
+            const label = String(raw || '').trim() || 'Unassigned';
+            counts.set(label, (counts.get(label) || 0) + 1);
+        });
+
+        const ranked = Array.from(counts.entries())
+            .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+        const topLimit = 8;
+        const top = ranked.slice(0, topLimit);
+        const rest = ranked.slice(topLimit);
+        if (rest.length) {
+            const otherTotal = rest.reduce((sum, entry) => sum + entry[1], 0);
+            top.push(['Other', otherTotal]);
+        }
+
+        const categories = top.map((entry) => entry[0]);
+        const seriesData = top.map((entry) => entry[1]);
+        if (!categories.length) {
+            return null;
+        }
+
+        return {
+            chart: {
+                type: 'bar',
+                height: 320,
+                fontFamily: 'Nunito, sans-serif',
+                toolbar: { show: false },
+            },
+            series: [{
+                name: this.categoryBarMode === 'department' ? 'Departments' : 'Form Types',
+                data: seriesData,
+            }],
+            colors: ['#0f766e'],
+            plotOptions: {
+                bar: {
+                    borderRadius: 6,
+                    columnWidth: '48%',
+                    distributed: false,
+                },
+            },
+            dataLabels: { enabled: false },
+            legend: { show: false },
+            grid: {
+                borderColor: '#e2e8f0',
+                strokeDashArray: 4,
+            },
+            xaxis: {
+                categories,
+                labels: {
+                    rotate: categories.length > 5 ? -30 : 0,
+                    trim: true,
+                    style: { fontSize: '11px' },
+                },
+                axisBorder: { show: false },
+                axisTicks: { show: false },
+            },
+            yaxis: {
+                min: 0,
+                tickAmount: 4,
+                labels: {
+                    formatter: (value: number) => String(Math.round(value)),
+                    style: { fontSize: '11px' },
+                },
+            },
+            tooltip: {
+                y: {
+                    formatter: (value: number) => `${value} application${value === 1 ? '' : 's'}`,
+                },
+            },
+        };
+    }
+
+    private buildSubmissionDayLabels(
+        dayCounts: Map<string, number>,
+        items: DashboardApplicationItem[]
+    ): string[] {
+        let startMs = 0;
+        let endMs = 0;
+
+        if (this.filterStartDate) {
+            startMs = new Date(`${this.filterStartDate}T00:00:00`).getTime();
+        }
+        if (this.filterEndDate) {
+            endMs = new Date(`${this.filterEndDate}T00:00:00`).getTime();
+        }
+
+        if (!Number.isFinite(startMs) || startMs <= 0 || !Number.isFinite(endMs) || endMs <= 0) {
+            const itemTimes = items
+                .map((item) => this.getCreatedAtMillis(item))
+                .filter((value) => Number.isFinite(value) && value > 0);
+            if (!itemTimes.length && !dayCounts.size) {
+                return [];
+            }
+            const maxMs = itemTimes.length ? Math.max(...itemTimes) : Date.now();
+            const minMs = itemTimes.length ? Math.min(...itemTimes) : maxMs;
+            endMs = Number.isFinite(endMs) && endMs > 0 ? endMs : this.startOfDay(maxMs);
+            startMs = Number.isFinite(startMs) && startMs > 0 ? startMs : this.startOfDay(minMs);
+            const maxSpanDays = 30;
+            const spanDays = Math.floor((endMs - startMs) / 86400000) + 1;
+            if (spanDays > maxSpanDays) {
+                startMs = endMs - ((maxSpanDays - 1) * 86400000);
+            }
+        }
+
+        if (startMs > endMs) {
+            const swap = startMs;
+            startMs = endMs;
+            endMs = swap;
+        }
+
+        const labels: string[] = [];
+        for (let cursor = this.startOfDay(startMs); cursor <= endMs; cursor += 86400000) {
+            labels.push(this.formatDayKey(new Date(cursor)));
+        }
+        return labels;
+    }
+
+    private getChartColorForStatus(label: string): string {
+        const normalized = String(label || '').trim().toUpperCase().replace(/\s+/g, '_');
+        if (normalized === 'APPROVED' || normalized === 'COMPLETED') {
+            return '#059669';
+        }
+        if (normalized === 'REJECTED') {
+            return '#e11d48';
+        }
+        if (normalized === 'DRAFT') {
+            return '#0284c7';
+        }
+        if (normalized.includes('HOLD')) {
+            return '#d97706';
+        }
+        if (normalized.includes('OPINION')) {
+            return '#7c3aed';
+        }
+        if (normalized.includes('PENDING')) {
+            return '#f59e0b';
+        }
+        return '#64748b';
+    }
+
+    private toDayKey(value: string | undefined): string {
+        if (!value) {
+            return '';
+        }
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+            return '';
+        }
+        return this.formatDayKey(parsed);
+    }
+
+    private formatDayKey(date: Date): string {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    private startOfDay(ms: number): number {
+        const date = new Date(ms);
+        date.setHours(0, 0, 0, 0);
+        return date.getTime();
     }
 
     private getFilteredDashboardItems(): DashboardApplicationItem[] {

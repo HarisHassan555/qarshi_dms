@@ -97,6 +97,7 @@ interface ProgressTile {
     approver: string;
     approvedAt: string;
     remarks: string;
+    actionSource: string;
     rawDate?: Date | null;
 }
 
@@ -1409,20 +1410,75 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         return attachments.length > 0 ? attachments.map((attachment) => attachment.fileName).join(', ') : '';
     }
 
-    viewAttachment(attachment: AttachmentPayload): void {
-        const base64 = String(attachment?.base64 || '').trim();
-        const mimeType = String(attachment?.mimeType || 'application/octet-stream').trim();
-        const objectUrl = base64 ? this.createAttachmentObjectUrl(base64, mimeType) : '';
-        const dataUrl = String(attachment?.dataUrl || '').trim();
-        const resolvedUrl = objectUrl || dataUrl;
-        if (!resolvedUrl) {
-            this.notificationService.showMessage('Attachment content is unavailable.', 'warning');
-            return;
+    async viewAttachment(
+        attachment: AttachmentPayload,
+        fieldId?: string,
+        attachmentIndex: number = 0
+    ): Promise<void> {
+        try {
+            const resolved = await this.resolveAttachmentForView(attachment, fieldId, attachmentIndex);
+            const base64 = String(resolved?.base64 || '').trim();
+            const mimeType = String(resolved?.mimeType || 'application/octet-stream').trim();
+            const objectUrl = base64 ? this.createAttachmentObjectUrl(base64, mimeType) : '';
+            const dataUrl = String(resolved?.dataUrl || '').trim();
+            const resolvedUrl = objectUrl || dataUrl;
+            if (!resolvedUrl) {
+                this.notificationService.showMessage('Attachment content is unavailable.', 'warning');
+                return;
+            }
+            window.open(resolvedUrl, '_blank', 'noopener');
+            if (objectUrl) {
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+            }
+        } catch (error: any) {
+            this.notificationService.showMessage(
+                error?.error?.message || error?.message || 'Attachment content is unavailable.',
+                'warning'
+            );
         }
-        window.open(resolvedUrl, '_blank', 'noopener');
-        if (objectUrl) {
-            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+    }
+
+    private async resolveAttachmentForView(
+        attachment: AttachmentPayload,
+        fieldId?: string,
+        attachmentIndex: number = 0
+    ): Promise<AttachmentPayload> {
+        const localBase64 = String(attachment?.base64 || '').trim();
+        const localDataUrl = String(attachment?.dataUrl || '').trim();
+        if (localBase64 || localDataUrl) {
+            return attachment;
         }
+        const applicationId = Number(this.selectedApplication?.serApplicationId || 0);
+        const resolvedFieldId = String(fieldId || '').trim();
+        if (!applicationId || !resolvedFieldId) {
+            throw new Error('Attachment content is unavailable.');
+        }
+        const response = await firstValueFrom(
+            this.templateWorkflowService.getTemplateApplicationAttachmentContent(
+                applicationId,
+                resolvedFieldId,
+                attachmentIndex
+            )
+        );
+        if (!response || response.status !== 'Success' || !response.attachment) {
+            throw new Error(response?.message || 'Attachment content is unavailable.');
+        }
+        const loaded = response.attachment;
+        const fileName = String(loaded.fileName || loaded.name || attachment?.fileName || '').trim();
+        const mimeType = String(loaded.mimeType || loaded.type || attachment?.mimeType || 'application/octet-stream').trim();
+        const dataUrl = String(loaded.dataUrl || '').trim();
+        const base64 = String(
+            loaded.base64 || (dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : '')
+        ).trim();
+        if (!base64 && !dataUrl) {
+            throw new Error('Attachment content is unavailable.');
+        }
+        return {
+            fileName: fileName || attachment?.fileName || 'attachment',
+            mimeType,
+            dataUrl: dataUrl || (base64 ? `data:${mimeType};base64,${base64}` : ''),
+            base64
+        };
     }
 
     isHeaderFieldType(type: TemplateFieldType): boolean {
@@ -1688,6 +1744,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             approver: this.getStepApproverName(step, history, slot.user),
             approvedAt: this.getHistoryDate(history),
             remarks: history?.remarks || history?.comments || history?.txtRemarks || '--',
+            actionSource: this.getHistoryActionSource(history),
             rawDate: this.getHistoryDateObject(history)
         };
     }
@@ -2473,6 +2530,21 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
 
     private getUserId(value: any): number {
         return Number(value?.serUserId ?? value?.userId ?? value?.approvedBy ?? value?.approverId ?? value?.id);
+    }
+
+    private getHistoryActionSource(history: any): string {
+        if (!history) {
+            return '--';
+        }
+        const raw = String(history?.approvedVia || history?.actionSource || '').trim();
+        const normalized = raw.toUpperCase();
+        if (!normalized || normalized === 'SYSTEM' || normalized === 'SUBMISSION' || normalized.includes('PORTAL')) {
+            return 'Portal';
+        }
+        if (normalized === 'EMAIL' || normalized.includes('EMAIL')) {
+            return 'Email';
+        }
+        return raw;
     }
 
     private getHistoryDate(history: any): string {

@@ -122,13 +122,18 @@
     border-radius: 10px;
     display: grid;
     gap: 10px;
-    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
     padding: 10px 12px;
 }
 
 .portal-file-row.is-selected {
     background: #eff6ff;
     border-color: #60a5fa;
+}
+
+.portal-file-row.is-unavailable,
+.portal-file-card.is-unavailable {
+    opacity: 0.72;
 }
 
 .portal-file-row-icon {
@@ -190,6 +195,44 @@
     background: #eff6ff;
     border-color: #60a5fa;
     box-shadow: inset 0 0 0 1px #93c5fd;
+}
+
+.portal-status-row {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.portal-status-badge {
+    border-radius: 999px;
+    display: inline-flex;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 5px 8px;
+    white-space: nowrap;
+}
+
+.portal-status-badge.is-completed {
+    background: #ecfdf5;
+    color: #047857;
+}
+
+.portal-status-badge.is-pending {
+    background: #fffbeb;
+    color: #b45309;
+}
+
+.portal-status-badge.is-other {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.portal-pdf-missing {
+    color: #b91c1c;
+    font-size: 11px;
+    font-weight: 600;
 }
 
 .portal-file-icon {

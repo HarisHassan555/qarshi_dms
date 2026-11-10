@@ -30,6 +30,7 @@ import {
     parseExcelFormulaToDefinition,
     formatExcelColumnLabel,
     shiftExcelFormulaReferences,
+    shiftExcelFormulaReferencesForDeletion,
     shiftExcelFormulaReferencesForInsertion,
     TableFormulaDefinition,
     TEMPLATE_TABLE_FORMULA_ATTR,
@@ -793,6 +794,10 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 this.addTableFieldLine(field, 'row', position.row, action === 'row-above' ? 'above' : 'below');
             } else if (action === 'column-before' || action === 'column-after') {
                 this.addTableFieldLine(field, 'column', position.col, action === 'column-before' ? 'before' : 'after');
+            } else if (action === 'delete-row') {
+                this.removeTableFieldLine(field, 'row', position.row);
+            } else if (action === 'delete-column') {
+                this.removeTableFieldLine(field, 'column', position.col);
             }
         });
     }
@@ -965,6 +970,75 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         this.onPanelValueChanged();
     }
 
+    private removeTableFieldLine(field: TemplateField, axis: 'row' | 'column', index: number): void {
+        const host = document.createElement('div');
+        host.innerHTML = this.normalizeTableHtmlForField(field, field.tableHtml);
+        const table = host.querySelector('table');
+        if (!table || table.rows.length === 0 || index < 0) {
+            return;
+        }
+        if (axis === 'row' && table.rows.length <= 1) {
+            this.notificationService.showMessage('Keep at least one row in the table.', 'warning');
+            return;
+        }
+        const columnCount = table.rows[0]?.cells.length || 0;
+        if (axis === 'column' && columnCount <= 1) {
+            this.notificationService.showMessage('Keep at least one column in the table.', 'warning');
+            return;
+        }
+        this.shiftTableFieldFormulasForDeletion(table, axis, index);
+        if (axis === 'row') {
+            table.rows[index]?.remove();
+        } else {
+            Array.from(table.rows).forEach((row) => row.cells[index]?.remove());
+        }
+        field.tableHtml = host.innerHTML;
+        this.values[field.id] = this.unshiftTableValueMap(
+            this.normalizeTableCellValues(this.values[field.id]),
+            axis,
+            index
+        );
+        this.persistedValues[field.id] = this.unshiftTableValueMap(
+            this.normalizeTableCellValues(this.persistedValues[field.id]),
+            axis,
+            index
+        );
+        if (field.placement) {
+            field.placement = {
+                ...field.placement,
+                width: axis === 'column'
+                    ? Math.max(TemplateFillComponent.TABLE_MIN_COLUMN_WIDTH, field.placement.width - TemplateFillComponent.TABLE_MIN_COLUMN_WIDTH)
+                    : field.placement.width,
+                height: axis === 'row'
+                    ? Math.max(TemplateFillComponent.TABLE_MIN_ROW_HEIGHT, field.placement.height - TemplateFillComponent.TABLE_MIN_ROW_HEIGHT)
+                    : field.placement.height
+            };
+        }
+        if (field.tableConfig) {
+            const headers = [...(field.tableConfig.headers || [])];
+            if (axis === 'column') {
+                headers.splice(index, 1);
+            }
+            field.tableConfig = {
+                ...field.tableConfig,
+                rows: axis === 'row' ? Math.max(1, field.tableConfig.rows - 1) : field.tableConfig.rows,
+                columns: axis === 'column' ? Math.max(1, field.tableConfig.columns - 1) : field.tableConfig.columns,
+                headers
+            };
+        }
+        this.tableRenderRowsCache.delete(field.id);
+        Array.from(this.tableFormulaDrafts.keys()).forEach((key) => {
+            if (key.startsWith(`${field.id}:`)) {
+                this.tableFormulaDrafts.delete(key);
+            }
+        });
+        if (this.editingTableFormulaKey?.startsWith(`${field.id}:`)) {
+            this.editingTableFormulaKey = null;
+        }
+        this.refreshTableFieldFormulas(field);
+        this.onPanelValueChanged();
+    }
+
     private createBlankTableFieldCell(source: HTMLTableCellElement): HTMLTableCellElement {
         const cell = document.createElement('td');
         const style = source.getAttribute('style');
@@ -1001,6 +1075,38 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         });
     }
 
+    private shiftTableFieldFormulasForDeletion(table: HTMLTableElement, axis: 'row' | 'column', deleteAt: number): void {
+        const pivot = deleteAt + 1;
+        table.querySelectorAll(`[${TEMPLATE_TABLE_FORMULA_ATTR}]`).forEach((node) => {
+            const cell = node as HTMLTableCellElement;
+            const formula = getFormulaDefinitionFromCell(cell);
+            if (!formula) {
+                return;
+            }
+            const onDeletedLine = axis === 'row' ? formula.target.row === pivot : formula.target.col === pivot;
+            if (onDeletedLine) {
+                return;
+            }
+            if (formula.expression) {
+                formula.expression = shiftExcelFormulaReferencesForDeletion(formula.expression, axis, pivot);
+            }
+            if (axis === 'row' && formula.target.row > pivot) {
+                formula.target.row -= 1;
+            }
+            if (axis === 'column' && formula.target.col > pivot) {
+                formula.target.col -= 1;
+            }
+            formula.sources = (formula.sources || [])
+                .filter((source) => axis === 'row' ? source.row !== pivot : source.col !== pivot)
+                .map((source) => ({
+                    ...source,
+                    row: axis === 'row' && source.row > pivot ? source.row - 1 : source.row,
+                    col: axis === 'column' && source.col > pivot ? source.col - 1 : source.col
+                }));
+            cell.setAttribute(TEMPLATE_TABLE_FORMULA_ATTR, JSON.stringify(formula));
+        });
+    }
+
     private shiftTableFieldValues(field: TemplateField, axis: 'row' | 'column', insertAt: number): void {
         this.values[field.id] = this.shiftTableValueMap(
             this.normalizeTableCellValues(this.values[field.id]),
@@ -1022,6 +1128,30 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             }
             const row = axis === 'row' && position.row >= insertAt ? position.row + 1 : position.row;
             const col = axis === 'column' && position.col >= insertAt ? position.col + 1 : position.col;
+            next[`r${row}c${col}`] = current[key];
+        });
+        return next;
+    }
+
+    private unshiftTableValueMap(
+        current: { [cellKey: string]: string },
+        axis: 'row' | 'column',
+        deleteAt: number
+    ): { [cellKey: string]: string } {
+        const next: { [cellKey: string]: string } = {};
+        Object.keys(current).forEach((key) => {
+            const position = this.parseTableCellKey(key);
+            if (!position) {
+                return;
+            }
+            if (axis === 'row' && position.row === deleteAt) {
+                return;
+            }
+            if (axis === 'column' && position.col === deleteAt) {
+                return;
+            }
+            const row = axis === 'row' && position.row > deleteAt ? position.row - 1 : position.row;
+            const col = axis === 'column' && position.col > deleteAt ? position.col - 1 : position.col;
             next[`r${row}c${col}`] = current[key];
         });
         return next;
@@ -1573,20 +1703,75 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         this.removeAttachment(field, indexToRemove);
     }
 
-    viewAttachment(attachment: AttachmentPayload): void {
-        const base64 = String(attachment?.base64 || '').trim();
-        const mimeType = String(attachment?.mimeType || 'application/octet-stream').trim();
-        const objectUrl = base64 ? this.createAttachmentObjectUrl(base64, mimeType) : '';
-        const dataUrl = String(attachment?.dataUrl || '').trim();
-        const resolvedUrl = objectUrl || dataUrl;
-        if (!resolvedUrl) {
-            this.notificationService.showMessage('Attachment content is unavailable.', 'warning');
-            return;
+    async viewAttachment(
+        attachment: AttachmentPayload,
+        fieldId?: string,
+        attachmentIndex: number = 0
+    ): Promise<void> {
+        try {
+            const resolved = await this.resolveAttachmentForView(attachment, fieldId, attachmentIndex);
+            const base64 = String(resolved?.base64 || '').trim();
+            const mimeType = String(resolved?.mimeType || 'application/octet-stream').trim();
+            const objectUrl = base64 ? this.createAttachmentObjectUrl(base64, mimeType) : '';
+            const dataUrl = String(resolved?.dataUrl || '').trim();
+            const resolvedUrl = objectUrl || dataUrl;
+            if (!resolvedUrl) {
+                this.notificationService.showMessage('Attachment content is unavailable.', 'warning');
+                return;
+            }
+            window.open(resolvedUrl, '_blank', 'noopener');
+            if (objectUrl) {
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+            }
+        } catch (error: any) {
+            this.notificationService.showMessage(
+                error?.error?.message || error?.message || 'Attachment content is unavailable.',
+                'warning'
+            );
         }
-        window.open(resolvedUrl, '_blank', 'noopener');
-        if (objectUrl) {
-            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+    }
+
+    private async resolveAttachmentForView(
+        attachment: AttachmentPayload,
+        fieldId?: string,
+        attachmentIndex: number = 0
+    ): Promise<AttachmentPayload> {
+        const localBase64 = String(attachment?.base64 || '').trim();
+        const localDataUrl = String(attachment?.dataUrl || '').trim();
+        if (localBase64 || localDataUrl) {
+            return attachment;
         }
+        const applicationId = Number(this.editingApplication?.serApplicationId || 0);
+        const resolvedFieldId = String(fieldId || '').trim();
+        if (!applicationId || !resolvedFieldId) {
+            throw new Error('Attachment content is unavailable.');
+        }
+        const response = await firstValueFrom(
+            this.templateWorkflowService.getTemplateApplicationAttachmentContent(
+                applicationId,
+                resolvedFieldId,
+                attachmentIndex
+            )
+        );
+        if (!response || response.status !== 'Success' || !response.attachment) {
+            throw new Error(response?.message || 'Attachment content is unavailable.');
+        }
+        const loaded = response.attachment;
+        const fileName = String(loaded.fileName || loaded.name || attachment?.fileName || '').trim();
+        const mimeType = String(loaded.mimeType || loaded.type || attachment?.mimeType || 'application/octet-stream').trim();
+        const dataUrl = String(loaded.dataUrl || '').trim();
+        const base64 = String(
+            loaded.base64 || (dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : '')
+        ).trim();
+        if (!base64 && !dataUrl) {
+            throw new Error('Attachment content is unavailable.');
+        }
+        return {
+            fileName: fileName || attachment?.fileName || 'attachment',
+            mimeType,
+            dataUrl: dataUrl || (base64 ? `data:${mimeType};base64,${base64}` : ''),
+            base64
+        };
     }
 
     openAttachmentsModal(): void {
@@ -3322,7 +3507,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             return;
         }
         table.dataset['fillMenuBound'] = '1';
-        table.title = 'Click a cell to add a row or column at that position';
+        table.title = 'Click a cell to add or delete a row or column at that position';
         const openFromClick = (event: Event) => {
             const mouseEvent = event as MouseEvent;
             const cell = (mouseEvent.target as HTMLElement | null)?.closest('td, th') as HTMLTableCellElement | null;
@@ -3365,8 +3550,10 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         menu.innerHTML = [
             '<button type="button" data-table-action="row-above">Add row above</button>',
             '<button type="button" data-table-action="row-below">Add row below</button>',
+            '<button type="button" data-table-action="delete-row">Delete row</button>',
             '<button type="button" data-table-action="column-before">Add column before</button>',
-            '<button type="button" data-table-action="column-after">Add column after</button>'
+            '<button type="button" data-table-action="column-after">Add column after</button>',
+            '<button type="button" data-table-action="delete-column">Delete column</button>'
         ].join('');
         Object.assign(menu.style, {
             position: 'fixed',
@@ -3386,7 +3573,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 background: 'transparent',
                 border: '0',
                 borderRadius: '6px',
-                color: '#172033',
+                color: (button as HTMLButtonElement).getAttribute('data-table-action')?.startsWith('delete-') ? '#b42318' : '#172033',
                 cursor: 'pointer',
                 font: '600 13px Arial, sans-serif',
                 padding: '8px 10px',
@@ -3409,6 +3596,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 this.addDocumentTableRow(table, rowIndex, action === 'row-above' ? 'above' : 'below');
             } else if (action === 'column-before' || action === 'column-after') {
                 this.addDocumentTableColumn(table, columnIndex, action === 'column-before' ? 'before' : 'after');
+            } else if (action === 'delete-row' || action === 'delete-column') {
+                this.removeDocumentTableLine(table, action === 'delete-row' ? 'row' : 'column', action === 'delete-row' ? rowIndex : columnIndex);
             }
         });
         document.body.appendChild(menu);
@@ -3496,6 +3685,69 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         this.scheduleFillExcelIndicators();
     }
 
+    private removeDocumentTableLine(table: HTMLTableElement, axis: 'row' | 'column', index: number): void {
+        if (index < 0) {
+            return;
+        }
+        if (axis === 'row' && table.rows.length <= 1) {
+            this.notificationService.showMessage('Keep at least one row in the table.', 'warning');
+            return;
+        }
+        const columnCount = table.rows[0]?.cells.length || 0;
+        if (axis === 'column' && columnCount <= 1) {
+            this.notificationService.showMessage('Keep at least one column in the table.', 'warning');
+            return;
+        }
+        this.shiftDocumentTableFormulasForDeletion(table, axis, index);
+        if (axis === 'row') {
+            table.rows[index]?.remove();
+        } else {
+            Array.from(table.rows).forEach((row) => row.cells[index]?.remove());
+        }
+        this.replaceStoredDocumentTable(table);
+        this.recalculateDocumentTable(table);
+        this.scheduleFillExcelIndicators();
+    }
+
+    private shiftDocumentTableFormulasForDeletion(table: HTMLTableElement, axis: 'row' | 'column', deleteAt: number): void {
+        const pivot = deleteAt + 1;
+        Array.from(table.querySelectorAll('td, th')).forEach((node) => {
+            const cell = node as HTMLTableCellElement;
+            const position = this.documentTableCellPosition(table, cell);
+            if (!position) {
+                return;
+            }
+            const onDeletedLine = axis === 'row' ? position.row === pivot : position.col === pivot;
+            if (onDeletedLine) {
+                return;
+            }
+            const formula = getFormulaDefinitionFromCell(cell);
+            if (formula) {
+                if (formula.expression) {
+                    formula.expression = shiftExcelFormulaReferencesForDeletion(formula.expression, axis, pivot);
+                }
+                if (axis === 'row' && formula.target.row > pivot) {
+                    formula.target.row -= 1;
+                }
+                if (axis === 'column' && formula.target.col > pivot) {
+                    formula.target.col -= 1;
+                }
+                formula.sources = (formula.sources || [])
+                    .filter((source) => axis === 'row' ? source.row !== pivot : source.col !== pivot)
+                    .map((source) => ({
+                        ...source,
+                        row: axis === 'row' && source.row > pivot ? source.row - 1 : source.row,
+                        col: axis === 'column' && source.col > pivot ? source.col - 1 : source.col
+                    }));
+                cell.setAttribute(TEMPLATE_TABLE_FORMULA_ATTR, JSON.stringify(formula));
+            }
+            const visible = this.documentCellPlainText(cell);
+            if (isExcelFormulaText(visible)) {
+                cell.textContent = shiftExcelFormulaReferencesForDeletion(visible, axis, pivot);
+            }
+        });
+    }
+
     private isLandscapePage(): boolean {
         const page = this.template?.page || {};
         const width = Number(page.width) || 794;
@@ -3508,15 +3760,31 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         if (!pageBox) {
             return false;
         }
-        const tableBox = table.getBoundingClientRect();
+        const shell = table.closest('.inline-table-shell') as HTMLElement | null;
+        const edge = (shell || table).getBoundingClientRect();
+        const extra = this.nextTableLineSize(table, change, !!shell);
+        if (change === 'column') {
+            return edge.right + extra > pageBox.right + 1;
+        }
+        return edge.bottom + extra > pageBox.bottom + 1;
+    }
+
+    private nextTableLineSize(table: HTMLTableElement, change: 'row' | 'column', placedField: boolean): number {
+        const zoom = Number(this.previewZoom) || 1;
+        if (placedField) {
+            // A placed table is fixed-width. One leftover column fills that box, but a new
+            // row or column only grows the placement by the minimum line size.
+            const cssPx = change === 'column'
+                ? TemplateFillComponent.TABLE_MIN_COLUMN_WIDTH
+                : TemplateFillComponent.TABLE_MIN_ROW_HEIGHT;
+            return cssPx * zoom;
+        }
         if (change === 'column') {
             const sample = table.rows[0]?.cells[table.rows[0].cells.length - 1];
-            const extra = sample ? sample.getBoundingClientRect().width : 48;
-            return tableBox.right + extra > pageBox.right + 1;
+            return sample ? sample.getBoundingClientRect().width : 48 * zoom;
         }
         const sampleRow = table.rows[table.rows.length - 1];
-        const extra = sampleRow ? sampleRow.getBoundingClientRect().height : 28;
-        return tableBox.bottom + extra > pageBox.bottom + 1;
+        return sampleRow ? sampleRow.getBoundingClientRect().height : 28 * zoom;
     }
 
     private getTablePageBox(table: HTMLTableElement): DOMRect | null {

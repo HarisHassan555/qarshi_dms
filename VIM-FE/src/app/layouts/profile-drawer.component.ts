@@ -282,6 +282,7 @@ export class ProfileDrawerComponent implements OnInit, OnDestroy {
     this.close();
     this.router.navigateByUrl('auth/signin');
     localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
   }
 }

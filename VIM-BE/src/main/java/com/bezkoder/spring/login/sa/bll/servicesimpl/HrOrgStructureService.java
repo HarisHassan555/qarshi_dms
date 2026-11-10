@@ -52,18 +52,6 @@ public class HrOrgStructureService implements IHrOrgStructureService {
             throw new IllegalArgumentException("Organization is deleted");
         }
 
-        if (request.getTxtOrganizationName() != null) {
-            String newName = normalizeRequired(request.getTxtOrganizationName(), "Organization name is required");
-            if (!newName.equals(row.getTxtOrganizationName())) {
-                Optional<HrTblOrganization> duplicate = organizationRepository.findActiveByNameIgnoreCase(newName);
-                if (duplicate.isPresent()
-                        && !duplicate.get().getSerOrganizationId().equals(row.getSerOrganizationId())) {
-                    throw new IllegalArgumentException("Organization name already exists");
-                }
-                row.setTxtOrganizationName(newName);
-            }
-        }
-
         if (request.getTxtAddress() != null) {
             row.setTxtAddress(normalizeNullable(request.getTxtAddress()));
         }
@@ -104,14 +92,6 @@ public class HrOrgStructureService implements IHrOrgStructureService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
-    }
-
-    private static String normalizeRequired(String value, String message) {
-        String normalized = normalizeNullable(value);
-        if (normalized == null) {
-            throw new IllegalArgumentException(message);
-        }
-        return normalized;
     }
 
     @Override

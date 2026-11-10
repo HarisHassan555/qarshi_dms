@@ -27,6 +27,8 @@ export interface PortalAttachmentItem {
     attachmentIndex: number;
     fileName: string;
     mimeType?: string;
+    hasPdf?: boolean;
+    sourceType?: string;
 }
 
 export interface PortalAttachmentPayload {
@@ -162,10 +164,14 @@ export class PortalAttachmentsPickerComponent implements OnInit, AfterViewInit, 
     async previewItem(item: PortalAttachmentItem, event?: Event): Promise<void> {
         event?.preventDefault();
         event?.stopPropagation();
+        if (!this.canUseDocument(item)) {
+            this.notificationService.showMessage('This application does not have a document PDF yet.', 'danger');
+            return;
+        }
         this.showPreview = true;
         this.previewLoading = true;
         this.previewError = '';
-        this.previewName = item.fileName || 'File preview';
+        this.previewName = this.getApplicationTitle(item) || item.fileName || 'Application preview';
         this.previewUrl = null;
         this.revokePreviewObjectUrl();
         this.cdr.markForCheck();
@@ -204,8 +210,13 @@ export class PortalAttachmentsPickerComponent implements OnInit, AfterViewInit, 
         if (this.importing || this.selectedKeys.size === 0) {
             return;
         }
-        const selectedItems = Array.from(this.selectedItems.values());
+        const selectedItems = Array.from(this.selectedItems.values())
+            .filter((item) => this.canUseDocument(item));
         if (!selectedItems.length) {
+            this.notificationService.showMessage(
+                'Selected applications do not have a document PDF yet.',
+                'danger'
+            );
             return;
         }
         this.importing = true;
@@ -218,7 +229,7 @@ export class PortalAttachmentsPickerComponent implements OnInit, AfterViewInit, 
             this.filesSelected.emit(payloads);
         } catch (error: any) {
             this.notificationService.showMessage(
-                error?.error?.message || error?.message || 'Failed to add portal attachment.',
+                error?.error?.message || error?.message || 'Failed to add portal application document.',
                 'danger'
             );
         } finally {
@@ -262,7 +273,7 @@ export class PortalAttachmentsPickerComponent implements OnInit, AfterViewInit, 
             this.hasMore = false;
             this.total = null;
             this.notificationService.showMessage(
-                error?.error?.message || error?.message || 'Failed to load portal attachments.',
+                error?.error?.message || error?.message || 'Failed to load portal applications.',
                 'danger'
             );
         } finally {
@@ -316,6 +327,46 @@ export class PortalAttachmentsPickerComponent implements OnInit, AfterViewInit, 
         this.searchBound = false;
     }
 
+    canUseDocument(item: PortalAttachmentItem): boolean {
+        return item?.hasPdf !== false;
+    }
+
+    getApplicationTitle(item: PortalAttachmentItem): string {
+        return String(item?.templateName || '').trim()
+            || String(item?.formCode || '').trim()
+            || `Application #${item?.applicationId || ''}`;
+    }
+
+    getApplicationSubtitle(item: PortalAttachmentItem): string {
+        const formCode = String(item?.formCode || '').trim() || `App #${item?.applicationId || ''}`;
+        const status = this.formatStatus(item?.status);
+        return status ? `${formCode} · ${status}` : formCode;
+    }
+
+    formatStatus(status?: string): string {
+        const raw = String(status || '').trim();
+        if (!raw) {
+            return '';
+        }
+        return raw
+            .toLowerCase()
+            .split(/[_\s]+/)
+            .filter(Boolean)
+            .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ');
+    }
+
+    getStatusBadgeClass(status?: string): string {
+        const normalized = String(status || '').trim().toUpperCase();
+        if (normalized === 'APPROVED' || normalized === 'COMPLETED') {
+            return 'is-completed';
+        }
+        if (normalized.includes('PENDING') || normalized === 'IN_PROGRESS') {
+            return 'is-pending';
+        }
+        return 'is-other';
+    }
+
     private getKey(item: PortalAttachmentItem): string {
         return `${item.applicationId}|${item.fieldId}|${item.attachmentIndex}`;
     }
@@ -328,6 +379,9 @@ export class PortalAttachmentsPickerComponent implements OnInit, AfterViewInit, 
     }
 
     private async fetchPayload(item: PortalAttachmentItem): Promise<PortalAttachmentPayload> {
+        if (!this.canUseDocument(item)) {
+            throw new Error('This application does not have a document PDF yet.');
+        }
         const response = await firstValueFrom(
             this.templateWorkflowService.getCompletedTemplatePortalAttachmentContent(
                 item.applicationId,

@@ -57,6 +57,7 @@ export class urls {
     static API_URL = resolveApiBaseUrl();
     static WS_BASE_URL = resolveWsBaseUrl();
     static SIGNIN_URL = 'api/auth/login';
+    static REFRESH_URL = 'api/auth/refresh';
     static FORGOT_URL = 'auth/forgot';
     static COUNTRY_URL = 'country';
     static CITY_URL = 'city';

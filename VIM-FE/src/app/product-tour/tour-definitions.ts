@@ -37,6 +37,12 @@ export const PRODUCT_TOUR_CATALOG: ProductTourDefinition[] = [
           'Narrow the board and lists by date range, department, status, or form type. Apply Filters updates the view; Clear resets. Download CSV exports the filtered set.',
       },
       {
+        target: 'dashboard-charts',
+        title: 'Workflow charts',
+        body:
+          'Status donut, submissions over time, and a department or form-type bar chart. All three follow the filters above so the picture matches the board.',
+      },
+      {
         target: 'dashboard-board',
         title: 'Approval stage board',
         body:

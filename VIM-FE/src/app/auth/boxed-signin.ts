@@ -78,10 +78,11 @@ export class BoxedSigninComponent {
                 if (data) {
                     this.isShowLoader = false;
                     this.isSuccess = true;
-                    const token = data.token.split(' ')[1];
-                    localStorage.setItem('token', token);
+                    const token = String(data.token || '').includes(' ')
+                        ? data.token.split(' ')[1]
+                        : String(data.token || '').trim();
+                    this.authService.storeSessionTokens(token, data.refreshToken || null);
                     localStorage.setItem('user', JSON.stringify(data.user));
-                    /*localStorage.setItem('token', data.split(' ')[1]);*/
                     this.getUser();
                 }
             }, err => {

@@ -171,7 +171,7 @@
                     </div>
                     <div class="attachment-list" *ngIf="getAttachmentPayloads(field).length > 0">
                         <div class="attachment-item" *ngFor="let attachment of getAttachmentPayloads(field); let index = index">
-                            <button type="button" class="attachment-link-button" [title]="attachment.fileName" (click)="viewAttachment(attachment)">
+                            <button type="button" class="attachment-link-button" [title]="attachment.fileName" (click)="viewAttachment(attachment, field.id, index)">
                                 {{ attachment.fileName }}
                             </button>
                             <button type="button" class="btn btn-danger btn-sm" (click)="removeAttachment(field, index, $event)">
@@ -441,7 +441,7 @@
                 <button
                     type="button"
                     class="attachment-link-button"
-                    (click)="viewAttachment(item.attachment)">
+                    (click)="viewAttachment(item.attachment, item.fieldId, item.attachmentIndex)">
                     <strong>{{ item.attachment.fileName }}</strong>
                     <span>{{ item.fieldLabel }}</span>
                 </button>

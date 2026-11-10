@@ -118,6 +118,7 @@ export class SidebarComponent implements OnInit, OnDestroy {
     doLogout(): void {
         this.router.navigateByUrl('auth/signin');
         localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
         localStorage.removeItem('user');
     }
 
@@ -420,6 +421,7 @@ export class SidebarComponent implements OnInit, OnDestroy {
                             'auth/signin?error=You%20do%20not%20have%20access%20to%20the%20application.%20Please%20contact%20the%20administrator%20for%20further%20assistance.'
                         );
                         localStorage.removeItem('token');
+                        localStorage.removeItem('refreshToken');
                         localStorage.removeItem('user');
                     }
                 });

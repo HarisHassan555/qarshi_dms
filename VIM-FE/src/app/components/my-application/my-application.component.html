@@ -315,9 +315,9 @@
         <section class="panel" *ngIf="detailAttachmentsVisible && getAttachmentFields().length > 0">
             <h3>Attachments</h3>
             <div class="attachment-list" *ngFor="let field of getAttachmentFields(); trackBy: trackByFieldId">
-                <div class="attachment-item" *ngFor="let attachment of getAttachmentPayloads(field)">
+                <div class="attachment-item" *ngFor="let attachment of getAttachmentPayloads(field); let index = index">
                     <span>{{ field.label }}: {{ attachment.fileName }}</span>
-                    <button type="button" class="btn btn-outline btn-sm" (click)="viewAttachment(attachment)">
+                    <button type="button" class="btn btn-outline btn-sm" (click)="viewAttachment(attachment, field.id, index)">
                         View
                     </button>
                 </div>
@@ -368,6 +368,10 @@
                             <div class="approval-node-row">
                                 <span class="label">Type</span>
                                 <span class="value">{{ tile.type }}</span>
+                            </div>
+                            <div class="approval-node-row">
+                                <span class="label">Action From</span>
+                                <span class="value">{{ tile.actionSource }}</span>
                             </div>
                         </div>
                     </article>

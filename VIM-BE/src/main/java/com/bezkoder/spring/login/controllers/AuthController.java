@@ -21,12 +21,16 @@ import com.bezkoder.spring.login.security.jwt.JwtUtils;
 import com.bezkoder.spring.login.security.services.UserDetailsImpl;
 import com.bezkoder.spring.login.admin.utility.common.RequestMetadataUtil;
 
+import com.bezkoder.spring.login.security.services.UserDetailsServiceImpl;
+
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -38,6 +42,7 @@ import org.springframework.security.core.AuthenticationException;
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 @CrossOrigin(origins = "*", maxAge = 3600)
@@ -61,6 +66,9 @@ public class AuthController {
 
   @Autowired
   private IAppActivityLogService activityLogService;
+
+  @Autowired
+  private UserDetailsServiceImpl userDetailsService;
 
   @PostMapping("/signin")
   public ResponseEntity<?> authenticateUser(@Valid @RequestBody LoginRequest loginRequest) {
@@ -96,10 +104,13 @@ public class AuthController {
       SecurityContextHolder.getContext().setAuthentication(authentication);
 
       String token = jwtUtils.generateJwtToken(authentication);
+      UserDetailsImpl principal = (UserDetailsImpl) authentication.getPrincipal();
+      String refreshToken = jwtUtils.generateRefreshToken(principal.getUsername());
       CfgTblUser user = userRepository.findByLoginNameForAuthentication(loginRequest.getUsername())
               .orElseThrow(() -> new RuntimeException("User not found for authenticated login"));
       LoginResponse loginResponse = new LoginResponse();
       loginResponse.setToken("Bearer " + token);
+      loginResponse.setRefreshToken(refreshToken);
       loginResponse.setUser(user);
 
       Map<String, Object> payload = new HashMap<>();
@@ -114,6 +125,56 @@ public class AuthController {
               "FAILURE", "Login failed", "USER", null, payload, ex.getMessage());
       throw ex;
     }
+  }
+
+  /**
+   * Exchange a valid refresh token for a new access token (and rotated refresh token).
+   * Clients call this when the access JWT expires so the user does not need to sign in again.
+   */
+  @PostMapping("/refresh")
+  public ResponseEntity<?> refresh(@RequestBody Map<String, String> body) {
+    String refreshToken = normalizeToken(body != null ? body.get("refreshToken") : null);
+    if (refreshToken == null || refreshToken.isEmpty()) {
+      Map<String, Object> error = new HashMap<>();
+      error.put("status", "Failure");
+      error.put("message", "refreshToken is required");
+      return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+    if (!jwtUtils.validateRefreshToken(refreshToken)) {
+      Map<String, Object> error = new HashMap<>();
+      error.put("status", "Failure");
+      error.put("message", "Refresh token is invalid or expired. Please sign in again.");
+      return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
+    }
+
+    try {
+      String username = jwtUtils.getUserNameFromJwtToken(refreshToken);
+      UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+      String accessToken = jwtUtils.generateJwtTokenFromUsername(userDetails.getUsername());
+      String nextRefreshToken = jwtUtils.generateRefreshToken(userDetails.getUsername());
+
+      LoginResponse loginResponse = new LoginResponse();
+      loginResponse.setToken("Bearer " + accessToken);
+      loginResponse.setRefreshToken(nextRefreshToken);
+      userRepository.findByLoginNameForAuthentication(username).ifPresent(loginResponse::setUser);
+      return ResponseEntity.ok(loginResponse);
+    } catch (Exception ex) {
+      Map<String, Object> error = new HashMap<>();
+      error.put("status", "Failure");
+      error.put("message", ex.getMessage() != null ? ex.getMessage() : "Could not refresh token");
+      return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
+    }
+  }
+
+  private static String normalizeToken(String value) {
+    if (value == null) {
+      return null;
+    }
+    String trimmed = value.trim();
+    if (trimmed.toLowerCase(Locale.ROOT).startsWith("bearer ")) {
+      return trimmed.substring(7).trim();
+    }
+    return trimmed;
   }
 
   /*@PostMapping("/signup")

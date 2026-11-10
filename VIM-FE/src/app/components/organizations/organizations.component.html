@@ -5,7 +5,7 @@
                 <h5 class="text-xl font-bold dark:text-white-light">Organizations</h5>
                 <p class="text-sm text-gray-500 mt-1">
                     Synced from SAP HCM on employee import. Document headers match organizations by <code>txt_organization_code</code> (e.g. QARSHI_UNIVERSITY).
-                    You can edit <strong>name</strong>, <strong>address</strong>, and <strong>logo</strong> for document letterheads.
+                    Company name and code come from SAP. You can update the <strong>address</strong> and <strong>logo</strong> for document letterheads.
                 </p>
             </div>
             <div class="ltr:ml-auto rtl:mr-auto flex gap-2" data-tour="organizations-toolbar">
@@ -73,22 +73,15 @@
     </ng-template>
     <ng-template #modalBody>
         <form class="space-y-4 text-sm" [formGroup]="brandingForm" (ngSubmit)="saveBranding()">
-            <div class="rounded border border-[#e0e6ed] dark:border-[#1b2e4b] p-3 bg-gray-50 dark:bg-[#0e1726]">
-                <div class="text-gray-500 text-xs">Organization code (from SAP, read-only)</div>
-                <div class="font-mono text-sm mt-0.5 dark:text-white-light">{{ editOrgCode || '—' }}</div>
-            </div>
-
-            <div>
-                <label for="orgName">Organization name*</label>
-                <input
-                    id="orgName"
-                    type="text"
-                    class="form-input"
-                    formControlName="txtOrganizationName"
-                    placeholder="Name shown on document headers" />
-                <p *ngIf="brandingSubmit && brandingForm.get('txtOrganizationName')?.invalid" class="mt-1 text-danger text-xs">
-                    Organization name is required.
-                </p>
+            <div class="rounded border border-[#e0e6ed] dark:border-[#1b2e4b] p-3 bg-gray-50 dark:bg-[#0e1726] space-y-2">
+                <div>
+                    <div class="text-gray-500 text-xs">Organization (from SAP, read-only)</div>
+                    <div class="text-sm mt-0.5 font-semibold dark:text-white-light">{{ editOrgName || '—' }}</div>
+                </div>
+                <div>
+                    <div class="text-gray-500 text-xs">Organization code (from SAP, read-only)</div>
+                    <div class="font-mono text-sm mt-0.5 dark:text-white-light">{{ editOrgCode || '—' }}</div>
+                </div>
             </div>
 
             <div>

@@ -359,6 +359,34 @@ export class TemplateWorkflowService {
         return this.http.get<any>(urls.API_URL + 'getAuditAllApplicationsFilterOptions?userId=' + userId);
     }
 
+    getAllApplicationPagePermissions(roleId: number, userId?: number | null): Observable<any> {
+        const params = new URLSearchParams();
+        params.set('roleId', String(roleId || 0));
+        if (userId != null && Number(userId) > 0) {
+            params.set('userId', String(userId));
+        }
+        return this.http.get<any>(urls.API_URL + 'getAllApplicationPagePermissions?' + params.toString());
+    }
+
+    saveAllApplicationPagePermissions(payload: {
+        serRoleId: number;
+        serUserId?: number | null;
+        replaceForRole?: boolean;
+        items: Array<{
+            serPermissionId?: number;
+            serUserId?: number | null;
+            serDepartmentId?: number | null;
+            serSubmitterUserId?: number | null;
+            serApproverUserId?: number | null;
+            serFormId?: number | null;
+            serApplicationId?: number | null;
+            blIsEnabled?: boolean;
+            blnStatus?: boolean;
+        }>;
+    }): Observable<any> {
+        return this.http.post<any>(urls.API_URL + 'saveAllApplicationPagePermissions', payload);
+    }
+
     getTemplatePendingApprovals(userId: number, all = false, page = 0, pageSize = 10, search = ''): Observable<any> {
         const params = new URLSearchParams();
         params.set('userId', String(userId || 0));
@@ -450,6 +478,19 @@ export class TemplateWorkflowService {
             attachmentIndex: String(attachmentIndex)
         });
         return this.http.get<any>(urls.API_URL + 'getCompletedTemplatePortalAttachmentContent?' + params.toString());
+    }
+
+    getTemplateApplicationAttachmentContent(
+        applicationId: number | string,
+        fieldId: string,
+        attachmentIndex: number
+    ): Observable<any> {
+        const params = new URLSearchParams({
+            applicationId: String(applicationId),
+            fieldId: String(fieldId || ''),
+            attachmentIndex: String(Math.max(0, Number(attachmentIndex) || 0))
+        });
+        return this.http.get<any>(urls.API_URL + 'getTemplateApplicationAttachmentContent?' + params.toString());
     }
 
     getTemplateApprovedApplications(userId: number, page = 0, pageSize = 10, search = ''): Observable<any> {
@@ -654,9 +695,20 @@ export class TemplateWorkflowService {
         });
     }
 
-    updateTemplateApplication(application: any, values: Record<string, any>, templatePayload: any, userPipeline: any[] = []) {
+    updateTemplateApplication(
+        application: any,
+        values: Record<string, any>,
+        templatePayload: any,
+        userPipeline: any[] = [],
+        options?: { fieldChangeLogs?: any[] }
+    ) {
         const existingData = this.parseApplicationData(application?.txtApplicationData);
         const normalizedValues = this.normalizeApplicationValuesForStorage(values);
+        const existingFieldChangeLogs = Array.isArray(existingData.templateFieldChangeLogs)
+            ? existingData.templateFieldChangeLogs
+            : [];
+        const fieldChangeLogs = options?.fieldChangeLogs;
+        const incomingFieldChangeLogs = Array.isArray(fieldChangeLogs) ? fieldChangeLogs : [];
         const nextData = {
             ...existingData,
             ...normalizedValues,
@@ -666,7 +718,10 @@ export class TemplateWorkflowService {
             },
             footerFields: userPipeline.length > 0 ? userPipeline : (existingData.footerFields || []),
             templatePayload,
-            documentHtml: String(templatePayload?.html || existingData.documentHtml || '')
+            documentHtml: String(templatePayload?.html || existingData.documentHtml || ''),
+            templateFieldChangeLogs: incomingFieldChangeLogs.length > 0
+                ? [...existingFieldChangeLogs, ...incomingFieldChangeLogs]
+                : existingFieldChangeLogs
         };
 
         const payload = {

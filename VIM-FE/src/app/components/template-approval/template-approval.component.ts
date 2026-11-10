@@ -95,6 +95,7 @@ interface ProgressTile {
     approver: string;
     approvedAt: string;
     remarks: string;
+    actionSource: string;
     ipAddress: string;
     approvalLatitude?: number | null;
     approvalLongitude?: number | null;
@@ -135,6 +136,7 @@ interface AttachmentPayload {
 interface AttachmentListItem {
     fieldId: string;
     fieldLabel: string;
+    attachmentIndex: number;
     attachment: AttachmentPayload;
 }
 
@@ -209,6 +211,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     private pipelineStepsCache: PipelineStep[] = [];
     currentStep: PipelineStep | null = null;
     editableFieldsCache: TemplateField[] = [];
+    overallPanelFieldsCache: TemplateField[] = [];
     progressTilesCache: ProgressTile[] = [];
     approvalLogRowsCache: ApprovalLogRow[] = [];
     pipelineProgressPercent = 0;
@@ -307,8 +310,12 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return this.editableFieldsCache;
     }
 
+    get overallPanelFields(): TemplateField[] {
+        return this.overallPanelFieldsCache;
+    }
+
     get panelFields(): TemplateField[] {
-        return this.editableFields.filter((field: TemplateField) => !this.isInlineWordEditorField(field));
+        return this.overallPanelFields.filter((field: TemplateField) => !this.isInlineWordEditorField(field));
     }
 
     getActiveInlineWordEditorField(): TemplateField | null {
@@ -375,6 +382,10 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (field.type === 'application_code' || this.isDynamicApprovalDataField(field)) {
             return false;
         }
+        // Admin approving (including on behalf of the step user) can edit all form fields.
+        if (this.canAdminEditAllFormFields()) {
+            return true;
+        }
         const right = this.getCurrentStepFieldRight(field);
         if (right === 'edit') {
             return true;
@@ -383,6 +394,17 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             return this.isFieldFillAvailable(field);
         }
         return false;
+    }
+
+    canAdminEditAllFormFields(): boolean {
+        if (!this.isCurrentUserAdmin() || this.holdPending || this.opinionPending) {
+            return false;
+        }
+        // Admin can edit every form field when they can act on this step
+        // (assigned approver OR approving on behalf of the step user).
+        return !!this.canEditCurrentStep
+            || this.canAdminProxyWorkflowActions(this.application)
+            || this.shouldSendOnBehalfOfUserId(this.application);
     }
 
     isInlineWordEditorField(field: TemplateField): boolean {
@@ -420,6 +442,10 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     isFieldHiddenForCurrentStep(field: TemplateField): boolean {
+        // Admin always sees form fields on the approval canvas/panel.
+        if (this.isCurrentUserAdmin()) {
+            return false;
+        }
         return this.getFieldRightForStep(field, this.activeStep) === 'hide';
     }
 
@@ -840,20 +866,75 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         });
     }
 
-    viewAttachment(attachment: AttachmentPayload): void {
-        const base64 = String(attachment?.base64 || '').trim();
-        const mimeType = String(attachment?.mimeType || 'application/octet-stream').trim();
-        const objectUrl = base64 ? this.createAttachmentObjectUrl(base64, mimeType) : '';
-        const dataUrl = String(attachment?.dataUrl || '').trim();
-        const resolvedUrl = objectUrl || dataUrl;
-        if (!resolvedUrl) {
-            this.notificationService.showMessage('Attachment content is unavailable.', 'warning');
-            return;
+    async viewAttachment(
+        attachment: AttachmentPayload,
+        fieldId?: string,
+        attachmentIndex: number = 0
+    ): Promise<void> {
+        try {
+            const resolved = await this.resolveAttachmentForView(attachment, fieldId, attachmentIndex);
+            const base64 = String(resolved?.base64 || '').trim();
+            const mimeType = String(resolved?.mimeType || 'application/octet-stream').trim();
+            const objectUrl = base64 ? this.createAttachmentObjectUrl(base64, mimeType) : '';
+            const dataUrl = String(resolved?.dataUrl || '').trim();
+            const resolvedUrl = objectUrl || dataUrl;
+            if (!resolvedUrl) {
+                this.notificationService.showMessage('Attachment content is unavailable.', 'warning');
+                return;
+            }
+            window.open(resolvedUrl, '_blank', 'noopener');
+            if (objectUrl) {
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+            }
+        } catch (error: any) {
+            this.notificationService.showMessage(
+                error?.error?.message || error?.message || 'Attachment content is unavailable.',
+                'warning'
+            );
         }
-        window.open(resolvedUrl, '_blank', 'noopener');
-        if (objectUrl) {
-            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+    }
+
+    private async resolveAttachmentForView(
+        attachment: AttachmentPayload,
+        fieldId?: string,
+        attachmentIndex: number = 0
+    ): Promise<AttachmentPayload> {
+        const localBase64 = String(attachment?.base64 || '').trim();
+        const localDataUrl = String(attachment?.dataUrl || '').trim();
+        if (localBase64 || localDataUrl) {
+            return attachment;
         }
+        const applicationId = Number(this.application?.serApplicationId || 0);
+        const resolvedFieldId = String(fieldId || '').trim();
+        if (!applicationId || !resolvedFieldId) {
+            throw new Error('Attachment content is unavailable.');
+        }
+        const response = await firstValueFrom(
+            this.templateWorkflowService.getTemplateApplicationAttachmentContent(
+                applicationId,
+                resolvedFieldId,
+                attachmentIndex
+            )
+        );
+        if (!response || response.status !== 'Success' || !response.attachment) {
+            throw new Error(response?.message || 'Attachment content is unavailable.');
+        }
+        const loaded = response.attachment;
+        const fileName = String(loaded.fileName || loaded.name || attachment?.fileName || '').trim();
+        const mimeType = String(loaded.mimeType || loaded.type || attachment?.mimeType || 'application/octet-stream').trim();
+        const dataUrl = String(loaded.dataUrl || '').trim();
+        const base64 = String(
+            loaded.base64 || (dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : '')
+        ).trim();
+        if (!base64 && !dataUrl) {
+            throw new Error('Attachment content is unavailable.');
+        }
+        return {
+            fileName: fileName || attachment?.fileName || 'attachment',
+            mimeType,
+            dataUrl: dataUrl || (base64 ? `data:${mimeType};base64,${base64}` : ''),
+            base64
+        };
     }
 
     openAttachmentsModal(): void {
@@ -885,6 +966,8 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
     onPanelValueChanged(field?: TemplateField): void {
         if (field?.placement) {
+            // Placement fields render as overlays; still refresh change detection for canvas values.
+            this.cdr.markForCheck();
             return;
         }
         if (field && !this.inlineFieldIds.has(field.id)) {
@@ -1577,16 +1660,19 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             }
         });
         const allowedValues = this.getAllowedValuesForUpdate();
+        const fieldChangeLogs = this.buildFieldChangeLogs(allowedValues);
         await firstValueFrom(this.templateWorkflowService.updateTemplateApplication(
             this.application,
             allowedValues,
             this.template,
-            this.userPipeline
+            this.userPipeline,
+            { fieldChangeLogs }
         ));
         this.application = await firstValueFrom(
             this.templateWorkflowService.getApplication(this.application.serApplicationId, this.getCurrentUserId())
         );
         this.refreshDerivedState();
+        this.loadApplicationValues();
         if (refreshPdf) {
             const pdfBlob = await this.renderTemplatePreviewPdfBlob();
             const filename = `${this.sanitizeFilename(this.template?.name || 'template-form')}_${this.application?.txtFormCode || this.application?.serApplicationId}.pdf`;
@@ -1594,10 +1680,137 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         }
     }
 
+    private buildFieldChangeLogs(allowedValues: { [fieldId: string]: any }): any[] {
+        const fieldsById = new Map<string, TemplateField>(
+            (this.template?.fields || []).map((field: TemplateField) => [field.id, field])
+        );
+        const actorUserId = Number(this.getCurrentUserId() || 0);
+        const actorName = this.getCurrentUserDisplayName() || (actorUserId > 0 ? `User ${actorUserId}` : 'User');
+        const onBehalfOfUserId = this.getWorkflowOnBehalfOfUserId();
+        const onBehalfOfName = onBehalfOfUserId
+            ? (this.getOnBehalfOfApproverDisplayName() || `User ${onBehalfOfUserId}`)
+            : '';
+        const step = this.currentStep || this.activeStep;
+        const nowIso = new Date().toISOString();
+        const logs: any[] = [];
+
+        Object.keys(allowedValues || {}).forEach((fieldId) => {
+            const field = fieldsById.get(fieldId);
+            if (!field || field.type === 'application_code' || this.isDynamicApprovalDataField(field)) {
+                return;
+            }
+            const previousValue = this.persistedValues[fieldId];
+            const nextValue = allowedValues[fieldId];
+            if (this.isFieldValueEmpty(field, previousValue)) {
+                return;
+            }
+            if (this.areFieldValuesEqual(field, previousValue, nextValue)) {
+                return;
+            }
+
+            const fieldLabel = String(field.label || fieldId).trim() || fieldId;
+            const fromText = this.formatFieldValueForLog(field, previousValue);
+            const toText = this.formatFieldValueForLog(field, nextValue);
+            const actorClause = onBehalfOfUserId && onBehalfOfName
+                ? `${actorName} on behalf of ${onBehalfOfName}`
+                : actorName;
+            const remarks = `${fieldLabel} changed from ${fromText} to ${toText} by ${actorClause}`;
+
+            const entry: any = {
+                action: 'FIELD_CHANGED',
+                status: 'FIELD_CHANGED',
+                remarks,
+                comments: remarks,
+                fieldId,
+                fieldLabel,
+                oldValue: fromText,
+                newValue: toText,
+                stepId: step?.id || '',
+                pipelineStepId: step?.id || '',
+                signatureTargetId: step?.id || '',
+                stepType: step?.type || '',
+                role: step?.name || 'Field Update',
+                departmentName: step?.name || 'Field Update',
+                approvedDate: nowIso,
+                date: nowIso,
+                performedBy: actorUserId > 0 ? actorUserId : null,
+                performedByName: actorName,
+                approvedBy: onBehalfOfUserId || (actorUserId > 0 ? actorUserId : null),
+                userId: onBehalfOfUserId || (actorUserId > 0 ? actorUserId : null),
+                approverName: onBehalfOfName || actorName
+            };
+            if (onBehalfOfUserId) {
+                entry.onBehalfOf = onBehalfOfUserId;
+                entry.onBehalfOfName = onBehalfOfName;
+                entry.delegated = true;
+            }
+            logs.push(entry);
+        });
+
+        return logs;
+    }
+
+    private areFieldValuesEqual(field: TemplateField, left: any, right: any): boolean {
+        if (field.type === 'checkbox') {
+            return !!left === !!right;
+        }
+        if (field.type === 'attachment') {
+            return this.formatFieldValueForLog(field, left) === this.formatFieldValueForLog(field, right);
+        }
+        if (Array.isArray(left) || Array.isArray(right)) {
+            return JSON.stringify(left ?? []) === JSON.stringify(right ?? []);
+        }
+        if ((left && typeof left === 'object') || (right && typeof right === 'object')) {
+            return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+        }
+        return String(left ?? '').trim() === String(right ?? '').trim();
+    }
+
+    private formatFieldValueForLog(field: TemplateField, value: any): string {
+        if (field.type === 'checkbox') {
+            return value ? '"checked"' : '"unchecked"';
+        }
+        if (field.type === 'attachment') {
+            const attachments = Array.isArray(value) ? value : (value ? [value] : []);
+            if (attachments.length === 0) {
+                return '"(empty)"';
+            }
+            const names = attachments
+                .map((item: any) => String(item?.fileName || item?.name || '').trim())
+                .filter(Boolean);
+            return names.length > 0 ? `"${names.join(', ')}"` : `"${attachments.length} file(s)"`;
+        }
+        if (field.type === 'word_editor') {
+            const text = String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            return text ? `"${text.substring(0, 120)}${text.length > 120 ? '…' : ''}"` : '"(empty)"';
+        }
+        if (value === null || value === undefined || String(value).trim() === '') {
+            return '"(empty)"';
+        }
+        return `"${String(value).trim()}"`;
+    }
+
+    private getCurrentUserDisplayName(): string {
+        try {
+            const user = JSON.parse(localStorage.getItem('user') || 'null');
+            return String(user?.txtUserName || user?.userName || user?.name || '').trim();
+        } catch {
+            return '';
+        }
+    }
+
     private getAllowedValuesForUpdate(): { [fieldId: string]: any } {
+        const adminCanEditAll = this.canAdminEditAllFormFields();
         return (this.template?.fields || []).reduce((acc: { [fieldId: string]: any }, field: TemplateField) => {
             if (field.type === 'application_code') {
                 acc[field.id] = this.application?.txtFormCode || '';
+                return acc;
+            }
+            if (this.isDynamicApprovalDataField(field)) {
+                return acc;
+            }
+            if (adminCanEditAll) {
+                acc[field.id] = this.values[field.id];
                 return acc;
             }
             const right = this.getCurrentStepFieldRight(field);
@@ -1657,6 +1870,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         this.userService.getUsers().subscribe({
             next: (users: any) => {
                 this.allUsers = Array.isArray(users) ? users : [];
+                this.refreshDerivedState();
+                this.rebuildPreviewHtml();
+                this.cdr.detectChanges();
             },
             error: () => {
                 this.allUsers = [];
@@ -1685,6 +1901,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         this.adminProxyNotice = this.computeAdminProxyNotice(this.application);
         this.individualFooterSectionsCache = Array.isArray(this.userPipeline) ? this.userPipeline : [];
         this.editableFieldsCache = this.computeEditableFields();
+        this.overallPanelFieldsCache = this.computeOverallPanelFields();
         this.attachmentItemsCache = this.computeAttachmentItems();
         this.hasAttachmentFieldsCache = this.getAttachmentFields().length > 0;
         this.hasAnyAttachmentsCache = this.attachmentItemsCache.length > 0;
@@ -1858,17 +2075,53 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (this.holdPending || this.opinionPending || !this.canEditCurrentStep) {
             return [];
         }
+        // Admin acting on the step: every non-system form field is editable, even when the
+        // current step (e.g. Self HOD) has no fill/edit field permissions configured.
+        if (this.canAdminEditAllFormFields()) {
+            return (this.template?.fields || []).filter((field: TemplateField) =>
+                !this.isDocumentRegionFieldType(field.type)
+                && field.type !== 'application_code'
+                && !this.isDynamicApprovalDataField(field)
+                && !this.isInlineWordEditorField(field)
+            );
+        }
         return (this.template?.fields || []).filter((field: TemplateField) =>
             !this.isDocumentRegionFieldType(field.type) && this.canCurrentStepEditField(field)
         );
     }
 
+    private computeOverallPanelFields(): TemplateField[] {
+        // CAPF Self HOD (and similar steps) often have fieldPermissionsConfigured=true with an
+        // empty permission list, so step fill/edit is empty. Admin must still see all form fields.
+        const adminShowAllFields = this.isCurrentUserAdmin();
+        const fields = (this.template?.fields || []).filter((field: TemplateField) => {
+            if (!field || this.isDocumentRegionFieldType(field.type)) {
+                return false;
+            }
+            if (field.type === 'application_code' || this.isDynamicApprovalDataField(field)) {
+                return false;
+            }
+            // Keep large inline word editors on the canvas only.
+            if (this.isInlineWordEditorField(field)) {
+                return false;
+            }
+            if (adminShowAllFields) {
+                return true;
+            }
+            return !this.isFieldHiddenForCurrentStep(field);
+        });
+        return fields.sort((left: TemplateField, right: TemplateField) =>
+            String(left?.label || left?.id || '').localeCompare(String(right?.label || right?.id || ''))
+        );
+    }
+
     private computeAttachmentItems(): AttachmentListItem[] {
         return this.getAttachmentFields().reduce((items: AttachmentListItem[], field: TemplateField) => {
-            this.getAttachmentPayloads(field).forEach((attachment) => {
+            this.getAttachmentPayloads(field).forEach((attachment, attachmentIndex) => {
                 items.push({
                     fieldId: field.id,
                     fieldLabel: field.label || 'Attachment',
+                    attachmentIndex,
                     attachment
                 });
             });
@@ -1891,6 +2144,10 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             || this.applicationDataCache?.templateApprovalHistory;
         if (Array.isArray(nestedHistory) && nestedHistory.length > 0) {
             entries.push(...nestedHistory);
+        }
+        const fieldChangeLogs = this.applicationDataCache?.templateFieldChangeLogs;
+        if (Array.isArray(fieldChangeLogs) && fieldChangeLogs.length > 0) {
+            entries.push(...fieldChangeLogs);
         }
 
         const submissionEntry = this.getSyntheticSubmissionEntry(entries);
@@ -2531,6 +2788,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             approver: this.getStepApproverName(step, history, slot.user),
             approvedAt: this.getHistoryDate(history),
             remarks: history?.remarks || history?.comments || history?.txtRemarks || '--',
+            actionSource: this.getHistoryActionSource(history),
             ipAddress: this.getHistoryIpAddress(history),
             approvalLatitude: this.getHistoryLatitude(history),
             approvalLongitude: this.getHistoryLongitude(history),
@@ -2674,6 +2932,21 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     private getHistoryLocationLabel(history: any): string {
         const label = history?.approvalLocationLabel ?? history?.locationLabel;
         return label != null && String(label).trim() ? String(label).trim() : '';
+    }
+
+    private getHistoryActionSource(history: any): string {
+        if (!history) {
+            return '--';
+        }
+        const raw = String(history?.approvedVia || history?.actionSource || '').trim();
+        const normalized = raw.toUpperCase();
+        if (!normalized || normalized === 'SYSTEM' || normalized === 'SUBMISSION' || normalized.includes('PORTAL')) {
+            return 'Portal';
+        }
+        if (normalized === 'EMAIL' || normalized.includes('EMAIL')) {
+            return 'Email';
+        }
+        return raw;
     }
 
     private getHistoryIpAddress(history: any): string {
@@ -3002,24 +3275,46 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     private isAdminUser(user: any): boolean {
-        const role = (
-            user?.cfgTblRole?.txtRoleName ||
-            user?.cfgTblRole?.txtRoleCode ||
-            user?.txtrole ||
-            user?.roleName ||
-            ''
-        ).toString().trim().toUpperCase();
-        return role === 'ADMIN'
+        if (!user) {
+            return false;
+        }
+        const roleCandidates = [
+            user?.cfgTblRole?.txtRoleName,
+            user?.cfgTblRole?.txtRoleCode,
+            user?.cfgTblRole?.name,
+            typeof user?.cfgTblRole === 'string' ? user.cfgTblRole : '',
+            user?.txtrole,
+            user?.roleName,
+            user?.role,
+            user?.txtRoleName
+        ];
+        const authorities = Array.isArray(user?.authorities)
+            ? user.authorities.map((item: any) => item?.authority || item?.role || item).filter(Boolean)
+            : [];
+        const roles = [...roleCandidates, ...authorities]
+            .map((value) => String(value || '').trim().toUpperCase())
+            .filter(Boolean);
+        return roles.some((role) =>
+            role === 'ADMIN'
             || role === 'ROLE_ADMIN'
             || role === 'SUPER ADMIN'
             || role === 'ROLE_SUPER ADMIN'
-            || role.includes('ADMIN');
+            || role.includes('ADMIN')
+        );
     }
 
     private isCurrentUserAdmin(): boolean {
         try {
             const user = JSON.parse(localStorage.getItem('user') || 'null');
-            return this.isAdminUser(user);
+            if (this.isAdminUser(user)) {
+                return true;
+            }
+        } catch {
+            /* ignore */
+        }
+        try {
+            const shared = JSON.parse(localStorage.getItem('sharedUser') || localStorage.getItem('currentUser') || 'null');
+            return this.isAdminUser(shared);
         } catch {
             return false;
         }
@@ -3108,13 +3403,16 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
     private computeAdminProxyNotice(application: any = this.application): string {
         if (!this.shouldSendOnBehalfOfUserId(application)) {
+            if (this.canAdminEditAllFormFields()) {
+                return 'You are logged in as administrator. All form fields are visible and editable. Field changes are logged.';
+            }
             return '';
         }
         const approverName = this.getOnBehalfOfApproverDisplayName(application);
         if (!approverName) {
-            return 'You are acting as administrator for the current approval step. Only fields allowed for this step are editable.';
+            return 'You are acting as administrator for the current approval step. All form fields are visible and editable. Changes are logged on behalf of the step user.';
         }
-        return `You are acting as administrator on behalf of ${approverName}. Only fields allowed for this step are editable.`;
+        return `You are acting as administrator on behalf of ${approverName}. All form fields are visible and editable. Changes are logged on their behalf.`;
     }
 
     private formatHistoryActorLabel(entry: any, fallbackUserId: number): string {

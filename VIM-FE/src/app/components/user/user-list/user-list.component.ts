@@ -37,12 +37,7 @@ export class UserListComponent implements OnInit, OnDestroy {
   loginNameEditedManually = false;
   profilePicturePreview: string | null = null;
   profilePictureBase64: string | null = null;
-  managerSapHint = '';
-  managerRequiredEmployeeCode = '';
-  managerRequiredEmployeeName = '';
-  managerUserFound = true;
-  managerRequiredForCreate = false;
-  syncingManagersFromSap = false;
+  managerUserOptions: any[] = [];
   private profilePhotoBlobUrls: Record<number, string> = {};
   private profilePhotoSafeUrls: Record<number, SafeUrl> = {};
   isRoleVendor = false;
@@ -157,6 +152,7 @@ export class UserListComponent implements OnInit, OnDestroy {
           managerDisplayName: this.formatManagerDisplay(user)
         }));
         this.prefetchProfilePhotos(this.users);
+        this.refreshManagerUserOptions();
         this.filteredUsers = this.getDisplayedUsers();
 
       });
@@ -305,134 +301,28 @@ export class UserListComponent implements OnInit, OnDestroy {
         });
       }
     }
-    this.applyManagerFromSapEmployeeId();
   }
 
-  applyManagerFromSapEmployeeId(): void {
-    if (this.isRoleVendor || this.isRoleAdmin) {
-      this.resetManagerRequirement();
-      this.form.patchValue({ cfgTblManager: { serUserId: '' } });
+  private clearManagerForVendorRole(): void {
+    if (!this.isRoleVendor) {
       return;
     }
-    const employeeId = String(this.form.get('txtCnic')?.value || '').trim();
-    if (!employeeId) {
-      this.resetManagerRequirement();
-      return;
-    }
-    this.userService.resolveManagerFromSap(employeeId).subscribe({
-      next: (res) => {
-        const reportTo = this.normalizeSapReportTo(res?.['reportTo']);
-        const reportToName = String(res?.['reportToName'] || '').trim();
-        const managerUserId = Number(res?.['managerUserId']);
-        const creating = !Number(this.form.get('serUserId')?.value);
-        if (!reportTo) {
-          this.managerRequiredForCreate = false;
-          this.managerUserFound = true;
-          this.managerRequiredEmployeeCode = '';
-          this.managerRequiredEmployeeName = '';
-          this.managerSapHint = String(res?.['message'] || 'SAP has no report-to manager for this employee.');
-          return;
-        }
-        this.managerRequiredEmployeeCode = reportTo;
-        this.managerRequiredEmployeeName = reportToName;
-        this.managerRequiredForCreate = creating;
-        this.managerSapHint = reportToName
-          ? `SAP report-to: ${reportToName} (${reportTo})`
-          : `SAP report-to employee ID: ${reportTo}`;
-        if (Number.isFinite(managerUserId) && managerUserId > 0) {
-          const currentUserId = Number(this.form.get('serUserId')?.value);
-          if (currentUserId !== managerUserId) {
-            this.form.patchValue({
-              cfgTblManager: { serUserId: managerUserId }
-            });
-          }
-          this.managerUserFound = true;
-          return;
-        }
-        this.managerUserFound = false;
-        if (creating) {
-          this.form.patchValue({ cfgTblManager: { serUserId: '' } });
-        }
-        this.managerSapHint += ' — not found in Users. Create the manager user first.';
-      },
-      error: () => {
-        this.managerUserFound = false;
-        this.managerRequiredForCreate = !Number(this.form.get('serUserId')?.value);
-        this.managerSapHint = 'Could not resolve manager from SAP.';
-      }
-    });
+    this.form.patchValue({ cfgTblManager: { serUserId: '' } });
   }
 
-  validateManagerBeforeCreateUser(): string | null {
-    if (this.isRoleVendor || this.isRoleAdmin || !this.managerRequiredForCreate) {
-      return null;
-    }
-    const managerId = Number(this.form.get('cfgTblManager.serUserId')?.value);
-    if (Number.isFinite(managerId) && managerId > 0) {
-      const exists = (this.users || []).some((user: any) => Number(user?.serUserId) === managerId);
-      if (exists) {
-        return null;
-      }
-    }
-    const code = this.managerRequiredEmployeeCode;
-    const name = this.managerRequiredEmployeeName;
-    if (name) {
-      return `Cannot create this user: line manager "${name}" (Employee ID ${code}) is not in Users yet. Create the manager user first, then create this user.`;
-    }
-    return `Cannot create this user: line manager with Employee ID ${code} is not in Users yet. Create the manager user first, then create this user.`;
-  }
-
-  private resetManagerRequirement(): void {
-    this.managerSapHint = '';
-    this.managerRequiredEmployeeCode = '';
-    this.managerRequiredEmployeeName = '';
-    this.managerUserFound = true;
-    this.managerRequiredForCreate = false;
-  }
-
-  private normalizeSapReportTo(raw: unknown): string | null {
-    const code = String(raw || '').trim();
-    if (!code || code === '0' || code.toUpperCase() === '00000000') {
-      return null;
-    }
-    return code;
-  }
-
-  syncManagersFromSap(): void {
-    if (this.syncingManagersFromSap) {
-      return;
-    }
-    this.syncingManagersFromSap = true;
-    this.userService.syncUserManagersFromSap().subscribe({
-      next: (res) => {
-        this.syncingManagersFromSap = false;
-        const status = String(res?.['status'] || '');
-        if (status === 'Success') {
-          const updated = Number(res?.['updated'] || 0);
-          const examined = Number(res?.['examined'] || 0);
-          this.notificationService.showMessage(
-            `Managers synced from SAP (${updated} updated of ${examined} users with Employee ID)`,
-            'success'
-          );
-          this.getUsers();
-        } else {
-          this.notificationService.showMessage(String(res?.['message'] || 'Sync failed'), 'danger');
-        }
-      },
-      error: () => {
-        this.syncingManagersFromSap = false;
-        this.notificationService.showMessage('Error syncing managers from SAP', 'danger');
-      }
-    });
-  }
-
-  get managerUserOptions(): any[] {
-    const currentUserId = Number(this.form?.get('serUserId')?.value);
-    return (this.users || []).filter((user: any) => {
+  private refreshManagerUserOptions(excludeUserId?: number | string | null): void {
+    const currentUserId = Number(
+      excludeUserId != null && excludeUserId !== ''
+        ? excludeUserId
+        : this.form?.get('serUserId')?.value
+    );
+    this.managerUserOptions = (this.users || []).filter((user: any) => {
       const id = Number(user?.serUserId);
       return Number.isFinite(id) && id > 0 && id !== currentUserId;
     });
   }
+
+  compareUserIds = (a: any, b: any): boolean => Number(a) === Number(b);
 
   formatManagerDisplay(user: any): string {
     const manager = user?.cfgTblManager;
@@ -479,7 +369,6 @@ export class UserListComponent implements OnInit, OnDestroy {
     this.isRoleAdmin = false;
     this.loginNameEditedManually = false;
     this.clearProfilePicture();
-    this.resetManagerRequirement();
     this.form.reset({
       serUserId: '',
       txtUserName: '',
@@ -506,6 +395,7 @@ export class UserListComponent implements OnInit, OnDestroy {
     });
     this.blnStatus = true;
     this.refreshOrgFilters();
+    this.refreshManagerUserOptions('');
     this.modal.open();
   }
 
@@ -519,7 +409,6 @@ export class UserListComponent implements OnInit, OnDestroy {
     this.clearProfilePicture();
     this.isRoleVendor = false;
     this.isRoleAdmin = false;
-    this.resetManagerRequirement();
     this.form.reset({
       serUserId: user?.serUserId || '',
       txtUserName: user?.txtUserName || '',
@@ -536,7 +425,10 @@ export class UserListComponent implements OnInit, OnDestroy {
       serDepartmentId: departmentId || '',
       txtDesignation: user?.txtDesignation || '',
       cfgTblManager: {
-        serUserId: user?.cfgTblManager?.serUserId || ''
+        serUserId: (() => {
+          const managerId = Number(user?.cfgTblManager?.serUserId);
+          return Number.isFinite(managerId) && managerId > 0 ? managerId : '';
+        })()
       },
       cfgTblCustomer: {
         serCustomerId: user?.cfgTblCustomer?.serCustomerId || ''
@@ -545,12 +437,12 @@ export class UserListComponent implements OnInit, OnDestroy {
       blnStatus: user?.blnStatus ?? true
     });
     this.refreshOrgFilters();
+    this.refreshManagerUserOptions(user?.serUserId);
     this.modal.open();
     this.blnStatus = user?.blnStatus ?? true;
     if (roleName) {
       this.setControlValidations(roleName.toLowerCase());
     }
-    this.applyManagerFromSapEmployeeId();
   }
 
   private resolveOrgCascadeIds(user: any, departmentId: number | null): {
@@ -591,11 +483,6 @@ export class UserListComponent implements OnInit, OnDestroy {
 
   submit() {
     this.isSubmit = true;
-    const managerError = this.validateManagerBeforeCreateUser();
-    if (managerError) {
-      this.notificationService.showMessage(managerError, 'danger');
-      return;
-    }
     if (this.form.invalid) return;
     const payload = this.buildPayload();
 
@@ -616,9 +503,6 @@ export class UserListComponent implements OnInit, OnDestroy {
       payload.cfgTblManager = null;
     } else {
       payload.cfgTblCustomer = null;
-      if (this.isRoleAdmin) {
-        payload.cfgTblManager = null;
-      }
     }
     this.userService
       .save(payload).subscribe((response: any) => {
@@ -729,7 +613,7 @@ export class UserListComponent implements OnInit, OnDestroy {
     }
     this.form.get('cfgTblManager.serUserId')?.updateValueAndValidity();
     this.form.get('cfgTblCustomer.serCustomerId')?.updateValueAndValidity();
-    this.applyManagerFromSapEmployeeId();
+    this.clearManagerForVendorRole();
   }
 
   get cfgTblRole() {

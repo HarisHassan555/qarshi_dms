@@ -6,7 +6,6 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
-import java.util.Optional;
 
 @Repository
 public interface HrTblDivisionRepository extends JpaRepository<HrTblDivision, Integer> {
@@ -14,8 +13,9 @@ public interface HrTblDivisionRepository extends JpaRepository<HrTblDivision, In
     List<HrTblDivision> findByBlIsDeletedFalseOrBlIsDeletedIsNullOrderByTxtDivisionNameAsc();
 
     @Query("SELECT d FROM HrTblDivision d WHERE d.serSubareaId = :subareaId "
-            + "AND LOWER(TRIM(d.txtDivisionName)) = LOWER(TRIM(:name)) "
-            + "AND (d.blIsDeleted IS NULL OR d.blIsDeleted = false)")
-    Optional<HrTblDivision> findActiveBySubareaAndNameIgnoreCase(
-            @Param("subareaId") Integer subareaId, @Param("name") String name);
+            + "AND (d.blIsDeleted IS NULL OR d.blIsDeleted = false) AND ("
+            + "LOWER(TRIM(d.txtDivisionName)) = LOWER(TRIM(:name)) "
+            + "OR LOWER(TRIM(COALESCE(d.txtDivisionCode, ''))) = LOWER(TRIM(:code)))")
+    List<HrTblDivision> findActiveBySubareaAndNameOrCode(
+            @Param("subareaId") Integer subareaId, @Param("name") String name, @Param("code") String code);
 }

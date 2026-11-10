@@ -46,7 +46,7 @@
 
     <div *ngIf="!isLoading && template" class="fill-workspace approval-workspace">
         <aside class="fill-values-panel approval-values-panel" data-tour="tpl-approval-fields">
-            <h3>Fields For This Step</h3>
+            <h3>Form Fields</h3>
             <div class="inline-word-editor-toolbar-panel" *ngIf="getActiveInlineWordEditorField() as activeWordEditorField">
                 <div class="inline-word-editor-toolbar-panel-header">
                     <strong>{{ activeWordEditorField.label }}</strong>
@@ -57,8 +57,11 @@
             <div class="step-rights-note admin-proxy-note" *ngIf="adminProxyNotice">
                 {{ adminProxyNotice }}
             </div>
-            <div class="step-rights-note" *ngIf="currentStep && !opinionPending && !adminProxyNotice">
-                {{ currentStep.name }} can fill/edit only the fields listed here. Hidden fields are removed from the preview.
+            <div class="step-rights-note" *ngIf="currentStep && !opinionPending && !adminProxyNotice && !canAdminEditAllFormFields()">
+                All form fields are shown. {{ currentStep.name }} can fill/edit only permitted fields; others are read-only. Hidden fields stay removed from the preview.
+            </div>
+            <div class="step-rights-note admin-proxy-note" *ngIf="canAdminEditAllFormFields() && !adminProxyNotice">
+                Administrator mode: all form fields are visible and editable. Existing value changes are logged.
             </div>
             <div class="step-rights-note opinion-note" *ngIf="opinionPending">
                 Opinion requested by {{ getOpinionRequesterName() }} and is currently pending with {{ getOpinionPendingWithName() }}. Submit your opinion with remarks; the application will return to that same step.
@@ -66,23 +69,33 @@
             <div class="step-rights-note opinion-note" *ngIf="readOnlyStepMessage">
                 {{ readOnlyStepMessage }}
             </div>
-            <div class="empty-template compact-empty" *ngIf="editableFields.length === 0">
+            <div class="empty-template compact-empty" *ngIf="panelFields.length === 0">
                 {{ opinionPending
-                    ? (canEditCurrentStep ? 'No form fields are editable while giving an opinion.' : 'This opinion step is read-only for you.')
-                    : (canEditCurrentStep ? 'No fill/edit fields assigned for this step.' : 'This step is read-only for you.') }}
+                    ? 'No form fields are available for this opinion step.'
+                    : (canAdminEditAllFormFields()
+                        ? 'No form fields were found on this template definition.'
+                        : 'No form fields are available to display for this step.') }}
+            </div>
+            <div class="step-rights-note" *ngIf="panelFields.length > 0 && editableFields.length === 0 && canEditCurrentStep && !opinionPending && !canAdminEditAllFormFields()">
+                No fill/edit fields assigned for this step. Values below are read-only.
             </div>
 
-            <div class="value-field" *ngFor="let field of panelFields; trackBy: trackByFieldId">
-                <label [attr.for]="field.id">{{ field.label }}{{ field.required ? ' *' : '' }}</label>
+            <div class="value-field" *ngFor="let field of panelFields; trackBy: trackByFieldId"
+                [class.is-readonly-field]="!canCurrentStepEditField(field)">
+                <label [attr.for]="field.id">
+                    {{ field.label }}{{ field.required && canCurrentStepEditField(field) ? ' *' : '' }}
+                    <span class="field-right-badge" *ngIf="canCurrentStepEditField(field)">editable</span>
+                </label>
                 <textarea
                     *ngIf="field.type === 'textarea'"
                     [id]="field.id"
                     [(ngModel)]="values[field.id]"
                     [required]="field.required"
+                    [disabled]="!canCurrentStepEditField(field)"
                     (ngModelChange)="onPanelValueChanged(field)">
                 </textarea>
                 <label *ngIf="field.type === 'checkbox'" class="panel-checkbox">
-                    <input type="checkbox" [(ngModel)]="values[field.id]" (ngModelChange)="onPanelValueChanged(field)" />
+                    <input type="checkbox" [(ngModel)]="values[field.id]" [disabled]="!canCurrentStepEditField(field)" (ngModelChange)="onPanelValueChanged(field)" />
                     Checked
                 </label>
                 <div *ngIf="field.type === 'radio'" class="panel-radio-group">
@@ -92,6 +105,7 @@
                             [name]="field.id"
                             [value]="option"
                             [(ngModel)]="values[field.id]"
+                            [disabled]="!canCurrentStepEditField(field)"
                             (ngModelChange)="onPanelValueChanged(field)" />
                         <span>{{ option }}</span>
                     </label>
@@ -135,10 +149,11 @@
                     </div>
                     <div class="attachment-list" *ngIf="getAttachmentPayloads(field).length > 0">
                         <div class="attachment-item" *ngFor="let attachment of getAttachmentPayloads(field); let index = index">
-                            <button type="button" class="attachment-link-button" (click)="viewAttachment(attachment)">
+                            <button type="button" class="attachment-link-button" (click)="viewAttachment(attachment, field.id, index)">
                                 {{ attachment.fileName }}
                             </button>
                             <button
+                                *ngIf="canCurrentStepEditField(field)"
                                 type="button"
                                 class="btn btn-danger btn-sm attachment-remove-button"
                                 (pointerdown)="removeAttachment(field, index, $event)"
@@ -409,9 +424,33 @@
                                     </div>
                                 </ng-container>
                                 <ng-template #plainTextFieldValue>
-                                    <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
-                                        {{ getFieldValueText(field) }}
-                                    </span>
+                                    <ng-container *ngIf="canCurrentStepEditField(field); else readOnlyPlainTextValue">
+                                        <textarea
+                                            *ngIf="field.type === 'textarea'"
+                                            class="filled-field-editor"
+                                            [ngStyle]="getInputStyle(field)"
+                                            [(ngModel)]="values[field.id]"
+                                            (ngModelChange)="onPanelValueChanged(field)">
+                                        </textarea>
+                                        <label *ngIf="field.type === 'checkbox'" class="filled-field-checkbox">
+                                            <input type="checkbox" [(ngModel)]="values[field.id]" (ngModelChange)="onPanelValueChanged(field)" />
+                                        </label>
+                                        <input
+                                            *ngIf="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'radio' && !isAttachmentField(field)"
+                                            class="filled-field-editor"
+                                            [type]="getPanelInputType(field)"
+                                            [ngStyle]="getInputStyle(field)"
+                                            [(ngModel)]="values[field.id]"
+                                            (ngModelChange)="onPanelValueChanged(field)" />
+                                        <span *ngIf="field.type === 'radio' || isAttachmentField(field)" class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                                            {{ getFieldValueText(field) }}
+                                        </span>
+                                    </ng-container>
+                                    <ng-template #readOnlyPlainTextValue>
+                                        <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                                            {{ getFieldValueText(field) }}
+                                        </span>
+                                    </ng-template>
                                 </ng-template>
                             </ng-template>
                         </ng-template>
@@ -454,6 +493,10 @@
                             <div class="approval-node-row">
                                 <span class="label">Type</span>
                                 <span class="value">{{ tile.type }}</span>
+                            </div>
+                            <div class="approval-node-row">
+                                <span class="label">Action From</span>
+                                <span class="value">{{ tile.actionSource }}</span>
                             </div>
                             <div class="approval-node-row">
                                 <span class="label">IP Address</span>
@@ -566,7 +609,7 @@
                 type="button"
                 class="attachment-modal-item"
                 *ngFor="let item of attachmentItemsCache"
-                (click)="viewAttachment(item.attachment)">
+                (click)="viewAttachment(item.attachment, item.fieldId, item.attachmentIndex)">
                 <strong>{{ item.attachment.fileName }}</strong>
                 <span>{{ item.fieldLabel }}</span>
             </button>

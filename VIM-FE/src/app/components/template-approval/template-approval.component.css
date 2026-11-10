@@ -60,6 +60,46 @@
     overflow: auto;
 }
 
+.approval-values-panel .field-right-badge {
+    background: #e8eefc;
+    border-radius: 999px;
+    color: #4361ee;
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin-left: 6px;
+    padding: 1px 7px;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+
+.approval-values-panel .value-field.is-readonly-field input,
+.approval-values-panel .value-field.is-readonly-field textarea,
+.approval-values-panel .value-field.is-readonly-field select {
+    background: #f8fafc;
+    color: #475569;
+    cursor: default;
+}
+
+.template-approval-page .filled-field-editor {
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid #93c5fd;
+    border-radius: 2px;
+    box-sizing: border-box;
+    height: 100%;
+    padding: 2px 4px;
+    width: 100%;
+}
+
+.template-approval-page .filled-field-checkbox {
+    align-items: center;
+    display: inline-flex;
+    height: 100%;
+    justify-content: center;
+    width: 100%;
+}
+
 .template-approval-page .attachment-list {
     overflow: hidden;
 }
