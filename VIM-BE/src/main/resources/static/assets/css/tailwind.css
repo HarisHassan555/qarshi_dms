@@ -105,38 +105,120 @@
         @apply rounded-b-md;
     }
 
-    /* Sidebar */
+    /* Sidebar — accent #2563eb + lighter blues (#3b82f6, #dbeafe) */
+    .sidebar {
+        --sidebar-accent: #2563eb;
+        --sidebar-accent-bright: #3b82f6;
+        --sidebar-accent-hover-bg: rgba(37, 99, 235, 0.1);
+        --sidebar-accent-active-bg: rgba(37, 99, 235, 0.16);
+        --sidebar-accent-active-bg-dark: rgba(59, 130, 246, 0.22);
+        --sidebar-accent-soft: #dbeafe;
+    }
+
     .sidebar:hover .nav-item > a {
         @apply w-auto;
     }
 
     .sidebar .nav-item > button,
     .sidebar .nav-item > a {
-        @apply mb-1 flex w-full items-center justify-between overflow-hidden whitespace-nowrap rounded-md p-2.5 text-[#506690] hover:bg-[#000]/[0.08] hover:text-black dark:hover:bg-[#181f32] dark:hover:text-white-dark;
+        @apply mb-1 flex w-full items-center justify-between overflow-hidden whitespace-nowrap rounded-md p-2.5 text-[#506690] transition-all duration-200 ease-out;
     }
+    .sidebar .nav-item > button:hover,
+    .sidebar .nav-item > a:hover {
+        background-color: var(--sidebar-accent-hover-bg);
+        color: var(--sidebar-accent);
+    }
+    .dark .sidebar .nav-item > button:hover,
+    .dark .sidebar .nav-item > a:hover {
+        background-color: var(--sidebar-accent-active-bg-dark);
+        color: #93c5fd;
+    }
+
     .sidebar .nav-item > button.active,
     .sidebar .nav-item > a.active {
-        @apply bg-[#000]/[0.08] text-black dark:bg-[#181f32] dark:text-white-dark;
+        @apply font-semibold;
+        background-color: var(--sidebar-accent-active-bg);
+        color: var(--sidebar-accent);
+        box-shadow: inset 3px 0 0 0 var(--sidebar-accent);
+    }
+    .dark .sidebar .nav-item > button.active,
+    .dark .sidebar .nav-item > a.active {
+        background-color: var(--sidebar-accent-active-bg-dark);
+        color: #bfdbfe;
+        box-shadow: inset 3px 0 0 0 var(--sidebar-accent-bright);
+    }
+    [dir='rtl'] .sidebar .nav-item > button.active,
+    [dir='rtl'] .sidebar .nav-item > a.active {
+        box-shadow: inset -3px 0 0 0 var(--sidebar-accent);
+    }
+    .dark[dir='rtl'] .sidebar .nav-item > button.active,
+    .dark[dir='rtl'] .sidebar .nav-item > a.active {
+        box-shadow: inset -3px 0 0 0 var(--sidebar-accent-bright);
     }
 
     .sidebar .nav-item > button.active > div > span,
     .sidebar .nav-item > a.active > div > span {
-        @apply dark:!text-white-dark;
+        color: var(--sidebar-accent);
+    }
+    .dark .sidebar .nav-item > button.active > div > span,
+    .dark .sidebar .nav-item > a.active > div > span {
+        color: #bfdbfe;
+    }
+
+    .sidebar .nav-item > button:hover > div:first-child svg,
+    .sidebar .nav-item > a:hover > div:first-child svg {
+        color: var(--sidebar-accent-bright) !important;
+    }
+    .sidebar .nav-item > button.active > div:first-child svg,
+    .sidebar .nav-item > a.active > div:first-child svg {
+        color: var(--sidebar-accent) !important;
+    }
+    .dark .sidebar .nav-item > button:hover > div:first-child svg,
+    .dark .sidebar .nav-item > a:hover > div:first-child svg,
+    .dark .sidebar .nav-item > button.active > div:first-child svg,
+    .dark .sidebar .nav-item > a.active > div:first-child svg {
+        color: #60a5fa !important;
     }
 
     .sidebar ul.sub-menu li button,
     .sidebar ul.sub-menu li a {
-        @apply flex w-full items-center px-9 py-2.5 before:h-0.5 before:w-2 before:rounded before:bg-gray-300 hover:bg-gray-100
-hover:text-primary hover:before:!bg-primary ltr:before:mr-2 rtl:before:ml-2 dark:before:bg-gray-500 dark:hover:bg-gray-900 dark:hover:text-primary;
+        @apply flex w-full items-center rounded-md px-9 py-2.5 transition-all duration-200 ease-out before:h-0.5 before:w-2 before:rounded before:bg-gray-300 before:transition-colors ltr:before:mr-2 rtl:before:ml-2 dark:before:bg-gray-500;
     }
+    .sidebar ul.sub-menu li button:hover,
+    .sidebar ul.sub-menu li a:hover {
+        background-color: var(--sidebar-accent-hover-bg);
+        color: var(--sidebar-accent);
+    }
+    .sidebar ul.sub-menu li button:hover::before,
+    .sidebar ul.sub-menu li a:hover::before {
+        background-color: var(--sidebar-accent-bright) !important;
+    }
+    .dark .sidebar ul.sub-menu li button:hover,
+    .dark .sidebar ul.sub-menu li a:hover {
+        background-color: var(--sidebar-accent-active-bg-dark);
+        color: #93c5fd;
+    }
+
     .sidebar ul.sub-menu li button.active,
     .sidebar ul.sub-menu li a.active {
-        @apply text-primary before:bg-primary;
+        @apply font-semibold;
+        background-color: var(--sidebar-accent-soft);
+        color: var(--sidebar-accent);
+    }
+    .sidebar ul.sub-menu li button.active::before,
+    .sidebar ul.sub-menu li a.active::before {
+        width: 0.625rem !important;
+        background-color: var(--sidebar-accent) !important;
+    }
+    .dark .sidebar ul.sub-menu li button.active,
+    .dark .sidebar ul.sub-menu li a.active {
+        background-color: var(--sidebar-accent-active-bg-dark);
+        color: #bfdbfe;
     }
 
     .sidebar .nav-item a div:first-child svg,
     .sidebar .nav-item button div:first-child svg {
-        @apply h-5 w-5 text-black/50 dark:text-white/50;
+        @apply h-5 w-5 text-black/50 transition-colors duration-200 dark:text-white/50;
     }
 
     .main-container .main-content {

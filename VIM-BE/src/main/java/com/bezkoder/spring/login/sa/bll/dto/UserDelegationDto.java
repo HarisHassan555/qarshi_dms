@@ -21,6 +21,8 @@ public class UserDelegationDto {
     private String documentsLabel;
     private String txtStatus;
     private String txtNotes;
+    private Boolean blnAllowFormFillOnBehalf = Boolean.TRUE;
+    private Boolean blnAllowFormSubmitOnBehalf = Boolean.TRUE;
     private boolean hasAttachment;
     private String attachmentFileName;
     private String createdByName;
@@ -143,6 +145,22 @@ public class UserDelegationDto {
 
     public void setTxtNotes(String txtNotes) {
         this.txtNotes = txtNotes;
+    }
+
+    public Boolean getBlnAllowFormFillOnBehalf() {
+        return blnAllowFormFillOnBehalf;
+    }
+
+    public void setBlnAllowFormFillOnBehalf(Boolean blnAllowFormFillOnBehalf) {
+        this.blnAllowFormFillOnBehalf = blnAllowFormFillOnBehalf;
+    }
+
+    public Boolean getBlnAllowFormSubmitOnBehalf() {
+        return blnAllowFormSubmitOnBehalf;
+    }
+
+    public void setBlnAllowFormSubmitOnBehalf(Boolean blnAllowFormSubmitOnBehalf) {
+        this.blnAllowFormSubmitOnBehalf = blnAllowFormSubmitOnBehalf;
     }
 
     public boolean isHasAttachment() {

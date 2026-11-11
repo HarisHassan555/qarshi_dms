@@ -20,6 +20,8 @@ export interface UserDelegationDto {
     documentsLabel?: string;
     txtStatus: string;
     txtNotes?: string;
+    blnAllowFormFillOnBehalf?: boolean;
+    blnAllowFormSubmitOnBehalf?: boolean;
     hasAttachment?: boolean;
     attachmentFileName?: string;
     createdByName?: string;
@@ -39,6 +41,8 @@ export interface UserDelegationSaveRequest {
     dteValidTo: string;
     documentIds: string[];
     txtNotes?: string;
+    blnAllowFormFillOnBehalf?: boolean;
+    blnAllowFormSubmitOnBehalf?: boolean;
     attachmentBase64?: string;
     attachmentFileName?: string;
     removeAttachment?: boolean;

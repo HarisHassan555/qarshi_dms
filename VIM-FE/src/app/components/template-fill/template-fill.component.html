@@ -20,10 +20,20 @@
             <button *ngIf="hasAnyAttachments" type="button" class="btn btn-outline" (click)="openAttachmentsModal()">
                 View Attachments
             </button>
-            <button *ngIf="savedTemplate" type="button" class="btn btn-outline" [disabled]="isSubmitting || isSavingDraft" (click)="saveAsDraft()">
+            <button
+                *ngIf="savedTemplate && canFillOnBehalfSelected()"
+                type="button"
+                class="btn btn-outline"
+                [disabled]="isSubmitting || isSavingDraft"
+                (click)="saveAsDraft()">
                 {{ isSavingDraft ? 'Saving draft...' : 'Save as Draft' }}
             </button>
-            <button *ngIf="savedTemplate" type="button" class="btn btn-primary" [disabled]="isSubmitting || isPostSubmitProcessing || isSavingDraft" (click)="submitTemplate()">
+            <button
+                *ngIf="savedTemplate && canSubmitOnBehalfSelected()"
+                type="button"
+                class="btn btn-primary"
+                [disabled]="isSubmitting || isPostSubmitProcessing || isSavingDraft"
+                (click)="submitTemplate()">
                 {{ isSubmitting ? 'Saving...' : (isPostSubmitProcessing ? 'Preparing PDF & emails...' : (isSentBackForEdit ? 'Resubmit' : 'Submit')) }}
             </button>
         </div>
@@ -56,6 +66,14 @@
         <span *ngIf="fillOnBehalfChecked && !showOnBehalfUserDropdown && singleOnBehalfPartyLabel" class="fill-access-single-onbehalf">
             {{ singleOnBehalfPartyLabel }}
         </span>
+        <ng-container *ngIf="fillOnBehalfChecked && getSelectedOnBehalfParty() as party">
+            <span class="fill-access-capability" [class.is-allowed]="party.allowFormFillOnBehalf" [class.is-blocked]="!party.allowFormFillOnBehalf">
+                Form Fill {{ party.allowFormFillOnBehalf ? 'allowed' : 'not allowed' }}
+            </span>
+            <span class="fill-access-capability" [class.is-allowed]="party.allowFormSubmitOnBehalf" [class.is-blocked]="!party.allowFormSubmitOnBehalf">
+                Form Submit {{ party.allowFormSubmitOnBehalf ? 'allowed' : 'not allowed' }}
+            </span>
+        </ng-container>
     </div>
 
     <div *ngIf="showDelegatedOnlyFillSelector && !builderPreviewMode" class="fill-access-panel" data-tour="template-fill-access-delegated">
@@ -71,6 +89,14 @@
         <span *ngIf="getDelegationParties().length === 1 && singleOnBehalfPartyLabel" class="fill-access-single-onbehalf">
             {{ singleOnBehalfPartyLabel }}
         </span>
+        <ng-container *ngIf="getSelectedOnBehalfParty() as party">
+            <span class="fill-access-capability" [class.is-allowed]="party.allowFormFillOnBehalf" [class.is-blocked]="!party.allowFormFillOnBehalf">
+                Form Fill {{ party.allowFormFillOnBehalf ? 'allowed' : 'not allowed' }}
+            </span>
+            <span class="fill-access-capability" [class.is-allowed]="party.allowFormSubmitOnBehalf" [class.is-blocked]="!party.allowFormSubmitOnBehalf">
+                Form Submit {{ party.allowFormSubmitOnBehalf ? 'allowed' : 'not allowed' }}
+            </span>
+        </ng-container>
     </div>
 
     <div *ngIf="submittedCode" class="submission-code">

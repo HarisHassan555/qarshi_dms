@@ -36,7 +36,12 @@ export interface SavedTemplateDefinition {
     /** Template list: visible via active delegation */
     hasDelegatedAccess?: boolean;
     listingAccess?: 'OWN' | 'DELEGATION' | 'BOTH' | 'NONE';
-    delegationOnBehalfOf?: Array<{ serOnBehalfUserId: number; onBehalfUserName: string }>;
+    delegationOnBehalfOf?: Array<{
+        serOnBehalfUserId: number;
+        onBehalfUserName: string;
+        blnAllowFormFillOnBehalf?: boolean;
+        blnAllowFormSubmitOnBehalf?: boolean;
+    }>;
 }
 
 export interface TemplateSubmitAccessContext {

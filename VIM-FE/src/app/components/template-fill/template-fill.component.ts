@@ -1320,40 +1320,124 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         return party.onBehalfUserName || `User #${party.serOnBehalfUserId}`;
     }
 
-    getDelegationParties(): Array<{ serOnBehalfUserId: number; onBehalfUserName: string }> {
+    getDelegationParties(): Array<{
+        serOnBehalfUserId: number;
+        onBehalfUserName: string;
+        allowFormFillOnBehalf: boolean;
+        allowFormSubmitOnBehalf: boolean;
+    }> {
         const formId = this.resolveCurrentFormId();
         const allowedOnBehalfIds = this.getEffectiveOnBehalfUserIdsForForm(formId);
         if (allowedOnBehalfIds.size === 0) {
             return [];
         }
-        const parties: Array<{ serOnBehalfUserId: number; onBehalfUserName: string }> = [];
-        const seen = new Set<number>();
+        const byId = new Map<number, {
+            serOnBehalfUserId: number;
+            onBehalfUserName: string;
+            allowFormFillOnBehalf: boolean;
+            allowFormSubmitOnBehalf: boolean;
+        }>();
+
+        // Prefer live delegation rows (include fill/submit flags) before template metadata.
+        for (const delegation of this.activeDelegationsForCurrentUser) {
+            const onBehalfId = Number(delegation?.serOnBehalfUserId);
+            if (!Number.isFinite(onBehalfId) || onBehalfId <= 0 || !allowedOnBehalfIds.has(onBehalfId)) {
+                continue;
+            }
+            if (!this.isDelegationEffective(delegation) || !this.delegationIncludesForm(delegation, formId)) {
+                continue;
+            }
+            const allowFill = delegation.blnAllowFormFillOnBehalf !== false;
+            const allowSubmit = delegation.blnAllowFormSubmitOnBehalf !== false;
+            if (!allowFill && !allowSubmit) {
+                continue;
+            }
+            const existing = byId.get(onBehalfId);
+            if (!existing) {
+                byId.set(onBehalfId, {
+                    serOnBehalfUserId: onBehalfId,
+                    onBehalfUserName: delegation.onBehalfUserName || `User #${onBehalfId}`,
+                    allowFormFillOnBehalf: allowFill,
+                    allowFormSubmitOnBehalf: allowSubmit,
+                });
+            } else {
+                existing.allowFormFillOnBehalf = existing.allowFormFillOnBehalf || allowFill;
+                existing.allowFormSubmitOnBehalf = existing.allowFormSubmitOnBehalf || allowSubmit;
+                if (!existing.onBehalfUserName && delegation.onBehalfUserName) {
+                    existing.onBehalfUserName = delegation.onBehalfUserName;
+                }
+            }
+        }
+
         const templateParties = Array.isArray(this.savedTemplate?.delegationOnBehalfOf)
             ? this.savedTemplate!.delegationOnBehalfOf!
             : [];
         for (const party of templateParties) {
             const onBehalfId = Number(party?.serOnBehalfUserId);
-            if (!Number.isFinite(onBehalfId) || onBehalfId <= 0 || !allowedOnBehalfIds.has(onBehalfId) || seen.has(onBehalfId)) {
+            if (!Number.isFinite(onBehalfId) || onBehalfId <= 0 || !allowedOnBehalfIds.has(onBehalfId)) {
                 continue;
             }
-            seen.add(onBehalfId);
-            parties.push({
+            const rawFill = (party as { blnAllowFormFillOnBehalf?: boolean }).blnAllowFormFillOnBehalf;
+            const rawSubmit = (party as { blnAllowFormSubmitOnBehalf?: boolean }).blnAllowFormSubmitOnBehalf;
+            const existing = byId.get(onBehalfId);
+            if (existing) {
+                // Only OR in explicit true from template metadata; never invent true from undefined.
+                if (rawFill === true) {
+                    existing.allowFormFillOnBehalf = true;
+                }
+                if (rawSubmit === true) {
+                    existing.allowFormSubmitOnBehalf = true;
+                }
+                if (party.onBehalfUserName) {
+                    existing.onBehalfUserName = party.onBehalfUserName;
+                }
+                continue;
+            }
+            const allowFill = rawFill !== false;
+            const allowSubmit = rawSubmit !== false;
+            if (!allowFill && !allowSubmit) {
+                continue;
+            }
+            byId.set(onBehalfId, {
                 serOnBehalfUserId: onBehalfId,
                 onBehalfUserName: party.onBehalfUserName || `User #${onBehalfId}`,
+                allowFormFillOnBehalf: allowFill,
+                allowFormSubmitOnBehalf: allowSubmit,
             });
         }
-        for (const delegation of this.activeDelegationsForCurrentUser) {
-            const onBehalfId = Number(delegation?.serOnBehalfUserId);
-            if (!Number.isFinite(onBehalfId) || onBehalfId <= 0 || !allowedOnBehalfIds.has(onBehalfId) || seen.has(onBehalfId)) {
-                continue;
-            }
-            seen.add(onBehalfId);
-            parties.push({
-                serOnBehalfUserId: onBehalfId,
-                onBehalfUserName: delegation.onBehalfUserName || `User #${onBehalfId}`,
-            });
+        return Array.from(byId.values());
+    }
+
+    getSelectedOnBehalfParty(): {
+        serOnBehalfUserId: number;
+        onBehalfUserName: string;
+        allowFormFillOnBehalf: boolean;
+        allowFormSubmitOnBehalf: boolean;
+    } | null {
+        if (!this.isOnBehalfFillMode()) {
+            return null;
         }
-        return parties;
+        const onBehalfId = Number(this.selectedOnBehalfUserId);
+        if (!Number.isFinite(onBehalfId) || onBehalfId <= 0) {
+            return null;
+        }
+        return this.getDelegationParties().find((row) => row.serOnBehalfUserId === onBehalfId) || null;
+    }
+
+    canFillOnBehalfSelected(): boolean {
+        if (!this.isOnBehalfFillMode()) {
+            return true;
+        }
+        const party = this.getSelectedOnBehalfParty();
+        return !!party && party.allowFormFillOnBehalf !== false;
+    }
+
+    canSubmitOnBehalfSelected(): boolean {
+        if (!this.isOnBehalfFillMode()) {
+            return true;
+        }
+        const party = this.getSelectedOnBehalfParty();
+        return !!party && party.allowFormSubmitOnBehalf !== false;
     }
 
     hasDelegatedFillAccessForCurrentForm(): boolean {
@@ -1391,6 +1475,11 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         }
         for (const delegation of this.activeDelegationsForCurrentUser) {
             if (!this.isDelegationEffective(delegation) || !this.delegationIncludesForm(delegation, formId)) {
+                continue;
+            }
+            const allowFill = delegation.blnAllowFormFillOnBehalf !== false;
+            const allowSubmit = delegation.blnAllowFormSubmitOnBehalf !== false;
+            if (!allowFill && !allowSubmit) {
                 continue;
             }
             const onBehalfId = Number(delegation.serOnBehalfUserId);
@@ -1520,6 +1609,24 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         return String(profile?.txtUserName || profile?.userName || profile?.name || '').trim();
     }
 
+    private validateDraftAccessSelection(): string | null {
+        if (!this.isOnBehalfFillMode()) {
+            return null;
+        }
+        const onBehalfId = Number(this.selectedOnBehalfUserId);
+        if (!Number.isFinite(onBehalfId) || onBehalfId <= 0) {
+            return 'Please select the user you are filling on behalf of.';
+        }
+        const party = this.getDelegationParties().find((row) => row.serOnBehalfUserId === onBehalfId);
+        if (!party) {
+            return 'You are not delegated to fill on behalf of the selected user for this form.';
+        }
+        if (party.allowFormFillOnBehalf === false) {
+            return 'This delegation does not allow Form Fill on behalf for the selected user.';
+        }
+        return null;
+    }
+
     private validateSubmitAccessSelection(): string | null {
         if (!this.isOnBehalfFillMode()) {
             return null;
@@ -1528,9 +1635,12 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         if (!Number.isFinite(onBehalfId) || onBehalfId <= 0) {
             return 'Please select the user you are submitting on behalf of.';
         }
-        const allowed = this.getDelegationParties().some((party) => party.serOnBehalfUserId === onBehalfId);
-        if (!allowed) {
+        const party = this.getDelegationParties().find((row) => row.serOnBehalfUserId === onBehalfId);
+        if (!party) {
             return 'You are not delegated to submit on behalf of the selected user for this form.';
+        }
+        if (party.allowFormSubmitOnBehalf === false) {
+            return 'This delegation does not allow Form Submit on behalf for the selected user.';
         }
         return null;
     }
@@ -2022,7 +2132,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             }
         });
 
-        const accessError = this.validateSubmitAccessSelection();
+        const accessError = this.validateDraftAccessSelection();
         if (accessError) {
             this.notificationService.showMessage(accessError, 'danger');
             return;

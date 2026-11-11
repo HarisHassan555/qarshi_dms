@@ -99,6 +99,11 @@
                         {{ documentsDisplay(value) }}
                     </span>
                 </ng-template>
+                <ng-template slot="capabilitiesLabel" let-value="data">
+                    <span class="text-xs font-medium text-gray-700 dark:text-white-dark">
+                        {{ value.capabilitiesLabel || '—' }}
+                    </span>
+                </ng-template>
                 <ng-template slot="validFrom" let-value="data">
                     {{ value.validFrom | date:'mediumDate' }}
                 </ng-template>
@@ -284,6 +289,33 @@
                     [(ngModel)]="formNotes"
                     name="formNotes"
                     placeholder="Optional internal note"></textarea>
+            </div>
+
+            <div class="space-y-2" data-tour="delegation-modal-capabilities">
+                <div class="text-sm font-semibold dark:text-white-light">On-behalf capabilities*</div>
+                <div class="flex flex-wrap items-center gap-4">
+                    <label class="inline-flex items-center gap-2 !mb-0 cursor-pointer">
+                        <input
+                            id="delegationAllowFill"
+                            type="checkbox"
+                            class="form-checkbox"
+                            [(ngModel)]="formAllowFormFillOnBehalf"
+                            name="formAllowFormFillOnBehalf" />
+                        <span>Form Fill on behalf</span>
+                    </label>
+                    <label class="inline-flex items-center gap-2 !mb-0 cursor-pointer">
+                        <input
+                            id="delegationAllowSubmit"
+                            type="checkbox"
+                            class="form-checkbox"
+                            [(ngModel)]="formAllowFormSubmitOnBehalf"
+                            name="formAllowFormSubmitOnBehalf" />
+                        <span>Form Submit on behalf</span>
+                    </label>
+                </div>
+                <p class="text-xs text-gray-500 !mb-0">
+                    Fill allows saving drafts; Submit allows sending the form into approval.
+                </p>
             </div>
 
             <div class="flex items-center gap-2">

@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -236,31 +237,46 @@ public class UserDelegationService implements IUserDelegationService {
         if (definition == null) {
             return Collections.emptyList();
         }
-        LinkedHashSet<Integer> seenOnBehalfIds = new LinkedHashSet<>();
-        List<UserDelegationOnBehalfListItemDto> items = new ArrayList<>();
+        Map<Integer, UserDelegationOnBehalfListItemDto> byOnBehalfId = new LinkedHashMap<>();
         for (CfgTblUserDelegation delegation : findEffectiveDelegationsForDelegate(delegateUserId)) {
             if (!scopeContainsFormId(delegation.getTxtScope(), formId)) {
                 continue;
             }
             Integer onBehalfUserId = delegation.getSerOnBehalfUserId();
-            if (onBehalfUserId == null || onBehalfUserId <= 0 || seenOnBehalfIds.contains(onBehalfUserId)) {
+            if (onBehalfUserId == null || onBehalfUserId <= 0) {
+                continue;
+            }
+            boolean allowFill = !Boolean.FALSE.equals(delegation.getBlnAllowFormFillOnBehalf());
+            boolean allowSubmit = !Boolean.FALSE.equals(delegation.getBlnAllowFormSubmitOnBehalf());
+            if (!allowFill && !allowSubmit) {
                 continue;
             }
             if (!isDelegatableTemplateForOnBehalfUser(definition, onBehalfUserId)) {
                 continue;
             }
-            seenOnBehalfIds.add(onBehalfUserId);
-            UserDelegationOnBehalfListItemDto item = new UserDelegationOnBehalfListItemDto();
-            item.setSerOnBehalfUserId(onBehalfUserId);
-            CfgTblUser onBehalf = userService.getUserById(onBehalfUserId);
-            if (onBehalf != null && onBehalf.getTxtUserName() != null && !onBehalf.getTxtUserName().trim().isEmpty()) {
-                item.setOnBehalfUserName(onBehalf.getTxtUserName().trim());
+            UserDelegationOnBehalfListItemDto existing = byOnBehalfId.get(onBehalfUserId);
+            if (existing == null) {
+                UserDelegationOnBehalfListItemDto item = new UserDelegationOnBehalfListItemDto();
+                item.setSerOnBehalfUserId(onBehalfUserId);
+                CfgTblUser onBehalf = userService.getUserById(onBehalfUserId);
+                if (onBehalf != null && onBehalf.getTxtUserName() != null && !onBehalf.getTxtUserName().trim().isEmpty()) {
+                    item.setOnBehalfUserName(onBehalf.getTxtUserName().trim());
+                } else {
+                    item.setOnBehalfUserName("User #" + onBehalfUserId);
+                }
+                item.setBlnAllowFormFillOnBehalf(allowFill);
+                item.setBlnAllowFormSubmitOnBehalf(allowSubmit);
+                byOnBehalfId.put(onBehalfUserId, item);
             } else {
-                item.setOnBehalfUserName("User #" + onBehalfUserId);
+                if (allowFill) {
+                    existing.setBlnAllowFormFillOnBehalf(true);
+                }
+                if (allowSubmit) {
+                    existing.setBlnAllowFormSubmitOnBehalf(true);
+                }
             }
-            items.add(item);
         }
-        return items;
+        return new ArrayList<>(byOnBehalfId.values());
     }
 
     private List<CfgTblUserDelegation> findEffectiveDelegationsForDelegate(Integer delegateUserId) {
@@ -428,6 +444,8 @@ public class UserDelegationService implements IUserDelegationService {
         entity.setDteValidTo(parseDate(request.getDteValidTo()));
         entity.setTxtScope(normalizeScope(request));
         entity.setTxtNotes(trimToNull(request.getTxtNotes()));
+        entity.setBlnAllowFormFillOnBehalf(!Boolean.FALSE.equals(request.getBlnAllowFormFillOnBehalf()));
+        entity.setBlnAllowFormSubmitOnBehalf(!Boolean.FALSE.equals(request.getBlnAllowFormSubmitOnBehalf()));
     }
 
     private void validateSaveRequest(UserDelegationSaveRequest request) {
@@ -467,6 +485,11 @@ public class UserDelegationService implements IUserDelegationService {
         String scope = normalizeScope(request);
         if (scope.isEmpty()) {
             throw new IllegalArgumentException("At least one published document is required");
+        }
+        boolean allowFill = !Boolean.FALSE.equals(request.getBlnAllowFormFillOnBehalf());
+        boolean allowSubmit = !Boolean.FALSE.equals(request.getBlnAllowFormSubmitOnBehalf());
+        if (!allowFill && !allowSubmit) {
+            throw new IllegalArgumentException("Select at least one of Form Fill or Form Submit on behalf");
         }
         validateScopeForOnBehalfUser(scope, request.getSerOnBehalfUserId());
         validateAttachmentPayload(request);
@@ -735,6 +758,8 @@ public class UserDelegationService implements IUserDelegationService {
         dto.setDocumentIds(parseScopeIds(entity.getTxtScope()));
         dto.setTxtStatus(entity.getTxtStatus());
         dto.setTxtNotes(entity.getTxtNotes());
+        dto.setBlnAllowFormFillOnBehalf(!Boolean.FALSE.equals(entity.getBlnAllowFormFillOnBehalf()));
+        dto.setBlnAllowFormSubmitOnBehalf(!Boolean.FALSE.equals(entity.getBlnAllowFormSubmitOnBehalf()));
         boolean hasAttachment = entity.getTxtAttachmentPath() != null
                 && !entity.getTxtAttachmentPath().trim().isEmpty()
                 && UserDelegationAttachmentStorageUtil.resolveAttachmentFile(entity.getTxtAttachmentPath()) != null;

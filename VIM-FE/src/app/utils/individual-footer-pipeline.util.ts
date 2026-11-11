@@ -1,5 +1,5 @@
 /** Max signature columns per row in Individual Pipeline (Footer) tables. */
-export const INDIVIDUAL_FOOTER_PIPELINE_MAX_SLOTS_PER_ROW = 5;
+export const INDIVIDUAL_FOOTER_PIPELINE_MAX_SLOTS_PER_ROW = 6;
 
 /** Approximate vertical space per footer band (sig + header + names rows). */
 export const INDIVIDUAL_FOOTER_BAND_HEIGHT_PX = 78;

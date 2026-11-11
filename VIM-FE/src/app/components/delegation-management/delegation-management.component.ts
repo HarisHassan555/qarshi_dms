@@ -36,6 +36,9 @@ export interface DelegationRow {
     status: DelegationStatus;
     createdByName: string;
     notes: string;
+    allowFormFillOnBehalf: boolean;
+    allowFormSubmitOnBehalf: boolean;
+    capabilitiesLabel: string;
     hasAttachment: boolean;
     attachmentFileName: string;
     actions: boolean;
@@ -76,6 +79,7 @@ export class DelegationManagementComponent implements OnInit, OnDestroy {
         { field: 'delegateUserName', title: 'Delegate' },
         { field: 'onBehalfUserName', title: 'On behalf of' },
         { field: 'documentsLabel', title: 'Documents' },
+        { field: 'capabilitiesLabel', title: 'On behalf', width: '140px', sort: false },
         { field: 'validFrom', title: 'Valid from' },
         { field: 'validTo', title: 'Valid to' },
         { field: 'status', title: 'Status', width: '110px' },
@@ -95,6 +99,8 @@ export class DelegationManagementComponent implements OnInit, OnDestroy {
     formValidTo = '';
     formDocumentIds: string[] = [];
     formNotes = '';
+    formAllowFormFillOnBehalf = true;
+    formAllowFormSubmitOnBehalf = true;
     formAttachmentBase64: string | null = null;
     formAttachmentFileName = '';
     formExistingAttachment = false;
@@ -328,6 +334,8 @@ export class DelegationManagementComponent implements OnInit, OnDestroy {
         this.formValidTo = '';
         this.formDocumentIds = [];
         this.formNotes = '';
+        this.formAllowFormFillOnBehalf = true;
+        this.formAllowFormSubmitOnBehalf = true;
         this.publishedDocuments = [];
         this.resetAttachmentForm();
         this.formNotifyBothParties = true;
@@ -355,6 +363,8 @@ export class DelegationManagementComponent implements OnInit, OnDestroy {
         this.formValidTo = row.validTo.slice(0, 10);
         this.formDocumentIds = this.parseScopeIds(row.documentScopeIds);
         this.formNotes = row.notes;
+        this.formAllowFormFillOnBehalf = row.allowFormFillOnBehalf !== false;
+        this.formAllowFormSubmitOnBehalf = row.allowFormSubmitOnBehalf !== false;
         this.formAttachmentBase64 = null;
         this.formAttachmentFileName = '';
         this.formRemoveAttachment = false;
@@ -395,6 +405,13 @@ export class DelegationManagementComponent implements OnInit, OnDestroy {
             this.notificationService.showMessage('Select at least one document visible to the on-behalf user.', 'danger');
             return;
         }
+        if (!this.formAllowFormFillOnBehalf && !this.formAllowFormSubmitOnBehalf) {
+            this.notificationService.showMessage(
+                'Select at least one of Form Fill or Form Submit on behalf.',
+                'danger'
+            );
+            return;
+        }
 
         const payload: any = {
             serDelegationId: this.editingDelegationId ?? undefined,
@@ -404,6 +421,8 @@ export class DelegationManagementComponent implements OnInit, OnDestroy {
             dteValidTo: this.formValidTo,
             documentIds: this.formDocumentIds.map((id) => String(id)),
             txtNotes: this.formNotes?.trim() || undefined,
+            blnAllowFormFillOnBehalf: !!this.formAllowFormFillOnBehalf,
+            blnAllowFormSubmitOnBehalf: !!this.formAllowFormSubmitOnBehalf,
         };
         if (this.formAttachmentBase64) {
             payload.attachmentBase64 = this.formAttachmentBase64;
@@ -608,6 +627,8 @@ export class DelegationManagementComponent implements OnInit, OnDestroy {
 
     private mapDtoToRow(d: UserDelegationDto): DelegationRow {
         const status = (d.txtStatus || 'ACTIVE').toUpperCase() as DelegationStatus;
+        const allowFill = d.blnAllowFormFillOnBehalf !== false;
+        const allowSubmit = d.blnAllowFormSubmitOnBehalf !== false;
         return {
             serDelegationId: d.serDelegationId,
             delegateUserId: d.serDelegateUserId,
@@ -623,10 +644,24 @@ export class DelegationManagementComponent implements OnInit, OnDestroy {
             status,
             createdByName: d.createdByName || '—',
             notes: d.txtNotes || '',
+            allowFormFillOnBehalf: allowFill,
+            allowFormSubmitOnBehalf: allowSubmit,
+            capabilitiesLabel: this.buildCapabilitiesLabel(allowFill, allowSubmit),
             hasAttachment: !!d.hasAttachment,
             attachmentFileName: d.attachmentFileName || '',
             actions: true,
         };
+    }
+
+    private buildCapabilitiesLabel(allowFill: boolean, allowSubmit: boolean): string {
+        const parts: string[] = [];
+        if (allowFill) {
+            parts.push('Fill');
+        }
+        if (allowSubmit) {
+            parts.push('Submit');
+        }
+        return parts.length ? parts.join(' + ') : '—';
     }
 
     private parseScopeIds(csv: string): string[] {

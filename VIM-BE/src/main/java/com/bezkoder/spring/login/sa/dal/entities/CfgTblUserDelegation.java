@@ -37,6 +37,14 @@ public class CfgTblUserDelegation implements Serializable {
     @Column(name = "txt_notes", length = 2000)
     private String txtNotes;
 
+    /** When true, delegate may save/edit drafts on behalf of the on-behalf user. */
+    @Column(name = "bln_allow_form_fill_on_behalf")
+    private Boolean blnAllowFormFillOnBehalf = Boolean.TRUE;
+
+    /** When true, delegate may submit forms on behalf of the on-behalf user. */
+    @Column(name = "bln_allow_form_submit_on_behalf")
+    private Boolean blnAllowFormSubmitOnBehalf = Boolean.TRUE;
+
     @Column(name = "txt_attachment_path", length = 512)
     private String txtAttachmentPath;
 
@@ -124,6 +132,22 @@ public class CfgTblUserDelegation implements Serializable {
 
     public void setTxtNotes(String txtNotes) {
         this.txtNotes = txtNotes;
+    }
+
+    public Boolean getBlnAllowFormFillOnBehalf() {
+        return blnAllowFormFillOnBehalf;
+    }
+
+    public void setBlnAllowFormFillOnBehalf(Boolean blnAllowFormFillOnBehalf) {
+        this.blnAllowFormFillOnBehalf = blnAllowFormFillOnBehalf;
+    }
+
+    public Boolean getBlnAllowFormSubmitOnBehalf() {
+        return blnAllowFormSubmitOnBehalf;
+    }
+
+    public void setBlnAllowFormSubmitOnBehalf(Boolean blnAllowFormSubmitOnBehalf) {
+        this.blnAllowFormSubmitOnBehalf = blnAllowFormSubmitOnBehalf;
     }
 
     public String getTxtAttachmentPath() {

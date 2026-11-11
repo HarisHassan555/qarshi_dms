@@ -109,7 +109,7 @@ public class TemplateDefinitionController {
             }
 
             enrichTemplateApplicationPayload(application, definition);
-            applySubmitInitiatorAndDelegate(application, definition, actorUserId);
+            applySubmitInitiatorAndDelegate(application, definition, actorUserId, false);
             assertTemplateAttachmentFieldSizeLimit(application.getTxtApplicationData(), actorUserId);
 
             Integer applicationId = application.getSerApplicationId();
@@ -216,7 +216,7 @@ public class TemplateDefinitionController {
             enrichTemplateApplicationPayload(application, definition);
             workflowThresholdRuleApplyService.applyActiveRulesOnSubmit(application);
             int actorUserId = commonService.getCurrentLoggedInUser();
-            applySubmitInitiatorAndDelegate(application, definition, actorUserId);
+            applySubmitInitiatorAndDelegate(application, definition, actorUserId, true);
             assertTemplateAttachmentFieldSizeLimit(application.getTxtApplicationData(), actorUserId);
             if (application.getTxtFormCode() == null || application.getTxtFormCode().trim().isEmpty()) {
                 application.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, null));
@@ -2420,6 +2420,8 @@ public class TemplateDefinitionController {
                 Map<String, Object> row = new LinkedHashMap<>();
                 row.put("serOnBehalfUserId", party.getSerOnBehalfUserId());
                 row.put("onBehalfUserName", party.getOnBehalfUserName());
+                row.put("blnAllowFormFillOnBehalf", !Boolean.FALSE.equals(party.getBlnAllowFormFillOnBehalf()));
+                row.put("blnAllowFormSubmitOnBehalf", !Boolean.FALSE.equals(party.getBlnAllowFormSubmitOnBehalf()));
                 onBehalfParties.add(row);
             }
         }
@@ -2787,6 +2789,11 @@ public class TemplateDefinitionController {
 
             String approvedIp = RequestMetadataUtil.resolveClientIp(request);
             String approvedVia = resolveTemplateApprovalVia(requestBody);
+            if ("APPROVED".equals(action) && "EMAIL".equalsIgnoreCase(approvedVia)
+                    && hasMissingRequiredStepFieldsForEmailApproval(application)) {
+                throw new IllegalArgumentException(
+                        "Some fields are required. Kindly fill them on the portal, then approve the application from the portal.");
+            }
             appendTemplateHistory(application, currentStep, actor.performedBy, actor.onBehalfOf, action, remarks,
                     displayLevelForIndex(safeLevel(application)), approvedIp, approvedVia);
             if ("REJECTED".equals(action)) {
@@ -3520,6 +3527,175 @@ public class TemplateDefinitionController {
         }
     }
 
+    /**
+     * When the current step has fill/edit rights on required fields that are still empty,
+     * email approval must be blocked so the user fills those fields on the portal first.
+     *
+     * @return user-facing message when blocked; {@code null} when email approval is allowed
+     */
+    public String resolveEmailApprovalRequiresPortalFillMessage(Integer applicationId) {
+        if (applicationId == null || applicationId <= 0) {
+            return null;
+        }
+        try {
+            CfgTblCustomFormApplication application = loadTemplateApplication(applicationId);
+            if (hasMissingRequiredStepFieldsForEmailApproval(application)) {
+                return "Some fields are required. Kindly fill them on the portal, then approve the application from the portal.";
+            }
+            return null;
+        } catch (IllegalArgumentException ex) {
+            logger.warn("Unable to evaluate email approval required fields for applicationId="
+                    + applicationId + ": " + ex.getMessage());
+            return null;
+        } catch (Exception ex) {
+            logger.warn("Failed to evaluate email approval required fields for applicationId="
+                    + applicationId + ": " + ex.getMessage());
+            return null;
+        }
+    }
+
+    private boolean hasMissingRequiredStepFieldsForEmailApproval(CfgTblCustomFormApplication application) {
+        if (application == null) {
+            return false;
+        }
+        Map<String, Object> appData = parseMap(application.getTxtApplicationData());
+        TemplateDefinition definition = findByFormId(application.getSerFormId());
+        Map<String, Object> templatePayload = resolveApplicationTemplatePayload(appData, null, definition);
+        Map<String, Object> rawStep = resolveCurrentPipelineRawStep(application, templatePayload);
+        if (rawStep == null || rawStep.isEmpty()) {
+            return false;
+        }
+        List<Map<String, Object>> permissions = asListOfMaps(rawStep.get("fieldPermissions"));
+        if (permissions.isEmpty()) {
+            return false;
+        }
+        Map<String, Map<String, Object>> fieldsById = new LinkedHashMap<>();
+        for (Map<String, Object> field : asListOfMaps(templatePayload.get("fields"))) {
+            if (field == null) {
+                continue;
+            }
+            String fieldId = firstText(field.get("id"), field.get("fieldId"));
+            if (fieldId == null || fieldId.trim().isEmpty()) {
+                continue;
+            }
+            fieldsById.put(fieldId.trim(), field);
+        }
+        Map<String, Object> templateValues = asMap(appData.get("templateValues"));
+        for (Map<String, Object> permission : permissions) {
+            if (permission == null) {
+                continue;
+            }
+            String right = valueAsString(permission.get("right"));
+            if (right == null) {
+                continue;
+            }
+            String normalizedRight = right.trim().toLowerCase(Locale.ROOT);
+            if (!"fill".equals(normalizedRight) && !"edit".equals(normalizedRight)) {
+                continue;
+            }
+            String fieldId = firstText(permission.get("fieldId"), permission.get("id"));
+            if (fieldId == null || fieldId.trim().isEmpty()) {
+                continue;
+            }
+            fieldId = fieldId.trim();
+            Map<String, Object> field = fieldsById.get(fieldId);
+            if (field == null || !isTemplateFieldMarkedRequired(field)) {
+                continue;
+            }
+            String fieldType = firstText(field.get("type"), "");
+            if (isDocumentRegionOrSystemFieldType(fieldType)) {
+                continue;
+            }
+            Object value = templateValues.containsKey(fieldId) ? templateValues.get(fieldId) : appData.get(fieldId);
+            if (isTemplateFieldValueEmpty(fieldType, value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Map<String, Object> resolveCurrentPipelineRawStep(CfgTblCustomFormApplication application,
+                                                              Map<String, Object> templatePayload) {
+        if (application == null || templatePayload == null) {
+            return null;
+        }
+        List<Map<String, Object>> approvalSteps = new ArrayList<>();
+        for (Map<String, Object> rawStep : asListOfMaps(templatePayload.get("pipeline"))) {
+            if (rawStep == null || rawStep.isEmpty()) {
+                continue;
+            }
+            TemplateStep step = buildTemplateStep(rawStep, application);
+            if ("initiator".equalsIgnoreCase(step.type) || step.approverIds.isEmpty()) {
+                continue;
+            }
+            approvalSteps.add(rawStep);
+        }
+        if (approvalSteps.isEmpty()) {
+            return null;
+        }
+        int levelIndex = safeLevel(application);
+        if (levelIndex < 0 || levelIndex >= approvalSteps.size()) {
+            return null;
+        }
+        return approvalSteps.get(levelIndex);
+    }
+
+    private boolean isTemplateFieldMarkedRequired(Map<String, Object> field) {
+        if (field == null) {
+            return false;
+        }
+        Object required = field.get("required");
+        if (required instanceof Boolean) {
+            return Boolean.TRUE.equals(required);
+        }
+        if (required == null) {
+            return false;
+        }
+        String text = String.valueOf(required).trim();
+        return "true".equalsIgnoreCase(text) || "1".equals(text) || "yes".equalsIgnoreCase(text);
+    }
+
+    private boolean isDocumentRegionOrSystemFieldType(String fieldType) {
+        if (fieldType == null || fieldType.trim().isEmpty()) {
+            return false;
+        }
+        String type = fieldType.trim().toLowerCase(Locale.ROOT);
+        return "application_code".equals(type)
+                || "document_header".equals(type)
+                || "document_header_qu".equals(type)
+                || "document_header_qf".equals(type)
+                || "document_header_qri".equals(type)
+                || "document_header_qb".equals(type)
+                || "footer".equals(type)
+                || "individual_pipeline_footer".equals(type)
+                || "dynamic_approval_data".equals(type);
+    }
+
+    private boolean isTemplateFieldValueEmpty(String fieldType, Object value) {
+        String type = fieldType != null ? fieldType.trim().toLowerCase(Locale.ROOT) : "";
+        if ("checkbox".equals(type)) {
+            return !Boolean.TRUE.equals(value)
+                    && !"true".equalsIgnoreCase(String.valueOf(value))
+                    && !"1".equals(String.valueOf(value));
+        }
+        if ("attachment".equals(type)) {
+            if (value instanceof List) {
+                return ((List<?>) value).isEmpty();
+            }
+            return value == null || String.valueOf(value).trim().isEmpty();
+        }
+        if (value == null) {
+            return true;
+        }
+        if (value instanceof List) {
+            return ((List<?>) value).isEmpty();
+        }
+        if (value instanceof Map) {
+            return ((Map<?, ?>) value).isEmpty();
+        }
+        return String.valueOf(value).trim().isEmpty();
+    }
+
     private void assertActorAuthorizedForTemplateStep(CfgTblCustomFormApplication application,
             TemplateWorkflowContext context,
             TemplateStep currentStep,
@@ -3960,11 +4136,17 @@ public class TemplateDefinitionController {
                 || (level != null && level == 1 && "resubmitted_by_initiator".equalsIgnoreCase(action));
     }
 
+    /**
+     * @param requireSubmitCapability true for submit endpoints; false for draft save (fill capability).
+     */
     private void applySubmitInitiatorAndDelegate(CfgTblCustomFormApplication application,
                                                  TemplateDefinition definition,
-                                                 int actorUserId) {
+                                                 int actorUserId,
+                                                 boolean requireSubmitCapability) {
         if (application == null || definition == null || actorUserId <= 0) {
-            throw new IllegalArgumentException("You must be logged in to submit this application");
+            throw new IllegalArgumentException(requireSubmitCapability
+                    ? "You must be logged in to submit this application"
+                    : "You must be logged in to save a draft");
         }
         Map<String, Object> appData = parseMap(application.getTxtApplicationData());
         Integer delegateFromPayload = toInteger(appData.get("submittedByDelegateUserId"));
@@ -3986,9 +4168,10 @@ public class TemplateDefinitionController {
             if (requestedInitiator == null || requestedInitiator <= 0) {
                 throw new IllegalArgumentException("On-behalf user is required");
             }
-            if (!canDelegateSubmitOnBehalf(actorUserId, requestedInitiator, definition)) {
-                throw new IllegalArgumentException(
-                        "You are not delegated to submit this form on behalf of the selected user");
+            if (!canDelegateCapabilityOnBehalf(actorUserId, requestedInitiator, definition, requireSubmitCapability)) {
+                throw new IllegalArgumentException(requireSubmitCapability
+                        ? "You are not delegated to submit this form on behalf of the selected user"
+                        : "You are not delegated to fill this form on behalf of the selected user");
             }
             application.setSerSubmittedBy(requestedInitiator);
             appData.put("fillAccessMode", "on_behalf");
@@ -4006,16 +4189,23 @@ public class TemplateDefinitionController {
         }
     }
 
-    private boolean canDelegateSubmitOnBehalf(Integer delegateUserId, Integer onBehalfUserId, TemplateDefinition definition) {
+    private boolean canDelegateCapabilityOnBehalf(Integer delegateUserId,
+                                                  Integer onBehalfUserId,
+                                                  TemplateDefinition definition,
+                                                  boolean requireSubmitCapability) {
         if (delegateUserId == null || delegateUserId <= 0 || onBehalfUserId == null || onBehalfUserId <= 0
                 || definition == null || definition.getSerFormId() == null) {
             return false;
         }
         for (UserDelegationOnBehalfListItemDto party : userDelegationService.getDelegationOnBehalfForTemplate(
                 delegateUserId, definition.getSerFormId())) {
-            if (party != null && onBehalfUserId.equals(party.getSerOnBehalfUserId())) {
-                return true;
+            if (party == null || !onBehalfUserId.equals(party.getSerOnBehalfUserId())) {
+                continue;
             }
+            if (requireSubmitCapability) {
+                return !Boolean.FALSE.equals(party.getBlnAllowFormSubmitOnBehalf());
+            }
+            return !Boolean.FALSE.equals(party.getBlnAllowFormFillOnBehalf());
         }
         return false;
     }
@@ -4105,7 +4295,7 @@ public class TemplateDefinitionController {
         }
         enrichTemplateApplicationPayload(existing, definition);
         workflowThresholdRuleApplyService.applyActiveRulesOnSubmit(existing);
-        applySubmitInitiatorAndDelegate(existing, definition, actorUserId);
+        applySubmitInitiatorAndDelegate(existing, definition, actorUserId, true);
         assertTemplateAttachmentFieldSizeLimit(existing.getTxtApplicationData(), actorUserId);
         if (existing.getTxtFormCode() == null || existing.getTxtFormCode().trim().isEmpty()) {
             existing.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, incoming.getTxtFormCode()));

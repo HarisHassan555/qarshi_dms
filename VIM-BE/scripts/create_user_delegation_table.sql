@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS cfg_tbl_user_delegation (
     dte_valid_to DATE NOT NULL,
     txt_scope VARCHAR(512) NOT NULL COMMENT 'Comma-separated published document form IDs (template ser_form_id)',
     txt_notes VARCHAR(2000) NULL,
+    bln_allow_form_fill_on_behalf TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'Delegate may save/edit drafts on behalf',
+    bln_allow_form_submit_on_behalf TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'Delegate may submit forms on behalf',
     txt_attachment_path VARCHAR(512) NULL COMMENT 'Relative path under ~/.vim_dms_uploads (user-delegations/)',
     txt_attachment_name VARCHAR(255) NULL COMMENT 'Original uploaded file name',
     txt_status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE, SCHEDULED, EXPIRED, REVOKED',

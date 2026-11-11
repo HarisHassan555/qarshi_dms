@@ -13,6 +13,10 @@ public class UserDelegationSaveRequest {
     private String txtScope;
     private List<String> documentIds;
     private String txtNotes;
+    /** When true (default), delegate may save/edit drafts on behalf */
+    private Boolean blnAllowFormFillOnBehalf;
+    /** When true (default), delegate may submit forms on behalf */
+    private Boolean blnAllowFormSubmitOnBehalf;
     /** Optional data URL or base64 supporting document */
     private String attachmentBase64;
     private String attachmentFileName;
@@ -83,6 +87,22 @@ public class UserDelegationSaveRequest {
 
     public void setTxtNotes(String txtNotes) {
         this.txtNotes = txtNotes;
+    }
+
+    public Boolean getBlnAllowFormFillOnBehalf() {
+        return blnAllowFormFillOnBehalf;
+    }
+
+    public void setBlnAllowFormFillOnBehalf(Boolean blnAllowFormFillOnBehalf) {
+        this.blnAllowFormFillOnBehalf = blnAllowFormFillOnBehalf;
+    }
+
+    public Boolean getBlnAllowFormSubmitOnBehalf() {
+        return blnAllowFormSubmitOnBehalf;
+    }
+
+    public void setBlnAllowFormSubmitOnBehalf(Boolean blnAllowFormSubmitOnBehalf) {
+        this.blnAllowFormSubmitOnBehalf = blnAllowFormSubmitOnBehalf;
     }
 
     public String getAttachmentBase64() {

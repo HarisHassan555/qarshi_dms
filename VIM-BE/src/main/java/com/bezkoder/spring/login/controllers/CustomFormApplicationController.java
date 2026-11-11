@@ -765,6 +765,13 @@ public class CustomFormApplicationController {
             HttpServletRequest request,
             HttpServletResponse response) {
         logger.debug("approveApplicationFromEmail() - applicationId: " + applicationId + ", userId: " + userId);
+        if (isTemplateBuilderApplication(applicationId)) {
+            String portalFillMessage = templateDefinitionController
+                    .resolveEmailApprovalRequiresPortalFillMessage(applicationId);
+            if (portalFillMessage != null) {
+                return renderEmailActionErrorPage("Approve on Portal", portalFillMessage, true);
+            }
+        }
         return renderEmailActionCommentForm("Approve Application",
                 "Enter your comments (required), then confirm approval.",
                 "/approveApplicationFromEmail", "approve", applicationId, userId, request);
@@ -788,6 +795,11 @@ public class CustomFormApplicationController {
             }
             String finalRemarks = remarks.trim();
             if (isTemplateBuilderApplication(applicationId)) {
+                String portalFillMessage = templateDefinitionController
+                        .resolveEmailApprovalRequiresPortalFillMessage(applicationId);
+                if (portalFillMessage != null) {
+                    return renderEmailActionErrorPage("Approve on Portal", portalFillMessage, true);
+                }
                 Map<String, Object> requestBody = buildTemplateEmailActionRequest(applicationId, userId, finalRemarks);
                 Map<String, Object> result;
                 if (isActiveTemplateOpinionAssignedToUser(applicationId, userId)) {
@@ -1908,12 +1920,33 @@ public class CustomFormApplicationController {
     }
 
     private String renderEmailActionErrorPage(String title, String message) {
+        return renderEmailActionErrorPage(title, message, false);
+    }
+
+    private String renderEmailActionErrorPage(String title, String message, boolean showAlert) {
+        String alertScript = "";
+        if (showAlert && message != null && !message.trim().isEmpty()) {
+            alertScript = "<script>alert('" + escapeJs(message) + "');</script>";
+        }
         return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>" + escapeHtml(title) + "</title>"
                 + "<style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}"
                 + ".container{background:white;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);max-width:500px;margin:0 auto}"
                 + ".error{color:#e74c3c;font-size:24px;margin-bottom:20px}.message{color:#333;font-size:16px;line-height:1.6}</style></head><body>"
+                + alertScript
                 + "<div class='container'><div class='error'>" + escapeHtml(title) + "</div>"
                 + "<div class='message'>" + escapeHtml(message) + "</div></div></body></html>";
+    }
+
+    private String escapeJs(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\"", "\\\"")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                .replace("</", "<\\/");
     }
 
     private String resolveEmailWorkflowUserNotice(Integer applicationId, Integer userId) {
