@@ -1119,6 +1119,18 @@ export class TemplateWorkflowService {
                         txtUserName: 'Initiator'
                     });
                 }
+                if (
+                    step.dynamicTarget === 'initiator_manager' ||
+                    (Array.isArray(step.dynamicTargets) && step.dynamicTargets.includes('initiator_manager'))
+                ) {
+                    result.push({
+                        ...base,
+                        type: 'individual',
+                        intApprovalOrder: result.length + 1,
+                        dynamicTarget: 'initiator_manager',
+                        txtUserName: 'User Manager'
+                    });
+                }
                 return;
             }
 

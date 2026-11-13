@@ -26,7 +26,45 @@ export const WORKFLOW_PIPELINE_STEP_TYPES: { value: Exclude<WorkflowPipelineStep
 ];
 
 export const SELF_HOD_DEPARTMENT_ID = -1;
+/** Legacy department dropdown id; also used as pseudo user id when selecting Line Manager on individual steps. */
 export const SELF_MANAGER_DEPARTMENT_ID = -2;
+export const LINE_MANAGER_PSEUDO_USER_ID = SELF_MANAGER_DEPARTMENT_ID;
+
+export const LINE_MANAGER_STEP_USER_OPTION: Record<string, unknown> = {
+    serUserId: LINE_MANAGER_PSEUDO_USER_ID,
+    userId: LINE_MANAGER_PSEUDO_USER_ID,
+    txtUserName: 'Line Manager',
+    dynamicTarget: 'initiator_manager',
+};
+
+export function isLineManagerPseudoUser(user: Record<string, unknown> | null | undefined): boolean {
+    if (!user) {
+        return false;
+    }
+    if (user['dynamicTarget'] === 'initiator_manager') {
+        return true;
+    }
+    const id = Number(user['serUserId'] ?? user['userId'] ?? user['id']);
+    return id === LINE_MANAGER_PSEUDO_USER_ID;
+}
+
+export function normalizeWorkflowPipelineStep(step: WorkflowPipelineStep): WorkflowPipelineStep {
+    if (!step) {
+        return step;
+    }
+    if (step.type === 'department' && step.dynamicTarget === 'initiator_manager') {
+        const normalized: WorkflowPipelineStep = {
+            ...step,
+            type: 'individual',
+            users: Array.isArray(step.users) ? step.users : [],
+            userIds: Array.isArray(step.userIds) ? step.userIds : [],
+        };
+        delete normalized.serDepartmentId;
+        delete normalized.hrTblDepartment;
+        return normalized;
+    }
+    return step;
+}
 
 export function createWorkflowStepId(): string {
     return `step-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -60,7 +98,8 @@ export function clonePipelineSteps(steps: WorkflowPipelineStep[] | undefined | n
         return ensureInitiatorStep([]);
     }
     try {
-        return ensureInitiatorStep(JSON.parse(JSON.stringify(steps)) as WorkflowPipelineStep[]);
+        const cloned = JSON.parse(JSON.stringify(steps)) as WorkflowPipelineStep[];
+        return ensureInitiatorStep(cloned.map((step) => normalizeWorkflowPipelineStep(step)));
     } catch {
         return ensureInitiatorStep([]);
     }
@@ -103,7 +142,7 @@ export function pipelineStepTargetLabel(step: WorkflowPipelineStep): string {
         return 'Self HOD';
     }
     if (step.dynamicTarget === 'initiator_manager') {
-        return 'Self Manager';
+        return 'Line Manager';
     }
     if (step.type === 'department') {
         return departmentDisplayName(step.hrTblDepartment as Record<string, unknown>) || step.name;

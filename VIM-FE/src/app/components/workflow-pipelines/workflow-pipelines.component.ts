@@ -29,8 +29,9 @@ import {
     isThresholdNumericFieldType,
 } from './workflow-pipeline-thresholds.demo-data';
 import {
+    LINE_MANAGER_PSEUDO_USER_ID,
+    LINE_MANAGER_STEP_USER_OPTION,
     SELF_HOD_DEPARTMENT_ID,
-    SELF_MANAGER_DEPARTMENT_ID,
     WORKFLOW_PIPELINE_STEP_TYPES,
     WorkflowPipelineApprovalMode,
     WorkflowPipelineStep,
@@ -39,6 +40,7 @@ import {
     createWorkflowStepId,
     defaultInitiatorStep,
     ensureInitiatorStep,
+    isLineManagerPseudoUser,
     pipelineStepRowLabel,
     pipelineStepTargetLabel,
     reorderWorkflowPipelineSteps,
@@ -114,7 +116,7 @@ export class WorkflowPipelinesComponent implements OnInit, OnDestroy {
 
     readonly pipelineStepTypes = WORKFLOW_PIPELINE_STEP_TYPES;
     readonly selfHodDepartmentId = SELF_HOD_DEPARTMENT_ID;
-    readonly selfManagerDepartmentId = SELF_MANAGER_DEPARTMENT_ID;
+    readonly lineManagerPseudoUserId = LINE_MANAGER_PSEUDO_USER_ID;
     readonly thresholdOperators = Object.entries(THRESHOLD_OPERATOR_LABELS).map(([value, label]) => ({
         value: value as ThresholdOperator,
         label,
@@ -409,23 +411,29 @@ export class WorkflowPipelinesComponent implements OnInit, OnDestroy {
             this.notificationService.showMessage('Initiator step is fixed.', 'info');
             return;
         }
-        this.editingStepId = step.id;
-        this.stepName = step.name || '';
-        this.stepType = step.type as Exclude<WorkflowPipelineStepType, 'initiator'>;
-        this.stepApprovalMode = (step.approvalMode as WorkflowPipelineApprovalMode) || 'OR';
-        if (step.dynamicTarget === 'initiator_hod') {
+        const normalizedStep = step.type === 'department' && step.dynamicTarget === 'initiator_manager'
+            ? { ...step, type: 'individual' as const }
+            : step;
+        this.editingStepId = normalizedStep.id;
+        this.stepName = normalizedStep.name || '';
+        this.stepType = normalizedStep.type as Exclude<WorkflowPipelineStepType, 'initiator'>;
+        this.stepApprovalMode = (normalizedStep.approvalMode as WorkflowPipelineApprovalMode) || 'OR';
+        if (normalizedStep.type === 'department' && normalizedStep.dynamicTarget === 'initiator_hod') {
             this.stepDepartmentId = this.selfHodDepartmentId;
-        } else if (step.dynamicTarget === 'initiator_manager') {
-            this.stepDepartmentId = this.selfManagerDepartmentId;
+        } else if (normalizedStep.type === 'department') {
+            this.stepDepartmentId = normalizedStep.serDepartmentId != null ? Number(normalizedStep.serDepartmentId) : null;
         } else {
-            this.stepDepartmentId = step.serDepartmentId != null ? Number(step.serDepartmentId) : null;
+            this.stepDepartmentId = null;
         }
-        this.stepRoleId = step.serRoleId != null ? Number(step.serRoleId) : null;
-        const ids = Array.isArray(step.userIds) ? step.userIds : [];
-        const fromUsers = (step.users || [])
+        this.stepRoleId = normalizedStep.serRoleId != null ? Number(normalizedStep.serRoleId) : null;
+        const ids = Array.isArray(normalizedStep.userIds) ? normalizedStep.userIds : [];
+        const fromUsers = (normalizedStep.users || [])
             .map((u) => Number(u['serUserId'] ?? u['userId'] ?? u['id']))
             .filter((id) => Number.isFinite(id) && id > 0);
         this.stepSelectedUserIds = [...new Set([...ids, ...fromUsers])];
+        if (normalizedStep.dynamicTarget === 'initiator_manager' && !this.stepSelectedUserIds.includes(this.lineManagerPseudoUserId)) {
+            this.stepSelectedUserIds = [this.lineManagerPseudoUserId, ...this.stepSelectedUserIds];
+        }
         this.showStepPanel = true;
     }
 
@@ -478,17 +486,6 @@ export class WorkflowPipelinesComponent implements OnInit, OnDestroy {
                     fieldPermissionsConfigured: true,
                 };
             }
-            if (Number(this.stepDepartmentId) === this.selfManagerDepartmentId) {
-                return {
-                    id,
-                    name: name || 'Self Manager',
-                    type: 'department',
-                    approvalMode,
-                    dynamicTarget: 'initiator_manager',
-                    fieldPermissions: emptyPermissions,
-                    fieldPermissionsConfigured: true,
-                };
-            }
             const dept = this.departments.find((d) => Number(d.serDepartmentId) === Number(this.stepDepartmentId));
             if (!dept) {
                 return null;
@@ -522,16 +519,18 @@ export class WorkflowPipelinesComponent implements OnInit, OnDestroy {
             };
         }
 
+        const hasLineManager = this.stepSelectedUserIds.includes(this.lineManagerPseudoUserId);
+        const selectedEmployeeIds = this.stepSelectedUserIds.filter((id) => id !== this.lineManagerPseudoUserId);
         const users = this.allUsers.filter((u) => {
             const uid = Number(u?.serUserId ?? u?.userId ?? u?.id);
-            return this.stepSelectedUserIds.includes(uid);
+            return selectedEmployeeIds.includes(uid);
         });
-        if (users.length === 0) {
+        if (users.length === 0 && !hasLineManager) {
             return null;
         }
-        return {
+        const step: WorkflowPipelineStep = {
             id,
-            name: name || users.map((u) => userDisplayName(u)).join(', '),
+            name: name || (hasLineManager && users.length === 0 ? 'Line Manager' : users.map((u) => userDisplayName(u)).join(', ')),
             type: 'individual',
             approvalMode,
             users,
@@ -539,6 +538,10 @@ export class WorkflowPipelinesComponent implements OnInit, OnDestroy {
             fieldPermissions: emptyPermissions,
             fieldPermissionsConfigured: true,
         };
+        if (hasLineManager) {
+            step.dynamicTarget = 'initiator_manager';
+        }
+        return step;
     }
 
     removeStep(index: number): void {
@@ -566,7 +569,12 @@ export class WorkflowPipelinesComponent implements OnInit, OnDestroy {
 
     filteredStepUsers(): any[] {
         const term = this.stepUserSearch.trim().toLowerCase();
-        return (this.allUsers || []).filter((user) => {
+        const lineManagerLabel = String(LINE_MANAGER_STEP_USER_OPTION['txtUserName'] || 'Line Manager').toLowerCase();
+        const options: any[] = [];
+        if (!term || lineManagerLabel.includes(term)) {
+            options.push(LINE_MANAGER_STEP_USER_OPTION);
+        }
+        const employees = (this.allUsers || []).filter((user) => {
             const id = Number(user?.serUserId ?? user?.userId ?? user?.id);
             if (!Number.isFinite(id) || id <= 0) {
                 return false;
@@ -578,17 +586,23 @@ export class WorkflowPipelinesComponent implements OnInit, OnDestroy {
             const email = String(user?.txtAddress || user?.email || '').toLowerCase();
             return label.includes(term) || email.includes(term);
         });
+        return [...options, ...employees];
     }
 
     isStepUserSelected(user: any): boolean {
+        if (isLineManagerPseudoUser(user)) {
+            return this.stepSelectedUserIds.includes(this.lineManagerPseudoUserId);
+        }
         const id = Number(user?.serUserId ?? user?.userId ?? user?.id);
         return this.stepSelectedUserIds.includes(id);
     }
 
     toggleStepUser(user: any, event: Event): void {
         event.stopPropagation();
-        const id = Number(user?.serUserId ?? user?.userId ?? user?.id);
-        if (!Number.isFinite(id) || id <= 0) {
+        const id = isLineManagerPseudoUser(user)
+            ? this.lineManagerPseudoUserId
+            : Number(user?.serUserId ?? user?.userId ?? user?.id);
+        if (!Number.isFinite(id) || (id <= 0 && id !== this.lineManagerPseudoUserId)) {
             return;
         }
         if (this.stepSelectedUserIds.includes(id)) {
@@ -603,6 +617,9 @@ export class WorkflowPipelinesComponent implements OnInit, OnDestroy {
             return 'Select employees';
         }
         if (this.stepSelectedUserIds.length === 1) {
+            if (this.stepSelectedUserIds[0] === this.lineManagerPseudoUserId) {
+                return 'Line Manager';
+            }
             const user = this.allUsers.find(
                 (u) => Number(u.serUserId ?? u.userId ?? u.id) === this.stepSelectedUserIds[0]
             );

@@ -1,9 +1,23 @@
+import { HttpClient } from '@angular/common/http';
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { finalize } from 'rxjs';
 import { NotificationService } from 'src/app/NotificationService';
+import { DepartmentService } from 'src/app/services/department/department.service';
 import { TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
+import { UserService } from 'src/app/services/user/user.service';
 import { resolveApplicationTitle } from 'src/app/utils/application-title.util';
+import { urls } from 'src/app/utils/urls';
+
+interface AllApplicationScopeRow {
+    serPermissionId?: number;
+    serDepartmentId?: number | null;
+    serSubmitterUserId?: number | null;
+    serApproverUserId?: number | null;
+    serFormId?: number | null;
+    serApplicationId?: number | null;
+    blIsEnabled: boolean;
+}
 
 interface AuditApplicationRow {
     serApplicationId?: number;
@@ -63,6 +77,19 @@ export class AllApplicationsComponent implements OnInit, OnDestroy {
     totalApplications = 0;
     private searchTimer: ReturnType<typeof setTimeout> | null = null;
 
+    /** Role-based data scope (all_application_page_permission); admin only. */
+    scopePanelExpanded = false;
+    scopeRoles: any[] = [];
+    scopeSelectedRoleId: number | null = null;
+    scopeViewerUserId: number | null = null;
+    scopeRows: AllApplicationScopeRow[] = [];
+    scopePermissionLoading = false;
+    scopeSaving = false;
+    scopeMasterDepartments: any[] = [];
+    scopeMasterTemplates: Array<{ serFormId: number; templateName: string }> = [];
+    scopeMasterUsers: any[] = [];
+    scopeMasterDataLoaded = false;
+
     cols = [
         { field: 'txtFormCode', title: 'Application Code' },
         { field: 'applicationTitle', title: 'Title' },
@@ -77,7 +104,10 @@ export class AllApplicationsComponent implements OnInit, OnDestroy {
     constructor(
         private templateWorkflowService: TemplateWorkflowService,
         private notificationService: NotificationService,
-        private router: Router
+        private router: Router,
+        private userService: UserService,
+        private departmentService: DepartmentService,
+        private http: HttpClient
     ) {}
 
     ngOnInit(): void {
@@ -86,8 +116,252 @@ export class AllApplicationsComponent implements OnInit, OnDestroy {
         } catch {
             this.currentUser = null;
         }
-        this.loadFilterOptions();
+        if (this.isAdminUser()) {
+            this.loadFilterOptions();
+        }
         this.loadApplications();
+        this.scopeSelectedRoleId = this.getRoleId() || null;
+    }
+
+    isAdminUser(): boolean {
+        const roleName = (
+            this.currentUser?.cfgTblRole?.txtRoleName ||
+            this.currentUser?.txtrole ||
+            this.currentUser?.roleName ||
+            ''
+        )
+            .toString()
+            .trim()
+            .toUpperCase();
+        return (
+            roleName === 'ADMIN' ||
+            roleName === 'ROLE_ADMIN' ||
+            roleName === 'SUPER ADMIN' ||
+            roleName === 'ROLE_SUPER ADMIN' ||
+            roleName.includes('ADMIN')
+        );
+    }
+
+    private getRoleId(): number {
+        return Number(
+            this.currentUser?.cfgTblRole?.serRoleId ||
+            this.currentUser?.serRoleId ||
+            0
+        );
+    }
+
+    toggleScopeConfigurator(): void {
+        this.scopePanelExpanded = !this.scopePanelExpanded;
+        if (this.scopePanelExpanded) {
+            this.ensureScopeMasterData();
+            if (!this.isAdminUser()) {
+                this.scopeSelectedRoleId = this.getRoleId() || null;
+                this.scopeViewerUserId = null;
+            } else if (!this.scopeSelectedRoleId) {
+                this.scopeSelectedRoleId = this.getRoleId() || null;
+            }
+            if (this.scopeSelectedRoleId) {
+                this.loadScopePermissions();
+            }
+        }
+    }
+
+    private ensureScopeMasterData(): void {
+        if (this.scopeMasterDataLoaded) {
+            return;
+        }
+        this.scopeMasterDataLoaded = true;
+        this.userService.getRoles().subscribe({
+            next: (roles: any) => {
+                this.scopeRoles = Array.isArray(roles) ? roles : [];
+            },
+            error: () => {
+                this.scopeRoles = [];
+            },
+        });
+        this.departmentService.getAll().subscribe({
+            next: (rows: any) => {
+                this.scopeMasterDepartments = Array.isArray(rows) ? rows : [];
+            },
+            error: () => {
+                this.scopeMasterDepartments = [];
+            },
+        });
+        const userId = this.getUserId();
+        const templateUrl =
+            urls.API_URL + 'getAllTemplateDefinitions' + (userId ? `?userId=${encodeURIComponent(String(userId))}` : '');
+        this.http.get<any[]>(templateUrl).subscribe({
+            next: (definitions) => {
+                this.scopeMasterTemplates = (Array.isArray(definitions) ? definitions : [])
+                    .map((d) => ({
+                        serFormId: Number(d?.serFormId || 0),
+                        templateName: String(d?.txtTemplateName || d?.templateName || `Form #${d?.serFormId || ''}`).trim(),
+                    }))
+                    .filter((t) => t.serFormId > 0)
+                    .sort((a, b) => a.templateName.localeCompare(b.templateName));
+            },
+            error: () => {
+                this.scopeMasterTemplates = [];
+            },
+        });
+        this.userService.getUsers().subscribe({
+            next: (users: any) => {
+                this.scopeMasterUsers = Array.isArray(users) ? users : [];
+            },
+            error: () => {
+                this.scopeMasterUsers = [];
+            },
+        });
+    }
+
+    onScopeRoleChanged(): void {
+        this.loadScopePermissions();
+    }
+
+    onScopeViewerUserChanged(): void {
+        this.loadScopePermissions();
+    }
+
+    loadScopePermissions(): void {
+        const roleId = Number(this.scopeSelectedRoleId);
+        if (!roleId) {
+            this.scopeRows = [];
+            return;
+        }
+        this.scopePermissionLoading = true;
+        this.templateWorkflowService
+            .getAllApplicationPagePermissions(roleId, this.scopeViewerUserId || null)
+            .pipe(finalize(() => (this.scopePermissionLoading = false)))
+            .subscribe({
+                next: (response: any) => {
+                    const items = Array.isArray(response?.items) ? response.items : [];
+                    this.scopeRows = items.map((row: any) => this.mapScopeRowFromApi(row));
+                },
+                error: (error) => {
+                    this.scopeRows = [];
+                    this.notificationService.showMessage(
+                        error.error?.message || 'Could not load role data scope.',
+                        'danger'
+                    );
+                },
+            });
+    }
+
+    private mapScopeRowFromApi(row: any): AllApplicationScopeRow {
+        return {
+            serPermissionId: row?.serPermissionId ? Number(row.serPermissionId) : undefined,
+            serDepartmentId: this.positiveOrNull(row?.serDepartmentId),
+            serSubmitterUserId: this.positiveOrNull(row?.serSubmitterUserId),
+            serApproverUserId: this.positiveOrNull(row?.serApproverUserId),
+            serFormId: this.positiveOrNull(row?.serFormId),
+            serApplicationId: this.positiveOrNull(row?.serApplicationId),
+            blIsEnabled: row?.blIsEnabled !== false && row?.blnStatus !== false,
+        };
+    }
+
+    private positiveOrNull(value: unknown): number | null {
+        const n = Number(value);
+        return Number.isFinite(n) && n > 0 ? n : null;
+    }
+
+    addScopeRow(): void {
+        this.scopeRows = [
+            ...this.scopeRows,
+            {
+                blIsEnabled: true,
+                serDepartmentId: null,
+                serSubmitterUserId: null,
+                serApproverUserId: null,
+                serFormId: null,
+                serApplicationId: null,
+            },
+        ];
+    }
+
+    removeScopeRow(index: number): void {
+        this.scopeRows = this.scopeRows.filter((_, i) => i !== index);
+    }
+
+    clearScopeRows(): void {
+        this.scopeRows = [];
+    }
+
+    hasScopeRowFilters(row: AllApplicationScopeRow): boolean {
+        return !!(
+            row.serDepartmentId ||
+            row.serSubmitterUserId ||
+            row.serApproverUserId ||
+            row.serFormId ||
+            row.serApplicationId
+        );
+    }
+
+    saveScopePermissions(): void {
+        const roleId = Number(this.scopeSelectedRoleId);
+        if (!roleId) {
+            this.notificationService.showMessage('Select a role first.', 'warning');
+            return;
+        }
+        const incomplete = this.scopeRows.filter((row) => row.blIsEnabled && !this.hasScopeRowFilters(row));
+        if (incomplete.length > 0) {
+            this.notificationService.showMessage(
+                'Each enabled rule needs at least one filter (form, department, user, or application id). Leave “Any” or remove the row.',
+                'warning'
+            );
+            return;
+        }
+        const items = this.scopeRows
+            .map((row) => ({
+                serPermissionId: row.serPermissionId,
+                serUserId: this.scopeViewerUserId || null,
+                serDepartmentId: row.serDepartmentId,
+                serSubmitterUserId: row.serSubmitterUserId,
+                serApproverUserId: row.serApproverUserId,
+                serFormId: row.serFormId,
+                serApplicationId: row.serApplicationId,
+                blIsEnabled: row.blIsEnabled,
+                blnStatus: row.blIsEnabled,
+            }))
+            .filter(
+                (row) =>
+                    !!row.serDepartmentId ||
+                    !!row.serSubmitterUserId ||
+                    !!row.serApproverUserId ||
+                    !!row.serFormId ||
+                    !!row.serApplicationId
+            );
+
+        this.scopeSaving = true;
+        this.templateWorkflowService
+            .saveAllApplicationPagePermissions({
+                serRoleId: roleId,
+                serUserId: this.scopeViewerUserId || null,
+                replaceForRole: true,
+                items,
+            })
+            .pipe(finalize(() => (this.scopeSaving = false)))
+            .subscribe({
+                next: () => {
+                    this.notificationService.showMessage('Role data scope saved.', 'success');
+                    this.loadScopePermissions();
+                    this.loadFilterOptions();
+                    this.loadApplications();
+                },
+                error: (error) => {
+                    this.notificationService.showMessage(
+                        error.error?.message || 'Could not save role data scope.',
+                        'danger'
+                    );
+                },
+            });
+    }
+
+    getScopeRoleLabel(role: any): string {
+        return String(role?.txtRoleName || role?.roleName || role?.name || `Role #${role?.serRoleId || ''}`).trim();
+    }
+
+    getScopeUserLabel(user: any): string {
+        return String(user?.txtUserName || user?.userName || user?.name || `User #${user?.serUserId || ''}`).trim();
     }
 
     ngOnDestroy(): void {

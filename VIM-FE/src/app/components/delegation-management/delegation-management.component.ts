@@ -407,7 +407,7 @@ export class DelegationManagementComponent implements OnInit, OnDestroy {
         }
         if (!this.formAllowFormFillOnBehalf && !this.formAllowFormSubmitOnBehalf) {
             this.notificationService.showMessage(
-                'Select at least one of Form Fill or Form Submit on behalf.',
+                'Select at least one of Perform actions on behalf or Form Submit on behalf.',
                 'danger'
             );
             return;
@@ -656,7 +656,7 @@ export class DelegationManagementComponent implements OnInit, OnDestroy {
     private buildCapabilitiesLabel(allowFill: boolean, allowSubmit: boolean): string {
         const parts: string[] = [];
         if (allowFill) {
-            parts.push('Fill');
+            parts.push('Perform actions');
         }
         if (allowSubmit) {
             parts.push('Submit');

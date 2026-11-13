@@ -419,17 +419,8 @@
                     <div class="table-field-properties" *ngIf="field.type === 'table'">
                         <div class="radio-option-properties-header">
                             <strong>Table Design</strong>
-                            <span>Use CKEditor table tools to add rows, columns, merged cells, and styling. Empty cells become fillable.</span>
+                            <span>Edit the selected table on the document canvas (one editor per table field). Use table tools for rows, columns, merges, and styling. Empty cells become fillable.</span>
                         </div>
-                        <ckeditor
-                            class="table-design-editor"
-                            [editor]="wordEditor"
-                            [config]="tableFieldEditorConfig"
-                            [ngModel]="field.tableHtml"
-                            (ngModelChange)="onTableFieldHtmlChanged(field, $event)"
-                            (change)="onTableFieldEditorChanged(field, $event)"
-                            (ready)="onTableDesignEditorReady(field, $event)">
-                        </ckeditor>
                     </div>
                 </div>
             </div>
@@ -613,7 +604,6 @@
                 <select [(ngModel)]="selectedPipelineDepartmentId">
                     <option [ngValue]="null">Select department</option>
                     <option [ngValue]="selfHodDepartmentValue">Self HOD</option>
-                    <option [ngValue]="selfManagerDepartmentValue">Self Manager</option>
                     <option *ngFor="let department of departments" [ngValue]="department.serDepartmentId">
                         {{ getDepartmentName(department) }}
                     </option>

@@ -1,5 +1,209 @@
 <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
     <div class="mb-4.5 flex flex-col gap-4 px-5">
+        <div
+            *ngIf="isAdminUser()"
+            class="all-apps-scope-panel rounded-lg border border-[#e0e6ed] dark:border-[#1b2e4b]">
+            <button
+                type="button"
+                class="all-apps-scope-toggle flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                (click)="toggleScopeConfigurator()">
+                <div>
+                    <span class="text-sm font-semibold text-slate-800 dark:text-white">Role data scope</span>
+                    <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        Control which applications each role sees on this page (menu access is still set in Role Management).
+                    </p>
+                </div>
+                <span class="text-slate-400">{{ scopePanelExpanded ? '▴' : '▾' }}</span>
+            </button>
+
+            <div *ngIf="scopePanelExpanded" class="scope-rules-panel border-t border-[#ebedf2] px-4 py-4 dark:border-[#191e3a]" novalidate>
+                <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    <div>
+                        <span class="scope-field-label">Role</span>
+                        <ng-select
+                            class="scope-ng-select"
+                            [items]="scopeRoles"
+                            bindLabel="txtRoleName"
+                            bindValue="serRoleId"
+                            [(ngModel)]="scopeSelectedRoleId"
+                            [ngModelOptions]="{ standalone: true }"
+                            (ngModelChange)="onScopeRoleChanged()"
+                            [clearable]="false"
+                            [searchable]="true"
+                            appendTo="body"
+                            [disabled]="!isAdminUser() || scopePermissionLoading || scopeSaving"
+                            placeholder="Select role">
+                        </ng-select>
+                    </div>
+                    <div>
+                        <span class="scope-field-label">Optional viewer user</span>
+                        <ng-select
+                            class="scope-ng-select"
+                            [items]="scopeMasterUsers"
+                            bindLabel="txtUserName"
+                            bindValue="serUserId"
+                            [(ngModel)]="scopeViewerUserId"
+                            [ngModelOptions]="{ standalone: true }"
+                            (ngModelChange)="onScopeViewerUserChanged()"
+                            [clearable]="true"
+                            [searchable]="true"
+                            appendTo="body"
+                            [disabled]="!isAdminUser() || scopePermissionLoading || scopeSaving"
+                            placeholder="Whole role (default)">
+                        </ng-select>
+                        <p class="mt-1 text-xs text-slate-500">Leave empty to apply scope to everyone with this role.</p>
+                    </div>
+                </div>
+
+                <p class="mb-3 text-xs text-slate-500 dark:text-slate-400">
+                    Each rule is a card below. Filters on one card are combined with <strong>AND</strong>; multiple cards are combined with
+                    <strong>OR</strong>. Pick a <strong>form / template</strong> for CAPF-only, Budget-only, etc. Empty filters mean “any” for that field.
+                    Saving with no cards removes restrictions (role sees all applications on this page).
+                </p>
+
+                <div *ngIf="scopePermissionLoading" class="py-6 text-center text-sm text-primary">Loading scope rules…</div>
+
+                <div *ngIf="!scopePermissionLoading" class="scope-rules-list space-y-3">
+                    <div
+                        *ngFor="let row of scopeRows; let i = index"
+                        class="scope-rule-card rounded-md border border-[#e0e6ed] bg-slate-50/80 p-3 dark:border-[#253b5c] dark:bg-[#0e1726]/50"
+                        [class.scope-rule-card--warn]="row.blIsEnabled && !hasScopeRowFilters(row)">
+                        <div class="mb-3 flex items-center justify-between gap-2">
+                            <span class="text-xs font-bold uppercase tracking-wide text-slate-500">Rule {{ i + 1 }}</span>
+                            <div class="flex items-center gap-3">
+                                <label class="scope-rule-active mb-0 inline-flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                                    <input
+                                        type="checkbox"
+                                        [(ngModel)]="row.blIsEnabled"
+                                        [ngModelOptions]="{ standalone: true }"
+                                        [disabled]="!isAdminUser() || scopeSaving" />
+                                    Active
+                                </label>
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-danger"
+                                    [disabled]="!isAdminUser() || scopeSaving"
+                                    (click)="removeScopeRow(i)">
+                                    Remove
+                                </button>
+                            </div>
+                        </div>
+
+                        <p
+                            *ngIf="row.blIsEnabled && !hasScopeRowFilters(row)"
+                            class="mb-2 text-xs text-danger">
+                            Choose at least one filter on this rule, or remove the rule.
+                        </p>
+
+                        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                            <div>
+                                <span class="scope-field-label">Form / template</span>
+                                <ng-select
+                                    class="scope-ng-select"
+                                    [items]="scopeMasterTemplates"
+                                    bindLabel="templateName"
+                                    bindValue="serFormId"
+                                    [(ngModel)]="row.serFormId"
+                                    [ngModelOptions]="{ standalone: true }"
+                                    [clearable]="true"
+                                    [searchable]="true"
+                                    appendTo="body"
+                                    dropdownPosition="auto"
+                                    notFoundText="No templates found"
+                                    [disabled]="!isAdminUser() || scopeSaving"
+                                    placeholder="Any form">
+                                </ng-select>
+                            </div>
+                            <div>
+                                <span class="scope-field-label">Department</span>
+                                <ng-select
+                                    class="scope-ng-select"
+                                    [items]="scopeMasterDepartments"
+                                    bindLabel="txtDepartmentName"
+                                    bindValue="serDepartmentId"
+                                    [(ngModel)]="row.serDepartmentId"
+                                    [ngModelOptions]="{ standalone: true }"
+                                    [clearable]="true"
+                                    [searchable]="true"
+                                    appendTo="body"
+                                    dropdownPosition="auto"
+                                    notFoundText="No departments found"
+                                    [disabled]="!isAdminUser() || scopeSaving"
+                                    placeholder="Any department">
+                                </ng-select>
+                            </div>
+                            <div>
+                                <span class="scope-field-label">Submitted by</span>
+                                <ng-select
+                                    class="scope-ng-select"
+                                    [items]="scopeMasterUsers"
+                                    bindLabel="txtUserName"
+                                    bindValue="serUserId"
+                                    [(ngModel)]="row.serSubmitterUserId"
+                                    [ngModelOptions]="{ standalone: true }"
+                                    [clearable]="true"
+                                    [searchable]="true"
+                                    appendTo="body"
+                                    dropdownPosition="auto"
+                                    notFoundText="No users found"
+                                    [disabled]="!isAdminUser() || scopeSaving"
+                                    placeholder="Any submitter">
+                                </ng-select>
+                            </div>
+                            <div>
+                                <span class="scope-field-label">Approver</span>
+                                <ng-select
+                                    class="scope-ng-select"
+                                    [items]="scopeMasterUsers"
+                                    bindLabel="txtUserName"
+                                    bindValue="serUserId"
+                                    [(ngModel)]="row.serApproverUserId"
+                                    [ngModelOptions]="{ standalone: true }"
+                                    [clearable]="true"
+                                    [searchable]="true"
+                                    appendTo="body"
+                                    dropdownPosition="auto"
+                                    notFoundText="No users found"
+                                    [disabled]="!isAdminUser() || scopeSaving"
+                                    placeholder="Any approver">
+                                </ng-select>
+                            </div>
+                            <div>
+                                <span class="scope-field-label">Application ID</span>
+                                <input
+                                    type="number"
+                                    class="form-input form-input-sm"
+                                    [(ngModel)]="row.serApplicationId"
+                                    [ngModelOptions]="{ standalone: true }"
+                                    [disabled]="!isAdminUser() || scopeSaving"
+                                    placeholder="Optional"
+                                    min="1" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div
+                        *ngIf="scopeRows.length === 0"
+                        class="rounded-md border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-600">
+                        No scope rules — this role can see every application on this page.
+                    </div>
+                </div>
+
+                <div *ngIf="isAdminUser() && !scopePermissionLoading" class="mt-4 flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="scopeSaving" (click)="addScopeRow()">
+                        Add rule
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" [disabled]="scopeSaving" (click)="clearScopeRows()">
+                        Clear all rules
+                    </button>
+                    <button type="button" class="btn btn-sm btn-primary" [disabled]="scopeSaving || !scopeSelectedRoleId" (click)="saveScopePermissions()">
+                        {{ scopeSaving ? 'Saving…' : 'Save scope for role' }}
+                    </button>
+                </div>
+
+            </div>
+        </div>
+
         <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div class="flex items-center gap-2">
                 <h5 class="text-xl font-bold dark:text-white-light">All Applications</h5>
@@ -7,7 +211,7 @@
                     {{ totalApplications }} applications
                 </span>
             </div>
-            <div class="flex flex-wrap items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2" *ngIf="isAdminUser()">
                 <input
                     [(ngModel)]="search"
                     (ngModelChange)="onSearchChanged()"
@@ -20,7 +224,7 @@
             </div>
         </div>
 
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" *ngIf="isAdminUser()">
             <div>
                 <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Department</label>
                 <ng-select
@@ -97,7 +301,7 @@
             </div>
         </div>
 
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:max-w-md">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:max-w-md" *ngIf="isAdminUser()">
             <div>
                 <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Submitted from</label>
                 <input

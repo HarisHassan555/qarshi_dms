@@ -1783,6 +1783,14 @@ public class TemplateDefinitionController {
                                                                 HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
         try {
+            int actorId = commonService.getCurrentLoggedInUser();
+            if (!canReadAllApplicationPagePermissions(actorId, roleId)) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                result.put("status", "Failure");
+                result.put("message", "You do not have permission to view these scope rules.");
+                result.put("items", java.util.Collections.emptyList());
+                return result;
+            }
             if (roleId == null || roleId <= 0) {
                 throw new IllegalArgumentException("roleId is required");
             }
@@ -1824,6 +1832,13 @@ public class TemplateDefinitionController {
                                                                  HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
         try {
+            int actorId = commonService.getCurrentLoggedInUser();
+            if (!canManageAllApplicationPagePermissions(actorId)) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                result.put("status", "Failure");
+                result.put("message", "Only administrators can change All Applications data scope.");
+                return result;
+            }
             Integer roleId = toInteger(body.get("serRoleId"));
             if (roleId == null || roleId <= 0) {
                 roleId = toInteger(body.get("roleId"));
@@ -1846,7 +1861,6 @@ public class TemplateDefinitionController {
                     ? (List<Map<String, Object>>) body.get("permissions")
                     : java.util.Collections.emptyList());
 
-            int actorId = commonService.getCurrentLoggedInUser();
             Timestamp now = new Timestamp(System.currentTimeMillis());
 
             if (replaceForRole) {
@@ -1930,6 +1944,31 @@ public class TemplateDefinitionController {
 
     private Integer positiveOrNull(Integer value) {
         return value != null && value > 0 ? value : null;
+    }
+
+    private boolean canManageAllApplicationPagePermissions(int actorId) {
+        if (actorId <= 0) {
+            return false;
+        }
+        CfgTblUser user = commonService.getCurrentUser(actorId);
+        if (user == null || user.getCfgTblRole() == null) {
+            return false;
+        }
+        return isAdminRoleName(user.getCfgTblRole().getTxtRoleName());
+    }
+
+    private boolean canReadAllApplicationPagePermissions(int actorId, Integer roleId) {
+        if (actorId <= 0 || roleId == null || roleId <= 0) {
+            return false;
+        }
+        CfgTblUser user = commonService.getCurrentUser(actorId);
+        if (user == null || user.getCfgTblRole() == null) {
+            return false;
+        }
+        if (isAdminRoleName(user.getCfgTblRole().getTxtRoleName())) {
+            return true;
+        }
+        return roleId.equals(user.getCfgTblRole().getSerRoleId());
     }
 
     @RequestMapping(value = "/searchVelocityReports", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
@@ -3472,6 +3511,10 @@ public class TemplateDefinitionController {
             if ("initiator".equalsIgnoreCase(valueAsString(rawStep.get("dynamicTarget")))
                     || asList(rawStep.get("dynamicTargets")).contains("initiator")) {
                 addIfPresent(step.approverIds, application.getSerSubmittedBy());
+            }
+            if ("initiator_manager".equalsIgnoreCase(valueAsString(rawStep.get("dynamicTarget")))
+                    || asList(rawStep.get("dynamicTargets")).contains("initiator_manager")) {
+                addIfPresent(step.approverIds, getUserManagerId(application.getSerSubmittedBy()));
             }
         } else if ("role".equalsIgnoreCase(step.type)) {
             Integer roleId = toInteger(firstObject(rawStep.get("serRoleId"), nested(rawStep.get("cfgTblRole"), "serRoleId")));

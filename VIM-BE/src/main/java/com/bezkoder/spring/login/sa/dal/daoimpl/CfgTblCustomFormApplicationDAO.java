@@ -6142,6 +6142,22 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             if (includesInitiator && application.getSerSubmittedBy() != null) {
                 recipientIds.add(application.getSerSubmittedBy());
             }
+
+            boolean includesManager = "initiator_manager".equalsIgnoreCase(dynamicTarget);
+            if (!includesManager && pipeline.get("dynamicTargets") instanceof java.util.List) {
+                for (Object value : (java.util.List<?>) pipeline.get("dynamicTargets")) {
+                    if ("initiator_manager".equalsIgnoreCase(value != null ? String.valueOf(value) : "")) {
+                        includesManager = true;
+                        break;
+                    }
+                }
+            }
+            if (includesManager) {
+                Integer managerId = loadUserManagerId(em, application.getSerSubmittedBy());
+                if (managerId != null && managerId > 0) {
+                    recipientIds.add(managerId);
+                }
+            }
             return recipientIds;
         }
 

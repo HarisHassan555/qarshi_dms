@@ -167,7 +167,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     readonly a4PortraitHeight = 1123;
     readonly pageGap = 16;
     readonly selfHodDepartmentValue = -1;
-    readonly selfManagerDepartmentValue = -2;
     readonly wordEditor = WORD_EDITOR_CKEDITOR;
     readonly wordEditorConfig = TEMPLATE_BUILDER_WORD_EDITOR_CONFIG;
     readonly tableFieldEditorConfig: EditorConfig = {
@@ -195,10 +194,16 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     private readonly tableVerticalChromeHeight = 36;
     private readonly initiatorPipelineStepId = 'initiator-step';
     private readonly initiatorPipelineUserId = '__initiator__';
+    private readonly lineManagerPipelineUserId = '__initiator_manager__';
     readonly initiatorPipelineUserOption = {
         id: this.initiatorPipelineUserId,
         dynamicTarget: 'initiator' as PipelineDynamicTarget,
         txtUserName: 'Initiator'
+    };
+    readonly lineManagerPipelineUserOption = {
+        id: this.lineManagerPipelineUserId,
+        dynamicTarget: 'initiator_manager' as PipelineDynamicTarget,
+        txtUserName: 'Line Manager'
     };
 
     pageOrientation: 'portrait' | 'landscape' = 'portrait';
@@ -473,7 +478,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     get pipelineUserOptions(): any[] {
         const users = (this.allUsers || []).filter((user) => this.isSelectablePipelineEmployee(user));
-        return [this.initiatorPipelineUserOption, ...users];
+        return [this.initiatorPipelineUserOption, this.lineManagerPipelineUserOption, ...users];
     }
 
     get filteredPipelineUserOptions(): any[] {
@@ -540,6 +545,31 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         editor.model.document.on('change:data', () => {
             this.scheduleExcelTableIndicators(editor);
         });
+    }
+
+    private disposeTableFormulaEditor(editor: any): void {
+        if (!editor) {
+            return;
+        }
+        this.tableFormulaSyncCommits.set(editor, () => {});
+        delete editor.__templateBuilderFormulaSyncAttached;
+        delete editor.__templateBuilderFormulaEditAttached;
+        delete editor.__templateBuilderExcelIndicatorsAttached;
+        delete editor.__templateBuilderInsertTableGuard;
+    }
+
+    private releaseTableFieldEditor(fieldId: string): void {
+        if (!fieldId) {
+            return;
+        }
+        const editor = this.tableEditorsByFieldId[fieldId];
+        if (editor) {
+            this.disposeTableFormulaEditor(editor);
+            delete this.tableEditorsByFieldId[fieldId];
+        }
+        if (this.tableFormulaEditTarget) {
+            this.tableFormulaEditTarget = null;
+        }
     }
 
     private shouldDeferTableFormulaSync(editor: any): boolean {
@@ -1511,26 +1541,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         });
     }
 
-    onTableDesignEditorReady(field: TemplateField, editor: any): void {
-        if (field.type !== 'table') {
-            return;
-        }
-        field.tableHtml = this.normalizeTableHtml(field.tableHtml);
-        this.lastValidTableHtmlByFieldId[field.id] = field.tableHtml;
-        this.tableEditorsByFieldId[field.id] = editor;
-        this.attachTableFormulaLiveSync(editor, (syncedHtml) => {
-            field.tableHtml = syncedHtml;
-            this.lastValidTableHtmlByFieldId[field.id] = syncedHtml;
-        });
-        this.attachExcelTableIndicators(editor);
-        this.runInitialTableFormulaSync(editor, (syncedHtml) => {
-            field.tableHtml = syncedHtml;
-            this.lastValidTableHtmlByFieldId[field.id] = syncedHtml;
-        });
-        this.hideTableEditorTopToolbar(editor);
-        this.attachTableFieldEditorSizeGuard(field, editor);
-    }
-
     onTableFieldEditorChanged(field: TemplateField, event: any): void {
         if (field.type !== 'table' || this.revertingTableFieldIds.has(field.id)) {
             return;
@@ -1674,6 +1684,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             return [];
         }
         return cloned.map((step) => {
+            step = this.normalizeLineManagerPipelineStep(step);
             if (step.type === 'department' && step.serDepartmentId && !step.hrTblDepartment) {
                 const dept = this.departments.find(
                     (d) => Number(d.serDepartmentId) === Number(step.serDepartmentId)
@@ -1709,27 +1720,31 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (step) {
             this.editingPipelineStepId = step.id;
             this.newPipelineName = step.name || '';
-            this.newPipelineType = step.type;
             this.newPipelineApprovalMode = step.approvalMode || 'OR';
             this.selectedPipelineDepartmentId = null;
             this.selectedPipelineRoleId = null;
             this.selectedPipelineUsers = [];
 
-            if (step.type === 'department') {
-                if (step.dynamicTarget === 'initiator_hod') {
+            const pipelineStep = this.normalizeLineManagerPipelineStep(step);
+            this.newPipelineType = pipelineStep.type;
+            if (pipelineStep.type === 'department') {
+                if (pipelineStep.dynamicTarget === 'initiator_hod') {
                     this.selectedPipelineDepartmentId = this.selfHodDepartmentValue;
-                } else if (step.dynamicTarget === 'initiator_manager') {
-                    this.selectedPipelineDepartmentId = this.selfManagerDepartmentValue;
                 } else {
-                    this.selectedPipelineDepartmentId = Number(step.serDepartmentId || step.hrTblDepartment?.serDepartmentId || null);
+                    this.selectedPipelineDepartmentId = Number(
+                        pipelineStep.serDepartmentId || pipelineStep.hrTblDepartment?.serDepartmentId || null
+                    );
                 }
-            } else if (step.type === 'role') {
-                this.selectedPipelineRoleId = Number(step.serRoleId || step.cfgTblRole?.serRoleId || null);
-            } else if (step.type === 'individual') {
-                const selectedUsers = (Array.isArray(step.users) ? step.users : [])
+            } else if (pipelineStep.type === 'role') {
+                this.selectedPipelineRoleId = Number(pipelineStep.serRoleId || pipelineStep.cfgTblRole?.serRoleId || null);
+            } else if (pipelineStep.type === 'individual') {
+                const selectedUsers = (Array.isArray(pipelineStep.users) ? pipelineStep.users : [])
                     .map((user) => this.findUserById(user?.serUserId || user?.userId || user?.id) || user)
                     .filter((user) => !!user);
-                if (Array.isArray(step.dynamicTargets) && step.dynamicTargets.includes('initiator')) {
+                if (pipelineStep.dynamicTarget === 'initiator_manager') {
+                    selectedUsers.unshift(this.lineManagerPipelineUserOption);
+                }
+                if (Array.isArray(pipelineStep.dynamicTargets) && pipelineStep.dynamicTargets.includes('initiator')) {
                     selectedUsers.unshift(this.initiatorPipelineUserOption);
                 }
                 this.selectedPipelineUsers = selectedUsers;
@@ -1891,6 +1906,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (this.isInitiatorPipelineUser(a) || this.isInitiatorPipelineUser(b)) {
             return this.isInitiatorPipelineUser(a) && this.isInitiatorPipelineUser(b);
         }
+        if (this.isLineManagerPipelineUser(a) || this.isLineManagerPipelineUser(b)) {
+            return this.isLineManagerPipelineUser(a) && this.isLineManagerPipelineUser(b);
+        }
         const aId = Number(a?.serUserId ?? a?.userId ?? a?.id);
         const bId = Number(b?.serUserId ?? b?.userId ?? b?.id);
         if (!Number.isFinite(aId) || !Number.isFinite(bId) || aId <= 0 || bId <= 0) {
@@ -1926,12 +1944,20 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (user?.dynamicTarget === 'initiator' || user?.id === this.initiatorPipelineUserId) {
             return this.initiatorPipelineUserId;
         }
+        if (user?.dynamicTarget === 'initiator_manager' || user?.id === this.lineManagerPipelineUserId) {
+            return this.lineManagerPipelineUserId;
+        }
         const userId = Number(user?.serUserId ?? user?.userId ?? user?.id);
         return Number.isFinite(userId) && userId > 0 ? `user-${userId}` : `user-index-${index}`;
     };
 
     onPipelineUserSelectionChanged(user: any, checked: boolean): void {
-        const normalizedUser = this.isInitiatorPipelineUser(user) ? this.initiatorPipelineUserOption : user;
+        let normalizedUser = user;
+        if (this.isInitiatorPipelineUser(user)) {
+            normalizedUser = this.initiatorPipelineUserOption;
+        } else if (this.isLineManagerPipelineUser(user)) {
+            normalizedUser = this.lineManagerPipelineUserOption;
+        }
         if (checked) {
             if (!this.isPipelineUserSelected(normalizedUser)) {
                 this.selectedPipelineUsers = [...this.selectedPipelineUsers, normalizedUser];
@@ -1944,7 +1970,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     }
 
     private isSelectablePipelineEmployee(user: any): boolean {
-        if (!user || this.isInitiatorPipelineUser(user)) {
+        if (!user || this.isInitiatorPipelineUser(user) || this.isLineManagerPipelineUser(user)) {
             return false;
         }
         const userId = Number(user?.serUserId ?? user?.userId ?? user?.id);
@@ -2001,7 +2027,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             return 'Self HOD - resolves from initiator department';
         }
         if (step.dynamicTarget === 'initiator_manager') {
-            return 'Self Manager - resolves from initiator reporting manager';
+            return 'Line Manager - resolves from initiator reporting manager';
         }
         if (step.dynamicTarget === 'initiator') {
             return 'Initiator - resolves to current form submitter';
@@ -2075,6 +2101,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (this.isInitiatorPipelineUser(user)) {
             return 'Initiator';
         }
+        if (this.isLineManagerPipelineUser(user)) {
+            return 'Line Manager';
+        }
         const name = String(user?.txtUserName || user?.userName || user?.name || '').trim();
         if (name) {
             return name;
@@ -2092,6 +2121,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     isInitiatorPipelineUser(user: any): boolean {
         return user?.dynamicTarget === 'initiator' || user?.id === this.initiatorPipelineUserId;
+    }
+
+    isLineManagerPipelineUser(user: any): boolean {
+        return user?.dynamicTarget === 'initiator_manager' || user?.id === this.lineManagerPipelineUserId;
     }
 
     getRoleName(role: any): string {
@@ -2189,12 +2222,17 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     }
 
     selectField(fieldId: string): void {
+        if (this.selectedFieldId && this.selectedFieldId !== fieldId) {
+            this.releaseTableFieldEditor(this.selectedFieldId);
+        }
         this.selectedFieldId = fieldId;
         this.editorContent = this.withSelectedField(fieldId);
         this.editorInstance?.setData(this.editorContent);
     }
 
     removeField(fieldId: string): void {
+        this.releaseTableFieldEditor(fieldId);
+        delete this.lastValidTableHtmlByFieldId[fieldId];
         this.fields = this.fields.filter((field) => field.id !== fieldId);
         this.editorContent = this.replaceFieldMarkers(fieldId);
         this.editorInstance?.setData(this.editorContent);
@@ -2338,9 +2376,25 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (field.id !== this.selectedFieldId) {
             return;
         }
+        this.releaseTableFieldEditor(field.id);
         field.tableHtml = this.normalizeTableHtml(field.tableHtml);
         this.lastValidTableHtmlByFieldId[field.id] = field.tableHtml;
         this.tableEditorsByFieldId[field.id] = editor;
+        this.attachTableFormulaLiveSync(editor, (syncedHtml) => {
+            if (field.id !== this.selectedFieldId) {
+                return;
+            }
+            field.tableHtml = syncedHtml;
+            this.lastValidTableHtmlByFieldId[field.id] = syncedHtml;
+        });
+        this.attachExcelTableIndicators(editor);
+        this.runInitialTableFormulaSync(editor, (syncedHtml) => {
+            if (field.id !== this.selectedFieldId) {
+                return;
+            }
+            field.tableHtml = syncedHtml;
+            this.lastValidTableHtmlByFieldId[field.id] = syncedHtml;
+        });
         this.attachTableFieldEditorSizeGuard(field, editor);
         this.hideTableEditorTopToolbar(editor);
     }
@@ -2483,7 +2537,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
                         field.tableHtml = this.normalizeTableHtml(field.tableHtml);
                     }
                 });
-                this.pipelineSteps = Array.isArray(payload.pipeline) ? payload.pipeline : [];
+                this.pipelineSteps = (Array.isArray(payload.pipeline) ? payload.pipeline : []).map((step: PipelineStep) =>
+                    this.normalizeLineManagerPipelineStep(step)
+                );
                 const linkedId = Number(payload.workflowPipelineId);
                 this.linkedWorkflowPipelineId =
                     Number.isFinite(linkedId) && linkedId > 0 ? linkedId : null;
@@ -2679,7 +2735,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
         if (field.type === 'table') {
             field.tableConfig = this.buildNewTableConfig();
-            field.tableHtml = this.normalizeTableHtml(this.newTableHtml);
+            field.tableHtml = this.normalizeTableHtml(this.cloneTableFieldHtml(this.newTableHtml));
             this.lastValidTableHtmlByFieldId[field.id] = field.tableHtml;
             field.style.textAlign = 'left';
         }
@@ -3096,6 +3152,12 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         return '<figure class="table"><table><tbody><tr><td>Header 1</td><td>Header 2</td></tr><tr><td></td><td></td></tr></tbody></table></figure>';
     }
 
+    private cloneTableFieldHtml(html: string): string {
+        const host = document.createElement('div');
+        host.innerHTML = String(html || '');
+        return host.innerHTML;
+    }
+
     private resetNewFieldForm(): void {
         this.newFieldLabel = 'New Field';
         this.newFieldRequired = false;
@@ -3298,9 +3360,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             if (Number(this.selectedPipelineDepartmentId) === this.selfHodDepartmentValue) {
                 return { id, name: name || 'Self HOD', type: 'department', approvalMode, dynamicTarget: 'initiator_hod', fieldPermissions, fieldPermissionsConfigured: true };
             }
-            if (Number(this.selectedPipelineDepartmentId) === this.selfManagerDepartmentValue) {
-                return { id, name: name || 'Self Manager', type: 'department', approvalMode, dynamicTarget: 'initiator_manager', fieldPermissions, fieldPermissionsConfigured: true };
-            }
             const department = this.departments.find((dept) => Number(dept.serDepartmentId) === Number(this.selectedPipelineDepartmentId));
             if (!department) {
                 return null;
@@ -3335,14 +3394,23 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         }
 
         const selectedUsers = Array.isArray(this.selectedPipelineUsers) ? this.selectedPipelineUsers : [];
-        const users = selectedUsers.filter((user) => !this.isInitiatorPipelineUser(user));
+        const users = selectedUsers.filter(
+            (user) => !this.isInitiatorPipelineUser(user) && !this.isLineManagerPipelineUser(user)
+        );
         const hasInitiator = selectedUsers.some((user) => this.isInitiatorPipelineUser(user));
-        if (users.length === 0 && !hasInitiator) {
+        const hasLineManager = selectedUsers.some((user) => this.isLineManagerPipelineUser(user));
+        if (users.length === 0 && !hasInitiator && !hasLineManager) {
             return null;
         }
-        return {
+        const defaultName = name ||
+            (hasLineManager && !hasInitiator && users.length === 0
+                ? 'Line Manager'
+                : hasInitiator && !hasLineManager && users.length === 0
+                    ? 'Initiator'
+                    : users.map((user) => this.getUserName(user)).join(', '));
+        const individualStep: PipelineStep = {
             id,
-            name: name || (hasInitiator && users.length === 0 ? 'Initiator' : users.map((user) => this.getUserName(user)).join(', ')),
+            name: defaultName,
             type: 'individual',
             approvalMode,
             users,
@@ -3351,6 +3419,31 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             fieldPermissions,
             fieldPermissionsConfigured: true
         };
+        if (hasLineManager) {
+            individualStep.dynamicTarget = 'initiator_manager';
+        }
+        return individualStep;
+    }
+
+    private normalizeLineManagerPipelineStep(step: PipelineStep): PipelineStep {
+        if (!step) {
+            return step;
+        }
+        if (step.type === 'department' && step.dynamicTarget === 'initiator_manager') {
+            const normalized: PipelineStep = {
+                ...step,
+                type: 'individual',
+                users: Array.isArray(step.users) ? step.users : [],
+                userIds: Array.isArray(step.userIds) ? step.userIds : []
+            };
+            delete (normalized as any).serDepartmentId;
+            delete (normalized as any).hrTblDepartment;
+            if (!normalized.name || normalized.name === 'Self Manager') {
+                normalized.name = 'Line Manager';
+            }
+            return normalized;
+        }
+        return step;
     }
 
     private resetPipelineModalState(): void {
@@ -3410,7 +3503,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     private getPipelineStepsForPayload(): PipelineStep[] {
         this.ensureInitiatorPipelineStep();
         return this.pipelineSteps.map((step) => ({
-            ...step,
+            ...this.normalizeLineManagerPipelineStep(step),
             fieldPermissions: this.getEffectivePipelineFieldPermissions(step)
         }));
     }
