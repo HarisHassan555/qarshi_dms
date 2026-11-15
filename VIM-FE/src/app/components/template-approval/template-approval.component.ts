@@ -10,6 +10,11 @@ import {
     getIndividualFooterRenderedHeightPx,
     IndividualFooterTableBand
 } from 'src/app/utils/individual-footer-pipeline.util';
+import {
+    applyIndividualFooterTemplatePdfCaptureStyles,
+    buildIndividualFooterPdfFieldPlacements,
+    syncIndividualFooterFieldsOnPdfClone
+} from 'src/app/utils/individual-footer-pdf-capture.util';
 import { NotificationService } from 'src/app/NotificationService';
 import { ApplicationPdfService } from 'src/app/services/application-pdf/application-pdf.service';
 import { SavedTemplateDefinition, TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
@@ -29,6 +34,11 @@ import {
     resolveDocumentHeaderBrandTitle,
     resolveDocumentHeaderLogoPath,
 } from 'src/app/utils/document-header.util';
+import {
+    isTableFieldValueEmpty,
+    prepareTableFieldOnLoad,
+    refreshTableFieldFormulaValues,
+} from 'src/app/utils/template-fillable-table-field.util';
 
 type TemplateFieldType =
     'document_header' | 'document_header_qu' | 'document_header_qf' | 'document_header_qri' | 'document_header_qb'
@@ -59,6 +69,8 @@ interface TemplateField {
     signatureTargetId?: string;
     options?: string[];
     optionPlacements?: RadioOptionPlacement[];
+    tableConfig?: { rows: number; columns: number; headers: string[] };
+    tableHtml?: string;
 }
 
 interface RadioOptionPlacement {
@@ -171,6 +183,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     isActing = false;
     isRedirectingAfterAction = false;
     isDownloadingWithLogsPdf = false;
+    isDownloadingPdf = false;
     showApprovalLogsCsvModal = false;
     selectedApprovalLogCsvColumnKeys: ApprovalLogCsvColumnKey[] = [];
     availableApprovalLogCsvColumns: ApprovalLogCsvColumn[] = [];
@@ -523,7 +536,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (step.type === 'initiator' && !step.fieldPermissionsConfigured) {
             return this.hasIndividualFooterPipeline() ? 'edit' : 'fill';
         }
-        const permission = (step.fieldPermissions || []).find((item) => item.fieldId === field.id);
+        const permission = (step.fieldPermissions || []).find((item) =>
+            item.fieldId === field.id || (item as { id?: string }).id === field.id
+        );
         return permission?.right || 'view';
     }
 
@@ -616,6 +631,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (field.type === 'attachment') {
             return this.getAttachmentDisplayText(field);
         }
+        if (field.type === 'table') {
+            return '';
+        }
         if (field.type === 'dynamic_approver_name'
             || field.type === 'dynamic_approval_timestamp'
             || field.type === 'dynamic_approver_department'
@@ -706,6 +724,20 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
     isAttachmentField(field: TemplateField): boolean {
         return field.type === 'attachment';
+    }
+
+    isTableField(field: TemplateField): boolean {
+        return field.type === 'table';
+    }
+
+    onApprovalTableCellValuesChange(field: TemplateField, values: Record<string, string>): void {
+        this.values[field.id] = values;
+        this.onPanelValueChanged(field);
+    }
+
+    onApprovalTableHtmlChange(field: TemplateField, tableHtml: string): void {
+        field.tableHtml = tableHtml;
+        this.onPanelValueChanged(field);
     }
 
     getAttachmentFields(): TemplateField[] {
@@ -1032,30 +1064,36 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     async downloadApplicationPdf(): Promise<void> {
-        if (!this.application?.serApplicationId) {
-            this.notificationService.showMessage('Invalid application ID', 'danger');
+        if (!this.application?.serApplicationId || this.isDownloadingPdf) {
+            if (!this.application?.serApplicationId) {
+                this.notificationService.showMessage('Invalid application ID', 'danger');
+            }
             return;
         }
         if (!(await confirmTemplatePdfDownloadIfNeeded(this.templateWorkflowService, this.application.serApplicationId))) {
             return;
         }
-        this.templateWorkflowService.downloadTemplateApplicationPdf(this.application.serApplicationId).subscribe({
-            next: (blob) => {
-                const filename = `${this.application?.txtFormCode || 'template-application'}.pdf`;
-                this.downloadBlob(blob, filename);
-            },
-            error: (error) => {
-                this.notificationService.showMessage(
-                    'Application PDF could not be downloaded: ' + (error.error?.message || error.message),
-                    'danger'
-                );
-            }
-        });
+        this.isDownloadingPdf = true;
+        try {
+            const pdfBlob = await this.renderTemplatePreviewPdfBlob();
+            const filename = `${this.application?.txtFormCode || 'template-application'}.pdf`;
+            this.downloadBlob(pdfBlob, filename);
+        } catch (error: any) {
+            this.notificationService.showMessage(
+                'Application PDF could not be downloaded: ' + (error?.message || 'Unknown error'),
+                'danger'
+            );
+        } finally {
+            this.isDownloadingPdf = false;
+        }
     }
 
     async approve(remarksValue?: string): Promise<void> {
         this.syncRemarks(remarksValue);
         if (!this.validateRemarks('Please enter comments or remarks before approving')) {
+            return;
+        }
+        if (!this.validateRequiredFieldsBeforeWorkflowAction()) {
             return;
         }
         if (!(await this.ensureActorSignatureUploaded())) {
@@ -1111,6 +1149,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
     async resubmitToPipeline(remarksValue?: string): Promise<void> {
         this.syncRemarks(remarksValue);
+        if (!this.validateRequiredFieldsBeforeWorkflowAction()) {
+            return;
+        }
         if (!(await this.ensureActorSignatureUploaded())) {
             return;
         }
@@ -1571,6 +1612,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             && actingStep.type !== 'initiator'
             && this.isFirstApprovalStep(actingStep);
         try {
+            if (action === 'approve' && !this.validateRequiredFieldsBeforeWorkflowAction()) {
+                return;
+            }
             await this.persistCurrentTemplateState(false);
 
             let response: any;
@@ -1829,6 +1873,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             const attachments = Array.isArray(value) ? value : (value ? [value] : []);
             return attachments.length === 0;
         }
+        if (field.type === 'table') {
+            return isTableFieldValueEmpty(field, value);
+        }
         if (Array.isArray(value)) {
             return value.length === 0;
         }
@@ -1842,6 +1889,66 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return this.isFieldValueEmpty(field, this.persistedValues[field.id]);
     }
 
+    private validateRequiredFieldsBeforeWorkflowAction(): boolean {
+        (this.template?.fields || []).forEach((field: TemplateField) => {
+            if (field.type === 'word_editor' && field.placement) {
+                this.values[field.id] = this.acceptedWordEditorValues[field.id] ?? this.values[field.id] ?? '';
+            }
+        });
+        const missingRequiredFields = this.getMissingRequiredFields();
+        if (missingRequiredFields.length === 0) {
+            return true;
+        }
+        const fieldSummary = missingRequiredFields.slice(0, 3).join(', ');
+        const remainingCount = missingRequiredFields.length - 3;
+        const suffix = remainingCount > 0 ? ` and ${remainingCount} more` : '';
+        this.notificationService.showMessage(
+            `Please complete all required fields before approving. Missing: ${fieldSummary}${suffix}.`,
+            'danger'
+        );
+        return false;
+    }
+
+    private getMissingRequiredFields(): string[] {
+        const missingFields = (this.template?.fields || [])
+            .filter((field: TemplateField) =>
+                this.isTemplateFieldRequired(field)
+                && !this.isDocumentRegionFieldType(field.type)
+                && !this.isDynamicApprovalDataField(field)
+                && field.type !== 'application_code'
+                && this.canCurrentStepEditField(field)
+                && this.isFieldValueEmpty(field, this.values[field.id])
+            )
+            .map((field: TemplateField) => field.label || field.placeholder || 'Unnamed field');
+
+        const requiredIndividualFooter = (this.template?.fields || []).find((field: TemplateField) =>
+            field.type === 'individual_pipeline_footer' && this.isTemplateFieldRequired(field)
+        );
+        if (
+            requiredIndividualFooter
+            && this.canCurrentStepEditField(requiredIndividualFooter)
+            && this.isRequiredIndividualFooterIncomplete()
+        ) {
+            missingFields.push(
+                requiredIndividualFooter.label || requiredIndividualFooter.placeholder || 'Individual Footer Sections'
+            );
+        }
+
+        return missingFields;
+    }
+
+    private isRequiredIndividualFooterIncomplete(): boolean {
+        const pipeline = Array.isArray(this.userPipeline) ? this.userPipeline : [];
+        if (pipeline.length === 0) {
+            return true;
+        }
+        return pipeline.some((section) => {
+            const label = String(section?.label || '').trim();
+            const users = Array.isArray(section?.users) ? section.users : [];
+            return !label || users.length === 0;
+        });
+    }
+
     private loadApplicationValues(): void {
         const data = this.applicationDataCache && Object.keys(this.applicationDataCache).length > 0
             ? this.applicationDataCache
@@ -1849,7 +1956,12 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         const templateValues = data.templateValues || {};
         this.userPipeline = Array.isArray(data.footerFields) ? data.footerFields : [];
         (this.template?.fields || []).forEach((field: TemplateField) => {
-            const value = templateValues[field.id] ?? data[field.id] ?? (field.type === 'application_code' ? this.application?.txtFormCode : (field.type === 'checkbox' ? false : ''));
+            const rawValue = templateValues[field.id] ?? data[field.id];
+            let value = rawValue ?? (field.type === 'application_code' ? this.application?.txtFormCode : (field.type === 'checkbox' ? false : ''));
+            if (field.type === 'table') {
+                value = prepareTableFieldOnLoad(field, rawValue);
+                value = refreshTableFieldFormulaValues(field, value);
+            }
             this.values[field.id] = value;
             this.persistedValues[field.id] = value;
             if (field.type === 'word_editor') {
@@ -2184,9 +2296,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 return;
             }
             const filename = `${this.application?.txtFormCode || 'template-application'}_with_logs.pdf`;
-            const applicationPdfBlob = await firstValueFrom(
-                this.templateWorkflowService.downloadTemplateApplicationPdf(this.application.serApplicationId)
-            );
+            const applicationPdfBlob = await this.renderTemplatePreviewPdfBlob();
             const logsPdfHtml = this.buildApprovalLogsPdfHtml(this.approvalLogRowsCache);
             const logsPdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(logsPdfHtml, filename);
             const mergedPdfBlob = await this.applicationPdfService.mergePdfBlobs([applicationPdfBlob, logsPdfBlob]);
@@ -2438,6 +2548,8 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         element.dataset['fieldId'] = field.id;
         if (field.type === 'word_editor') {
             element.innerHTML = this.normalizeWordEditorHtmlForDisplay(String(this.values[field.id] || ''));
+        } else if (field.type === 'table') {
+            element.textContent = '';
         } else {
             element.textContent = this.getFieldValueText(field);
         }
@@ -3695,11 +3807,49 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return {
             ...liveTemplate,
             ...savedTemplate,
-            fields: Array.isArray(savedTemplate.fields) && savedTemplate.fields.length > 0 ? savedTemplate.fields : liveTemplate.fields,
+            fields: this.mergeTemplateFieldDefinitions(
+                Array.isArray(savedTemplate.fields) ? savedTemplate.fields : [],
+                Array.isArray(liveTemplate.fields) ? liveTemplate.fields : []
+            ),
             pipeline: this.resolveWorkflowPipeline(savedTemplate, liveTemplate),
             page: savedTemplate.page || liveTemplate.page,
             html: typeof savedTemplate.html === 'string' && savedTemplate.html.length > 0 ? savedTemplate.html : liveTemplate.html
         };
+    }
+
+    private mergeTemplateFieldDefinitions(savedFields: TemplateField[], liveFields: TemplateField[]): TemplateField[] {
+        const liveById = new Map(liveFields.map((field) => [field.id, field]));
+        const source = savedFields.length > 0 ? savedFields : liveFields;
+        if (source.length === 0) {
+            return liveFields;
+        }
+        return source.map((field) => {
+            const liveField = liveById.get(field.id);
+            if (!liveField) {
+                return field;
+            }
+            return {
+                ...liveField,
+                ...field,
+                required: this.isTemplateFieldRequired(field) || this.isTemplateFieldRequired(liveField)
+            };
+        });
+    }
+
+    isTemplateFieldRequired(field: TemplateField | null | undefined): boolean {
+        if (!field) {
+            return false;
+        }
+        const required = (field as { required?: unknown; blIsRequired?: unknown }).required
+            ?? (field as { blIsRequired?: unknown }).blIsRequired;
+        if (required === true || required === 1) {
+            return true;
+        }
+        if (required === false || required === 0 || required == null) {
+            return false;
+        }
+        const text = String(required).trim().toLowerCase();
+        return text === 'true' || text === '1' || text === 'yes';
     }
 
     private resolveWorkflowPipeline(savedTemplate: any, liveTemplate: any): PipelineStep[] {
@@ -4058,7 +4208,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 clone.style.width = `${pageWidth}px`;
                 this.applyStepVisibilityToPdfClone(clone, step);
                 this.prepareTemplatePdfFieldText(clone);
-                this.applyTemplateEmailFooterCaptureStyles(clone);
+                this.applyIndividualFooterPdfLayout(clone);
                 pageViewport.appendChild(clone);
                 captureHost.appendChild(pageViewport);
                 await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -4090,30 +4240,17 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return this.renderTemplatePreviewPdfBlob(step);
     }
 
-    private applyTemplateEmailFooterCaptureStyles(root: HTMLElement): void {
-        root.querySelectorAll('.individual-footer-preview .xyz-signatures .xyz-signatures-blank td > div').forEach((node) => {
-            const wrapper = node as HTMLElement;
-            wrapper.style.setProperty('transform', 'translateY(-2px)', 'important');
-        });
-
-        root.querySelectorAll('.individual-footer-preview .xyz-signatures .xyz-sig-time').forEach((node) => {
-            const timeEl = node as HTMLElement;
-            timeEl.style.setProperty('font-size', '8px', 'important');
-            timeEl.style.setProperty('line-height', '1', 'important');
-            timeEl.style.setProperty('margin-top', '0', 'important');
-            timeEl.style.setProperty('transform', 'translateY(-2px)', 'important');
-        });
-
-        root.querySelectorAll('.individual-footer-preview .xyz-signatures tr.individual-footer-names-row td').forEach((node) => {
-            const cell = node as HTMLElement;
-            cell.style.setProperty('padding-top', '3px', 'important');
-        });
-
-        root.querySelectorAll('.individual-footer-preview .xyz-signatures tr.individual-footer-names-row td > span').forEach((node) => {
-            const valueEl = node as HTMLElement;
-            valueEl.style.setProperty('transform', 'translateY(-2px)', 'important');
-            valueEl.style.setProperty('line-height', '1.2', 'important');
-        });
+    private applyIndividualFooterPdfLayout(clone: HTMLElement): void {
+        const bandCount = this.getIndividualFooterBands().length;
+        const placements = buildIndividualFooterPdfFieldPlacements(
+            this.template?.fields || [],
+            bandCount,
+            TemplateApprovalComponent.INDIVIDUAL_FOOTER_MIN_HEIGHT
+        );
+        if (placements.length > 0) {
+            syncIndividualFooterFieldsOnPdfClone(clone, placements);
+        }
+        applyIndividualFooterTemplatePdfCaptureStyles(clone);
     }
 
     private applyStepVisibilityToPdfClone(clone: HTMLElement, step: PipelineStep | null): void {

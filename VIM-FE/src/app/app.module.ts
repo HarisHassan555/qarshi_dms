@@ -172,6 +172,7 @@ import { TemplateApprovedApplicationsComponent } from './components/template-app
 import { MyApplicationComponent } from './components/my-application/my-application.component';
 import { UniverFormBuilderComponent } from './components/univer-form-builder/univer-form-builder.component';
 import { PortalAttachmentsPickerComponent } from './components/portal-attachments-picker/portal-attachments-picker.component';
+import { TemplateFillableTableFieldComponent } from './components/shared/template-fillable-table-field/template-fillable-table-field.component';
 import { ReportsComponent } from './components/reports/reports.component';
 import { AllApplicationsComponent } from './components/all-applications/all-applications.component';
 import { DocumentShareLinkButtonComponent } from './components/document-share-link-button/document-share-link-button.component';
@@ -329,6 +330,7 @@ import { DocumentShareViewComponent } from './components/document-share-view/doc
         AllApplicationsComponent,
         UniverFormBuilderComponent,
         PortalAttachmentsPickerComponent,
+        TemplateFillableTableFieldComponent,
         ReportsComponent,
         DocumentShareLinkButtonComponent,
         DocumentShareViewComponent

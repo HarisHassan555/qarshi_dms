@@ -1,0 +1,88 @@
+.table-editor-scroll {
+    max-width: 100%;
+    overflow: auto;
+}
+
+.fillable-table {
+    border-collapse: collapse;
+    min-width: 100%;
+    table-layout: fixed;
+}
+
+.fillable-table th.fill-table-index,
+.inline-fillable-table th.fill-table-index {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    box-sizing: border-box;
+    color: #94a3b8;
+    font-family: Arial, sans-serif;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.fillable-table tr.table-index-row,
+.inline-fillable-table tr.table-index-row {
+    height: 16px;
+}
+
+.fillable-table th.fill-table-index-corner,
+.inline-fillable-table th.fill-table-index-corner {
+    max-width: 22px;
+    min-width: 22px;
+    width: 22px;
+}
+
+.fill-table-index-remove {
+    background: transparent;
+    border: 0;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    height: 16px;
+    line-height: 14px;
+    padding: 0;
+    width: 100%;
+}
+
+.fillable-table th,
+.fillable-table td {
+    border: 1px solid #cbd5e1;
+    padding: 4px;
+    vertical-align: top;
+}
+
+.fillable-table th {
+    background: #f8fafc;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: left;
+}
+
+.fillable-table input {
+    border: 0;
+    border-radius: 0;
+    box-sizing: border-box;
+    min-width: 0;
+    padding: 5px 6px;
+    width: 100%;
+}
+
+.table-formula-expression-input {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 12px;
+}
+
+.inline-fillable-table th,
+.inline-fillable-table td {
+    padding: 3px;
+}
+
+.inline-fillable-table input {
+    background: transparent;
+}

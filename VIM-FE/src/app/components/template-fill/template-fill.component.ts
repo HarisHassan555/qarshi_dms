@@ -47,6 +47,11 @@ import {
     buildIndividualFooterTableBands,
     getIndividualFooterRenderedHeightPx
 } from 'src/app/utils/individual-footer-pipeline.util';
+import {
+    applyIndividualFooterTemplatePdfCaptureStyles,
+    buildIndividualFooterPdfFieldPlacements,
+    syncIndividualFooterFieldsOnPdfClone
+} from 'src/app/utils/individual-footer-pdf-capture.util';
 
 type TemplateFieldType =
     'document_header'
@@ -258,7 +263,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 await this.loadEditableApplication(applicationId, templateId);
             } else if (templateId) {
                 this.savedTemplate = await firstValueFrom(this.templateWorkflowService.getTemplate(templateId));
-                this.template = this.savedTemplate?.payload || null;
+                this.template = this.prepareTemplatePayload(this.savedTemplate?.payload);
             } else {
                 const rawTemplate = sessionStorage.getItem('templateBuilder:lastTemplate');
                 this.template = rawTemplate ? JSON.parse(rawTemplate) : null;
@@ -2363,9 +2368,10 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
 
         const formId = String(application?.serFormId || fallbackTemplateId || '');
         this.savedTemplate = await firstValueFrom(this.templateWorkflowService.getTemplate(formId));
-        this.template = this.savedTemplate?.payload || null;
-        this.editingApplication = application;
         const applicationDataForHtml = this.parseApplicationData(application?.txtApplicationData);
+        const snapshotPayload = applicationDataForHtml?.templatePayload;
+        this.template = this.prepareTemplatePayload(this.savedTemplate?.payload, snapshotPayload);
+        this.editingApplication = application;
         const savedDocumentHtml = String(
             applicationDataForHtml?.documentHtml
             || applicationDataForHtml?.templatePayload?.html
@@ -2574,7 +2580,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     private getMissingRequiredFields(): string[] {
         const missingFields = (this.template?.fields || [])
             .filter((field: TemplateField) =>
-                field.required
+                this.isTemplateFieldRequired(field)
                 && !this.isDocumentRegionFieldType(field.type)
                 && !this.isDynamicApprovalDataField(field)
                 && field.type !== 'application_code'
@@ -2584,13 +2590,75 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             .map((field: TemplateField) => field.label || field.placeholder || 'Unnamed field');
 
         const requiredIndividualFooter = (this.template?.fields || []).find((field: TemplateField) =>
-            field.type === 'individual_pipeline_footer' && field.required
+            field.type === 'individual_pipeline_footer' && this.isTemplateFieldRequired(field)
         );
-        if (requiredIndividualFooter && this.isRequiredIndividualFooterIncomplete()) {
+        if (
+            requiredIndividualFooter
+            && this.canCurrentStepFillField(requiredIndividualFooter)
+            && this.isRequiredIndividualFooterIncomplete()
+        ) {
             missingFields.push(requiredIndividualFooter.label || requiredIndividualFooter.placeholder || 'Individual Footer Sections');
         }
 
         return missingFields;
+    }
+
+    private prepareTemplatePayload(livePayload: any, snapshotPayload?: any | null): any | null {
+        if (!livePayload) {
+            return null;
+        }
+        const liveFields = Array.isArray(livePayload.fields) ? livePayload.fields as TemplateField[] : [];
+        const snapshotFields = snapshotPayload && Array.isArray(snapshotPayload.fields) ? snapshotPayload.fields as TemplateField[] : [];
+        const fields = snapshotFields.length > 0
+            ? this.mergeTemplateFieldDefinitions(snapshotFields, liveFields)
+            : liveFields.map((field) => ({ ...field, required: this.isTemplateFieldRequired(field) }));
+        const pipeline = Array.isArray(livePayload.pipeline) && livePayload.pipeline.length > 0
+            ? livePayload.pipeline
+            : (Array.isArray(snapshotPayload?.pipeline) ? snapshotPayload.pipeline : livePayload.pipeline);
+        return {
+            ...livePayload,
+            ...(snapshotPayload && typeof snapshotPayload === 'object' ? snapshotPayload : {}),
+            fields,
+            pipeline,
+            html: typeof snapshotPayload?.html === 'string' && snapshotPayload.html.length > 0
+                ? snapshotPayload.html
+                : livePayload.html
+        };
+    }
+
+    private mergeTemplateFieldDefinitions(savedFields: TemplateField[], liveFields: TemplateField[]): TemplateField[] {
+        const liveById = new Map(liveFields.map((field) => [field.id, field]));
+        const source = savedFields.length > 0 ? savedFields : liveFields;
+        if (source.length === 0) {
+            return liveFields;
+        }
+        return source.map((field) => {
+            const liveField = liveById.get(field.id);
+            if (!liveField) {
+                return field;
+            }
+            return {
+                ...liveField,
+                ...field,
+                required: this.isTemplateFieldRequired(field) || this.isTemplateFieldRequired(liveField)
+            };
+        });
+    }
+
+    isTemplateFieldRequired(field: TemplateField | null | undefined): boolean {
+        if (!field) {
+            return false;
+        }
+        const required = (field as { required?: unknown; blIsRequired?: unknown }).required
+            ?? (field as { blIsRequired?: unknown }).blIsRequired;
+        if (required === true || required === 1) {
+            return true;
+        }
+        if (required === false || required === 0 || required == null) {
+            return false;
+        }
+        const text = String(required).trim().toLowerCase();
+        return text === 'true' || text === '1' || text === 'yes';
     }
 
     private isRequiredIndividualFooterIncomplete(): boolean {
@@ -2912,7 +2980,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 clone.style.transform = 'none';
                 clone.style.width = `${pageWidth}px`;
                 this.prepareTemplatePdfFieldText(clone);
-                this.applyTemplateEmailFooterCaptureStyles(clone);
+                this.applyIndividualFooterPdfLayout(clone);
                 pageViewport.appendChild(clone);
                 captureHost.appendChild(pageViewport);
 
@@ -3052,30 +3120,17 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         });
     }
 
-    private applyTemplateEmailFooterCaptureStyles(root: HTMLElement): void {
-        root.querySelectorAll('.individual-footer-preview .xyz-signatures .xyz-signatures-blank td > div').forEach((node) => {
-            const wrapper = node as HTMLElement;
-            wrapper.style.setProperty('transform', 'translateY(-2px)', 'important');
-        });
-
-        root.querySelectorAll('.individual-footer-preview .xyz-signatures .xyz-sig-time').forEach((node) => {
-            const timeEl = node as HTMLElement;
-            timeEl.style.setProperty('font-size', '8px', 'important');
-            timeEl.style.setProperty('line-height', '1', 'important');
-            timeEl.style.setProperty('margin-top', '0', 'important');
-            timeEl.style.setProperty('transform', 'translateY(-2px)', 'important');
-        });
-
-        root.querySelectorAll('.individual-footer-preview .xyz-signatures tr.individual-footer-names-row td').forEach((node) => {
-            const cell = node as HTMLElement;
-            cell.style.setProperty('padding-top', '3px', 'important');
-        });
-
-        root.querySelectorAll('.individual-footer-preview .xyz-signatures tr.individual-footer-names-row td > span').forEach((node) => {
-            const valueEl = node as HTMLElement;
-            valueEl.style.setProperty('transform', 'translateY(-2px)', 'important');
-            valueEl.style.setProperty('line-height', '1.2', 'important');
-        });
+    private applyIndividualFooterPdfLayout(clone: HTMLElement): void {
+        const bandCount = this.getIndividualFooterBands().length;
+        const placements = buildIndividualFooterPdfFieldPlacements(
+            this.template?.fields || [],
+            bandCount,
+            TemplateFillComponent.INDIVIDUAL_FOOTER_MIN_HEIGHT
+        );
+        if (placements.length > 0) {
+            syncIndividualFooterFieldsOnPdfClone(clone, placements);
+        }
+        applyIndividualFooterTemplatePdfCaptureStyles(clone);
     }
 
     private attachInlineWordEditorToolbar(fieldId: string): void {
@@ -4033,7 +4088,9 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             return this.hasIndividualFooterPipeline() ? 'edit' : 'fill';
         }
 
-        const permission = (step.fieldPermissions || []).find((item) => item.fieldId === field.id);
+        const permission = (step.fieldPermissions || []).find((item) =>
+            item.fieldId === field.id || (item as { id?: string }).id === field.id
+        );
         return permission?.right || 'view';
     }
 

@@ -16,8 +16,9 @@
 
 .individual-footer-preview-inner {
     left: 14px !important;
+    overflow-x: hidden !important;
+    overflow-y: visible !important;
     right: 14px !important;
-    overflow: hidden !important;
     width: auto !important;
 }
 
@@ -52,6 +53,8 @@ table.individual-pipeline-footer-table tr.individual-footer-names-row td > span,
 table.individual-pipeline-footer-table tr.individual-footer-names-row td > div {
     font-size: 7.5px !important;
     line-height: 1.12 !important;
+    min-height: 44px !important;
+    overflow: visible !important;
     vertical-align: top !important;
 }
 

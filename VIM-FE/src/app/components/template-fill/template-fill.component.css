@@ -1720,9 +1720,11 @@
 
 .individual-footer-preview-inner {
     box-sizing: border-box;
-    bottom: 4px;
+    bottom: auto;
     left: 14px;
-    overflow: hidden;
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: visible;
     position: absolute;
     right: 14px;
     top: 0;
@@ -1737,6 +1739,10 @@
     width: 100%;
 }
 
+.individual-footer-preview.document-footer-preview table.xyz-signatures.individual-pipeline-footer-table {
+    height: auto !important;
+}
+
 .document-footer-preview td {
     border: 1px solid #000000;
     font-weight: 700;
@@ -1744,9 +1750,9 @@
     text-align: center;
 }
 
-.individual-footer-preview .xyz-signatures.individual-pipeline-footer-table {
+.individual-footer-preview table.xyz-signatures.individual-pipeline-footer-table {
     font-size: 11px;
-    height: auto;
+    height: auto !important;
     margin-top: 0;
     max-width: 100%;
     table-layout: fixed;
@@ -1765,9 +1771,15 @@
     padding: 2px 2px;
 }
 
+.individual-footer-preview .xyz-signatures.individual-pipeline-footer-table tr.individual-footer-names-row td {
+    max-width: none;
+    min-height: 44px;
+    overflow: visible;
+}
+
 .individual-footer-preview .xyz-signatures-blank td {
-    height: 40%;
-    min-height: 0;
+    height: auto;
+    min-height: 44px;
     padding: 2px 4px 4px 4px;
     vertical-align: middle;
 }

@@ -765,3 +765,20 @@
         grid-template-columns: 1fr;
     }
 }
+
+.table-field-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.inline-table-shell {
+    align-items: stretch;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    height: 100%;
+    overflow: auto;
+    width: 100%;
+}

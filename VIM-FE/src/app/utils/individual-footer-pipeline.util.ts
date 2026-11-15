@@ -1,8 +1,18 @@
 /** Max signature columns per row in Individual Pipeline (Footer) tables. */
 export const INDIVIDUAL_FOOTER_PIPELINE_MAX_SLOTS_PER_ROW = 6;
 
-/** Approximate vertical space per footer band (sig + header + names rows). */
-export const INDIVIDUAL_FOOTER_BAND_HEIGHT_PX = 78;
+/** Legacy rounded band height (sig + header + names). Prefer {@link getIndividualFooterBandStackHeightPx}. */
+export const INDIVIDUAL_FOOTER_BAND_HEIGHT_PX = 92;
+
+/** Matches `table.individual-pipeline-footer-table tr.xyz-signatures-blank` min height in global styles. */
+export const INDIVIDUAL_FOOTER_SIG_ROW_HEIGHT_PX = 44;
+
+export const INDIVIDUAL_FOOTER_HEADER_ROW_HEIGHT_PX = 20;
+
+/** Space for name + designation + department (up to ~4 wrapped lines at 7.5px). */
+export const INDIVIDUAL_FOOTER_NAMES_ROW_HEIGHT_PX = 48;
+
+export const INDIVIDUAL_FOOTER_BAND_GAP_PX = 4;
 
 export const INDIVIDUAL_FOOTER_MIN_RENDERED_HEIGHT_PX = 136;
 
@@ -61,16 +71,24 @@ export function buildIndividualFooterTableBands(
     return bands;
 }
 
+export function getIndividualFooterBandStackHeightPx(bandCount: number): number {
+    const bands = Math.max(1, Number(bandCount) || 1);
+    const rowStack =
+        INDIVIDUAL_FOOTER_SIG_ROW_HEIGHT_PX
+        + INDIVIDUAL_FOOTER_HEADER_ROW_HEIGHT_PX
+        + INDIVIDUAL_FOOTER_NAMES_ROW_HEIGHT_PX;
+    const gaps = Math.max(0, bands - 1) * INDIVIDUAL_FOOTER_BAND_GAP_PX;
+    const safety = bands * 6;
+    return bands * rowStack + gaps + safety + 8;
+}
+
 export function getIndividualFooterRenderedHeightPx(
     placementHeight: number,
     bandCount: number,
-    minHeight = INDIVIDUAL_FOOTER_MIN_RENDERED_HEIGHT_PX,
-    bandHeight = INDIVIDUAL_FOOTER_BAND_HEIGHT_PX
+    minHeight = INDIVIDUAL_FOOTER_MIN_RENDERED_HEIGHT_PX
 ): number {
     const base = Math.max(Number(placementHeight) || 0, minHeight);
     const bands = Math.max(1, Number(bandCount) || 1);
-    if (bands <= 1) {
-        return base;
-    }
-    return Math.max(base, bands * bandHeight + 8);
+    const stackHeight = getIndividualFooterBandStackHeightPx(bands);
+    return Math.max(base, stackHeight);
 }

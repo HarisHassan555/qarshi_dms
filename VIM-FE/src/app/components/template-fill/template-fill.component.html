@@ -124,12 +124,12 @@
             </div>
             <div class="empty-template" *ngIf="fillableFields.length === 0">No fillable fields found.</div>
             <div class="value-field" *ngFor="let field of panelFields">
-                <label [attr.for]="field.id">{{ field.label }}{{ field.required ? ' *' : '' }}</label>
+                <label [attr.for]="field.id">{{ field.label }}{{ isTemplateFieldRequired(field) ? ' *' : '' }}</label>
                 <textarea
                     *ngIf="field.type === 'textarea'"
                     [id]="field.id"
                     [(ngModel)]="values[field.id]"
-                    [required]="field.required"
+                    [required]="isTemplateFieldRequired(field)"
                     (ngModelChange)="onPanelValueChanged()">
                 </textarea>
                 <ckeditor
@@ -214,7 +214,7 @@
                     [id]="field.id"
                     [type]="getPanelInputType(field)"
                     [(ngModel)]="values[field.id]"
-                    [required]="field.required"
+                    [required]="isTemplateFieldRequired(field)"
                     [disabled]="!canCurrentStepFillField(field)"
                     (ngModelChange)="onPanelValueChanged()" />
             </div>

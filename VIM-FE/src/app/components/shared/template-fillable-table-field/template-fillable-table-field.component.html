@@ -1,0 +1,34 @@
+<div class="table-editor-scroll">
+    <table class="fillable-table" [class.inline-fillable-table]="inline">
+        <tbody>
+            <tr *ngIf="!tableFieldIndicatorsDismissed" class="table-index-row">
+                <th class="fill-table-index fill-table-index-corner">
+                    <button type="button" class="fill-table-index-remove" title="Remove row and column labels" (click)="dismissTableFieldIndicators($event)">×</button>
+                </th>
+                <th class="fill-table-index fill-table-col-label" *ngFor="let label of getTableIndicatorColumns()">{{ label }}</th>
+            </tr>
+            <tr *ngFor="let row of getTableRenderRows(); let rowIndex = index; trackBy: trackTableRow">
+                <th *ngIf="!tableFieldIndicatorsDismissed" class="fill-table-index">{{ rowIndex + 1 }}</th>
+                <td
+                    *ngFor="let cell of row.cells; trackBy: trackTableCell"
+                    [attr.colspan]="cell.colspan"
+                    [attr.rowspan]="cell.rowspan"
+                    [attr.class]="cell.className"
+                    [attr.style]="cell.style">
+                    <input
+                        *ngIf="cell.editable || cell.formula; else staticTableLabel"
+                        type="text"
+                        [class.table-formula-expression-input]="cell.formula && isTableFormulaEditing(cell.key)"
+                        [ngModel]="cell.formula ? tableFormulaInputValue(cell.key) : getTableCellValue(cell.key)"
+                        [disabled]="!editable"
+                        (focus)="beginTableCellEdit(cell, $event)"
+                        (blur)="endTableCellEdit(cell)"
+                        (ngModelChange)="onTableCellInput(cell, $event)" />
+                    <ng-template #staticTableLabel>
+                        <span [innerHTML]="cell.html"></span>
+                    </ng-template>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</div>

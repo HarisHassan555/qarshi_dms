@@ -39,6 +39,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.HashMap;
@@ -218,6 +219,9 @@ public class TemplateDefinitionController {
             int actorUserId = commonService.getCurrentLoggedInUser();
             applySubmitInitiatorAndDelegate(application, definition, actorUserId, true);
             assertTemplateAttachmentFieldSizeLimit(application.getTxtApplicationData(), actorUserId);
+            if (hasMissingRequiredInitiatorFields(application, definition)) {
+                throw new IllegalArgumentException("Please complete all required fields before submitting.");
+            }
             if (application.getTxtFormCode() == null || application.getTxtFormCode().trim().isEmpty()) {
                 application.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, null));
             } else {
@@ -2828,10 +2832,11 @@ public class TemplateDefinitionController {
 
             String approvedIp = RequestMetadataUtil.resolveClientIp(request);
             String approvedVia = resolveTemplateApprovalVia(requestBody);
-            if ("APPROVED".equals(action) && "EMAIL".equalsIgnoreCase(approvedVia)
-                    && hasMissingRequiredStepFieldsForEmailApproval(application)) {
-                throw new IllegalArgumentException(
-                        "Some fields are required. Kindly fill them on the portal, then approve the application from the portal.");
+            if ("APPROVED".equals(action) && hasMissingRequiredStepFieldsForEmailApproval(application)) {
+                String requiredFieldsMessage = "EMAIL".equalsIgnoreCase(approvedVia)
+                        ? "Some fields are required. Kindly fill them on the portal, then approve the application from the portal."
+                        : "Please complete all required fields before approving.";
+                throw new IllegalArgumentException(requiredFieldsMessage);
             }
             appendTemplateHistory(application, currentStep, actor.performedBy, actor.onBehalfOf, action, remarks,
                     displayLevelForIndex(safeLevel(application)), approvedIp, approvedVia);
@@ -3612,6 +3617,34 @@ public class TemplateDefinitionController {
         if (permissions.isEmpty()) {
             return false;
         }
+        return hasMissingRequiredFieldsForStepPermissions(appData, templatePayload, permissions);
+    }
+
+    private boolean hasMissingRequiredInitiatorFields(CfgTblCustomFormApplication application,
+                                                      TemplateDefinition definition) {
+        if (application == null) {
+            return false;
+        }
+        Map<String, Object> appData = parseMap(application.getTxtApplicationData());
+        Map<String, Object> templatePayload = resolveApplicationTemplatePayload(appData, null, definition);
+        Map<String, Object> initiatorStep = resolveInitiatorPipelineRawStep(templatePayload);
+        List<Map<String, Object>> permissions = initiatorStep != null
+                ? asListOfMaps(initiatorStep.get("fieldPermissions"))
+                : Collections.emptyList();
+        boolean permissionsConfigured = initiatorStep != null
+                && isTemplateWorkflowTruthy(initiatorStep.get("fieldPermissionsConfigured"));
+        if (permissionsConfigured && !permissions.isEmpty()) {
+            return hasMissingRequiredFieldsForStepPermissions(appData, templatePayload, permissions);
+        }
+        return hasMissingRequiredDefaultInitiatorFields(appData, templatePayload);
+    }
+
+    private boolean hasMissingRequiredFieldsForStepPermissions(Map<String, Object> appData,
+                                                               Map<String, Object> templatePayload,
+                                                               List<Map<String, Object>> permissions) {
+        if (permissions == null || permissions.isEmpty() || templatePayload == null) {
+            return false;
+        }
         Map<String, Map<String, Object>> fieldsById = new LinkedHashMap<>();
         for (Map<String, Object> field : asListOfMaps(templatePayload.get("fields"))) {
             if (field == null) {
@@ -3657,6 +3690,60 @@ public class TemplateDefinitionController {
         return false;
     }
 
+    private boolean hasMissingRequiredDefaultInitiatorFields(Map<String, Object> appData,
+                                                             Map<String, Object> templatePayload) {
+        if (templatePayload == null) {
+            return false;
+        }
+        Map<String, Object> templateValues = asMap(appData.get("templateValues"));
+        for (Map<String, Object> field : asListOfMaps(templatePayload.get("fields"))) {
+            if (field == null || !isTemplateFieldMarkedRequired(field)) {
+                continue;
+            }
+            String fieldType = firstText(field.get("type"), "");
+            if (isDocumentRegionOrSystemFieldType(fieldType)) {
+                continue;
+            }
+            String fieldId = firstText(field.get("id"), field.get("fieldId"));
+            if (fieldId == null || fieldId.trim().isEmpty()) {
+                continue;
+            }
+            fieldId = fieldId.trim();
+            Object value = templateValues.containsKey(fieldId) ? templateValues.get(fieldId) : appData.get(fieldId);
+            if (isTemplateFieldValueEmpty(fieldType, value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Map<String, Object> resolveInitiatorPipelineRawStep(Map<String, Object> templatePayload) {
+        if (templatePayload == null) {
+            return null;
+        }
+        for (Map<String, Object> rawStep : asListOfMaps(templatePayload.get("pipeline"))) {
+            if (rawStep == null || rawStep.isEmpty()) {
+                continue;
+            }
+            String type = valueAsString(rawStep.get("type"));
+            if (type != null && "initiator".equalsIgnoreCase(type.trim())) {
+                return rawStep;
+            }
+        }
+        return null;
+    }
+
+    private boolean isTemplateWorkflowTruthy(Object value) {
+        if (value instanceof Boolean) {
+            return Boolean.TRUE.equals(value);
+        }
+        if (value == null) {
+            return false;
+        }
+        String text = String.valueOf(value).trim();
+        return "true".equalsIgnoreCase(text) || "1".equals(text) || "yes".equalsIgnoreCase(text);
+    }
+
     private Map<String, Object> resolveCurrentPipelineRawStep(CfgTblCustomFormApplication application,
                                                               Map<String, Object> templatePayload) {
         if (application == null || templatePayload == null) {
@@ -3688,6 +3775,9 @@ public class TemplateDefinitionController {
             return false;
         }
         Object required = field.get("required");
+        if (required == null) {
+            required = field.get("blIsRequired");
+        }
         if (required instanceof Boolean) {
             return Boolean.TRUE.equals(required);
         }
@@ -4340,6 +4430,9 @@ public class TemplateDefinitionController {
         workflowThresholdRuleApplyService.applyActiveRulesOnSubmit(existing);
         applySubmitInitiatorAndDelegate(existing, definition, actorUserId, true);
         assertTemplateAttachmentFieldSizeLimit(existing.getTxtApplicationData(), actorUserId);
+        if (hasMissingRequiredInitiatorFields(existing, definition)) {
+            throw new IllegalArgumentException("Please complete all required fields before submitting.");
+        }
         if (existing.getTxtFormCode() == null || existing.getTxtFormCode().trim().isEmpty()) {
             existing.setTxtFormCode(resolveUniqueTemplateApplicationCode(definition, incoming.getTxtFormCode()));
         } else {

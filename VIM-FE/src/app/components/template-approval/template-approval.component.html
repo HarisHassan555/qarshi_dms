@@ -22,8 +22,8 @@
             <button *ngIf="hasAttachmentFields" type="button" class="btn btn-outline" (click)="openAttachmentsModal()">
                 View Attachments
             </button>
-            <button type="button" class="btn btn-outline-primary" [disabled]="isLoading || isActing" (click)="downloadApplicationPdf()">
-                Download PDF
+            <button type="button" class="btn btn-outline-primary" [disabled]="isLoading || isActing || isDownloadingPdf" (click)="downloadApplicationPdf()">
+                {{ isDownloadingPdf ? 'Downloading...' : 'Download PDF' }}
             </button>
             <button type="button" class="btn btn-outline-primary" [disabled]="isLoading || isActing || isDownloadingWithLogsPdf" (click)="downloadApplicationWithLogsPdf()">
                 {{ isDownloadingWithLogsPdf ? 'Downloading...' : 'Download PDF With Logs' }}
@@ -83,7 +83,7 @@
             <div class="value-field" *ngFor="let field of panelFields; trackBy: trackByFieldId"
                 [class.is-readonly-field]="!canCurrentStepEditField(field)">
                 <label [attr.for]="field.id">
-                    {{ field.label }}{{ field.required && canCurrentStepEditField(field) ? ' *' : '' }}
+                    {{ field.label }}{{ isTemplateFieldRequired(field) && canCurrentStepEditField(field) ? ' *' : '' }}
                     <span class="field-right-badge" *ngIf="canCurrentStepEditField(field)">editable</span>
                 </label>
                 <textarea
@@ -164,8 +164,18 @@
                         </div>
                     </div>
                 </div>
+                <div *ngIf="isTableField(field)" class="table-field-panel">
+                    <app-template-fillable-table-field
+                        [field]="field"
+                        [cellValues]="values[field.id]"
+                        [editable]="canCurrentStepEditField(field)"
+                        [inline]="false"
+                        (cellValuesChange)="onApprovalTableCellValuesChange(field, $event)"
+                        (tableHtmlChange)="onApprovalTableHtmlChange(field, $event)">
+                    </app-template-fillable-table-field>
+                </div>
                 <input
-                    *ngIf="field.type !== 'textarea' && field.type !== 'word_editor' && field.type !== 'checkbox' && field.type !== 'radio' && !isAttachmentField(field)"
+                    *ngIf="field.type !== 'textarea' && field.type !== 'word_editor' && field.type !== 'checkbox' && field.type !== 'radio' && field.type !== 'table' && !isAttachmentField(field)"
                     [id]="field.id"
                     [type]="getPanelInputType(field)"
                     [(ngModel)]="values[field.id]"
@@ -397,6 +407,19 @@
                             </div>
                         </ng-container>
                         <ng-template #nonSignatureField>
+                            <ng-container *ngIf="field.type === 'table'; else nonTableCanvasField">
+                                <div class="inline-table-shell" [attr.data-field-id]="field.id" [ngStyle]="getInputStyle(field)">
+                                    <app-template-fillable-table-field
+                                        [field]="field"
+                                        [cellValues]="values[field.id]"
+                                        [editable]="canCurrentStepEditField(field)"
+                                        [inline]="true"
+                                        (cellValuesChange)="onApprovalTableCellValuesChange(field, $event)"
+                                        (tableHtmlChange)="onApprovalTableHtmlChange(field, $event)">
+                                    </app-template-fillable-table-field>
+                                </div>
+                            </ng-container>
+                            <ng-template #nonTableCanvasField>
                             <ng-container *ngIf="field.type === 'word_editor' && canCurrentStepEditField(field); else plainFieldValue">
                                 <div
                                     class="inline-word-editor-shell"
@@ -436,7 +459,7 @@
                                             <input type="checkbox" [(ngModel)]="values[field.id]" (ngModelChange)="onPanelValueChanged(field)" />
                                         </label>
                                         <input
-                                            *ngIf="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'radio' && !isAttachmentField(field)"
+                                            *ngIf="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'radio' && field.type !== 'table' && !isAttachmentField(field)"
                                             class="filled-field-editor"
                                             [type]="getPanelInputType(field)"
                                             [ngStyle]="getInputStyle(field)"
@@ -452,6 +475,7 @@
                                         </span>
                                     </ng-template>
                                 </ng-template>
+                            </ng-template>
                             </ng-template>
                         </ng-template>
                     </ng-template>
