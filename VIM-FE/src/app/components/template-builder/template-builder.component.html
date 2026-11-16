@@ -1,11 +1,11 @@
 <div class="template-builder-page">
-    <div class="builder-header" data-tour="builder-header">
+    <div class="builder-header">
         <div>
             <input class="template-name-input" [(ngModel)]="templateName" aria-label="Template name" />
             <input class="code-convention-input" [(ngModel)]="codeConvention" aria-label="Code convention" placeholder="ABCD-0000" />
             <div class="template-subtitle">Digital document designer with embedded form fields and a local approval pipeline.</div>
         </div>
-        <div class="header-actions" data-tour="builder-header-actions">
+        <div class="header-actions">
             <div class="orientation-toggle" role="group" aria-label="Page orientation">
                 <button
                     type="button"
@@ -23,17 +23,12 @@
                 </button>
             </div>
             <button type="button" class="btn btn-outline" (click)="addPage()">Add Page</button>
-            <button type="button" class="btn btn-outline" [disabled]="isSavingTemplate" (click)="saveTemplateAsDraft()">
-                {{ isSavingTemplate ? 'Saving...' : 'Save as Draft' }}
-            </button>
-            <button type="button" class="btn btn-primary" [disabled]="isSavingTemplate" (click)="saveTemplate()">
-                {{ isSavingTemplate ? 'Saving...' : 'Save' }}
-            </button>
+            <button type="button" class="btn btn-primary" (click)="saveTemplate()">Save</button>
         </div>
     </div>
 
     <div class="builder-shell">
-        <aside class="builder-panel left-panel" data-tour="builder-left-panel">
+        <aside class="builder-panel left-panel">
             <div class="panel-section">
                 <h3>Hardcopy Form</h3>
                 <label class="file-upload-control">
@@ -74,40 +69,14 @@
             </div>
         </aside>
 
-        <main class="document-stage" [class.payload-open]="previewMode" data-tour="builder-stage">
-            <div *ngIf="!previewMode" class="paper-wrap" (wheel)="onDocumentStageWheel($event)">
-                <div class="builder-stage-zoom-bar" aria-label="Document zoom controls">
-                    <span class="builder-stage-zoom-label">Canvas zoom</span>
-                    <button
-                        type="button"
-                        class="btn btn-outline btn-sm builder-stage-zoom-btn"
-                        title="Zoom out"
-                        [disabled]="documentZoom <= documentZoomMin"
-                        (click)="zoomOutDocument()">
-                        −
-                    </button>
-                    <button type="button" class="btn btn-outline btn-sm builder-stage-zoom-btn builder-stage-zoom-reset" (click)="resetDocumentZoom()">
-                        {{ documentZoomPercentLabel }}
-                    </button>
-                    <button
-                        type="button"
-                        class="btn btn-outline btn-sm builder-stage-zoom-btn"
-                        title="Zoom in"
-                        [disabled]="documentZoom >= documentZoomMax"
-                        (click)="zoomInDocument()">
-                        +
-                    </button>
-                    <span class="builder-stage-zoom-hint">Ctrl + scroll to zoom</span>
-                </div>
-                <div
-                    class="builder-zoom-slot"
-                    [style.width.px]="zoomedDocumentWidth"
-                    [style.height.px]="zoomedDocumentHeight">
+        <main class="document-stage" [class.payload-open]="previewMode">
+            <div *ngIf="!previewMode" class="paper-wrap">
                 <div
                     #editorFrame
                     class="editor-frame"
                     [class.has-background]="backgroundFile"
-                    [ngStyle]="documentZoomTransform"
+                    [style.width.px]="pageWidth"
+                    [style.min-height.px]="pageCount * pageHeight + ((pageCount - 1) * pageGap)"
                     [style.--template-document-height]="(pageCount * pageHeight + ((pageCount - 1) * pageGap)) + 'px'"
                     [style.--template-page-height]="pageHeight + 'px'"
                     [style.--template-page-gap]="pageGap + 'px'">
@@ -136,8 +105,9 @@
                         class="template-ckeditor"
                         [editor]="wordEditor"
                         [config]="wordEditorConfig"
+                        [(ngModel)]="editorContent"
                         (ready)="onEditorReady($event)"
-                        (change)="onEditorContentChanged($event)">
+                        (change)="onEditorContentChanged()">
                     </ckeditor>
                     <div
                         #fieldLayer
@@ -185,28 +155,29 @@
                                     <ng-container *ngIf="field.type === 'individual_pipeline_footer'; else regularFooterPreview">
                                         <div class="document-footer-preview individual-footer-preview">
                                             <div class="individual-footer-preview-inner">
-                                                <table class="xyz-signatures individual-pipeline-footer-table" *ngIf="getBuilderIndividualFooterSections() as sections">
-                                                    <ng-container *ngFor="let band of getBuilderIndividualFooterBands(); let bandIndex = index">
-                                                        <tr class="xyz-signatures-blank individual-footer-sig-row"
-                                                            [class.individual-footer-band-continued]="bandIndex > 0">
-                                                            <td *ngFor="let cell of band.cells">
+                                                <table class="xyz-signatures" *ngIf="getBuilderIndividualFooterSections() as sections">
+                                                    <tr class="xyz-signatures-blank">
+                                                        <ng-container *ngFor="let section of sections">
+                                                            <td *ngFor="let slotUser of getBuilderIndividualFooterSlots(section)">
                                                                 <div>
-                                                                    <span class="xyz-sig-label">{{ getBuilderIndividualFooterSignatureLabel(cell.slotUser) }}</span>
-                                                                    <span class="xyz-sig-time">{{ getBuilderIndividualFooterTimestampLabel(cell.slotUser) }}</span>
+                                                                    <span class="xyz-sig-label">{{ getBuilderIndividualFooterSignatureLabel(slotUser) }}</span>
+                                                                    <span class="xyz-sig-time">{{ getBuilderIndividualFooterTimestampLabel(slotUser) }}</span>
                                                                 </div>
                                                             </td>
-                                                        </tr>
-                                                        <tr class="individual-footer-header-row">
-                                                            <th *ngFor="let seg of band.headerSegments" [attr.colspan]="seg.colspan">
-                                                                {{ seg.section.label || 'New Field' }}:
-                                                            </th>
-                                                        </tr>
-                                                        <tr class="individual-footer-names-row">
-                                                            <td *ngFor="let cell of band.cells">
-                                                                <span [innerHTML]="getBuilderIndividualFooterUserLabel(cell.slotUser)"></span>
+                                                        </ng-container>
+                                                    </tr>
+                                                    <tr>
+                                                        <th *ngFor="let section of sections" [attr.colspan]="getBuilderIndividualFooterColSpan(section)">
+                                                            {{ section.label || 'New Field' }}:
+                                                        </th>
+                                                    </tr>
+                                                    <tr>
+                                                        <ng-container *ngFor="let section of sections">
+                                                            <td *ngFor="let slotUser of getBuilderIndividualFooterSlots(section)">
+                                                                <span [innerHTML]="getBuilderIndividualFooterUserLabel(slotUser)"></span>
                                                             </td>
-                                                        </tr>
-                                                    </ng-container>
+                                                        </ng-container>
+                                                    </tr>
                                                 </table>
                                             </div>
                                         </div>
@@ -296,13 +267,12 @@
                         </ng-container>
                     </div>
                 </div>
-                </div>
             </div>
 
             <pre *ngIf="previewMode" class="payload-preview">{{ getTemplatePayload() }}</pre>
         </main>
 
-        <aside class="builder-panel right-panel" data-tour="builder-right-panel">
+        <aside class="builder-panel right-panel">
             <div class="panel-section" *ngIf="selectedField as field">
                 <div class="panel-title-row panel-title-row-collapsible">
                     <h3>Field Properties</h3>
@@ -419,8 +389,17 @@
                     <div class="table-field-properties" *ngIf="field.type === 'table'">
                         <div class="radio-option-properties-header">
                             <strong>Table Design</strong>
-                            <span>Edit the selected table on the document canvas (one editor per table field). Use table tools for rows, columns, merges, and styling. Empty cells become fillable.</span>
+                            <span>Use CKEditor table tools to add rows, columns, merged cells, and styling. Empty cells become fillable.</span>
                         </div>
+                        <ckeditor
+                            class="table-design-editor"
+                            [editor]="wordEditor"
+                            [config]="tableFieldEditorConfig"
+                            [ngModel]="field.tableHtml"
+                            (ngModelChange)="onTableFieldHtmlChanged(field, $event)"
+                            (change)="onTableFieldEditorChanged(field, $event)"
+                            (ready)="onTableDesignEditorReady(field, $event)">
+                        </ckeditor>
                     </div>
                 </div>
             </div>
@@ -428,7 +407,7 @@
             <div class="panel-section">
                 <div class="panel-title-row">
                     <h3>Pipeline Steps</h3>
-                    <button type="button" class="icon-add-btn" title="Add pipeline step" (click)="onAddPipelineClicked()">+</button>
+                    <button type="button" class="icon-add-btn" title="Add pipeline step" (click)="openPipelineModal()">+</button>
                 </div>
                 <div
                     *ngFor="let step of pipelineSteps; let i = index"
@@ -458,7 +437,7 @@
     </div>
 
     <div class="modal-backdrop" *ngIf="showFieldModal" (click)="closeFieldModal()">
-        <div class="builder-modal" (click)="$event.stopPropagation()" data-tour="builder-field-modal">
+        <div class="builder-modal" (click)="$event.stopPropagation()">
             <div class="modal-header">
                 <h3>Assign Field</h3>
                 <button type="button" title="Close" (click)="closeFieldModal()">x</button>
@@ -520,72 +499,6 @@
         </div>
     </div>
 
-    <div class="modal-backdrop" *ngIf="showPipelineSourceModal" (click)="closePipelineSourceModal()">
-        <div class="builder-modal pipeline-source-modal" (click)="$event.stopPropagation()">
-            <div class="modal-header">
-                <h3>Add Pipeline</h3>
-                <button type="button" title="Close" (click)="closePipelineSourceModal()">x</button>
-            </div>
-            <p class="pipeline-source-intro">
-                Build this template’s approval flow by adding steps one at a time, or load a reusable pipeline from the library.
-            </p>
-            <div class="pipeline-source-options">
-                <button type="button" class="pipeline-source-card" (click)="choosePipelineManualStep()">
-                    <strong>Create new step</strong>
-                    <span>Add a department, role, or individual approver step to the current pipeline.</span>
-                </button>
-                <button type="button" class="pipeline-source-card" (click)="openPipelineLibraryPicker()">
-                    <strong>Use existing pipeline</strong>
-                    <span>Replace pipeline steps with a saved workflow from Master Data → Workflow Pipelines.</span>
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal-backdrop" *ngIf="showPipelineLibraryModal" (click)="closePipelineLibraryModal()">
-        <div class="builder-modal pipeline-library-modal" (click)="$event.stopPropagation()">
-            <div class="modal-header">
-                <h3>Select Workflow Pipeline</h3>
-                <button type="button" title="Close" (click)="closePipelineLibraryModal()">x</button>
-            </div>
-            <input
-                type="text"
-                class="form-input pipeline-library-search"
-                [(ngModel)]="libraryPipelineSearch"
-                placeholder="Search name or code…" />
-            <p class="pipeline-library-hint text-sm text-gray-500" *ngIf="linkedWorkflowPipelineId">
-                Current link: library pipeline #{{ linkedWorkflowPipelineId }} (loading another replaces steps).
-            </p>
-            <div *ngIf="libraryPipelinesLoading" class="pipeline-library-status">Loading pipelines…</div>
-            <div *ngIf="!libraryPipelinesLoading && libraryPipelinesError" class="pipeline-library-status text-danger">
-                {{ libraryPipelinesError }}
-            </div>
-            <div
-                class="pipeline-library-list"
-                *ngIf="!libraryPipelinesLoading && !libraryPipelinesError">
-                <button
-                    type="button"
-                    class="pipeline-library-row"
-                    *ngFor="let row of getFilteredLibraryPipelines()"
-                    [class.is-selected]="selectedLibraryPipelineId === row.id"
-                    (click)="selectLibraryPipeline(row)">
-                    <div>
-                        <strong>{{ row.name }}</strong>
-                        <div class="text-xs text-gray-500">{{ row.code || 'No code' }} · {{ row.stepCount }} step(s)</div>
-                        <div class="text-xs text-gray-400 truncate" *ngIf="row.description">{{ row.description }}</div>
-                    </div>
-                </button>
-                <div class="pipeline-library-status" *ngIf="getFilteredLibraryPipelines().length === 0">
-                    No pipelines found.
-                </div>
-            </div>
-            <div class="pipeline-library-actions">
-                <button type="button" class="btn btn-outline" (click)="closePipelineLibraryModal()">Cancel</button>
-                <button type="button" class="btn btn-primary" (click)="applySelectedLibraryPipeline()">Load pipeline</button>
-            </div>
-        </div>
-    </div>
-
     <div class="modal-backdrop" *ngIf="showPipelineModal" (click)="closePipelineModal()">
         <div class="builder-modal pipeline-modal" (click)="$event.stopPropagation()">
             <div class="modal-header">
@@ -620,8 +533,8 @@
                 </select>
             </label>
 
-            <ng-container *ngIf="newPipelineType === 'individual'">
-                <label>Employees</label>
+            <label *ngIf="newPipelineType === 'individual'">
+                Employees
                 <div class="pipeline-user-dropdown" (click)="$event.stopPropagation()">
                     <button
                         type="button"
@@ -639,31 +552,22 @@
                                 [(ngModel)]="pipelineUserSearchTerm"
                                 placeholder="Search employees"
                                 (click)="$event.stopPropagation()" />
-                            <button
-                                type="button"
-                                class="pipeline-user-search-close"
-                                title="Close employee list"
-                                aria-label="Close employee list"
-                                (click)="closePipelineUserDropdown($event)">
-                                ×
-                            </button>
                         </div>
 
                         <div class="empty-state compact-empty-state" *ngIf="filteredPipelineUserOptions.length === 0">
                             No employees found.
                         </div>
 
-                        <div
-                            class="pipeline-user-option"
-                            *ngFor="let user of filteredPipelineUserOptions; trackBy: trackPipelineUserOption"
-                            [class.is-selected]="isPipelineUserSelected(user)"
-                            (click)="togglePipelineUserOption(user, $event)">
+                        <label class="pipeline-user-option" *ngFor="let user of filteredPipelineUserOptions">
                             <span>{{ getUserName(user) }}</span>
-                            <span class="pipeline-user-check" [class.is-checked]="isPipelineUserSelected(user)"></span>
-                        </div>
+                            <input
+                                type="checkbox"
+                                [checked]="isPipelineUserSelected(user)"
+                                (change)="onPipelineUserSelectionChanged(user, $any($event.target).checked)" />
+                        </label>
                     </div>
                 </div>
-            </ng-container>
+            </label>
 
             <div class="approval-mode-row" *ngIf="shouldShowPipelineApprovalMode()">
                 <span>Step Logic</span>
@@ -768,5 +672,4 @@
             <button type="button" class="btn btn-secondary full-width" (click)="savePipelineRights()">Save Rights</button>
         </div>
     </div>
-
 </div>

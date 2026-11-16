@@ -150,6 +150,7 @@ import { AbcComponent } from './pages/abc/abc.component';
 import { FormDocumentHeaderComponent } from './components/form-document-header/form-document-header.component';
 import { CustomDocumentBuilderComponent } from './components/custom-document-builder/custom-document-builder.component';
 import { RolesManagementComponent } from './components/roles-management/roles-management.component';
+import { RoleApplicationManagementComponent } from './components/roles-management/role-application-management.component';
 import { MenuListComponent } from './components/menu-list/menu-list.component';
 import { SubmenuListComponent } from './components/submenu-list/submenu-list.component';
 import { ActivityLogsComponent } from './components/activity-logs/activity-logs.component';
@@ -162,6 +163,7 @@ import { SubAreasComponent } from './components/sub-areas/sub-areas.component';
 import { DivisionsComponent } from './components/divisions/divisions.component';
 import { WorkflowPipelinesComponent } from './components/workflow-pipelines/workflow-pipelines.component';
 import { EmailTemplatesComponent } from './components/email-templates/email-templates.component';
+import { EmailDeliveryLogComponent } from './components/email-delivery-log/email-delivery-log.component';
 import { SummernoteEditorComponent } from './components/summernote-editor/summernote-editor.component';
 import { TemplateBuilderComponent } from './components/template-builder/template-builder.component';
 import { TemplateFillComponent } from './components/template-fill/template-fill.component';
@@ -305,8 +307,8 @@ import { DocumentShareViewComponent } from './components/document-share-view/doc
         FormDocumentHeaderComponent,
         CustomDocumentBuilderComponent,
         ApprovedApplicationsComponent,
-        RolesManagementComponent
-        ,
+        RolesManagementComponent,
+        RoleApplicationManagementComponent,
         MenuListComponent,
         SubmenuListComponent,
         ActivityLogsComponent,
@@ -319,6 +321,7 @@ import { DocumentShareViewComponent } from './components/document-share-view/doc
         DivisionsComponent,
         WorkflowPipelinesComponent,
         EmailTemplatesComponent,
+        EmailDeliveryLogComponent,
         SummernoteEditorComponent,
         TemplateBuilderComponent,
         TemplateFillComponent,

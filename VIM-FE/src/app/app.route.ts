@@ -94,6 +94,7 @@ import { SubAreasComponent } from './components/sub-areas/sub-areas.component';
 import { DivisionsComponent } from './components/divisions/divisions.component';
 import { WorkflowPipelinesComponent } from './components/workflow-pipelines/workflow-pipelines.component';
 import { EmailTemplatesComponent } from './components/email-templates/email-templates.component';
+import { EmailDeliveryLogComponent } from './components/email-delivery-log/email-delivery-log.component';
 import { TemplateBuilderComponent } from './components/template-builder/template-builder.component';
 import { TemplateFillComponent } from './components/template-fill/template-fill.component';
 import { TemplateFormsComponent } from './components/template-forms/template-forms.component';
@@ -183,7 +184,7 @@ export const routes: Routes = [
             },
             { path: 'Dashboard', canActivate: [canActivate], component: FinanceComponent, title: 'Dash Board' },
             { path: 'role', canActivate: [canActivate], component: PermissionComponent, title: 'Permission' },
-            { path: 'roles', canActivate: [canActivate], component: RolesManagementComponent, title: 'Role Management' },
+            { path: 'roles', canActivate: [canActivate], component: RolesManagementComponent, title: 'Role & Application Management' },
             { path: 'channel', canActivate: [canActivate], component: ChannelComponent, title: 'Channel' },
             { path: 'service-order', canActivate: [canActivate], component: ServiceOrderComponent, title: 'Service Order' },
             { path: 'menu-list', canActivate: [canActivate], component: MenuListComponent, title: 'Menu List' },
@@ -235,6 +236,12 @@ export const routes: Routes = [
             { path: 'divisions', canActivate: [canActivate], component: DivisionsComponent, title: 'Divisions' },
             { path: 'workflow-pipelines', canActivate: [canActivate], component: WorkflowPipelinesComponent, title: 'Workflow Pipelines' },
             { path: 'email-templates', canActivate: [canActivate], component: EmailTemplatesComponent, title: 'Email Templates' },
+            {
+                path: 'email-delivery-log',
+                canActivate: [canActivate],
+                component: EmailDeliveryLogComponent,
+                title: 'Email Delivery Log',
+            },
             { path: 'reports', canActivate: [canActivate], component: ReportsComponent, title: 'Reports' },
 
 

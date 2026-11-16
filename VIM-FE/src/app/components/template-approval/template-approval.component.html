@@ -84,7 +84,6 @@
                 [class.is-readonly-field]="!canCurrentStepEditField(field)">
                 <label [attr.for]="field.id">
                     {{ field.label }}{{ isTemplateFieldRequired(field) && canCurrentStepEditField(field) ? ' *' : '' }}
-                    <span class="field-right-badge" *ngIf="canCurrentStepEditField(field)">editable</span>
                 </label>
                 <textarea
                     *ngIf="field.type === 'textarea'"
@@ -94,6 +93,16 @@
                     [disabled]="!canCurrentStepEditField(field)"
                     (ngModelChange)="onPanelValueChanged(field)">
                 </textarea>
+                <div *ngIf="field.type === 'word_editor'" class="panel-word-editor-field">
+                    <ckeditor
+                        [editor]="wordEditor"
+                        [config]="wordEditorConfig"
+                        [(ngModel)]="values[field.id]"
+                        [disabled]="!canCurrentStepEditField(field)"
+                        (ready)="onPanelWordEditorReady(field, $event)"
+                        (change)="onWordEditorChanged(field, $event)">
+                    </ckeditor>
+                </div>
                 <label *ngIf="field.type === 'checkbox'" class="panel-checkbox">
                     <input type="checkbox" [(ngModel)]="values[field.id]" [disabled]="!canCurrentStepEditField(field)" (ngModelChange)="onPanelValueChanged(field)" />
                     Checked
@@ -412,7 +421,7 @@
                                     <app-template-fillable-table-field
                                         [field]="field"
                                         [cellValues]="values[field.id]"
-                                        [editable]="canCurrentStepEditField(field)"
+                                        [editable]="canEditFieldOnDocumentCanvas(field)"
                                         [inline]="true"
                                         (cellValuesChange)="onApprovalTableCellValuesChange(field, $event)"
                                         (tableHtmlChange)="onApprovalTableHtmlChange(field, $event)">
@@ -420,62 +429,18 @@
                                 </div>
                             </ng-container>
                             <ng-template #nonTableCanvasField>
-                            <ng-container *ngIf="field.type === 'word_editor' && canCurrentStepEditField(field); else plainFieldValue">
-                                <div
-                                    class="inline-word-editor-shell"
-                                    [class.is-active]="isInlineWordEditorActive(field)"
-                                    [attr.data-field-id]="field.id"
-                                    [ngStyle]="getInputStyle(field)"
-                                    (mousedown)="activateInlineWordEditor(field)">
-                                    <ckeditor
-                                        class="inline-word-editor"
-                                        [editor]="wordEditor"
-                                        [config]="wordEditorConfig"
-                                        [(ngModel)]="values[field.id]"
-                                        (ready)="onInlineWordEditorReady(field, $event)"
-                                        (focus)="onInlineWordEditorFocus(field)"
-                                        (change)="onWordEditorChanged(field, $event)">
-                                    </ckeditor>
-                                </div>
-                            </ng-container>
-                            <ng-template #plainFieldValue>
-                                <ng-container *ngIf="field.type === 'word_editor'; else plainTextFieldValue">
+                                <ng-container *ngIf="field.type === 'word_editor'; else canvasPlainTextValue">
                                     <div
                                         class="filled-field-value word-editor-filled-value"
                                         [ngStyle]="getInputStyle(field)"
                                         [innerHTML]="getFieldValueHtml(field)">
                                     </div>
                                 </ng-container>
-                                <ng-template #plainTextFieldValue>
-                                    <ng-container *ngIf="canCurrentStepEditField(field); else readOnlyPlainTextValue">
-                                        <textarea
-                                            *ngIf="field.type === 'textarea'"
-                                            class="filled-field-editor"
-                                            [ngStyle]="getInputStyle(field)"
-                                            [(ngModel)]="values[field.id]"
-                                            (ngModelChange)="onPanelValueChanged(field)">
-                                        </textarea>
-                                        <label *ngIf="field.type === 'checkbox'" class="filled-field-checkbox">
-                                            <input type="checkbox" [(ngModel)]="values[field.id]" (ngModelChange)="onPanelValueChanged(field)" />
-                                        </label>
-                                        <input
-                                            *ngIf="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'radio' && field.type !== 'table' && !isAttachmentField(field)"
-                                            class="filled-field-editor"
-                                            [type]="getPanelInputType(field)"
-                                            [ngStyle]="getInputStyle(field)"
-                                            [(ngModel)]="values[field.id]"
-                                            (ngModelChange)="onPanelValueChanged(field)" />
-                                        <span *ngIf="field.type === 'radio' || isAttachmentField(field)" class="filled-field-value" [ngStyle]="getInputStyle(field)">
-                                            {{ getFieldValueText(field) }}
-                                        </span>
-                                    </ng-container>
-                                    <ng-template #readOnlyPlainTextValue>
-                                        <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
-                                            {{ getFieldValueText(field) }}
-                                        </span>
-                                    </ng-template>
+                                <ng-template #canvasPlainTextValue>
+                                    <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                                        {{ getFieldValueText(field) }}
+                                    </span>
                                 </ng-template>
-                            </ng-template>
                             </ng-template>
                         </ng-template>
                     </ng-template>

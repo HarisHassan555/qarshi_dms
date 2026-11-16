@@ -1,4 +1,5 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { RoleApplicationManagementComponent } from './role-application-management.component';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { forkJoin, of } from 'rxjs';
 import { catchError, finalize, switchMap } from 'rxjs/operators';
@@ -21,12 +22,23 @@ interface MenuNode {
     subMenus: SubMenuNode[];
 }
 
+interface RoleAssignedUser {
+    serUserId: number;
+    txtUserName: string;
+    txtCnic?: string;
+    txtEmail?: string;
+    blnStatus?: boolean;
+}
+
+type RolesManagementTab = 'roles' | 'applications';
+
 interface RoleViewModel {
     serRoleId: number;
     txtRoleName: string;
     txtRoleCode?: string;
     blnStatus: boolean;
     userCount: number;
+    users: RoleAssignedUser[];
     permissionsCount: number;
     permissionTiles: string[];
 }
@@ -37,6 +49,9 @@ interface RoleViewModel {
     styleUrls: ['./roles-management.component.css']
 })
 export class RolesManagementComponent implements OnInit, OnDestroy {
+    @ViewChild('applicationManagement') applicationManagement?: RoleApplicationManagementComponent;
+
+    activeManagementTab: RolesManagementTab = 'roles';
     roles: RoleViewModel[] = [];
     filteredRoles: RoleViewModel[] = [];
     menus: MenuNode[] = [];
@@ -46,6 +61,8 @@ export class RolesManagementComponent implements OnInit, OnDestroy {
     searchText = '';
     showModal = false;
     showEditModal = false;
+    showUsersModal = false;
+    usersModalRole: RoleViewModel | null = null;
     editForm!: FormGroup;
     editingRole: RoleViewModel | null = null;
 
@@ -82,9 +99,10 @@ export class RolesManagementComponent implements OnInit, OnDestroy {
         const action = (event as CustomEvent<{ action?: string }>).detail?.action;
         switch (action) {
             case 'roles-close-modals':
-                if (this.showModal || this.showEditModal) {
+                if (this.showModal || this.showEditModal || this.showUsersModal) {
                     this.closeAddModal();
                     this.closeEditModal();
+                    this.closeRoleUsersModal();
                 }
                 break;
             case 'roles-open-add-modal':
@@ -124,12 +142,23 @@ export class RolesManagementComponent implements OnInit, OnDestroy {
                 this.roles = (roles || []).map((role: any) => {
                     const roleId = Number(role?.serRoleId);
                     const roleUsers = (users || []).filter((u: any) => Number(u?.cfgTblRole) === roleId || Number(u?.cfgTblRole?.serRoleId) === roleId);
+                    const assignedUsers: RoleAssignedUser[] = roleUsers
+                        .map((u: any) => ({
+                            serUserId: Number(u?.serUserId || 0),
+                            txtUserName: (u?.txtUserName || u?.userName || '').toString().trim(),
+                            txtCnic: (u?.txtCnic || '').toString().trim(),
+                            txtEmail: (u?.txtEmail || u?.txtUserEmail || '').toString().trim(),
+                            blnStatus: u?.blnStatus === true
+                        }))
+                        .filter((u: RoleAssignedUser) => u.serUserId > 0)
+                        .sort((a: RoleAssignedUser, b: RoleAssignedUser) => a.txtUserName.localeCompare(b.txtUserName));
                     return {
                         serRoleId: roleId,
                         txtRoleName: role?.txtRoleName || '',
                         txtRoleCode: role?.txtRoleCode || '',
                         blnStatus: role?.blnStatus === true,
-                        userCount: roleUsers.length,
+                        userCount: assignedUsers.length,
+                        users: assignedUsers,
                         permissionsCount: 0,
                         permissionTiles: []
                     } as RoleViewModel;
@@ -142,6 +171,14 @@ export class RolesManagementComponent implements OnInit, OnDestroy {
     onSearch(term: string): void {
         this.searchText = (term || '').toLowerCase();
         this.applyFilter();
+    }
+
+    setActiveManagementTab(tab: RolesManagementTab): void {
+        this.activeManagementTab = tab;
+    }
+
+    onAddApplicationScopeRule(): void {
+        this.applicationManagement?.addScopeRule();
     }
 
     openAddModal(): void {
@@ -199,6 +236,23 @@ export class RolesManagementComponent implements OnInit, OnDestroy {
         this.showEditModal = false;
         this.editingRole = null;
         this.resetMenuSelections();
+    }
+
+    openRoleUsersModal(role: RoleViewModel): void {
+        if (!role || Number(role.userCount || 0) <= 0) {
+            return;
+        }
+        this.usersModalRole = role;
+        this.showUsersModal = true;
+    }
+
+    closeRoleUsersModal(): void {
+        this.showUsersModal = false;
+        this.usersModalRole = null;
+    }
+
+    getRoleUsersModalList(): RoleAssignedUser[] {
+        return this.usersModalRole?.users || [];
     }
 
     toggleMenu(menu: MenuNode): void {

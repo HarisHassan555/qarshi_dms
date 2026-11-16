@@ -364,13 +364,16 @@ export class TemplateWorkflowService {
         return this.http.get<any>(urls.API_URL + 'getAuditAllApplicationsFilterOptions?userId=' + userId);
     }
 
-    getAllApplicationPagePermissions(roleId: number, userId?: number | null): Observable<any> {
+    getAllApplicationPagePermissions(roleId?: number | null, userId?: number | null): Observable<any> {
         const params = new URLSearchParams();
-        params.set('roleId', String(roleId || 0));
+        if (roleId != null && Number(roleId) > 0) {
+            params.set('roleId', String(roleId));
+        }
         if (userId != null && Number(userId) > 0) {
             params.set('userId', String(userId));
         }
-        return this.http.get<any>(urls.API_URL + 'getAllApplicationPagePermissions?' + params.toString());
+        const query = params.toString();
+        return this.http.get<any>(urls.API_URL + 'getAllApplicationPagePermissions' + (query ? '?' + query : ''));
     }
 
     saveAllApplicationPagePermissions(payload: {
@@ -390,6 +393,10 @@ export class TemplateWorkflowService {
         }>;
     }): Observable<any> {
         return this.http.post<any>(urls.API_URL + 'saveAllApplicationPagePermissions', payload);
+    }
+
+    deleteAllApplicationPagePermission(serPermissionId: number): Observable<any> {
+        return this.http.post<any>(urls.API_URL + 'deleteAllApplicationPagePermission', { serPermissionId });
     }
 
     getTemplatePendingApprovals(userId: number, all = false, page = 0, pageSize = 10, search = ''): Observable<any> {

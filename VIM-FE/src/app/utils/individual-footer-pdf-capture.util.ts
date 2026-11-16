@@ -196,6 +196,95 @@ export function syncIndividualFooterFieldsOnPdfClone(
     }
 }
 
+/** Minor vertical tweaks after {@link applyIndividualFooterTemplatePdfCaptureStyles} (html2canvas). */
+export function applyIndividualFooterPdfFineTuneStyles(root: HTMLElement): void {
+    root.querySelectorAll('.individual-footer-preview .xyz-signatures .xyz-signatures-blank td > div').forEach((node) => {
+        const wrapper = node as HTMLElement;
+        setImp(wrapper, 'transform', 'translateY(-2px)');
+    });
+
+    root.querySelectorAll('.individual-footer-preview .xyz-signatures .xyz-sig-time').forEach((node) => {
+        const timeEl = node as HTMLElement;
+        setImp(timeEl, 'font-size', '8px');
+        setImp(timeEl, 'line-height', '1');
+        setImp(timeEl, 'margin-top', '0');
+        setImp(timeEl, 'transform', 'translateY(-2px)');
+    });
+
+    root.querySelectorAll('.individual-footer-preview .xyz-signatures tr:last-child td').forEach((node) => {
+        const cell = node as HTMLElement;
+        setImp(cell, 'padding-top', '3px');
+    });
+
+    root.querySelectorAll('.individual-footer-preview .xyz-signatures tr:last-child td > span').forEach((node) => {
+        const valueEl = node as HTMLElement;
+        setImp(valueEl, 'transform', 'translateY(-2px)');
+        setImp(valueEl, 'line-height', '1.2');
+    });
+}
+
+export function applyPipelineSignaturePdfCaptureStyles(root: HTMLElement): void {
+    root.querySelectorAll('.pipeline-signature-field').forEach((node) => {
+        const fieldEl = node as HTMLElement;
+        setImp(fieldEl, 'box-sizing', 'border-box');
+        setImp(fieldEl, 'display', 'flex');
+        setImp(fieldEl, 'align-items', 'center');
+        setImp(fieldEl, 'justify-content', 'center');
+        setImp(fieldEl, 'width', '100%');
+        setImp(fieldEl, 'height', '100%');
+        setImp(fieldEl, 'overflow', 'visible');
+        setImp(fieldEl, 'text-align', 'center');
+    });
+
+    root.querySelectorAll('.pipeline-signature-slot').forEach((node) => {
+        const slotEl = node as HTMLElement;
+        setImp(slotEl, 'display', 'flex');
+        setImp(slotEl, 'align-items', 'center');
+        setImp(slotEl, 'justify-content', 'center');
+        setImp(slotEl, 'width', '100%');
+        setImp(slotEl, 'height', '100%');
+        setImp(slotEl, 'min-width', '0');
+        setImp(slotEl, 'overflow', 'visible');
+    });
+
+    root.querySelectorAll('.pipeline-signature-slot img').forEach((node) => {
+        const imgEl = node as HTMLElement;
+        setImp(imgEl, 'display', 'block');
+        setImp(imgEl, 'margin', '0 auto');
+        setImp(imgEl, 'max-height', '100%');
+        setImp(imgEl, 'max-width', '100%');
+        setImp(imgEl, 'object-fit', 'contain');
+    });
+}
+
+export async function waitForPdfCaptureImages(root: HTMLElement, timeoutMs = 8000): Promise<void> {
+    const images = Array.from(root.querySelectorAll('img')) as HTMLImageElement[];
+    if (images.length === 0) {
+        return;
+    }
+
+    await Promise.all(
+        images.map(
+            (img) =>
+                new Promise<void>((resolve) => {
+                    if (img.complete && img.naturalHeight > 0) {
+                        resolve();
+                        return;
+                    }
+                    const timer = window.setTimeout(() => resolve(), timeoutMs);
+                    const done = () => {
+                        window.clearTimeout(timer);
+                        img.removeEventListener('load', done);
+                        img.removeEventListener('error', done);
+                        resolve();
+                    };
+                    img.addEventListener('load', done);
+                    img.addEventListener('error', done);
+                })
+        )
+    );
+}
+
 export function buildIndividualFooterPdfFieldPlacements(
     templateFields: Array<{ id: string; type: string; placement?: { height?: number; y?: number } | null }>,
     bandCount: number,

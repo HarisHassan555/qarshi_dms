@@ -60,18 +60,13 @@
     overflow: auto;
 }
 
-.approval-values-panel .field-right-badge {
-    background: #e8eefc;
-    border-radius: 999px;
-    color: #4361ee;
-    display: inline-block;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    margin-left: 6px;
-    padding: 1px 7px;
-    text-transform: uppercase;
-    vertical-align: middle;
+.approval-values-panel .panel-word-editor-field {
+    margin-top: 4px;
+    min-height: 120px;
+}
+
+:host ::ng-deep .approval-values-panel .panel-word-editor-field .ck-editor__editable {
+    min-height: 100px;
 }
 
 .approval-values-panel .value-field.is-readonly-field input,

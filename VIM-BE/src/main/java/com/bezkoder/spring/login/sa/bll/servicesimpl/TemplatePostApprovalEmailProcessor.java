@@ -33,6 +33,18 @@ public class TemplatePostApprovalEmailProcessor {
                 ? payload.getContextLabel().trim()
                 : "template post-approval email";
 
+        EmailSendContext sendContext = EmailSendContext.forTrigger("TEMPLATE_POST_APPROVAL");
+        sendContext.setApplicationId(applicationId);
+        sendContext.setContextLabel(contextLabel);
+        EmailSendContext.set(sendContext);
+        try {
+            processInternal(payload, applicationId, contextLabel);
+        } finally {
+            EmailSendContext.clear();
+        }
+    }
+
+    private void processInternal(TemplatePostApprovalEmailJobPayload payload, Integer applicationId, String contextLabel) {
         if (payload.isRefreshPdfBeforeEmail()) {
             String refreshStatus = customFormApplicationService.refreshTemplateApplicationPdfFromStage0(applicationId);
             if (!"Success".equalsIgnoreCase(refreshStatus)) {

@@ -1,5 +1,7 @@
 package com.bezkoder.spring.login.admin.bll.servicesimpl;
 
+import com.bezkoder.spring.login.sa.bll.servicesimpl.EmailDeliveryLogService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.PropertySource;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
@@ -7,6 +9,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import javax.mail.*;
@@ -27,6 +30,9 @@ public class EmailService {
     private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
     private Properties properties;
+
+    @Autowired(required = false)
+    private EmailDeliveryLogService emailDeliveryLogService;
 
     public EmailService() {
         properties = new Properties();
@@ -55,10 +61,12 @@ public class EmailService {
         String password = sanitizeCredential(properties.getProperty("mail.smtp.password"));
         if (username == null || password == null) {
             log.error("Email not sent: missing SMTP username/password");
+            deliverySkipped(recipients, subject, null, messageBody, false, "Missing SMTP username/password");
             return;
         }
         if (recipients == null || recipients.isEmpty()) {
             log.error("Email not sent: recipient list is empty");
+            deliverySkipped(recipients, subject, null, messageBody, false, "Recipient list is empty");
             return;
         }
 
@@ -81,9 +89,11 @@ public class EmailService {
 
             Transport.send(message);
             log.info("Emails sent successfully!");
+            deliverySent(recipients, subject, null, messageBody, false);
 
         } catch (MessagingException e) {
             log.error("Failed to send email", e);
+            deliveryFailed(recipients, subject, null, messageBody, false, e);
         }
     }
 
@@ -95,10 +105,12 @@ public class EmailService {
         String password = sanitizeCredential(properties.getProperty("mail.smtp.password"));
         if (username == null || password == null) {
             log.error("HTML email not sent: missing SMTP username/password");
+            deliverySkipped(recipients, subject, htmlContent, null, false, "Missing SMTP username/password");
             return;
         }
         if (recipients == null || recipients.isEmpty()) {
             log.error("HTML email not sent: recipient list is empty");
+            deliverySkipped(recipients, subject, htmlContent, null, false, "Recipient list is empty");
             return;
         }
 
@@ -128,9 +140,11 @@ public class EmailService {
 
             Transport.send(message);
             log.info("HTML emails sent successfully!");
+            deliverySent(recipients, subject, htmlContent, null, false);
 
         } catch (MessagingException e) {
             log.error("Failed to send HTML email", e);
+            deliveryFailed(recipients, subject, htmlContent, null, false, e);
         }
     }
 
@@ -141,9 +155,11 @@ public class EmailService {
         String username = sanitizeCredential(properties.getProperty("mail.smtp.username"));
         String password = sanitizeCredential(properties.getProperty("mail.smtp.password"));
         if (username == null || password == null) {
+            deliverySkipped(recipients, subject, htmlContent, null, false, "Missing SMTP username/password");
             throw new RuntimeException("Missing SMTP username/password");
         }
         if (recipients == null || recipients.isEmpty()) {
+            deliverySkipped(recipients, subject, htmlContent, null, false, "Recipient list is empty");
             throw new RuntimeException("Recipient list is empty");
         }
 
@@ -172,8 +188,10 @@ public class EmailService {
 
             Transport.send(message);
             log.info("HTML email sent successfully!");
+            deliverySent(recipients, subject, htmlContent, null, false);
         } catch (MessagingException e) {
             log.error("Failed to send HTML email", e);
+            deliveryFailed(recipients, subject, htmlContent, null, false, e);
             throw new RuntimeException(e);
         }
     }
@@ -187,10 +205,12 @@ public class EmailService {
         String password = sanitizeCredential(properties.getProperty("mail.smtp.password"));
         if (username == null || password == null) {
             log.error("HTML email with attachments not sent: missing SMTP username/password");
+            deliverySkipped(recipients, subject, htmlContent, null, true, "Missing SMTP username/password");
             return;
         }
         if (recipients == null || recipients.isEmpty()) {
             log.error("HTML email with attachments not sent: recipient list is empty");
+            deliverySkipped(recipients, subject, htmlContent, null, true, "Recipient list is empty");
             return;
         }
 
@@ -233,9 +253,11 @@ public class EmailService {
 
             message.setContent(multipart);
             Transport.send(message);
+            deliverySent(recipients, subject, htmlContent, null, true);
             log.info("HTML emails with attachments sent successfully!");
         } catch (MessagingException e) {
             log.error("Failed to send HTML email with attachments", e);
+            deliveryFailed(recipients, subject, htmlContent, null, true, e);
         }
     }
 
@@ -286,9 +308,11 @@ public class EmailService {
 
             message.setContent(multipart);
             Transport.send(message);
+            deliverySent(recipients, subject, htmlContent, null, true);
             log.info("HTML emails with attachment sent successfully!");
         } catch (MessagingException e) {
             log.error("Failed to send HTML email with attachment", e);
+            deliveryFailed(recipients, subject, htmlContent, null, true, e);
         }
     }
 
@@ -350,9 +374,11 @@ public class EmailService {
 
             message.setContent(multipart);
             Transport.send(message);
+            deliverySent(recipients, subject, htmlContent, null, imageBytes != null && imageBytes.length > 0);
             log.info("HTML emails with inline image sent successfully!");
         } catch (MessagingException e) {
             log.error("Failed to send HTML email with inline image", e);
+            deliveryFailed(recipients, subject, htmlContent, null, imageBytes != null && imageBytes.length > 0, e);
         }
     }
 
@@ -468,9 +494,11 @@ public class EmailService {
 
             message.setContent(mixed);
             Transport.send(message);
+            deliverySent(recipients, subject, htmlContent, null, true);
             log.info("HTML email with inline images + attachments sent successfully!");
         } catch (MessagingException e) {
             log.error("Failed to send HTML email with inline images + attachments", e);
+            deliveryFailed(recipients, subject, htmlContent, null, true, e);
         }
     }
 
@@ -553,9 +581,11 @@ public class EmailService {
 
             message.setContent(mixed);
             Transport.send(message);
+            deliverySent(recipients, subject, htmlContent, null, true);
             log.info("HTML email with inline image + attachments sent successfully!");
         } catch (MessagingException e) {
             log.error("Failed to send HTML email with inline image + attachments", e);
+            deliveryFailed(recipients, subject, htmlContent, null, true, e);
         }
     }
 
@@ -634,9 +664,11 @@ public class EmailService {
 
             message.setContent(mixed);
             Transport.send(message);
+            deliverySent(recipients, subject, htmlContent, null, true);
             log.info("HTML email with inline image + attachment sent successfully!");
         } catch (MessagingException e) {
             log.error("Failed to send HTML email with inline image + attachment", e);
+            deliveryFailed(recipients, subject, htmlContent, null, true, e);
         }
     }
 
@@ -701,9 +733,11 @@ public class EmailService {
             multipart.addBodyPart(bodyPart);
             message.setContent(multipart);
             Transport.send(message);
+            deliverySentOne(recipientEmail, "Welcome to Qarshi DMS – Your account details", html, null, false);
             log.info("Welcome email sent to {}", recipientEmail);
         } catch (MessagingException e) {
             log.error("Failed to send welcome email to {}", recipientEmail, e);
+            deliveryFailedOne(recipientEmail, "Welcome to Qarshi DMS – Your account details", html, null, false, e);
             throw new RuntimeException(e);
         }
     }
@@ -768,10 +802,13 @@ public class EmailService {
 //
             mimeMessage.setSubject("Account Password");
             Transport.send(mimeMessage);
-
+            String passwordBody = "Your account User Name  is " + user_name + " and Password is " + pass;
+            deliverySentOne(mail, "Account Password", passwordBody, null, false);
             log.info("Password email sent to {}", mail);
 
         } catch (Exception e) {
+            String passwordBody = "Your account User Name  is " + user_name + " and Password is " + pass;
+            deliveryFailedOne(mail, "Account Password", passwordBody, null, false, e);
             throw new RuntimeException(e);
         }
     }
@@ -796,6 +833,50 @@ public class EmailService {
         if (trimmed.isEmpty()) return null;
         return trimmed.replaceAll("\\s+", "");
     }
+
+    private void deliverySent(List<String> recipients, String subject, String htmlBody, String textBody, boolean hasAttachments) {
+        recordDelivery(recipients, subject, htmlBody, textBody, hasAttachments, EmailDeliveryLogService.STATUS_SENT, null);
+    }
+
+    private void deliveryFailed(List<String> recipients, String subject, String htmlBody, String textBody,
+            boolean hasAttachments, Exception error) {
+        String msg = error != null ? error.getMessage() : "Send failed";
+        recordDelivery(recipients, subject, htmlBody, textBody, hasAttachments, EmailDeliveryLogService.STATUS_FAILED, msg);
+    }
+
+    private void deliverySkipped(List<String> recipients, String subject, String htmlBody, String textBody,
+            boolean hasAttachments, String reason) {
+        recordDelivery(recipients, subject, htmlBody, textBody, hasAttachments, EmailDeliveryLogService.STATUS_SKIPPED, reason);
+    }
+
+    private void recordDelivery(List<String> recipients, String subject, String htmlBody, String textBody,
+            boolean hasAttachments, String status, String errorMessage) {
+        if (emailDeliveryLogService == null) {
+            return;
+        }
+        try {
+            emailDeliveryLogService.record(recipients, subject, htmlBody, textBody, hasAttachments, status, errorMessage);
+        } catch (Exception ex) {
+            log.warn("Could not persist email delivery log: {}", ex.getMessage());
+        }
+    }
+
+    private void deliverySentOne(String recipient, String subject, String htmlBody, String textBody, boolean hasAttachments) {
+        deliverySent(recipient != null ? List.of(recipient) : Collections.emptyList(), subject, htmlBody, textBody, hasAttachments);
+    }
+
+    private void deliveryFailedOne(String recipient, String subject, String htmlBody, String textBody,
+            boolean hasAttachments, Exception error) {
+        deliveryFailed(recipient != null ? List.of(recipient) : Collections.emptyList(),
+                subject, htmlBody, textBody, hasAttachments, error);
+    }
+
+    private void deliverySkippedOne(String recipient, String subject, String htmlBody, String textBody,
+            boolean hasAttachments, String reason) {
+        deliverySkipped(recipient != null ? List.of(recipient) : Collections.emptyList(),
+                subject, htmlBody, textBody, hasAttachments, reason);
+    }
+
     /*public static void main(String[] args) {
         EmailService emailService = new EmailService();
         emailService.sendEmail(

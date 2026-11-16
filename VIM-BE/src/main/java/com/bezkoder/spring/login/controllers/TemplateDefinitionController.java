@@ -1345,7 +1345,7 @@ public class TemplateDefinitionController {
                     "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
                             "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) ");
             if (!departmentIdFilter.isEmpty()) {
-                whereClause.append("AND u.hrTblDepartment.serDepartmentId IN :departmentIds ");
+                whereClause.append(submitterDepartmentInListClause());
             }
             if (!serFormIdFilter.isEmpty()) {
                 whereClause.append("AND a.serFormId IN :serFormIds ");
@@ -1369,7 +1369,7 @@ public class TemplateDefinitionController {
                         "OR LOWER(COALESCE(u.txtUserName, '')) LIKE :search " +
                         "OR LOWER(COALESCE(u.txtDepartmentName, '')) LIKE :search) ");
             }
-            appendAllApplicationPagePermissionClause(whereClause, pageScopes);
+            appendAllApplicationScopeRestrictions(whereClause, actorId, pageScopes);
 
             String where = whereClause.toString();
             javax.persistence.Query countQuery = entityManager.createQuery(
@@ -1452,7 +1452,7 @@ public class TemplateDefinitionController {
             List<AllApplicationPagePermission> pageScopes = loadAllApplicationPagePermissions(actorId);
             StringBuilder scopeWhere = new StringBuilder(
                     "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) ");
-            appendAllApplicationPagePermissionClause(scopeWhere, pageScopes);
+            appendAllApplicationScopeRestrictions(scopeWhere, actorId, pageScopes);
             String scopedWhere = scopeWhere.toString();
 
             @SuppressWarnings("unchecked")
@@ -1668,8 +1668,8 @@ public class TemplateDefinitionController {
 
     /**
      * Loads All Applications page scope rows for the actor.
-     * Admin => empty list (unrestricted).
-     * No rows for role/user => empty list (unrestricted / backward compatible).
+     * Admin with no scope rules on their role => empty list (unrestricted).
+     * No scope rules configured for role => empty list (unrestricted / backward compatible).
      * Otherwise => restrict list to matching apps.
      */
     private List<AllApplicationPagePermission> loadAllApplicationPagePermissions(int actorId) {
@@ -1680,10 +1680,11 @@ public class TemplateDefinitionController {
         if (user == null || user.getCfgTblRole() == null || user.getCfgTblRole().getSerRoleId() == null) {
             return java.util.Collections.emptyList();
         }
-        if (isAdminRoleName(user.getCfgTblRole().getTxtRoleName())) {
+        Integer roleId = user.getCfgTblRole().getSerRoleId();
+        if (isAdminRoleName(user.getCfgTblRole().getTxtRoleName())
+                && !roleHasConfiguredAllApplicationScope(roleId)) {
             return java.util.Collections.emptyList();
         }
-        Integer roleId = user.getCfgTblRole().getSerRoleId();
         try {
             return entityManager.createQuery(
                             "SELECT p FROM AllApplicationPagePermission p " +
@@ -1704,6 +1705,69 @@ public class TemplateDefinitionController {
         }
     }
 
+    private boolean roleHasConfiguredAllApplicationScope(Integer roleId) {
+        if (roleId == null || roleId <= 0) {
+            return false;
+        }
+        try {
+            Long count = entityManager.createQuery(
+                            "SELECT COUNT(p.serPermissionId) FROM AllApplicationPagePermission p " +
+                                    "WHERE p.serRoleId = :roleId " +
+                                    "AND (p.blIsDeleted IS NULL OR p.blIsDeleted = false)",
+                            Long.class)
+                    .setParameter("roleId", roleId)
+                    .getSingleResult();
+            return count != null && count > 0;
+        } catch (Exception ex) {
+            logger.warn("Unable to count all_application_page_permission for role " + roleId + ": " + ex.getMessage());
+            return false;
+        }
+    }
+
+    private int resolveActorRoleId(int actorId) {
+        if (actorId <= 0) {
+            return 0;
+        }
+        CfgTblUser user = commonService.getCurrentUser(actorId);
+        if (user == null || user.getCfgTblRole() == null || user.getCfgTblRole().getSerRoleId() == null) {
+            return 0;
+        }
+        return user.getCfgTblRole().getSerRoleId();
+    }
+
+    private void appendAllApplicationScopeRestrictions(StringBuilder whereClause,
+                                                       int actorId,
+                                                       List<AllApplicationPagePermission> pageScopes) {
+        if (whereClause == null) {
+            return;
+        }
+        if (pageScopes == null || pageScopes.isEmpty()) {
+            int roleId = resolveActorRoleId(actorId);
+            if (roleId > 0 && roleHasConfiguredAllApplicationScope(roleId)) {
+                whereClause.append("AND 1 = 0 ");
+            }
+            return;
+        }
+        appendAllApplicationPagePermissionClause(whereClause, pageScopes);
+    }
+
+    /** Submitter department filter for audit UI (matches FK and legacy txt_department_name). */
+    private String submitterDepartmentInListClause() {
+        return "AND (u.hrTblDepartment.serDepartmentId IN :departmentIds "
+                + "OR (COALESCE(u.txtDepartmentName, '') <> '' AND EXISTS ("
+                + "SELECT 1 FROM HrTblDepartment d WHERE d.serDepartmentId IN :departmentIds "
+                + "AND (d.blIsDeleted IS NULL OR d.blIsDeleted = false) "
+                + "AND LOWER(TRIM(COALESCE(d.txtDepartmentName, ''))) = LOWER(TRIM(COALESCE(u.txtDepartmentName, '')))))) ";
+    }
+
+    private String submitterDepartmentEqualsClause(String paramName) {
+        return "(u.hrTblDepartment.serDepartmentId = :" + paramName
+                + " OR (COALESCE(u.txtDepartmentName, '') <> '' AND EXISTS ("
+                + "SELECT 1 FROM HrTblDepartment d WHERE d.serDepartmentId = :" + paramName + " "
+                + "AND (d.blIsDeleted IS NULL OR d.blIsDeleted = false) "
+                + "AND LOWER(TRIM(COALESCE(d.txtDepartmentName, ''))) = LOWER(TRIM(COALESCE(u.txtDepartmentName, ''))))))";
+    }
+
     private void appendAllApplicationPagePermissionClause(StringBuilder whereClause,
                                                           List<AllApplicationPagePermission> scopes) {
         if (whereClause == null || scopes == null || scopes.isEmpty()) {
@@ -1717,7 +1781,7 @@ public class TemplateDefinitionController {
             }
             List<String> parts = new ArrayList<>();
             if (row.getSerDepartmentId() != null && row.getSerDepartmentId() > 0) {
-                parts.add("u.hrTblDepartment.serDepartmentId = :scopeDept" + i);
+                parts.add(submitterDepartmentEqualsClause("scopeDept" + i));
             }
             if (row.getSerSubmitterUserId() != null && row.getSerSubmitterUserId() > 0) {
                 parts.add("a.serSubmittedBy = :scopeSubmitter" + i);
@@ -1782,33 +1846,44 @@ public class TemplateDefinitionController {
 
     @RequestMapping(value = "/getAllApplicationPagePermissions", method = RequestMethod.GET,
             produces = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String, Object> getAllApplicationPagePermissions(@RequestParam Integer roleId,
+    public Map<String, Object> getAllApplicationPagePermissions(@RequestParam(required = false) Integer roleId,
                                                                 @RequestParam(required = false) Integer userId,
                                                                 HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
         try {
             int actorId = commonService.getCurrentLoggedInUser();
-            if (!canReadAllApplicationPagePermissions(actorId, roleId)) {
+            boolean listAllRoles = roleId == null || roleId <= 0;
+            if (!listAllRoles && !canReadAllApplicationPagePermissions(actorId, roleId)) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 result.put("status", "Failure");
                 result.put("message", "You do not have permission to view these scope rules.");
                 result.put("items", java.util.Collections.emptyList());
                 return result;
             }
-            if (roleId == null || roleId <= 0) {
-                throw new IllegalArgumentException("roleId is required");
+            if (listAllRoles && !canManageAllApplicationPagePermissions(actorId)) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                result.put("status", "Failure");
+                result.put("message", "You do not have permission to view these scope rules.");
+                result.put("items", java.util.Collections.emptyList());
+                return result;
             }
             StringBuilder jpql = new StringBuilder(
                     "SELECT p FROM AllApplicationPagePermission p " +
-                            "WHERE p.serRoleId = :roleId " +
-                            "AND (p.blIsDeleted IS NULL OR p.blIsDeleted = false) ");
+                            "WHERE (p.blIsDeleted IS NULL OR p.blIsDeleted = false) ");
+            if (!listAllRoles) {
+                jpql.append("AND p.serRoleId = :roleId ");
+            }
             if (userId != null && userId > 0) {
                 jpql.append("AND (p.serUserId IS NULL OR p.serUserId = :userId) ");
             }
-            jpql.append("ORDER BY p.serPermissionId ASC");
+            jpql.append(listAllRoles
+                    ? "ORDER BY p.serRoleId ASC, p.serPermissionId ASC"
+                    : "ORDER BY p.serPermissionId ASC");
             javax.persistence.TypedQuery<AllApplicationPagePermission> query = entityManager.createQuery(
                     jpql.toString(), AllApplicationPagePermission.class);
-            query.setParameter("roleId", roleId);
+            if (!listAllRoles) {
+                query.setParameter("roleId", roleId);
+            }
             if (userId != null && userId > 0) {
                 query.setParameter("userId", userId);
             }
@@ -1868,23 +1943,12 @@ public class TemplateDefinitionController {
             Timestamp now = new Timestamp(System.currentTimeMillis());
 
             if (replaceForRole) {
-                List<AllApplicationPagePermission> existing;
-                if (viewerUserId != null && viewerUserId > 0) {
-                    existing = entityManager.createQuery(
-                                    "SELECT p FROM AllApplicationPagePermission p WHERE p.serRoleId = :roleId " +
-                                            "AND (p.blIsDeleted IS NULL OR p.blIsDeleted = false) AND p.serUserId = :userId",
-                                    AllApplicationPagePermission.class)
-                            .setParameter("roleId", roleId)
-                            .setParameter("userId", viewerUserId)
-                            .getResultList();
-                } else {
-                    existing = entityManager.createQuery(
-                                    "SELECT p FROM AllApplicationPagePermission p WHERE p.serRoleId = :roleId " +
-                                            "AND (p.blIsDeleted IS NULL OR p.blIsDeleted = false) AND p.serUserId IS NULL",
-                                    AllApplicationPagePermission.class)
-                            .setParameter("roleId", roleId)
-                            .getResultList();
-                }
+                List<AllApplicationPagePermission> existing = entityManager.createQuery(
+                                "SELECT p FROM AllApplicationPagePermission p WHERE p.serRoleId = :roleId " +
+                                        "AND (p.blIsDeleted IS NULL OR p.blIsDeleted = false)",
+                                AllApplicationPagePermission.class)
+                        .setParameter("roleId", roleId)
+                        .getResultList();
                 for (AllApplicationPagePermission row : existing) {
                     row.setBlIsDeleted(true);
                     row.setBlIsEnabled(false);
@@ -1939,6 +2003,54 @@ public class TemplateDefinitionController {
             return result;
         } catch (Exception ex) {
             logger.error("Error saving all_application_page_permission: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("status", "Failure");
+            result.put("message", ex.getMessage());
+            return result;
+        }
+    }
+
+    @Transactional
+    @RequestMapping(value = "/deleteAllApplicationPagePermission", method = RequestMethod.POST,
+            headers = "Accept=application/json",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> deleteAllApplicationPagePermission(@RequestBody Map<String, Object> body,
+                                                                  HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            int actorId = commonService.getCurrentLoggedInUser();
+            if (!canManageAllApplicationPagePermissions(actorId)) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                result.put("status", "Failure");
+                result.put("message", "Only administrators can change All Applications data scope.");
+                return result;
+            }
+            Integer permissionId = toInteger(body.get("serPermissionId"));
+            if (permissionId == null || permissionId <= 0) {
+                permissionId = toInteger(body.get("permissionId"));
+            }
+            if (permissionId == null || permissionId <= 0) {
+                throw new IllegalArgumentException("serPermissionId is required");
+            }
+            AllApplicationPagePermission row = entityManager.find(AllApplicationPagePermission.class, permissionId);
+            if (row == null || Boolean.TRUE.equals(row.getBlIsDeleted())) {
+                result.put("status", "Success");
+                result.put("message", "Rule already removed.");
+                return result;
+            }
+            row.setBlIsDeleted(true);
+            row.setBlIsEnabled(false);
+            row.setBlnStatus(false);
+            row.setDteModifiedDate(new Timestamp(System.currentTimeMillis()));
+            row.setSerModifiedUser(actorId > 0 ? actorId : null);
+            entityManager.merge(row);
+            entityManager.flush();
+            result.put("status", "Success");
+            result.put("serPermissionId", permissionId);
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error deleting all_application_page_permission: " + ex.getMessage(), ex);
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             result.put("status", "Failure");
             result.put("message", ex.getMessage());

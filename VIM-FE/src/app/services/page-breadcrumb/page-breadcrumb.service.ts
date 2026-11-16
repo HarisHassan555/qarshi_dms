@@ -19,6 +19,8 @@ const PAGE_SECTION: Record<string, string> = {
   divisions: 'Master Data',
   department: 'Master Data',
   'workflow-pipelines': 'Master Data',
+  'email-templates': 'Master Data',
+  'email-delivery-log': 'Velocity',
   'template-list': 'Velocity',
   'template-builder': 'Velocity',
   'template-fill': 'Velocity',

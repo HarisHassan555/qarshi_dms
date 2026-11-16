@@ -1,3 +1,32 @@
+.rm-tabs {
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.rm-tab {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #64748b;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: -1px;
+    padding: 0.5rem 1rem;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.rm-tab:hover {
+    color: #2563eb;
+}
+
+.rm-tab.is-active {
+    border-bottom-color: #4361ee;
+    color: #1e3a8a;
+}
+
 .rm-backdrop {
     position: fixed;
     inset: 0;
@@ -17,5 +46,34 @@
     border-radius: 10px;
     padding: 20px;
     box-shadow: 0 20px 45px rgba(0, 0, 0, 0.2);
+}
+
+.rm-users-modal {
+    width: min(720px, 100%);
+}
+
+.role-user-count-link {
+    background: none;
+    border: none;
+    color: #2563eb;
+    cursor: pointer;
+    font-size: inherit;
+    font-weight: 600;
+    line-height: inherit;
+    padding: 0;
+    text-decoration: underline;
+    text-decoration-color: rgba(37, 99, 235, 0.35);
+    text-underline-offset: 2px;
+}
+
+.role-user-count-link:hover {
+    color: #1d4ed8;
+    text-decoration-color: #2563eb;
+}
+
+.role-user-count-link:focus-visible {
+    border-radius: 2px;
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
 }
 

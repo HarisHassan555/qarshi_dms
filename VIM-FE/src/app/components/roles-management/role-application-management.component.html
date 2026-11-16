@@ -1,0 +1,213 @@
+<div *ngIf="!isAdminUser()" class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+    Only administrators can configure which applications each role sees on the All Applications page.
+</div>
+
+<div *ngIf="isAdminUser()" class="scope-rules-panel" novalidate data-tour="roles-app-scope">
+    <p class="mb-4 text-sm text-slate-600 dark:text-slate-400">
+        Each row is one visibility rule for a role on <strong>All Applications</strong>.
+        Use <strong>Add New Rule</strong> to create one. Use the row icons to edit or delete. Changes save immediately.
+        Filters on one rule are <strong>AND</strong>; multiple rules for the same role are <strong>OR</strong>.
+        A role with no rules sees all applications.
+    </p>
+
+    <div class="mb-4">
+        <input
+            type="text"
+            class="form-input max-w-md"
+            placeholder="Search role, form, department, user or application id"
+            [(ngModel)]="searchText"
+            [ngModelOptions]="{ standalone: true }" />
+    </div>
+
+    <div *ngIf="scopePermissionLoading" class="py-6 text-center text-sm text-primary">Loading scope rules…</div>
+
+    <div *ngIf="!scopePermissionLoading" class="table-responsive">
+        <table class="table-hover min-w-full bg-white border border-gray-300 rounded-lg scope-rules-table">
+            <thead>
+                <tr>
+                    <th class="w-12 text-center">#</th>
+                    <th>Role</th>
+                    <th class="w-20 text-center">Active</th>
+                    <th>Form / template</th>
+                    <th>Department</th>
+                    <th>Submitted by</th>
+                    <th>Approver</th>
+                    <th class="w-28">App ID</th>
+                    <th class="w-28 text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr
+                    *ngFor="let row of filteredScopeRows; let i = index"
+                    [class.scope-rules-table-row--warn]="isRuleRowIncomplete(row)">
+                    <td class="text-center text-slate-600">{{ i + 1 }}</td>
+                    <td class="font-semibold">{{ getRoleLabel(row.serRoleId) }}</td>
+                    <td class="text-center">
+                        <span [class]="row.blIsEnabled ? 'badge badge-outline-success' : 'badge badge-outline-secondary'">
+                            {{ row.blIsEnabled ? 'Active' : 'Inactive' }}
+                        </span>
+                    </td>
+                    <td>{{ getTemplateLabel(row.serFormId) }}</td>
+                    <td>{{ getDepartmentLabel(row.serDepartmentId) }}</td>
+                    <td>{{ getUserLabel(row.serSubmitterUserId) }}</td>
+                    <td>{{ getUserLabel(row.serApproverUserId) }}</td>
+                    <td>{{ getApplicationIdLabel(row.serApplicationId) }}</td>
+                    <td>
+                        <div class="flex items-center justify-center gap-3">
+                            <button type="button" class="hover:text-info" title="Edit rule" [disabled]="scopeSaving" (click)="openEditRuleModal(row)">
+                                <icon-edit class="h-5 w-5" />
+                            </button>
+                            <button
+                                type="button"
+                                class="hover:text-danger"
+                                title="Delete rule"
+                                [disabled]="scopeSaving"
+                                (click)="deleteScopeRule(row)">
+                                <icon-trash-lines class="h-5 w-5" />
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                <tr *ngIf="!filteredScopeRows.length">
+                    <td colspan="9" class="text-center text-gray-500 py-8">
+                        {{ scopeRows.length ? 'No rules match your search.' : 'No rules yet. Use Add New Rule to create one.' }}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div *ngIf="scopeSaving" class="mt-3 text-xs text-primary">Saving…</div>
+</div>
+
+<div class="ram-backdrop" *ngIf="showRuleModal && ruleDraft">
+    <div id="role-app-rule-modal" class="ram-modal">
+        <div *ngIf="scopeModalReferenceLoading" class="ram-modal-loading mb-3 text-center text-sm text-primary py-4">
+            Loading form options…
+        </div>
+        <div class="flex items-center justify-between mb-3 border-b pb-2">
+            <h5 class="text-lg font-semibold">{{ ruleModalIndex === null ? 'Add rule' : 'Edit rule' }}</h5>
+            <button type="button" class="btn btn-outline-danger btn-sm" (click)="closeRuleModal()">X</button>
+        </div>
+
+        <label class="mb-4 inline-flex items-center gap-2 text-sm font-semibold">
+            <input type="checkbox" [(ngModel)]="ruleDraft.blIsEnabled" [ngModelOptions]="{ standalone: true }" />
+            Active
+        </label>
+
+        <div class="mb-4">
+            <span class="scope-field-label">Role</span>
+            <ng-select
+                *ngIf="ruleModalIndex === null"
+                class="scope-ng-select"
+                [items]="scopeRoles"
+                bindLabel="txtRoleName"
+                bindValue="serRoleId"
+                [(ngModel)]="ruleDraft.serRoleId"
+                [ngModelOptions]="{ standalone: true }"
+                [clearable]="false"
+                [searchable]="true"
+                [appendTo]="ruleModalAppendTo"
+                dropdownPosition="bottom"
+                [disabled]="scopePermissionLoading || scopeSaving"
+                placeholder="Select role">
+            </ng-select>
+            <input
+                *ngIf="ruleModalIndex !== null"
+                type="text"
+                class="form-input"
+                [value]="getRoleLabel(ruleDraft.serRoleId)"
+                disabled
+                aria-readonly="true" />
+            <p class="mt-1 text-xs text-slate-500">This rule applies to the selected role on All Applications.</p>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2" [class.pointer-events-none]="scopeModalReferenceLoading" [class.opacity-60]="scopeModalReferenceLoading">
+            <div class="sm:col-span-2">
+                <span class="scope-field-label">Form / template</span>
+                <ng-select
+                    class="scope-ng-select"
+                    [items]="scopeMasterTemplates"
+                    bindLabel="templateName"
+                    bindValue="serFormId"
+                    [(ngModel)]="ruleDraft.serFormId"
+                    [ngModelOptions]="{ standalone: true }"
+                    [clearable]="true"
+                    [searchable]="true"
+                    [appendTo]="ruleModalAppendTo"
+                    dropdownPosition="bottom"
+                    placeholder="Any form">
+                </ng-select>
+            </div>
+            <div>
+                <span class="scope-field-label">Department</span>
+                <ng-select
+                    class="scope-ng-select"
+                    [items]="scopeMasterDepartments"
+                    bindLabel="txtDepartmentName"
+                    bindValue="serDepartmentId"
+                    [(ngModel)]="ruleDraft.serDepartmentId"
+                    [ngModelOptions]="{ standalone: true }"
+                    [clearable]="true"
+                    [searchable]="true"
+                    [appendTo]="ruleModalAppendTo"
+                    dropdownPosition="bottom"
+                    placeholder="Any department">
+                </ng-select>
+            </div>
+            <div>
+                <span class="scope-field-label">Submitted by</span>
+                <ng-select
+                    class="scope-ng-select"
+                    [items]="scopeMasterUsers"
+                    bindLabel="txtUserName"
+                    bindValue="serUserId"
+                    [(ngModel)]="ruleDraft.serSubmitterUserId"
+                    [ngModelOptions]="{ standalone: true }"
+                    [clearable]="true"
+                    [searchable]="true"
+                    [appendTo]="ruleModalAppendTo"
+                    dropdownPosition="bottom"
+                    placeholder="Any submitter">
+                </ng-select>
+            </div>
+            <div>
+                <span class="scope-field-label">Approver</span>
+                <ng-select
+                    class="scope-ng-select"
+                    [items]="scopeMasterUsers"
+                    bindLabel="txtUserName"
+                    bindValue="serUserId"
+                    [(ngModel)]="ruleDraft.serApproverUserId"
+                    [ngModelOptions]="{ standalone: true }"
+                    [clearable]="true"
+                    [searchable]="true"
+                    [appendTo]="ruleModalAppendTo"
+                    dropdownPosition="bottom"
+                    placeholder="Any approver">
+                </ng-select>
+            </div>
+            <div>
+                <span class="scope-field-label">Application ID</span>
+                <input
+                    type="number"
+                    class="form-input"
+                    [(ngModel)]="ruleDraft.serApplicationId"
+                    [ngModelOptions]="{ standalone: true }"
+                    placeholder="Optional"
+                    min="1" />
+            </div>
+        </div>
+
+        <p *ngIf="ruleDraft.blIsEnabled && !hasScopeRowFilters(ruleDraft)" class="mt-3 text-xs text-danger">
+            Choose at least one filter before saving this rule.
+        </p>
+
+        <div class="mt-5 flex justify-end gap-2 border-t pt-3">
+            <button type="button" class="btn btn-outline-secondary" (click)="closeRuleModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" [disabled]="scopeModalReferenceLoading || scopeSaving" (click)="confirmRuleModal()">
+                {{ ruleModalIndex === null ? 'Save rule' : 'Save changes' }}
+            </button>
+        </div>
+    </div>
+</div>

@@ -4,38 +4,16 @@ import { PDFDocument } from 'pdf-lib';
 import { EditorConfig } from 'ckeditor5';
 import { DepartmentService } from 'src/app/services/department/department.service';
 import { TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
-import { NotificationService } from 'src/app/NotificationService';
 import { UserService } from 'src/app/services/user/user.service';
-import { DocumentHeaderBrandingService } from 'src/app/services/document-header-branding/document-header-branding.service';
 import {
     WORD_EDITOR_CKEDITOR,
+    WORD_EDITOR_CKEDITOR_CONFIG,
 } from 'src/app/utils/word-editor-ckeditor.util';
-import { TEMPLATE_BUILDER_WORD_EDITOR_CONFIG } from 'src/app/utils/template-builder-word-editor.config';
-import {
-    finalizeTableFormulaHtml,
-    formatExcelColumnLabel,
-    isTableFormulaSyncHtmlSafe,
-    getFormulaDefinitionFromCell,
-    getFormulaEditText,
-    getTableFormulaCellRefFromElement,
-    isExcelFormulaComplete,
-    isExcelFormulaText,
-    shiftExcelFormulaReferences,
-    isSameTableCellRef,
-    readTableCellPlainText,
-    TableFormulaCellRef,
-    TableFormulaDefinition,
-    TEMPLATE_TABLE_FORMULA_ATTR,
-} from 'src/app/utils/template-table-formula.util';
 import {
     resolveDocumentHeaderAddress,
     resolveDocumentHeaderBrandTitle,
     resolveDocumentHeaderLogoPath,
 } from 'src/app/utils/document-header.util';
-import { buildIndividualFooterTableBands } from 'src/app/utils/individual-footer-pipeline.util';
-import { getTemplateFieldNgStyle } from 'src/app/utils/word-editor-display.util';
-import { WorkflowPipelineService } from 'src/app/services/workflow-pipeline/workflow-pipeline.service';
-import { WorkflowPipelineListItem } from 'src/app/components/workflow-pipelines/workflow-pipelines.demo-data';
 
 type TemplateFieldType =
     'document_header'
@@ -69,7 +47,7 @@ type TemplateFieldType =
     | 'orientation';
 type PipelineStepType = 'initiator' | 'department' | 'individual' | 'role';
 type PipelineApprovalMode = 'AND' | 'OR';
-type PipelineDynamicTarget = 'initiator_hod' | 'initiator_manager' | 'initiator';
+type PipelineDynamicTarget = 'initiator_hod' | 'initiator';
 type PipelineFieldRight = 'fill' | 'edit' | 'hide';
 const TEMPLATE_BUILDER_HIDE_CKEDITOR_BADGE_CLASS = 'template-builder-hide-ckeditor-badge';
 
@@ -168,24 +146,14 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     readonly pageGap = 16;
     readonly selfHodDepartmentValue = -1;
     readonly wordEditor = WORD_EDITOR_CKEDITOR;
-    readonly wordEditorConfig = TEMPLATE_BUILDER_WORD_EDITOR_CONFIG;
+    readonly wordEditorConfig = WORD_EDITOR_CKEDITOR_CONFIG;
     readonly tableFieldEditorConfig: EditorConfig = {
-        ...TEMPLATE_BUILDER_WORD_EDITOR_CONFIG,
+        ...WORD_EDITOR_CKEDITOR_CONFIG,
         toolbar: {
             items: [],
             shouldNotGroupWhenFull: true,
         },
     };
-    private tableFormulaEditorCleanups: Array<() => void> = [];
-    private tableFormulaSyncTimers = new WeakMap<any, ReturnType<typeof setTimeout>>();
-    private tableFormulaSyncGuard = new WeakSet<any>();
-    private tableFormulaEditTarget: TableFormulaCellRef | null = null;
-    private copiedTableFormula: { expression: string; source: TableFormulaCellRef } | null = null;
-    private tableFormulaSyncCommits = new WeakMap<any, (syncedHtml: string) => void>();
-    private tableFormulaExpressions = new WeakMap<any, Map<string, string>>();
-    private excelIndicatorTimers = new WeakMap<any, ReturnType<typeof setTimeout>>();
-    private excelIndicatorCleanups: Array<() => void> = [];
-    private dismissedExcelIndicators = new WeakSet<any>();
     private readonly pdfBackgroundRenderScale = 3;
     private readonly minFloatingFieldWidth = 1;
     private readonly minFloatingFieldHeight = 1;
@@ -194,17 +162,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     private readonly tableVerticalChromeHeight = 36;
     private readonly initiatorPipelineStepId = 'initiator-step';
     private readonly initiatorPipelineUserId = '__initiator__';
-    private readonly lineManagerPipelineUserId = '__initiator_manager__';
-    readonly initiatorPipelineUserOption = {
-        id: this.initiatorPipelineUserId,
-        dynamicTarget: 'initiator' as PipelineDynamicTarget,
-        txtUserName: 'Initiator'
-    };
-    readonly lineManagerPipelineUserOption = {
-        id: this.lineManagerPipelineUserId,
-        dynamicTarget: 'initiator_manager' as PipelineDynamicTarget,
-        txtUserName: 'Line Manager'
-    };
 
     pageOrientation: 'portrait' | 'landscape' = 'portrait';
     fieldLayerTop = 0;
@@ -212,9 +169,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     codeConvention = 'TPL-0000';
     editingTemplateId = '';
     templateIsActive = true;
-    templateIsDraft = false;
-    isSavingTemplate = false;
-    editorContent = '<h2 style="text-align:center">Template Title</h2><p>Select any text or table cell content, then assign it as a field from the side panel.</p><p>Example: Vendor Name, Amount, Delivery Date, Approval Notes.</p>';
+    editorContent = '<h2>Template Title</h2><p>Select any text or table cell content, then assign it as a field from the side panel.</p><p>Example: Vendor Name, Amount, Delivery Date, Approval Notes.</p>';
     selectedFieldId = '';
     private routeTemplateId = '';
     newFieldLabel = 'New Field';
@@ -249,14 +204,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     showFieldModal = false;
     showPipelineModal = false;
     showPipelineRightsModal = false;
-    showPipelineSourceModal = false;
-    showPipelineLibraryModal = false;
-    libraryPipelines: WorkflowPipelineListItem[] = [];
-    libraryPipelineSearch = '';
-    libraryPipelinesLoading = false;
-    libraryPipelinesError = '';
-    selectedLibraryPipelineId: number | null = null;
-    linkedWorkflowPipelineId: number | null = null;
     fieldPropertiesCollapsed = false;
     private lastValidTableHtmlByFieldId: Record<string, string> = {};
     private lastValidNewTableHtml = this.newTableHtml;
@@ -334,14 +281,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         private router: Router,
         private departmentService: DepartmentService,
         private templateWorkflowService: TemplateWorkflowService,
-        private userService: UserService,
-        private notificationService: NotificationService,
-        private documentHeaderBranding: DocumentHeaderBrandingService,
-        private workflowPipelineService: WorkflowPipelineService,
+        private userService: UserService
     ) { }
 
     ngOnInit(): void {
-        this.documentHeaderBranding.ensureLoaded();
         document.body.classList.add(TEMPLATE_BUILDER_HIDE_CKEDITOR_BADGE_CLASS);
         this.ensureInitiatorPipelineStep();
         this.loadDepartments();
@@ -352,28 +295,11 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (templateId) {
             this.loadTemplateForEdit(templateId);
         }
-        window.addEventListener('velocity-tour-prepare', this.onTourPrepare);
     }
 
     ngOnDestroy(): void {
-        window.removeEventListener('velocity-tour-prepare', this.onTourPrepare);
         document.body.classList.remove(TEMPLATE_BUILDER_HIDE_CKEDITOR_BADGE_CLASS);
-        this.excelIndicatorCleanups.forEach((cleanup) => cleanup());
-        this.excelIndicatorCleanups = [];
-        this.tableFormulaEditorCleanups.forEach((cleanup) => cleanup());
-        this.tableFormulaEditorCleanups = [];
     }
-
-    private onTourPrepare = (event: Event): void => {
-        const action = (event as CustomEvent<{ action?: string }>).detail?.action;
-        if (action === 'template-builder-close-modals') {
-            this.closeFieldModal();
-            this.closePipelineModal();
-            this.closePipelineRightsModal();
-        } else if (action === 'template-builder-open-field-modal' && !this.showFieldModal) {
-            this.openFieldModal();
-        }
-    };
 
     get pageWidth(): number {
         return this.pageOrientation === 'portrait' ? this.a4PortraitWidth : this.a4PortraitHeight;
@@ -385,75 +311,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     get pageIndexes(): number[] {
         return Array.from({ length: this.pageCount }, (_, index) => index);
-    }
-
-    /** Document stage zoom (center canvas). */
-    documentZoom = 1;
-    readonly documentZoomMin = 0.5;
-    readonly documentZoomMax = 2;
-    readonly documentZoomStep = 0.1;
-
-    get documentFrameHeight(): number {
-        return this.pageCount * this.pageHeight + (this.pageCount - 1) * this.pageGap;
-    }
-
-    get zoomedDocumentWidth(): number {
-        return Math.round(this.pageWidth * this.documentZoom);
-    }
-
-    get zoomedDocumentHeight(): number {
-        return Math.round(this.documentFrameHeight * this.documentZoom);
-    }
-
-    get documentZoomPercentLabel(): string {
-        return `${Math.round(this.documentZoom * 100)}%`;
-    }
-
-    get documentZoomTransform(): { [key: string]: string } {
-        return {
-            transform: `scale(${this.documentZoom})`,
-            transformOrigin: 'top left',
-            width: `${this.pageWidth}px`,
-            minHeight: `${this.documentFrameHeight}px`,
-        };
-    }
-
-    zoomInDocument(): void {
-        this.setDocumentZoom(this.documentZoom + this.documentZoomStep);
-    }
-
-    zoomOutDocument(): void {
-        this.setDocumentZoom(this.documentZoom - this.documentZoomStep);
-    }
-
-    resetDocumentZoom(): void {
-        this.setDocumentZoom(1);
-    }
-
-    onDocumentStageWheel(event: WheelEvent): void {
-        if (!event.ctrlKey && !event.metaKey) {
-            return;
-        }
-        const target = event.target as HTMLElement | null;
-        if (!target?.closest('.paper-wrap')) {
-            return;
-        }
-        event.preventDefault();
-        if (event.deltaY < 0) {
-            this.zoomInDocument();
-        } else if (event.deltaY > 0) {
-            this.zoomOutDocument();
-        }
-    }
-
-    private setDocumentZoom(value: number): void {
-        const clamped = Math.min(this.documentZoomMax, Math.max(this.documentZoomMin, value));
-        this.documentZoom = Math.round(clamped * 100) / 100;
-        this.scheduleExcelTableIndicators(this.editorInstance);
-        Object.values(this.tableEditorsByFieldId || {}).forEach((editor) => this.scheduleExcelTableIndicators(editor));
-        if (this.newTableEditor) {
-            this.scheduleExcelTableIndicators(this.newTableEditor);
-        }
     }
 
     get selectedField(): TemplateField | undefined {
@@ -476,9 +333,16 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         return this.pipelineSteps.find((step) => step.id === this.editingPipelineStepId);
     }
 
+    get initiatorPipelineUserOption(): any {
+        return {
+            id: this.initiatorPipelineUserId,
+            dynamicTarget: 'initiator',
+            txtUserName: 'Initiator'
+        };
+    }
+
     get pipelineUserOptions(): any[] {
-        const users = (this.allUsers || []).filter((user) => this.isSelectablePipelineEmployee(user));
-        return [this.initiatorPipelineUserOption, this.lineManagerPipelineUserOption, ...users];
+        return [this.initiatorPipelineUserOption, ...this.allUsers];
     }
 
     get filteredPipelineUserOptions(): any[] {
@@ -516,790 +380,17 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     onEditorReady(editor: any): void {
         this.editorInstance = editor;
-        const initialHtml = String(this.editorContent || '');
-        if (initialHtml && String(editor.getData?.() || '') !== initialHtml) {
-            this.tableFormulaSyncGuard.add(editor);
-            editor.setData(initialHtml);
-            setTimeout(() => this.tableFormulaSyncGuard.delete(editor), 0);
-        }
-        this.attachTableFormulaLiveSync(editor, (syncedHtml) => {
-            this.editorContent = syncedHtml;
-            this.schedulePaginationUpdate();
-        });
-        this.attachExcelTableIndicators(editor);
-        this.runInitialTableFormulaSync(editor, (syncedHtml) => {
-            this.editorContent = syncedHtml;
-        });
-        this.protectTableInsert(editor);
         this.updateFieldLayerTop();
         this.schedulePaginationUpdate();
     }
 
-    private attachTableFormulaLiveSync(editor: any, commit: (syncedHtml: string) => void): void {
-        if (!editor?.model?.document?.on || editor.__templateBuilderFormulaSyncAttached) {
-            return;
+    onEditorContentChanged(): void {
+        const cleanedContent = this.removeRadioFieldMarkers(this.editorContent || '');
+        if (cleanedContent !== this.editorContent) {
+            this.editorContent = cleanedContent;
+            this.editorInstance?.setData(this.editorContent);
         }
-        editor.__templateBuilderFormulaSyncAttached = true;
-        this.tableFormulaSyncCommits.set(editor, commit);
-        this.attachTableFormulaEditSupport(editor);
-        editor.model.document.on('change:data', () => {
-            this.scheduleExcelTableIndicators(editor);
-        });
-    }
-
-    private disposeTableFormulaEditor(editor: any): void {
-        if (!editor) {
-            return;
-        }
-        this.tableFormulaSyncCommits.set(editor, () => {});
-        delete editor.__templateBuilderFormulaSyncAttached;
-        delete editor.__templateBuilderFormulaEditAttached;
-        delete editor.__templateBuilderExcelIndicatorsAttached;
-        delete editor.__templateBuilderInsertTableGuard;
-    }
-
-    private releaseTableFieldEditor(fieldId: string): void {
-        if (!fieldId) {
-            return;
-        }
-        const editor = this.tableEditorsByFieldId[fieldId];
-        if (editor) {
-            this.disposeTableFormulaEditor(editor);
-            delete this.tableEditorsByFieldId[fieldId];
-        }
-        if (this.tableFormulaEditTarget) {
-            this.tableFormulaEditTarget = null;
-        }
-    }
-
-    private shouldDeferTableFormulaSync(editor: any): boolean {
-        return this.editorHasIncompleteFormulaDraft(editor);
-    }
-
-    private editorHasIncompleteFormulaDraft(editor: any): boolean {
-        const html = String(editor?.getData?.() || '');
-        if (!/<table[\s>]/i.test(html)) {
-            return false;
-        }
-        const host = document.createElement('div');
-        host.innerHTML = html;
-        const cells = host.querySelectorAll('td, th');
-        for (let index = 0; index < cells.length; index += 1) {
-            const cell = cells[index] as HTMLTableCellElement;
-            const text = readTableCellPlainText(cell);
-            if (isExcelFormulaText(text) && !isExcelFormulaComplete(text)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private moveSelectionOutsideTables(editor: any): void {
-        const root = editor?.model?.document?.getRoot?.();
-        if (!root || !editor?.model?.change) {
-            return;
-        }
-        try {
-            editor.model.change((writer: any) => {
-                writer.setSelection(root, 'end');
-            });
-        } catch {
-            // Selection can stay in the cell; setData is still skipped while typing.
-        }
-    }
-
-    private readModelCellPlainText(cell: any): string {
-        if (!cell?.getChildren) {
-            return '';
-        }
-        const parts: string[] = [];
-        const visit = (node: any) => {
-            if (!node) {
-                return;
-            }
-            if (typeof node.data === 'string') {
-                parts.push(node.data);
-                return;
-            }
-            if (typeof node.getChildren === 'function') {
-                Array.from(node.getChildren()).forEach(visit);
-            }
-        };
-        Array.from(cell.getChildren()).forEach(visit);
-        return parts.join('').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
-    }
-
-    private getModelCellRefFromSelection(editor: any): TableFormulaCellRef | null {
-        const position = editor?.model?.document?.selection?.getFirstPosition?.();
-        let cell = position?.parent;
-        while (cell && cell.name !== 'tableCell' && cell.name !== 'tableHeaderCell') {
-            cell = cell.parent;
-        }
-        const row = cell?.parent;
-        const table = row?.parent;
-        if (!cell || !row || row.name !== 'tableRow' || !table || table.name !== 'table') {
-            return null;
-        }
-        const root = editor.model.document.getRoot();
-        let tableIndex = 0;
-        let matched = false;
-        const visit = (element: any): void => {
-            if (!element?.getChildren || matched) {
-                return;
-            }
-            for (const child of element.getChildren()) {
-                if (matched) {
-                    return;
-                }
-                if (child?.name === 'table') {
-                    tableIndex += 1;
-                    if (child === table) {
-                        matched = true;
-                        return;
-                    }
-                    continue;
-                }
-                visit(child);
-            }
-        };
-        visit(root);
-        if (!matched) {
-            return null;
-        }
-        const rows = Array.from(row.parent.getChildren()).filter((item: any) => item?.name === 'tableRow');
-        const cells = Array.from(row.getChildren()).filter((item: any) =>
-            item?.name === 'tableCell' || item?.name === 'tableHeaderCell');
-        const rowNumber = rows.indexOf(row) + 1;
-        const colNumber = cells.indexOf(cell) + 1;
-        if (rowNumber < 1 || colNumber < 1) {
-            return null;
-        }
-        return { tableIndex, row: rowNumber, col: colNumber };
-    }
-
-    private isSelectionInsideTable(editor: any): boolean {
-        const position = editor?.model?.document?.selection?.getFirstPosition?.();
-        let parent = position?.parent;
-        while (parent) {
-            if (parent.name === 'table' || parent.name === 'tableCell' || parent.name === 'tableHeaderCell') {
-                return true;
-            }
-            parent = parent.parent;
-        }
-        return false;
-    }
-
-    private findModelTableCell(editor: any, tableIndex: number, row: number, col: number): any | null {
-        const root = editor?.model?.document?.getRoot?.();
-        if (!root?.getChildren) {
-            return null;
-        }
-        let seen = 0;
-        const visit = (element: any): any | null => {
-            for (const child of element.getChildren()) {
-                if (child?.name === 'table') {
-                    seen += 1;
-                    if (seen === tableIndex) {
-                        const rows = Array.from(child.getChildren()).filter((item: any) => item?.name === 'tableRow');
-                        const rowNode = rows[row - 1] as any;
-                        if (!rowNode?.getChildren) {
-                            return null;
-                        }
-                        const cells = Array.from(rowNode.getChildren()).filter((item: any) =>
-                            item?.name === 'tableCell' || item?.name === 'tableHeaderCell');
-                        return cells[col - 1] || null;
-                    }
-                    continue;
-                }
-                if (typeof child?.getChildren === 'function') {
-                    const found = visit(child);
-                    if (found) {
-                        return found;
-                    }
-                }
-            }
-            return null;
-        };
-        return visit(root);
-    }
-
-    private replaceEditorTableCellText(editor: any, cellRef: TableFormulaCellRef, text: string): void {
-        const cell = this.findModelTableCell(editor, cellRef.tableIndex, cellRef.row, cellRef.col);
-        if (!cell || !editor?.model?.change) {
-            return;
-        }
-        this.tableFormulaSyncGuard.add(editor);
-        try {
-            editor.model.change((writer: any) => {
-                const range = editor.model.createRangeIn(cell);
-                writer.remove(range);
-                const paragraph = writer.createElement('paragraph');
-                writer.append(paragraph, cell);
-                if (text) {
-                    writer.insertText(text, paragraph);
-                }
-            });
-        } catch (error) {
-            console.warn('[template-builder] could not restore formula text in cell', error);
-        }
-        setTimeout(() => this.tableFormulaSyncGuard.delete(editor), 0);
-    }
-
-    private isEditingFormulaInTableCell(editor: any): boolean {
-        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
-        const active = editable?.ownerDocument?.activeElement as HTMLElement | null;
-        if (!editable || !active || !editable.contains(active)) {
-            return false;
-        }
-        const cell = active.closest?.('td, th') as HTMLTableCellElement | null;
-        if (!cell || !editable.contains(cell)) {
-            return false;
-        }
-        const text = readTableCellPlainText(cell);
-        return isExcelFormulaText(text);
-    }
-
-    private runTableFormulaSync(editor: any, force = false): void {
-        if (this.tableFormulaSyncGuard.has(editor)) {
-            return;
-        }
-        if (!force && this.shouldDeferTableFormulaSync(editor)) {
-            this.scheduleExcelTableIndicators(editor);
-            return;
-        }
-        if (!force && this.isEditingFormulaInTableCell(editor)) {
-            this.scheduleExcelTableIndicators(editor);
-            return;
-        }
-        const commit = this.tableFormulaSyncCommits.get(editor);
-        if (!commit) {
-            return;
-        }
-        const rawHtml = String(editor.getData?.() || '');
-        const syncedHtml = finalizeTableFormulaHtml(rawHtml, null, {
-            editingTarget: this.tableFormulaEditTarget,
-        });
-        if (syncedHtml === rawHtml) {
-            this.scheduleExcelTableIndicators(editor);
-            return;
-        }
-        if (!isTableFormulaSyncHtmlSafe(rawHtml, syncedHtml)) {
-            console.warn('[template-builder] Skipped formula sync to protect table structure.');
-            this.scheduleExcelTableIndicators(editor);
-            return;
-        }
-        if (this.isSelectionInsideTable(editor) && !force) {
-            this.scheduleExcelTableIndicators(editor);
-            return;
-        }
-        this.tableFormulaSyncGuard.add(editor);
-        if (this.isSelectionInsideTable(editor)) {
-            this.moveSelectionOutsideTables(editor);
-        }
-        editor.setData?.(syncedHtml);
-        commit(syncedHtml);
-        setTimeout(() => {
-            this.tableFormulaSyncGuard.delete(editor);
-            this.scheduleExcelTableIndicators(editor);
-        }, 0);
-    }
-
-    private attachTableFormulaEditSupport(editor: any): void {
-        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
-        if (!editable || editor.__templateBuilderFormulaEditAttached) {
-            return;
-        }
-        editor.__templateBuilderFormulaEditAttached = true;
-
-        const onFocusIn = (event: FocusEvent) => {
-            const target = event.target as HTMLElement | null;
-            const cell = target?.closest?.('td, th') as HTMLTableCellElement | null;
-            if (!cell || !editable.contains(cell)) {
-                return;
-            }
-            const cellRef = getTableFormulaCellRefFromElement(cell, editable);
-            if (!cellRef) {
-                return;
-            }
-            const remembered = this.recallFormulaExpression(editor, cellRef);
-            const formula = getFormulaDefinitionFromCell(cell);
-            const editText = formula ? getFormulaEditText(formula) : remembered;
-            if (!editText) {
-                return;
-            }
-            this.tableFormulaEditTarget = cellRef;
-            if (readTableCellPlainText(cell) !== editText) {
-                this.replaceEditorTableCellText(editor, cellRef, editText);
-            }
-        };
-
-        const onFocusOut = (event: FocusEvent) => {
-            const target = event.target as HTMLElement | null;
-            const cell = target?.closest?.('td, th') as HTMLTableCellElement | null;
-            if (!cell || !editable.contains(cell)) {
-                return;
-            }
-            window.setTimeout(() => {
-                const active = editable.ownerDocument.activeElement as HTMLElement | null;
-                const activeCell = active?.closest?.('td, th') as HTMLTableCellElement | null;
-                if (activeCell && cell.contains(activeCell)) {
-                    return;
-                }
-                if (activeCell && editable.contains(activeCell)) {
-                    this.tableFormulaEditTarget = getTableFormulaCellRefFromElement(activeCell, editable);
-                } else {
-                    this.tableFormulaEditTarget = null;
-                }
-                if (this.shouldDeferTableFormulaSync(editor)) {
-                    this.scheduleExcelTableIndicators(editor);
-                    return;
-                }
-                this.renderFormulaResultsInModel(editor);
-            }, 0);
-        };
-
-        const onCopyFormula = () => {
-            const source = this.getModelCellRefFromSelection(editor);
-            if (!source) {
-                this.copiedTableFormula = null;
-                return;
-            }
-            const expression = this.formulaExpressionForCell(editor, editable, source);
-            this.copiedTableFormula = expression
-                ? { expression, source }
-                : null;
-        };
-        const onPasteFormula = (event: ClipboardEvent) => {
-            const copied = this.copiedTableFormula;
-            const destination = this.getModelCellRefFromSelection(editor);
-            if (!copied || !destination || !isExcelFormulaText(copied.expression)) {
-                return;
-            }
-            const plainText = String(event.clipboardData?.getData('text/plain') || '');
-            const htmlText = String(event.clipboardData?.getData('text/html') || '');
-            const htmlHost = document.createElement('div');
-            htmlHost.innerHTML = htmlText;
-            const pasted = (isExcelFormulaText(plainText) ? plainText : htmlHost.textContent || '')
-                .replace(/\u00a0/g, ' ')
-                .trim();
-            if (!isExcelFormulaText(pasted)) {
-                return;
-            }
-            if (this.normalizeCopiedFormula(pasted) !== this.normalizeCopiedFormula(copied.expression)) {
-                return;
-            }
-            const deltaRow = destination.row - copied.source.row;
-            const deltaCol = destination.col - copied.source.col;
-            if (!deltaRow && !deltaCol) {
-                return;
-            }
-            const shifted = shiftExcelFormulaReferences(copied.expression, deltaRow, deltaCol);
-            event.preventDefault();
-            event.stopPropagation();
-            this.tableFormulaEditTarget = destination;
-            this.rememberFormulaExpression(editor, destination, shifted);
-            this.replaceEditorTableCellText(editor, destination, shifted);
-        };
-        editable.addEventListener('focusin', onFocusIn);
-        editable.addEventListener('focusout', onFocusOut, true);
-        editable.addEventListener('copy', onCopyFormula, true);
-        editable.addEventListener('cut', onCopyFormula, true);
-        editable.addEventListener('paste', onPasteFormula, true);
-        const onSelectionChange = () => {
-            if (this.tableFormulaSyncGuard.has(editor)) {
-                return;
-            }
-            const nextRef = this.getModelCellRefFromSelection(editor);
-            const previousRef = this.tableFormulaEditTarget;
-            if (previousRef && nextRef && isSameTableCellRef(previousRef, nextRef)) {
-                return;
-            }
-            if (!previousRef && !nextRef) {
-                return;
-            }
-            this.tableFormulaEditTarget = nextRef;
-            window.setTimeout(() => {
-                if (this.tableFormulaSyncGuard.has(editor)) {
-                    return;
-                }
-                if (!this.shouldDeferTableFormulaSync(editor)) {
-                    this.renderFormulaResultsInModel(editor);
-                }
-                if (!nextRef) {
-                    return;
-                }
-                const remembered = this.recallFormulaExpression(editor, nextRef);
-                if (!remembered) {
-                    return;
-                }
-                const cell = this.findModelTableCell(editor, nextRef.tableIndex, nextRef.row, nextRef.col);
-                const liveText = this.readModelCellPlainText(cell);
-                if (liveText === remembered) {
-                    return;
-                }
-                this.tableFormulaEditTarget = nextRef;
-                this.replaceEditorTableCellText(editor, nextRef, remembered);
-            }, 40);
-        };
-        editor.model.document.selection.on('change:range', onSelectionChange);
-        this.tableFormulaEditorCleanups.push(() => {
-            editable.removeEventListener('focusin', onFocusIn);
-            editable.removeEventListener('focusout', onFocusOut, true);
-            editable.removeEventListener('copy', onCopyFormula, true);
-            editable.removeEventListener('cut', onCopyFormula, true);
-            editable.removeEventListener('paste', onPasteFormula, true);
-            editor.model.document.selection.off('change:range', onSelectionChange);
-        });
-    }
-
-    private formulaExpressionForCell(editor: any, editable: HTMLElement, cellRef: TableFormulaCellRef): string {
-        const tables = Array.from(editable.querySelectorAll('table'));
-        const table = tables[cellRef.tableIndex - 1];
-        const row = table?.querySelectorAll('tr')[cellRef.row - 1];
-        const cell = row?.querySelectorAll('th, td')[cellRef.col - 1] as HTMLTableCellElement | undefined;
-        const liveText = cell ? readTableCellPlainText(cell) : '';
-        if (isExcelFormulaText(liveText)) {
-            return liveText.trim();
-        }
-        const formula = cell ? getFormulaDefinitionFromCell(cell) : null;
-        const fromAttribute = formula ? getFormulaEditText(formula) : '';
-        if (isExcelFormulaText(fromAttribute)) {
-            return fromAttribute.trim();
-        }
-        const remembered = this.recallFormulaExpression(editor, cellRef);
-        return isExcelFormulaText(remembered) ? remembered.trim() : '';
-    }
-
-    private normalizeCopiedFormula(value: string): string {
-        return String(value || '').replace(/\u00a0/g, ' ').replace(/\s+/g, '').toUpperCase();
-    }
-
-    private runInitialTableFormulaSync(editor: any, commit: (syncedHtml: string) => void): void {
-        if (!editor?.getData) {
-            return;
-        }
-        const rawHtml = String(editor.getData() || '');
-        const syncedHtml = finalizeTableFormulaHtml(rawHtml, null, {
-            editingTarget: this.tableFormulaEditTarget,
-        });
-        if (syncedHtml === rawHtml) {
-            return;
-        }
-        if (!isTableFormulaSyncHtmlSafe(rawHtml, syncedHtml)) {
-            return;
-        }
-        this.tableFormulaSyncGuard.add(editor);
-        editor.setData(syncedHtml);
-        commit(syncedHtml);
-        setTimeout(() => {
-            this.tableFormulaSyncGuard.delete(editor);
-            this.scheduleExcelTableIndicators(editor);
-        }, 0);
-    }
-
-    private attachExcelTableIndicators(editor: any): void {
-        if (!editor?.model?.document?.on || editor.__templateBuilderExcelIndicatorsAttached) {
-            return;
-        }
-        editor.__templateBuilderExcelIndicatorsAttached = true;
-        const schedule = () => this.scheduleExcelTableIndicators(editor);
-        editor.model.document.on('change:data', schedule);
-        editor.model.document.selection?.on?.('change:range', schedule);
-        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
-        const onScroll = () => schedule();
-        editable?.addEventListener('scroll', onScroll, { passive: true });
-        window.addEventListener('resize', onScroll, { passive: true });
-        this.excelIndicatorCleanups.push(() => {
-            editable?.removeEventListener('scroll', onScroll);
-            window.removeEventListener('resize', onScroll);
-        });
-        schedule();
-    }
-
-    private scheduleExcelTableIndicators(editor: any): void {
-        const pending = this.excelIndicatorTimers.get(editor);
-        if (pending) {
-            clearTimeout(pending);
-        }
-        this.excelIndicatorTimers.set(editor, setTimeout(() => this.refreshExcelTableIndicators(editor), 60));
-    }
-
-    private refreshExcelTableIndicators(editor: any): void {
-        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
-        const editorRoot = editable?.closest('.ck-editor') as HTMLElement | null;
-        if (!editable || !editorRoot) {
-            return;
-        }
-
-        editorRoot.querySelectorAll('.template-excel-indicator-layer').forEach((node) => node.remove());
-        if (this.dismissedExcelIndicators.has(editor)) {
-            return;
-        }
-
-        const tables = Array.from(editable.querySelectorAll('table')).filter((table) => !table.parentElement?.closest('table'));
-        if (tables.length === 0) {
-            return;
-        }
-
-        const main = editorRoot.querySelector('.ck-editor__main') as HTMLElement | null;
-        const host = main || editorRoot;
-        if (getComputedStyle(host).position === 'static') {
-            host.style.position = 'relative';
-        }
-        host.style.overflow = 'visible';
-
-        const layer = document.createElement('div');
-        layer.className = 'template-excel-indicator-layer';
-        const editableBox = this.boxWithin(editable, host);
-        layer.style.left = `${editableBox.left}px`;
-        layer.style.top = `${editableBox.top}px`;
-        layer.style.width = `${Math.max(editable.offsetWidth, editable.scrollWidth)}px`;
-        layer.style.height = `${Math.max(editable.offsetHeight, editable.scrollHeight)}px`;
-        host.appendChild(layer);
-
-        const rowGutter = 22;
-        const colGutter = 16;
-        let needsRetry = false;
-
-        tables.forEach((tableNode) => {
-            const table = tableNode as HTMLTableElement;
-            const rows = Array.from(table.querySelectorAll(':scope > tbody > tr, :scope > thead > tr, :scope > tr'));
-            const measuredRows = rows.length ? rows : Array.from(table.querySelectorAll('tr'));
-            if (measuredRows.length === 0) {
-                needsRetry = true;
-                return;
-            }
-
-            const firstRowCells = Array.from(measuredRows[0].querySelectorAll(':scope > th, :scope > td')) as HTMLElement[];
-            const headerCells = firstRowCells.length
-                ? firstRowCells
-                : Array.from(measuredRows[0].querySelectorAll('th, td')) as HTMLElement[];
-            if (headerCells.length === 0) {
-                needsRetry = true;
-                return;
-            }
-
-            const anchorBox = this.boxWithin(headerCells[0], editable);
-            if (anchorBox.width < 1 || anchorBox.height < 1) {
-                needsRetry = true;
-                return;
-            }
-
-            const corner = document.createElement('button');
-            corner.type = 'button';
-            corner.className = 'template-excel-corner';
-            corner.title = 'Remove row and column labels';
-            corner.setAttribute('aria-label', 'Remove row and column labels');
-            corner.textContent = '×';
-            corner.style.left = `${anchorBox.left - rowGutter}px`;
-            corner.style.top = `${anchorBox.top - colGutter}px`;
-            corner.style.width = `${rowGutter}px`;
-            corner.style.height = `${colGutter}px`;
-            corner.addEventListener('click', (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                this.dismissedExcelIndicators.add(editor);
-                layer.remove();
-            });
-            layer.appendChild(corner);
-
-            headerCells.forEach((cell, columnIndex) => {
-                const cellBox = this.boxWithin(cell, editable);
-                const label = document.createElement('span');
-                label.className = 'template-excel-col-label';
-                label.style.left = `${cellBox.left}px`;
-                label.style.top = `${cellBox.top - colGutter}px`;
-                label.style.width = `${Math.max(cellBox.width, 1)}px`;
-                label.style.height = `${colGutter}px`;
-                label.textContent = formatExcelColumnLabel(columnIndex + 1);
-                layer.appendChild(label);
-            });
-
-            measuredRows.forEach((row, rowIndex) => {
-                const firstCell = row.querySelector(':scope > th, :scope > td, th, td') as HTMLElement | null;
-                if (!firstCell) {
-                    return;
-                }
-                const rowBox = this.boxWithin(firstCell, editable);
-                if (rowBox.height < 1) {
-                    needsRetry = true;
-                    return;
-                }
-                const label = document.createElement('span');
-                label.className = 'template-excel-row-label';
-                label.style.left = `${rowBox.left - rowGutter}px`;
-                label.style.top = `${rowBox.top}px`;
-                label.style.width = `${rowGutter}px`;
-                label.style.height = `${rowBox.height}px`;
-                label.textContent = String(rowIndex + 1);
-                layer.appendChild(label);
-            });
-        });
-
-        if (needsRetry) {
-            const attempts = Number(editor.__excelIndicatorRetries || 0);
-            if (attempts < 8) {
-                editor.__excelIndicatorRetries = attempts + 1;
-                setTimeout(() => this.refreshExcelTableIndicators(editor), 120);
-            }
-        } else {
-            editor.__excelIndicatorRetries = 0;
-        }
-    }
-
-    private boxWithin(element: HTMLElement, ancestor: HTMLElement): { left: number; top: number; width: number; height: number } {
-        const ancestorRect = ancestor.getBoundingClientRect();
-        const rect = element.getBoundingClientRect();
-        const unscaledWidth = ancestor.offsetWidth || ancestorRect.width || 1;
-        const unscaledHeight = ancestor.offsetHeight || ancestorRect.height || 1;
-        const scaleX = ancestorRect.width / unscaledWidth || 1;
-        const scaleY = ancestorRect.height / unscaledHeight || 1;
-        return {
-            left: (rect.left - ancestorRect.left) / scaleX,
-            top: (rect.top - ancestorRect.top) / scaleY,
-            width: rect.width / scaleX,
-            height: rect.height / scaleY,
-        };
-    }
-
-    private formulaMemoryFor(editor: any): Map<string, string> {
-        let memory = this.tableFormulaExpressions.get(editor);
-        if (!memory) {
-            memory = new Map<string, string>();
-            this.tableFormulaExpressions.set(editor, memory);
-        }
-        return memory;
-    }
-
-    private rememberFormulaExpression(editor: any, cellRef: TableFormulaCellRef, expression: string): void {
-        if (!expression) {
-            return;
-        }
-        this.formulaMemoryFor(editor).set(`${cellRef.tableIndex}:${cellRef.row}:${cellRef.col}`, expression);
-    }
-
-    private recallFormulaExpression(editor: any, cellRef: TableFormulaCellRef): string {
-        return this.formulaMemoryFor(editor).get(`${cellRef.tableIndex}:${cellRef.row}:${cellRef.col}`) || '';
-    }
-
-    private renderFormulaResultsInModel(editor: any): void {
-        if (!editor?.getData || !editor?.model?.change || this.tableFormulaSyncGuard.has(editor)) {
-            return;
-        }
-        if (this.shouldDeferTableFormulaSync(editor)) {
-            return;
-        }
-        const rawHtml = String(editor.getData() || '');
-        if (!/<table[\s>]/i.test(rawHtml)) {
-            return;
-        }
-        const syncedHtml = finalizeTableFormulaHtml(rawHtml, null, {
-            editingTarget: this.tableFormulaEditTarget,
-        });
-        if (!isTableFormulaSyncHtmlSafe(rawHtml, syncedHtml)) {
-            return;
-        }
-        const host = document.createElement('div');
-        host.innerHTML = syncedHtml;
-        const updates: Array<{ ref: TableFormulaCellRef; text: string; rawAttr: string }> = [];
-        host.querySelectorAll('table').forEach((table, tableIndex) => {
-            Array.from(table.querySelectorAll('tr')).forEach((row, rowIndex) => {
-                Array.from(row.querySelectorAll('td, th')).forEach((cell, colIndex) => {
-                    const element = cell as HTMLTableCellElement;
-                    const rawAttr = element.getAttribute(TEMPLATE_TABLE_FORMULA_ATTR) || '';
-                    if (!rawAttr) {
-                        return;
-                    }
-                    const ref: TableFormulaCellRef = {
-                        tableIndex: tableIndex + 1,
-                        row: rowIndex + 1,
-                        col: colIndex + 1,
-                    };
-                    if (this.tableFormulaEditTarget && isSameTableCellRef(this.tableFormulaEditTarget, ref)) {
-                        return;
-                    }
-                    let expression = '';
-                    try {
-                        expression = String((JSON.parse(rawAttr) as TableFormulaDefinition)?.expression || '');
-                    } catch {
-                        expression = '';
-                    }
-                    if (expression) {
-                        this.rememberFormulaExpression(editor, ref, expression);
-                    }
-                    updates.push({
-                        ref,
-                        text: readTableCellPlainText(element),
-                        rawAttr,
-                    });
-                });
-            });
-        });
-        if (updates.length === 0) {
-            return;
-        }
-        this.tableFormulaSyncGuard.add(editor);
-        try {
-            editor.model.change((writer: any) => {
-                updates.forEach((update) => {
-                    const cell = this.findModelTableCell(editor, update.ref.tableIndex, update.ref.row, update.ref.col);
-                    if (!cell) {
-                        return;
-                    }
-                    const range = editor.model.createRangeIn(cell);
-                    writer.remove(range);
-                    const paragraph = writer.createElement('paragraph');
-                    writer.append(paragraph, cell);
-                    if (update.text) {
-                        writer.insertText(update.text, paragraph);
-                    }
-                    if (editor.model.schema.checkAttribute(cell, 'htmlTdAttributes')) {
-                        writer.setAttribute('htmlTdAttributes', {
-                            attributes: {
-                                'data-template-formula': update.rawAttr,
-                                title: update.text,
-                            },
-                            classes: ['template-formula-cell'],
-                        }, cell);
-                    }
-                });
-            });
-        } catch (error) {
-            console.warn('[template-builder] could not render table formula result', error);
-        }
-        setTimeout(() => {
-            this.tableFormulaSyncGuard.delete(editor);
-            this.scheduleExcelTableIndicators(editor);
-        }, 0);
-    }
-
-    onEditorContentChanged(event?: { editor?: any }): void {
-        const editor = event?.editor || this.editorInstance;
-        if (editor && this.tableFormulaSyncGuard.has(editor)) {
-            this.schedulePaginationUpdate();
-            return;
-        }
-        const html = String(editor?.getData?.() || this.editorContent || '');
-        const cleanedContent = this.removeRadioFieldMarkers(html);
-        this.editorContent = cleanedContent;
         this.schedulePaginationUpdate();
-    }
-
-    private protectTableInsert(editor: any): void {
-        const insertTable = editor?.commands?.get?.('insertTable');
-        if (!insertTable?.on || editor.__templateBuilderInsertTableGuard) {
-            return;
-        }
-        editor.__templateBuilderInsertTableGuard = true;
-        insertTable.on('execute', () => {
-            this.tableFormulaSyncGuard.add(editor);
-            setTimeout(() => {
-                this.tableFormulaSyncGuard.delete(editor);
-                this.editorContent = String(editor.getData?.() || this.editorContent || '');
-                this.scheduleExcelTableIndicators(editor);
-                setTimeout(() => this.scheduleExcelTableIndicators(editor), 200);
-            }, 300);
-        });
     }
 
     assignField(): void {
@@ -1405,7 +496,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             this.pageCount = Math.max(this.pageCount, count);
         }
 
-        if (this.editorContent === '<h2 style="text-align:center">Template Title</h2><p>Select any text or table cell content, then assign it as a field from the side panel.</p><p>Example: Vendor Name, Amount, Delivery Date, Approval Notes.</p>') {
+        if (this.editorContent === '<h2>Template Title</h2><p>Select any text or table cell content, then assign it as a field from the side panel.</p><p>Example: Vendor Name, Amount, Delivery Date, Approval Notes.</p>') {
             this.editorContent = '';
             this.editorInstance?.setData('');
         }
@@ -1464,15 +555,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     onNewTableEditorReady(editor: any): void {
         this.newTableEditor = editor;
         this.lastValidNewTableHtml = this.normalizeTableHtml(this.newTableHtml);
-        this.attachTableFormulaLiveSync(editor, (syncedHtml) => {
-            this.newTableHtml = syncedHtml;
-            this.lastValidNewTableHtml = syncedHtml;
-        });
-        this.attachExcelTableIndicators(editor);
-        this.runInitialTableFormulaSync(editor, (syncedHtml) => {
-            this.newTableHtml = syncedHtml;
-            this.lastValidNewTableHtml = syncedHtml;
-        });
         this.hideTableEditorTopToolbar(editor);
         this.attachNewTableEditorSizeGuard(editor);
     }
@@ -1541,6 +623,17 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         });
     }
 
+    onTableDesignEditorReady(field: TemplateField, editor: any): void {
+        if (field.type !== 'table') {
+            return;
+        }
+        field.tableHtml = this.normalizeTableHtml(field.tableHtml);
+        this.lastValidTableHtmlByFieldId[field.id] = field.tableHtml;
+        this.tableEditorsByFieldId[field.id] = editor;
+        this.hideTableEditorTopToolbar(editor);
+        this.attachTableFieldEditorSizeGuard(field, editor);
+    }
+
     onTableFieldEditorChanged(field: TemplateField, event: any): void {
         if (field.type !== 'table' || this.revertingTableFieldIds.has(field.id)) {
             return;
@@ -1589,162 +682,28 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         return option.id;
     }
 
-    onAddPipelineClicked(): void {
-        this.showPipelineSourceModal = true;
-    }
-
-    closePipelineSourceModal(): void {
-        this.showPipelineSourceModal = false;
-    }
-
-    choosePipelineManualStep(): void {
-        this.closePipelineSourceModal();
-        this.openPipelineModal();
-    }
-
-    openPipelineLibraryPicker(): void {
-        this.closePipelineSourceModal();
-        this.showPipelineLibraryModal = true;
-        this.libraryPipelineSearch = '';
-        this.selectedLibraryPipelineId = null;
-        this.libraryPipelinesError = '';
-        this.loadLibraryPipelines();
-    }
-
-    closePipelineLibraryModal(): void {
-        this.showPipelineLibraryModal = false;
-        this.selectedLibraryPipelineId = null;
-    }
-
-    loadLibraryPipelines(): void {
-        this.libraryPipelinesLoading = true;
-        this.libraryPipelinesError = '';
-        this.workflowPipelineService.getAll().subscribe({
-            next: (rows) => {
-                this.libraryPipelines = (rows || []).filter((row) => row?.active !== false);
-                this.libraryPipelinesLoading = false;
-            },
-            error: () => {
-                this.libraryPipelines = [];
-                this.libraryPipelinesLoading = false;
-                this.libraryPipelinesError =
-                    'Could not load workflow pipelines. Ensure you have access to Master Data → Workflow Pipelines.';
-            },
-        });
-    }
-
-    getFilteredLibraryPipelines(): WorkflowPipelineListItem[] {
-        const term = this.libraryPipelineSearch.trim().toLowerCase();
-        if (!term) {
-            return this.libraryPipelines;
-        }
-        return this.libraryPipelines.filter((row) => {
-            const name = String(row.name || '').toLowerCase();
-            const code = String(row.code || '').toLowerCase();
-            const desc = String(row.description || '').toLowerCase();
-            return name.includes(term) || code.includes(term) || desc.includes(term);
-        });
-    }
-
-    selectLibraryPipeline(row: WorkflowPipelineListItem): void {
-        this.selectedLibraryPipelineId = row?.id ?? null;
-    }
-
-    applySelectedLibraryPipeline(): void {
-        const id = this.selectedLibraryPipelineId;
-        if (!id) {
-            this.notificationService.showMessage('Select a pipeline from the library.', 'warning');
-            return;
-        }
-        this.workflowPipelineService.getById(id).subscribe({
-            next: (detail) => {
-                const steps = Array.isArray(detail.pipeline) ? detail.pipeline : [];
-                if (steps.length === 0) {
-                    this.notificationService.showMessage('Selected pipeline has no steps.', 'warning');
-                    return;
-                }
-                this.pipelineSteps = this.hydratePipelineStepsFromLibrary(steps as PipelineStep[]);
-                this.linkedWorkflowPipelineId = id;
-                this.ensureInitiatorPipelineStep();
-                this.reorderPipelineSteps();
-                this.closePipelineLibraryModal();
-                this.notificationService.showMessage(`Loaded pipeline "${detail.name}".`, 'success');
-            },
-            error: () => {
-                this.notificationService.showMessage('Failed to load pipeline details.', 'error');
-            },
-        });
-    }
-
-    private hydratePipelineStepsFromLibrary(steps: PipelineStep[]): PipelineStep[] {
-        let cloned: PipelineStep[];
-        try {
-            cloned = JSON.parse(JSON.stringify(steps)) as PipelineStep[];
-        } catch {
-            return [];
-        }
-        return cloned.map((step) => {
-            step = this.normalizeLineManagerPipelineStep(step);
-            if (step.type === 'department' && step.serDepartmentId && !step.hrTblDepartment) {
-                const dept = this.departments.find(
-                    (d) => Number(d.serDepartmentId) === Number(step.serDepartmentId)
-                );
-                if (dept) {
-                    step.hrTblDepartment = dept;
-                }
-            }
-            if (step.type === 'role' && step.serRoleId && !step.cfgTblRole) {
-                const role = this.roles.find((r) => Number(r.serRoleId) === Number(step.serRoleId));
-                if (role) {
-                    step.cfgTblRole = role;
-                }
-            }
-            if (step.type === 'individual') {
-                const ids = Array.isArray(step.userIds) ? step.userIds : [];
-                const fromJson = Array.isArray(step.users) ? step.users : [];
-                const users = fromJson
-                    .map((user) => this.findUserById(user?.serUserId || user?.userId || user?.id) || user)
-                    .filter((user) => !!user);
-                if (users.length === 0 && ids.length > 0) {
-                    step.users = ids.map((userId) => this.findUserById(userId)).filter((user) => !!user);
-                } else {
-                    step.users = users;
-                }
-            }
-            return step;
-        });
-    }
-
     openPipelineModal(step?: PipelineStep): void {
         this.resetPipelineModalState();
         if (step) {
             this.editingPipelineStepId = step.id;
             this.newPipelineName = step.name || '';
+            this.newPipelineType = step.type;
             this.newPipelineApprovalMode = step.approvalMode || 'OR';
             this.selectedPipelineDepartmentId = null;
             this.selectedPipelineRoleId = null;
             this.selectedPipelineUsers = [];
 
-            const pipelineStep = this.normalizeLineManagerPipelineStep(step);
-            this.newPipelineType = pipelineStep.type;
-            if (pipelineStep.type === 'department') {
-                if (pipelineStep.dynamicTarget === 'initiator_hod') {
-                    this.selectedPipelineDepartmentId = this.selfHodDepartmentValue;
-                } else {
-                    this.selectedPipelineDepartmentId = Number(
-                        pipelineStep.serDepartmentId || pipelineStep.hrTblDepartment?.serDepartmentId || null
-                    );
-                }
-            } else if (pipelineStep.type === 'role') {
-                this.selectedPipelineRoleId = Number(pipelineStep.serRoleId || pipelineStep.cfgTblRole?.serRoleId || null);
-            } else if (pipelineStep.type === 'individual') {
-                const selectedUsers = (Array.isArray(pipelineStep.users) ? pipelineStep.users : [])
+            if (step.type === 'department') {
+                this.selectedPipelineDepartmentId = step.dynamicTarget === 'initiator_hod'
+                    ? this.selfHodDepartmentValue
+                    : Number(step.serDepartmentId || step.hrTblDepartment?.serDepartmentId || null);
+            } else if (step.type === 'role') {
+                this.selectedPipelineRoleId = Number(step.serRoleId || step.cfgTblRole?.serRoleId || null);
+            } else if (step.type === 'individual') {
+                const selectedUsers = (Array.isArray(step.users) ? step.users : [])
                     .map((user) => this.findUserById(user?.serUserId || user?.userId || user?.id) || user)
                     .filter((user) => !!user);
-                if (pipelineStep.dynamicTarget === 'initiator_manager') {
-                    selectedUsers.unshift(this.lineManagerPipelineUserOption);
-                }
-                if (Array.isArray(pipelineStep.dynamicTargets) && pipelineStep.dynamicTargets.includes('initiator')) {
+                if (Array.isArray(step.dynamicTargets) && step.dynamicTargets.includes('initiator')) {
                     selectedUsers.unshift(this.initiatorPipelineUserOption);
                 }
                 this.selectedPipelineUsers = selectedUsers;
@@ -1906,15 +865,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (this.isInitiatorPipelineUser(a) || this.isInitiatorPipelineUser(b)) {
             return this.isInitiatorPipelineUser(a) && this.isInitiatorPipelineUser(b);
         }
-        if (this.isLineManagerPipelineUser(a) || this.isLineManagerPipelineUser(b)) {
-            return this.isLineManagerPipelineUser(a) && this.isLineManagerPipelineUser(b);
-        }
-        const aId = Number(a?.serUserId ?? a?.userId ?? a?.id);
-        const bId = Number(b?.serUserId ?? b?.userId ?? b?.id);
-        if (!Number.isFinite(aId) || !Number.isFinite(bId) || aId <= 0 || bId <= 0) {
-            return false;
-        }
-        return aId === bId;
+        return Number(a?.serUserId ?? a?.userId ?? a?.id) === Number(b?.serUserId ?? b?.userId ?? b?.id);
     }
 
     togglePipelineUserDropdown(event?: Event): void {
@@ -1925,56 +876,18 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         }
     }
 
-    closePipelineUserDropdown(event?: Event): void {
-        event?.stopPropagation();
-        this.showPipelineUserDropdown = false;
-        this.pipelineUserSearchTerm = '';
-    }
-
     isPipelineUserSelected(user: any): boolean {
         return this.selectedPipelineUsers.some((selectedUser) => this.comparePipelineUsers(selectedUser, user));
     }
 
-    togglePipelineUserOption(user: any, event: Event): void {
-        event.stopPropagation();
-        this.onPipelineUserSelectionChanged(user, !this.isPipelineUserSelected(user));
-    }
-
-    trackPipelineUserOption = (index: number, user: any): string => {
-        if (user?.dynamicTarget === 'initiator' || user?.id === this.initiatorPipelineUserId) {
-            return this.initiatorPipelineUserId;
-        }
-        if (user?.dynamicTarget === 'initiator_manager' || user?.id === this.lineManagerPipelineUserId) {
-            return this.lineManagerPipelineUserId;
-        }
-        const userId = Number(user?.serUserId ?? user?.userId ?? user?.id);
-        return Number.isFinite(userId) && userId > 0 ? `user-${userId}` : `user-index-${index}`;
-    };
-
     onPipelineUserSelectionChanged(user: any, checked: boolean): void {
-        let normalizedUser = user;
-        if (this.isInitiatorPipelineUser(user)) {
-            normalizedUser = this.initiatorPipelineUserOption;
-        } else if (this.isLineManagerPipelineUser(user)) {
-            normalizedUser = this.lineManagerPipelineUserOption;
-        }
         if (checked) {
-            if (!this.isPipelineUserSelected(normalizedUser)) {
-                this.selectedPipelineUsers = [...this.selectedPipelineUsers, normalizedUser];
+            if (!this.isPipelineUserSelected(user)) {
+                this.selectedPipelineUsers = [...this.selectedPipelineUsers, user];
             }
             return;
         }
-        this.selectedPipelineUsers = this.selectedPipelineUsers.filter(
-            (selectedUser) => !this.comparePipelineUsers(selectedUser, normalizedUser)
-        );
-    }
-
-    private isSelectablePipelineEmployee(user: any): boolean {
-        if (!user || this.isInitiatorPipelineUser(user) || this.isLineManagerPipelineUser(user)) {
-            return false;
-        }
-        const userId = Number(user?.serUserId ?? user?.userId ?? user?.id);
-        return Number.isFinite(userId) && userId > 0;
+        this.selectedPipelineUsers = this.selectedPipelineUsers.filter((selectedUser) => !this.comparePipelineUsers(selectedUser, user));
     }
 
     getSelectedPipelineUsersSummary(): string {
@@ -2025,9 +938,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         }
         if (step.dynamicTarget === 'initiator_hod') {
             return 'Self HOD - resolves from initiator department';
-        }
-        if (step.dynamicTarget === 'initiator_manager') {
-            return 'Line Manager - resolves from initiator reporting manager';
         }
         if (step.dynamicTarget === 'initiator') {
             return 'Initiator - resolves to current form submitter';
@@ -2101,30 +1011,11 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (this.isInitiatorPipelineUser(user)) {
             return 'Initiator';
         }
-        if (this.isLineManagerPipelineUser(user)) {
-            return 'Line Manager';
-        }
-        const name = String(user?.txtUserName || user?.userName || user?.name || '').trim();
-        if (name) {
-            return name;
-        }
-        const email = String(user?.txtAddress || user?.email || '').trim();
-        if (email) {
-            return email;
-        }
-        const userId = Number(user?.serUserId ?? user?.userId ?? user?.id);
-        if (Number.isFinite(userId) && userId > 0) {
-            return `Employee #${userId}`;
-        }
-        return 'Unnamed employee';
+        return user?.txtUserName || user?.userName || user?.name || user?.email || '';
     }
 
     isInitiatorPipelineUser(user: any): boolean {
         return user?.dynamicTarget === 'initiator' || user?.id === this.initiatorPipelineUserId;
-    }
-
-    isLineManagerPipelineUser(user: any): boolean {
-        return user?.dynamicTarget === 'initiator_manager' || user?.id === this.lineManagerPipelineUserId;
     }
 
     getRoleName(role: any): string {
@@ -2147,13 +1038,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     getBuilderIndividualFooterColSpan(section: { users: any[] } | null | undefined): number {
         const users = Array.isArray(section?.users) ? (section?.users ?? []) : [];
         return Math.max(users.length, 1);
-    }
-
-    getBuilderIndividualFooterBands() {
-        return buildIndividualFooterTableBands(
-            this.getBuilderIndividualFooterSections(),
-            (section) => this.getBuilderIndividualFooterSlots(section)
-        );
     }
 
     getBuilderIndividualFooterSlots(section: { users: any[] } | null | undefined): any[] {
@@ -2184,8 +1068,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
         if (step?.dynamicTarget === 'initiator_hod') {
             users.push({ txtUserName: 'Initiator HOD' });
-        } else if (step?.dynamicTarget === 'initiator_manager') {
-            users.push({ txtUserName: 'Initiator Manager' });
         } else if (step?.dynamicTarget === 'initiator' || dynamicTargets.includes('initiator')) {
             users.push({ txtUserName: 'Initiator' });
         }
@@ -2222,17 +1104,12 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     }
 
     selectField(fieldId: string): void {
-        if (this.selectedFieldId && this.selectedFieldId !== fieldId) {
-            this.releaseTableFieldEditor(this.selectedFieldId);
-        }
         this.selectedFieldId = fieldId;
         this.editorContent = this.withSelectedField(fieldId);
         this.editorInstance?.setData(this.editorContent);
     }
 
     removeField(fieldId: string): void {
-        this.releaseTableFieldEditor(fieldId);
-        delete this.lastValidTableHtmlByFieldId[fieldId];
         this.fields = this.fields.filter((field) => field.id !== fieldId);
         this.editorContent = this.replaceFieldMarkers(fieldId);
         this.editorInstance?.setData(this.editorContent);
@@ -2376,25 +1253,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (field.id !== this.selectedFieldId) {
             return;
         }
-        this.releaseTableFieldEditor(field.id);
         field.tableHtml = this.normalizeTableHtml(field.tableHtml);
         this.lastValidTableHtmlByFieldId[field.id] = field.tableHtml;
         this.tableEditorsByFieldId[field.id] = editor;
-        this.attachTableFormulaLiveSync(editor, (syncedHtml) => {
-            if (field.id !== this.selectedFieldId) {
-                return;
-            }
-            field.tableHtml = syncedHtml;
-            this.lastValidTableHtmlByFieldId[field.id] = syncedHtml;
-        });
-        this.attachExcelTableIndicators(editor);
-        this.runInitialTableFormulaSync(editor, (syncedHtml) => {
-            if (field.id !== this.selectedFieldId) {
-                return;
-            }
-            field.tableHtml = syncedHtml;
-            this.lastValidTableHtmlByFieldId[field.id] = syncedHtml;
-        });
         this.attachTableFieldEditorSizeGuard(field, editor);
         this.hideTableEditorTopToolbar(editor);
     }
@@ -2466,9 +1327,8 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         }
 
         const { placement } = target;
-        const zoom = this.documentZoom || 1;
-        const dx = (event.clientX - this.activePointerAction.startClientX) / zoom;
-        const dy = (event.clientY - this.activePointerAction.startClientY) / zoom;
+        const dx = event.clientX - this.activePointerAction.startClientX;
+        const dy = event.clientY - this.activePointerAction.startClientY;
         if (this.activePointerAction.mode === 'drag') {
             placement.x = this.clamp(this.activePointerAction.startX + dx, 0, Math.max(0, this.pageWidth - placement.width));
             placement.y = this.clamp(this.activePointerAction.startY + dy, 0, Math.max(0, this.getDocumentHeight() - placement.height));
@@ -2509,8 +1369,12 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     getFieldStyle(field: TemplateField): { [key: string]: string | number } {
         return {
-            ...getTemplateFieldNgStyle(field),
             'font-size.px': this.getFieldPreviewFontSize(field),
+            'font-family': field.style.fontFamily || 'Arial, sans-serif',
+            'font-weight': field.style.bold ? '700' : '400',
+            'font-style': field.style.italic ? 'italic' : 'normal',
+            'text-decoration': field.style.underline ? 'underline' : 'none',
+            'text-align': field.style.textAlign
         };
     }
 
@@ -2524,10 +1388,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
                 this.editingTemplateId = String(template?.id || payload.id || templateId);
                 this.templateName = payload.name || template?.name || 'Untitled Template';
                 this.codeConvention = this.resolveCodeConvention(payload.codeConvention || template?.codeConvention);
-                this.templateIsDraft = payload.isDraft === true || template?.isDraft === true;
-                this.templateIsActive = !this.templateIsDraft
-                    && payload.isActive !== false
-                    && template?.isActive !== false;
+                this.templateIsActive = payload.isActive !== false && template?.isActive !== false;
                 this.editorContent = this.removeRadioFieldMarkers(payload.html || '');
                 this.backgroundFile = payload.background || null;
                 this.fields = Array.isArray(payload.fields) ? payload.fields : [];
@@ -2537,12 +1398,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
                         field.tableHtml = this.normalizeTableHtml(field.tableHtml);
                     }
                 });
-                this.pipelineSteps = (Array.isArray(payload.pipeline) ? payload.pipeline : []).map((step: PipelineStep) =>
-                    this.normalizeLineManagerPipelineStep(step)
-                );
-                const linkedId = Number(payload.workflowPipelineId);
-                this.linkedWorkflowPipelineId =
-                    Number.isFinite(linkedId) && linkedId > 0 ? linkedId : null;
+                this.pipelineSteps = Array.isArray(payload.pipeline) ? payload.pipeline : [];
 
                 const page = payload.page || {};
                 this.pageOrientation = page.orientation || (Number(page.width) > Number(page.height) ? 'landscape' : 'portrait');
@@ -2557,9 +1413,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
                 this.showFieldModal = false;
                 this.showPipelineModal = false;
                 this.showPipelineRightsModal = false;
-                this.showPipelineSourceModal = false;
-                this.showPipelineLibraryModal = false;
-                this.linkedWorkflowPipelineId = null;
                 this.editorInstance?.setData(this.editorContent);
                 this.schedulePaginationUpdate();
             },
@@ -2585,68 +1438,21 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             pipeline: this.getPipelineStepsForPayload().map((step, index) => ({
                 ...step,
                 order: index + 1
-            })),
-            ...(this.linkedWorkflowPipelineId
-                ? { workflowPipelineId: this.linkedWorkflowPipelineId }
-                : {})
+            }))
         }, null, 2);
     }
 
-    saveTemplateAsDraft(): void {
-        if (this.isSavingTemplate) {
-            return;
-        }
-        const payload = JSON.parse(this.getTemplatePayload());
-        if (this.editingTemplateId) {
-            payload.id = this.editingTemplateId;
-        }
-        this.isSavingTemplate = true;
-        this.templateWorkflowService.saveTemplate(payload, this.editingTemplateId || undefined, { asDraft: true }).subscribe({
-            next: (template) => {
-                this.isSavingTemplate = false;
-                this.editingTemplateId = String(template.id);
-                this.templateIsDraft = true;
-                this.templateIsActive = false;
-                sessionStorage.setItem('templateBuilder:lastTemplate', JSON.stringify(template.payload));
-                this.router.navigate(['/template-builder'], {
-                    queryParams: { id: template.id },
-                    replaceUrl: true
-                });
-                this.notificationService.showMessage('Template saved as draft. Publish with Save when ready.', 'success');
-            },
-            error: (error) => {
-                this.isSavingTemplate = false;
-                this.notificationService.showMessage(error?.message || 'Template draft could not be saved.', 'danger');
-                console.error('Template draft save failed', error);
-            }
-        });
-    }
-
     saveTemplate(): void {
-        if (this.isSavingTemplate) {
-            return;
-        }
         const payload = JSON.parse(this.getTemplatePayload());
         if (this.editingTemplateId) {
             payload.id = this.editingTemplateId;
         }
-        payload.isDraft = false;
-        payload.isActive = true;
-        this.isSavingTemplate = true;
-        this.templateWorkflowService.saveTemplate(payload, this.editingTemplateId || undefined, { asDraft: false }).subscribe({
+        this.templateWorkflowService.saveTemplate(payload, this.editingTemplateId || undefined).subscribe({
             next: (template) => {
-                this.isSavingTemplate = false;
-                this.templateIsDraft = false;
-                this.templateIsActive = true;
                 sessionStorage.setItem('templateBuilder:lastTemplate', JSON.stringify(template.payload));
-                this.notificationService.showMessage('Template published successfully.', 'success');
                 this.router.navigate(['/template-list']);
             },
-            error: (error) => {
-                this.isSavingTemplate = false;
-                this.notificationService.showMessage(error?.message || 'Template could not be saved.', 'danger');
-                console.error('Template save failed', error);
-            }
+            error: (error) => console.error('Template save failed', error)
         });
     }
 
@@ -2735,7 +1541,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
         if (field.type === 'table') {
             field.tableConfig = this.buildNewTableConfig();
-            field.tableHtml = this.normalizeTableHtml(this.cloneTableFieldHtml(this.newTableHtml));
+            field.tableHtml = this.normalizeTableHtml(this.newTableHtml);
             this.lastValidTableHtmlByFieldId[field.id] = field.tableHtml;
             field.style.textAlign = 'left';
         }
@@ -3152,12 +1958,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         return '<figure class="table"><table><tbody><tr><td>Header 1</td><td>Header 2</td></tr><tr><td></td><td></td></tr></tbody></table></figure>';
     }
 
-    private cloneTableFieldHtml(html: string): string {
-        const host = document.createElement('div');
-        host.innerHTML = String(html || '');
-        return host.innerHTML;
-    }
-
     private resetNewFieldForm(): void {
         this.newFieldLabel = 'New Field';
         this.newFieldRequired = false;
@@ -3394,23 +2194,14 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         }
 
         const selectedUsers = Array.isArray(this.selectedPipelineUsers) ? this.selectedPipelineUsers : [];
-        const users = selectedUsers.filter(
-            (user) => !this.isInitiatorPipelineUser(user) && !this.isLineManagerPipelineUser(user)
-        );
+        const users = selectedUsers.filter((user) => !this.isInitiatorPipelineUser(user));
         const hasInitiator = selectedUsers.some((user) => this.isInitiatorPipelineUser(user));
-        const hasLineManager = selectedUsers.some((user) => this.isLineManagerPipelineUser(user));
-        if (users.length === 0 && !hasInitiator && !hasLineManager) {
+        if (users.length === 0 && !hasInitiator) {
             return null;
         }
-        const defaultName = name ||
-            (hasLineManager && !hasInitiator && users.length === 0
-                ? 'Line Manager'
-                : hasInitiator && !hasLineManager && users.length === 0
-                    ? 'Initiator'
-                    : users.map((user) => this.getUserName(user)).join(', '));
-        const individualStep: PipelineStep = {
+        return {
             id,
-            name: defaultName,
+            name: name || (hasInitiator && users.length === 0 ? 'Initiator' : users.map((user) => this.getUserName(user)).join(', ')),
             type: 'individual',
             approvalMode,
             users,
@@ -3419,31 +2210,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             fieldPermissions,
             fieldPermissionsConfigured: true
         };
-        if (hasLineManager) {
-            individualStep.dynamicTarget = 'initiator_manager';
-        }
-        return individualStep;
-    }
-
-    private normalizeLineManagerPipelineStep(step: PipelineStep): PipelineStep {
-        if (!step) {
-            return step;
-        }
-        if (step.type === 'department' && step.dynamicTarget === 'initiator_manager') {
-            const normalized: PipelineStep = {
-                ...step,
-                type: 'individual',
-                users: Array.isArray(step.users) ? step.users : [],
-                userIds: Array.isArray(step.userIds) ? step.userIds : []
-            };
-            delete (normalized as any).serDepartmentId;
-            delete (normalized as any).hrTblDepartment;
-            if (!normalized.name || normalized.name === 'Self Manager') {
-                normalized.name = 'Line Manager';
-            }
-            return normalized;
-        }
-        return step;
     }
 
     private resetPipelineModalState(): void {
@@ -3503,7 +2269,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     private getPipelineStepsForPayload(): PipelineStep[] {
         this.ensureInitiatorPipelineStep();
         return this.pipelineSteps.map((step) => ({
-            ...this.normalizeLineManagerPipelineStep(step),
+            ...step,
             fieldPermissions: this.getEffectivePipelineFieldPermissions(step)
         }));
     }

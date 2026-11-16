@@ -1,10 +1,41 @@
 <div class="container mx-auto p-5 pl-0">
     <div class="panel border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg p-4">
-        <div class="flex items-center justify-between mb-4" data-tour="roles-header">
-            <h5 class="text-2xl font-bold dark:text-white">Role Management</h5>
-            <button type="button" class="btn btn-primary" (click)="openAddModal()">Add New Role</button>
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4" data-tour="roles-header">
+            <h5 class="text-2xl font-bold dark:text-white">Role &amp; Application Management</h5>
+            <button
+                *ngIf="activeManagementTab === 'roles'"
+                type="button"
+                class="btn btn-primary"
+                (click)="openAddModal()">
+                Add New Role
+            </button>
+            <button
+                *ngIf="activeManagementTab === 'applications'"
+                type="button"
+                class="btn btn-primary"
+                (click)="onAddApplicationScopeRule()">
+                Add New Rule
+            </button>
         </div>
 
+        <div class="rm-tabs mb-4" role="tablist">
+            <button
+                type="button"
+                class="rm-tab"
+                [class.is-active]="activeManagementTab === 'roles'"
+                (click)="setActiveManagementTab('roles')">
+                Role management
+            </button>
+            <button
+                type="button"
+                class="rm-tab"
+                [class.is-active]="activeManagementTab === 'applications'"
+                (click)="setActiveManagementTab('applications')">
+                Application management
+            </button>
+        </div>
+
+        <ng-container *ngIf="activeManagementTab === 'roles'">
         <div class="mb-4" data-tour="roles-search">
             <input
                 type="text"
@@ -32,7 +63,19 @@
                         <td class="font-semibold">{{ role.txtRoleName }}</td>
                         <td>{{ role.txtRoleCode || '-' }}</td>
                         <td><span [class]="getStatusBadgeClass(role)">{{ role.blnStatus ? 'Active' : 'Inactive' }}</span></td>
-                        <td>{{ role.userCount }}</td>
+                        <td>
+                            <button
+                                *ngIf="role.userCount > 0; else roleZeroUsers"
+                                type="button"
+                                class="role-user-count-link"
+                                (click)="openRoleUsersModal(role)"
+                                [title]="'View users assigned to ' + role.txtRoleName">
+                                {{ role.userCount }}
+                            </button>
+                            <ng-template #roleZeroUsers>
+                                <span class="text-gray-400">0</span>
+                            </ng-template>
+                        </td>
                         <td>
                             <div class="flex flex-wrap gap-2">
                                 <span class="badge bg-info" *ngFor="let p of role.permissionTiles">{{ p }}</span>
@@ -59,6 +102,13 @@
         <ng-template #loadingTpl>
             <div class="text-center py-8 text-gray-500">Loading role data...</div>
         </ng-template>
+        </ng-container>
+
+        <app-role-application-management
+            *ngIf="activeManagementTab === 'applications'"
+            [initialRoles]="roles"
+            #applicationManagement>
+        </app-role-application-management>
     </div>
 </div>
 
@@ -119,6 +169,49 @@
                 <icon-save *ngIf="!saving" class="w-4 h-4 mr-2" />
                 {{ saving ? 'Saving...' : 'Update Permissions & Role' }}
             </button>
+        </div>
+    </div>
+</div>
+
+<div class="rm-backdrop" *ngIf="showUsersModal">
+    <div class="rm-modal rm-users-modal" data-tour="roles-users-modal">
+        <div class="flex items-center justify-between mb-3 border-b pb-2">
+            <h5 class="text-xl font-semibold">
+                Users in {{ usersModalRole?.txtRoleName }}
+                <span class="text-sm font-normal text-gray-500">({{ getRoleUsersModalList().length }})</span>
+            </h5>
+            <button type="button" class="btn btn-outline-danger btn-sm" (click)="closeRoleUsersModal()">X</button>
+        </div>
+
+        <div class="max-h-[420px] overflow-auto">
+            <table class="table-hover min-w-full bg-white border border-gray-300 rounded-lg">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Name</th>
+                        <th>CNIC</th>
+                        <th>Email</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr *ngFor="let user of getRoleUsersModalList(); let i = index">
+                        <td>{{ i + 1 }}</td>
+                        <td class="font-medium">{{ user.txtUserName || '-' }}</td>
+                        <td>{{ user.txtCnic || '-' }}</td>
+                        <td>{{ user.txtEmail || '-' }}</td>
+                        <td>
+                            <span [class]="user.blnStatus ? 'badge bg-success' : 'badge bg-secondary'">
+                                {{ user.blnStatus ? 'Active' : 'Inactive' }}
+                            </span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="flex justify-end mt-4 pt-3 border-t">
+            <button type="button" class="btn btn-outline-secondary" (click)="closeRoleUsersModal()">Close</button>
         </div>
     </div>
 </div>

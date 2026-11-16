@@ -1,0 +1,95 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-3 px-5 md:flex-row md:items-center">
+            <div>
+                <h5 class="text-xl font-bold dark:text-white-light">Email Delivery Log</h5>
+                <p class="text-sm text-gray-500 m-0">Every triggered email logged when sent through the application mailer.</p>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto flex flex-wrap gap-2 items-center">
+                <button type="button" class="btn btn-outline-secondary" (click)="loadRows()">Refresh</button>
+                <input [(ngModel)]="search" type="text" class="form-input w-56" placeholder="Search table…" />
+            </div>
+        </div>
+
+        <div class="mb-4 px-5 flex flex-wrap items-end gap-3">
+            <label class="flex flex-col gap-1 text-sm">
+                <span>Status</span>
+                <select class="form-select w-36" [(ngModel)]="filterStatus">
+                    <option *ngFor="let s of statusOptions" [value]="s">{{ s || 'All' }}</option>
+                </select>
+            </label>
+            <label class="flex flex-col gap-1 text-sm">
+                <span>Trigger</span>
+                <input class="form-input w-44" [(ngModel)]="filterTriggerType" placeholder="e.g. TEMPLATE_…" />
+            </label>
+            <label class="flex flex-col gap-1 text-sm">
+                <span>Recipient</span>
+                <input class="form-input w-48" [(ngModel)]="filterRecipient" placeholder="email contains…" />
+            </label>
+            <label class="flex flex-col gap-1 text-sm">
+                <span>Application ID</span>
+                <input class="form-input w-28" type="number" [(ngModel)]="filterApplicationId" />
+            </label>
+            <button type="button" class="btn btn-primary btn-sm" (click)="applyFilters()">Apply</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" (click)="clearFilters()">Clear</button>
+            <span *ngIf="loading" class="text-sm text-gray-500">Loading…</span>
+            <span *ngIf="!loading" class="text-sm text-gray-500">{{ total }} record(s)</span>
+        </div>
+
+        <div class="datatable invoice-table px-5">
+            <ng-datatable
+                [rows]="displayRows"
+                [columns]="cols"
+                [search]="search"
+                [sortable]="true"
+                skin="whitespace-nowrap bh-table-hover"
+                paginationInfo="Showing {0} to {1} of {2} entries">
+
+                <ng-template slot="status" let-value="data">
+                    <span class="badge" [ngClass]="statusBadgeClass(value)">{{ value.status }}</span>
+                </ng-template>
+
+                <ng-template slot="subject" let-value="data">
+                    <span class="inline-block max-w-md truncate" [title]="value.subject">{{ value.subject || '—' }}</span>
+                </ng-template>
+
+                <ng-template slot="applicationId" let-value="data">
+                    {{ value.applicationId || '—' }}
+                </ng-template>
+
+                <ng-template slot="sentAt" let-value="data">
+                    {{ value.sentAt | date:'medium' }}
+                </ng-template>
+
+                <ng-template slot="actions" let-value="data">
+                    <div class="flex items-center justify-center">
+                        <button type="button" class="btn btn-sm btn-outline-primary" (click)="openPreview(value)">View</button>
+                    </div>
+                </ng-template>
+            </ng-datatable>
+        </div>
+    </div>
+</div>
+
+<div class="modal-backdrop email-log-preview-backdrop" *ngIf="previewOpen" (click)="closePreview()">
+    <div class="email-log-preview-modal" (click)="$event.stopPropagation()">
+        <div class="email-log-preview-header">
+            <div>
+                <h3>Email detail</h3>
+                <p *ngIf="previewRow as row">
+                    <strong>{{ row.recipientEmail }}</strong>
+                    <span *ngIf="row.subject"> — {{ row.subject }}</span>
+                </p>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" (click)="closePreview()">Close</button>
+        </div>
+        <div *ngIf="previewLoading" class="email-log-preview-loading">Loading…</div>
+        <div *ngIf="!previewLoading && previewRow as row" class="email-log-preview-meta">
+            <span>Status: {{ row.status }}</span>
+            <span *ngIf="row.triggerType">Trigger: {{ row.triggerType }}</span>
+            <span *ngIf="row.contextLabel">Context: {{ row.contextLabel }}</span>
+            <span *ngIf="row.errorMessage" class="text-danger">Error: {{ row.errorMessage }}</span>
+        </div>
+        <div class="email-log-preview-body" *ngIf="!previewLoading && previewHtmlSafe" [innerHTML]="previewHtmlSafe"></div>
+    </div>
+</div>

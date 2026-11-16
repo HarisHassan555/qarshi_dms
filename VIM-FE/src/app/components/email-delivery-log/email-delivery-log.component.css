@@ -1,0 +1,60 @@
+.email-log-preview-backdrop {
+    align-items: flex-start;
+    background: rgba(15, 23, 42, 0.5);
+    display: flex;
+    inset: 0;
+    justify-content: center;
+    overflow: auto;
+    padding: 24px 16px;
+    position: fixed;
+    z-index: 1100;
+}
+
+.email-log-preview-modal {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
+    max-width: 920px;
+    padding: 18px 20px 24px;
+    width: 100%;
+}
+
+.email-log-preview-header {
+    align-items: flex-start;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.email-log-preview-header h3 {
+    margin: 0 0 4px;
+}
+
+.email-log-preview-header p {
+    color: #64748b;
+    font-size: 13px;
+    margin: 0;
+}
+
+.email-log-preview-meta {
+    color: #475569;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 12px;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.email-log-preview-loading {
+    color: #64748b;
+    padding: 24px 0;
+}
+
+.email-log-preview-body {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    max-height: min(70vh, 720px);
+    overflow: auto;
+    padding: 16px;
+}

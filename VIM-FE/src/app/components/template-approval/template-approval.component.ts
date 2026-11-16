@@ -11,9 +11,12 @@ import {
     IndividualFooterTableBand
 } from 'src/app/utils/individual-footer-pipeline.util';
 import {
+    applyIndividualFooterPdfFineTuneStyles,
     applyIndividualFooterTemplatePdfCaptureStyles,
+    applyPipelineSignaturePdfCaptureStyles,
     buildIndividualFooterPdfFieldPlacements,
-    syncIndividualFooterFieldsOnPdfClone
+    syncIndividualFooterFieldsOnPdfClone,
+    waitForPdfCaptureImages
 } from 'src/app/utils/individual-footer-pdf-capture.util';
 import { NotificationService } from 'src/app/NotificationService';
 import { ApplicationPdfService } from 'src/app/services/application-pdf/application-pdf.service';
@@ -388,6 +391,13 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return `is-${tile.status.toLowerCase()}`;
     }
 
+    /**
+     * Document preview (canvas) is read-only; values are changed from the Form Fields panel only.
+     */
+    canEditFieldOnDocumentCanvas(_field: TemplateField): boolean {
+        return false;
+    }
+
     canCurrentStepEditField(field: TemplateField): boolean {
         if (this.isOnHold() || this.isOpinionPending()) {
             return false;
@@ -429,11 +439,22 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     activateInlineWordEditor(field: TemplateField): void {
-        if (!this.isInlineWordEditorField(field) || !this.canCurrentStepEditField(field)) {
+        if (
+            !this.isInlineWordEditorField(field)
+            || !this.canCurrentStepEditField(field)
+            || !this.canEditFieldOnDocumentCanvas(field)
+        ) {
             return;
         }
         this.activeInlineWordEditorFieldId = field.id;
         this.attachInlineWordEditorToolbar(field.id);
+    }
+
+    onPanelWordEditorReady(field: TemplateField, editor: any): void {
+        if (field.type !== 'word_editor') {
+            return;
+        }
+        this.inlineWordEditors.set(field.id, editor);
     }
 
     onInlineWordEditorReady(field: TemplateField, editor: any): void {
@@ -2194,7 +2215,6 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 !this.isDocumentRegionFieldType(field.type)
                 && field.type !== 'application_code'
                 && !this.isDynamicApprovalDataField(field)
-                && !this.isInlineWordEditorField(field)
             );
         }
         return (this.template?.fields || []).filter((field: TemplateField) =>
@@ -2211,10 +2231,6 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 return false;
             }
             if (field.type === 'application_code' || this.isDynamicApprovalDataField(field)) {
-                return false;
-            }
-            // Keep large inline word editors on the canvas only.
-            if (this.isInlineWordEditorField(field)) {
                 return false;
             }
             if (adminShowAllFields) {
@@ -4160,7 +4176,17 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         );
     }
 
+    private syncInlineWordEditorsForPdf(): void {
+        this.inlineWordEditors.forEach((editor, fieldId) => {
+            const nextValue = normalizeWordEditorValueForCkeditor(editor?.getData?.() ?? this.values[fieldId]);
+            if (String(this.values[fieldId] ?? '') !== nextValue) {
+                this.values[fieldId] = nextValue;
+            }
+        });
+    }
+
     private async renderTemplatePreviewPdfBlob(step: PipelineStep | null = this.activeStep): Promise<Blob> {
+        this.syncInlineWordEditorsForPdf();
         const sourceFrame = this.elementRef.nativeElement.querySelector('.fill-frame') as HTMLElement | null;
         if (!sourceFrame) {
             throw new Error('Template preview not found');
@@ -4209,9 +4235,11 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 this.applyStepVisibilityToPdfClone(clone, step);
                 this.prepareTemplatePdfFieldText(clone);
                 this.applyIndividualFooterPdfLayout(clone);
+                clone.classList.add('pdf-capture');
                 pageViewport.appendChild(clone);
                 captureHost.appendChild(pageViewport);
                 await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                await waitForPdfCaptureImages(clone);
                 const canvas = await html2canvas(pageViewport, {
                     scale: 3,
                     useCORS: true,
@@ -4251,6 +4279,8 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             syncIndividualFooterFieldsOnPdfClone(clone, placements);
         }
         applyIndividualFooterTemplatePdfCaptureStyles(clone);
+        applyIndividualFooterPdfFineTuneStyles(clone);
+        applyPipelineSignaturePdfCaptureStyles(clone);
     }
 
     private applyStepVisibilityToPdfClone(clone: HTMLElement, step: PipelineStep | null): void {
@@ -4286,7 +4316,57 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         });
     }
 
+    private applyInlineValueAttributes(control: HTMLElement, field: TemplateField, applyTextAlign = true): void {
+        control.style.fontSize = `${field.style?.fontSize || 14}px`;
+        control.style.fontFamily = field.style?.fontFamily || 'Arial, sans-serif';
+        control.style.fontWeight = field.style?.bold ? '700' : '400';
+        control.style.fontStyle = field.style?.italic ? 'italic' : 'normal';
+        control.style.textDecoration = field.style?.underline ? 'underline' : 'none';
+        if (applyTextAlign) {
+            control.style.textAlign = field.style?.textAlign || 'left';
+        } else {
+            control.style.removeProperty('text-align');
+        }
+    }
+
     private prepareTemplatePdfFieldText(root: HTMLElement): void {
+        root.querySelectorAll('.inline-word-editor-shell[data-field-id]').forEach((node) => {
+            const shell = node as HTMLElement;
+            const fieldId = String(shell.getAttribute('data-field-id') || '').trim();
+            const field = (this.template?.fields || []).find((item: TemplateField) => item.id === fieldId);
+            const editor = fieldId ? this.inlineWordEditors.get(fieldId) : null;
+            const rawValue = String(editor?.getData?.() ?? this.values[fieldId] ?? '');
+            const staticValue = root.ownerDocument.createElement('div');
+            staticValue.className = 'filled-field-value word-editor-filled-value pdf-word-editor-value';
+            staticValue.innerHTML = this.normalizeWordEditorHtmlForDisplay(rawValue);
+            staticValue.style.cssText = shell.style.cssText;
+            if (field) {
+                this.applyInlineValueAttributes(staticValue, field, false);
+            }
+            shell.replaceWith(staticValue);
+        });
+
+        root.querySelectorAll('.ck-toolbar, .ck-editor__top, .ck-powered-by, .ck-powered-by-balloon').forEach((node) => {
+            node.remove();
+        });
+
+        root.querySelectorAll('.filled-field-editor').forEach((node) => {
+            const editorEl = node as HTMLTextAreaElement | HTMLInputElement;
+            const fieldHost = editorEl.closest('.filled-field[data-field-id]') as HTMLElement | null;
+            const fieldId = String(fieldHost?.getAttribute('data-field-id') || '').trim();
+            const staticValue = root.ownerDocument.createElement('span');
+            staticValue.className = 'filled-field-value';
+            staticValue.textContent = fieldId ? String(this.values[fieldId] ?? editorEl.value ?? '') : String(editorEl.value ?? '');
+            if (fieldHost) {
+                const field = (this.template?.fields || []).find((item: TemplateField) => item.id === fieldId);
+                if (field) {
+                    Object.assign(staticValue.style, this.getInputStyle(field));
+                    this.applyInlineValueAttributes(staticValue, field);
+                }
+            }
+            editorEl.replaceWith(staticValue);
+        });
+
         root.querySelectorAll('.word-editor-filled-value').forEach((node) => {
             const valueEl = node as HTMLElement;
             valueEl.style.setProperty('box-sizing', 'border-box', 'important');
