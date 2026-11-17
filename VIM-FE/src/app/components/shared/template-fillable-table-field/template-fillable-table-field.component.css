@@ -1,16 +1,61 @@
+.fill-table-cell-menu {
+    position: fixed;
+    z-index: 40;
+    min-width: 148px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+}
+
+.fill-table-cell-menu button {
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    color: #172033;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 8px;
+    text-align: left;
+}
+
+.fill-table-cell-menu button:hover:not(:disabled) {
+    background: #f1f5f9;
+}
+
+.fill-table-cell-menu button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.fill-table-cell-menu button.is-danger {
+    color: #be123c;
+}
+
 .table-editor-scroll {
-    max-width: 100%;
-    overflow: auto;
+    overflow: visible;
 }
 
 .fillable-table {
     border-collapse: collapse;
     min-width: 100%;
     table-layout: fixed;
+    width: 100%;
+}
+
+.inline-fillable-table {
+    table-layout: auto;
+    width: max-content;
 }
 
 .fillable-table th.fill-table-index,
 .inline-fillable-table th.fill-table-index {
+    white-space: nowrap;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
     box-sizing: border-box;
@@ -26,7 +71,7 @@
 
 .fillable-table tr.table-index-row,
 .inline-fillable-table tr.table-index-row {
-    height: 16px;
+    height: auto;
 }
 
 .fillable-table th.fill-table-index-corner,
@@ -54,6 +99,11 @@
     border: 1px solid #cbd5e1;
     padding: 4px;
     vertical-align: top;
+}
+
+.inline-fillable-table th.fill-table-col-label,
+.inline-fillable-table td {
+    min-width: 96px;
 }
 
 .fillable-table th {

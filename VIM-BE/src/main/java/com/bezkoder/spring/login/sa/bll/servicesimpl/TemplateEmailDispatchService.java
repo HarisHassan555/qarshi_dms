@@ -85,7 +85,7 @@ public class TemplateEmailDispatchService {
             logger.warn("Failed to send " + label + " for applicationId=" + payload.getSerApplicationId()
                     + ": " + ex.getMessage(), ex);
         }
-    }   
+    }
 
     private static String encodeBase64(byte[] bytes) {
         if (bytes == null || bytes.length == 0) {

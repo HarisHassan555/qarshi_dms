@@ -9,13 +9,12 @@ import {
     isExcelFormulaText,
     isFormulaTableCell,
     parseExcelFormulaToDefinition,
+    shiftExcelFormulaReferencesForDeletion,
+    shiftExcelFormulaReferencesForInsertion,
     TableFormulaDefinition,
     TEMPLATE_TABLE_FORMULA_ATTR,
 } from 'src/app/utils/template-table-formula.util';
 
-const TABLE_MIN_COLUMN_WIDTH = 56;
-const TABLE_MIN_ROW_HEIGHT = 36;
-const TABLE_VERTICAL_CHROME_HEIGHT = 36;
 const TABLE_RENDER_HARD_MAX_ROWS = 80;
 const TABLE_RENDER_HARD_MAX_COLUMNS = 30;
 
@@ -111,17 +110,25 @@ function trimTableHtmlForField(field: TableFieldLike, html: string): string {
     return host.innerHTML || html;
 }
 
-function getTableRenderLimits(field: TableFieldLike): { rows: number; columns: number } {
-    const placement = field.placement;
-    if (!placement) {
-        return { rows: TABLE_RENDER_HARD_MAX_ROWS, columns: TABLE_RENDER_HARD_MAX_COLUMNS };
+function getTableRenderLimits(_field: TableFieldLike): { rows: number; columns: number } {
+    return { rows: TABLE_RENDER_HARD_MAX_ROWS, columns: TABLE_RENDER_HARD_MAX_COLUMNS };
+}
+
+/** Word-editor tables: treat cells as fill inputs (not static row-0 headers) so formulas and typing work. */
+export function ensureWordEditorTableInputCells(tableHtml: string): string {
+    const host = document.createElement('div');
+    host.innerHTML = String(tableHtml || '');
+    const table = host.querySelector('table');
+    if (!table) {
+        return String(tableHtml || '');
     }
-    const usableWidth = Math.max(0, Number(placement.width || 0) - 12);
-    const usableHeight = Math.max(0, Number(placement.height || 0) - TABLE_VERTICAL_CHROME_HEIGHT);
-    return {
-        rows: Math.min(TABLE_RENDER_HARD_MAX_ROWS, Math.max(1, Math.floor(usableHeight / TABLE_MIN_ROW_HEIGHT))),
-        columns: Math.min(TABLE_RENDER_HARD_MAX_COLUMNS, Math.max(1, Math.floor(usableWidth / TABLE_MIN_COLUMN_WIDTH))),
-    };
+    table.querySelectorAll('td, th').forEach((cell) => {
+        if (isFormulaTableCell(cell)) {
+            return;
+        }
+        cell.setAttribute('data-template-input-cell', 'true');
+    });
+    return host.innerHTML;
 }
 
 export function prepareTableFieldOnLoad(field: TableFieldLike, storedValue: any): Record<string, string> {
@@ -130,7 +137,9 @@ export function prepareTableFieldOnLoad(field: TableFieldLike, storedValue: any)
         ...extractTableCellValuesFromHtml(field.tableHtml || ''),
         ...normalizeTableCellValues(storedValue),
     };
-    return evaluateTableFieldFormulas(field.tableHtml || '', merged).values;
+    const evaluated = evaluateTableFieldFormulas(field.tableHtml || '', merged);
+    field.tableHtml = finalizeTableFormulaHtml(field.tableHtml || '', evaluated.values);
+    return evaluateTableFieldFormulas(field.tableHtml, evaluated.values).values;
 }
 
 export function refreshTableFieldFormulaValues(field: TableFieldLike, cellValues: Record<string, string>): Record<string, string> {
@@ -180,13 +189,17 @@ export function getTableIndicatorColumnCount(field: TableFieldLike): string[] {
 function buildTableRenderCell(cell: HTMLTableCellElement, rowIndex: number, cellIndex: number): TableRenderCell {
     const html = cleanTableCellHtml(cell.innerHTML);
     const key = `r${rowIndex}c${cellIndex}`;
-    const hasFormula = isFormulaTableCell(cell);
-    return {
-        key,
-        tagName: cell.tagName.toLowerCase() === 'th' ? 'th' : 'td',
-        html,
-        editable: hasFormula ? false : !hasMeaningfulTableCellContent(cell, html),
-        formula: hasFormula,
+        const hasFormula = isFormulaTableCell(cell);
+        const authoredLabel = rowIndex === 0
+            && !hasFormula
+            && !cell.hasAttribute('data-template-input-cell')
+            && hasMeaningfulTableCellContent(cell, html);
+        return {
+            key,
+            tagName: cell.tagName.toLowerCase() === 'th' ? 'th' : 'td',
+            html,
+            editable: !hasFormula && !authoredLabel,
+            formula: hasFormula,
         colspan: Math.max(1, Number(cell.getAttribute('colspan') || cell.colSpan || 1)),
         rowspan: Math.max(1, Number(cell.getAttribute('rowspan') || cell.rowSpan || 1)),
         className: cleanTableCellClass(cell.getAttribute('class') || ''),
@@ -304,6 +317,218 @@ export function getFormulaDefinitionForCellKey(field: TableFieldLike, cellKey: s
     return getFormulaDefinitionFromCell(cell);
 }
 
+export type FillableTableStructureAction =
+    | 'add-row-above'
+    | 'add-row-below'
+    | 'add-column-before'
+    | 'add-column-after'
+    | 'delete-row'
+    | 'delete-column';
+
+export function applyFillableTableStructureChange(
+    field: TableFieldLike,
+    cellValues: Record<string, string>,
+    action: FillableTableStructureAction,
+    index?: number
+): { values: Record<string, string>; tableHtml: string } | null {
+    const html = normalizeTableHtml(field.tableHtml);
+    const host = document.createElement('div');
+    host.innerHTML = html;
+    const table = host.querySelector('table');
+    if (!table) {
+        return null;
+    }
+    const rows = tableRowElements(table);
+    if (rows.length === 0) {
+        return null;
+    }
+    const columnCount = rows.reduce((max, row) => Math.max(max, rowCells(row).length), 0);
+    if (columnCount === 0) {
+        return null;
+    }
+    if ((action === 'delete-row' && rows.length <= 1) || (action === 'delete-column' && columnCount <= 1)) {
+        return null;
+    }
+    const addingRow = action === 'add-row-above' || action === 'add-row-below';
+    const addingColumn = action === 'add-column-before' || action === 'add-column-after';
+    if ((addingRow && rows.length >= TABLE_RENDER_HARD_MAX_ROWS)
+        || (addingColumn && columnCount >= TABLE_RENDER_HARD_MAX_COLUMNS)) {
+        return null;
+    }
+
+    const clickedRow = clampStructureIndex(index, rows.length);
+    const clickedColumn = clampStructureIndex(index, columnCount);
+    const insertRowAt = action === 'add-row-below' ? clickedRow + 1 : clickedRow;
+    const insertColumnAt = action === 'add-column-after' ? clickedColumn + 1 : clickedColumn;
+
+    if (addingRow) {
+        shiftFormulaExpressions(host, 'row', insertRowAt + 1, 'insert');
+        const row = document.createElement('tr');
+        for (let column = 0; column < columnCount; column += 1) {
+            row.appendChild(createEmptyInputCell());
+        }
+        const referenceRow = rows[insertRowAt];
+        if (referenceRow?.parentElement) {
+            referenceRow.parentElement.insertBefore(row, referenceRow);
+        } else {
+            (table.querySelector('tbody') || table).appendChild(row);
+        }
+        retargetFormulaCells(host);
+    } else if (addingColumn) {
+        shiftFormulaExpressions(host, 'column', insertColumnAt + 1, 'insert');
+        const headerCells = rowCells(rows[0]);
+        const headerIsLabel = headerCells.length > 0 && headerCells.every((cell) =>
+            !cell.hasAttribute('data-template-input-cell') && !isFormulaTableCell(cell) && !!String(cell.textContent || '').trim()
+        );
+        rows.forEach((row, rowIndex) => {
+            const cell = rowIndex === 0 && headerIsLabel
+                ? createHeaderCell(`Header ${columnCount + 1}`)
+                : createEmptyInputCell();
+            const cells = rowCells(row);
+            const reference = cells[insertColumnAt];
+            if (reference) {
+                row.insertBefore(cell, reference);
+            } else {
+                row.appendChild(cell);
+            }
+        });
+        retargetFormulaCells(host);
+    } else if (action === 'delete-row') {
+        rows[clickedRow].remove();
+        shiftFormulaExpressions(host, 'row', clickedRow + 1, 'delete');
+        retargetFormulaCells(host);
+    } else {
+        rows.forEach((row) => {
+            const cells = rowCells(row);
+            if (cells[clickedColumn]) {
+                cells[clickedColumn].remove();
+            }
+        });
+        shiftFormulaExpressions(host, 'column', clickedColumn + 1, 'delete');
+        retargetFormulaCells(host);
+    }
+
+    const structureIndex = addingRow ? insertRowAt : addingColumn ? insertColumnAt : action === 'delete-row' ? clickedRow : clickedColumn;
+    const tableHtml = normalizeTableHtml(host.innerHTML);
+    const remapped = remapCellValuesForStructure(normalizeTableCellValues(cellValues), action, structureIndex);
+    field.tableHtml = finalizeTableFormulaHtml(tableHtml, remapped);
+    const values = refreshTableFieldFormulaValues(field, remapped);
+    return { values, tableHtml: field.tableHtml };
+}
+
+function createEmptyInputCell(): HTMLTableCellElement {
+    const cell = document.createElement('td');
+    cell.setAttribute('data-template-input-cell', 'true');
+    cell.innerHTML = '&nbsp;';
+    return cell;
+}
+
+function createHeaderCell(label: string): HTMLTableCellElement {
+    const cell = document.createElement('td');
+    cell.textContent = label;
+    return cell;
+}
+
+function tableRowElements(table: HTMLTableElement): HTMLTableRowElement[] {
+    return Array.from(table.querySelectorAll('tr'));
+}
+
+function rowCells(row: HTMLTableRowElement): HTMLTableCellElement[] {
+    return Array.from(row.children).filter((cell) => cell.tagName === 'TD' || cell.tagName === 'TH') as HTMLTableCellElement[];
+}
+
+function clampStructureIndex(index: number | undefined, length: number): number {
+    const requested = Number(index);
+    if (!Number.isFinite(requested)) {
+        return length - 1;
+    }
+    return Math.min(length - 1, Math.max(0, Math.round(requested)));
+}
+
+function shiftFormulaExpressions(
+    host: HTMLElement,
+    axis: 'row' | 'column',
+    pivot: number,
+    mode: 'insert' | 'delete'
+): void {
+    host.querySelectorAll(`[${TEMPLATE_TABLE_FORMULA_ATTR}]`).forEach((node) => {
+        const cell = node as HTMLTableCellElement;
+        const formula = getFormulaDefinitionFromCell(cell);
+        if (!formula?.expression) {
+            return;
+        }
+        formula.expression = mode === 'insert'
+            ? shiftExcelFormulaReferencesForInsertion(formula.expression, axis, pivot)
+            : shiftExcelFormulaReferencesForDeletion(formula.expression, axis, pivot);
+        cell.setAttribute(TEMPLATE_TABLE_FORMULA_ATTR, JSON.stringify(formula));
+    });
+}
+
+function retargetFormulaCells(host: HTMLElement): void {
+    host.querySelectorAll(`[${TEMPLATE_TABLE_FORMULA_ATTR}]`).forEach((node) => {
+        const cell = node as HTMLTableCellElement;
+        const formula = getFormulaDefinitionFromCell(cell);
+        const table = cell.closest('table');
+        const row = cell.parentElement as HTMLTableRowElement | null;
+        if (!formula || !table || !row) {
+            return;
+        }
+        const rowIndex = tableRowElements(table).indexOf(row);
+        const columnIndex = rowCells(row).indexOf(cell);
+        if (rowIndex < 0 || columnIndex < 0) {
+            return;
+        }
+        formula.target = {
+            ...formula.target,
+            tableIndex: formula.target?.tableIndex || 1,
+            row: rowIndex + 1,
+            col: columnIndex + 1,
+        };
+        cell.setAttribute(TEMPLATE_TABLE_FORMULA_ATTR, JSON.stringify(formula));
+    });
+}
+
+function remapCellValuesForStructure(
+    values: Record<string, string>,
+    action: FillableTableStructureAction,
+    index: number
+): Record<string, string> {
+    const insertingRow = action === 'add-row-above' || action === 'add-row-below';
+    const insertingColumn = action === 'add-column-before' || action === 'add-column-after';
+    return Object.keys(values).reduce((next: Record<string, string>, key) => {
+        const match = /^r(\d+)c(\d+)$/.exec(key);
+        if (!match) {
+            return next;
+        }
+        let row = Number(match[1]);
+        let column = Number(match[2]);
+        if (insertingRow && row >= index) {
+            row += 1;
+        }
+        if (insertingColumn && column >= index) {
+            column += 1;
+        }
+        if (action === 'delete-row') {
+            if (row === index) {
+                return next;
+            }
+            if (row > index) {
+                row -= 1;
+            }
+        }
+        if (action === 'delete-column') {
+            if (column === index) {
+                return next;
+            }
+            if (column > index) {
+                column -= 1;
+            }
+        }
+        next[`r${row}c${column}`] = values[key];
+        return next;
+    }, {});
+}
+
 export function applyTableCellValueChange(
     field: TableFieldLike,
     cellValues: Record<string, string>,
@@ -350,9 +575,15 @@ function writePlainTableCellText(tableHtml: string, cellKey: string, value: stri
     const table = host.querySelector('table');
     const row = table?.querySelectorAll('tr')[Number(match[1])];
     const cell = row?.querySelectorAll('th, td')[Number(match[2])] as HTMLTableCellElement | undefined;
-    if (!cell || isFormulaTableCell(cell)) {
+    if (!cell) {
         return tableHtml;
     }
+    if (isFormulaTableCell(cell)) {
+        cell.removeAttribute(TEMPLATE_TABLE_FORMULA_ATTR);
+        cell.classList.remove('template-formula-cell');
+        cell.removeAttribute('title');
+    }
+    cell.setAttribute('data-template-input-cell', 'true');
     cell.textContent = value;
     return host.innerHTML;
 }

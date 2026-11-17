@@ -1305,6 +1305,106 @@ public class TemplateDefinitionController {
         }
     }
 
+    @RequestMapping(value = "/getTemplateApprovalChannels", method = RequestMethod.GET)
+    public Map<String, Object> getTemplateApprovalChannels(@RequestParam Integer userId,
+                                                             @RequestParam(defaultValue = "false") Boolean all,
+                                                             HttpServletResponse response) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            String whereClause = "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
+                    "AND (t.blIsDeleted IS NULL OR t.blIsDeleted = false) " +
+                    "AND UPPER(COALESCE(a.txtStatus, '')) IN ('APPROVED', 'COMPLETED') ";
+            if (!Boolean.TRUE.equals(all)) {
+                whereClause += "AND a.serSubmittedBy = :userId ";
+            }
+
+            javax.persistence.Query rowQuery = entityManager.createQuery(
+                    "SELECT a.serApplicationId, a.txtStatus, a.txtApprovalHistory, a.dteCreatedDate, " +
+                            "a.serSubmittedBy, t.txtTemplateName " +
+                            "FROM CfgTblCustomFormApplication a, TemplateDefinition t " +
+                            whereClause +
+                            "AND t.serFormId = a.serFormId " +
+                            "ORDER BY a.dteCreatedDate DESC");
+            if (!Boolean.TRUE.equals(all)) {
+                rowQuery.setParameter("userId", userId);
+            }
+
+            @SuppressWarnings("unchecked")
+            List<Object[]> rows = rowQuery.getResultList();
+
+            java.util.List<Map<String, Object>> items = new java.util.ArrayList<>();
+            for (Object[] row : rows) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("serApplicationId", row[0]);
+                item.put("txtStatus", row[1]);
+                item.put("dteCreatedDate", row[3]);
+                item.put("serSubmittedBy", row[4]);
+                item.put("templateName", row[5]);
+                String historyJson = row[2] != null ? String.valueOf(row[2]) : null;
+                item.put("approvalChannel", resolveCompletionApprovalChannel(historyJson));
+                items.add(item);
+            }
+
+            result.put("items", items);
+            result.put("total", items.size());
+            return result;
+        } catch (Exception ex) {
+            logger.error("Error fetching template approval channels: " + ex.getMessage(), ex);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            result.put("items", java.util.Collections.emptyList());
+            result.put("total", 0);
+            result.put("message", ex.getMessage());
+            return result;
+        }
+    }
+
+    private String resolveCompletionApprovalChannel(String historyJson) {
+        if (historyJson == null || historyJson.isBlank()) {
+            return "PORTAL";
+        }
+        try {
+            List<Map<String, Object>> entries = objectMapper.readValue(
+                    historyJson,
+                    new TypeReference<List<Map<String, Object>>>() {
+                    });
+            if (entries == null || entries.isEmpty()) {
+                return "PORTAL";
+            }
+            String lastApprovedVia = null;
+            for (Map<String, Object> entry : entries) {
+                if (entry == null) {
+                    continue;
+                }
+                String action = String.valueOf(entry.getOrDefault("action", "")).trim().toUpperCase(Locale.ROOT);
+                if (!"APPROVED".equals(action) && !"APPROVE".equals(action)) {
+                    continue;
+                }
+                Object via = entry.get("approvedVia");
+                if (via == null) {
+                    via = entry.get("actionSource");
+                }
+                lastApprovedVia = via != null ? String.valueOf(via).trim() : null;
+            }
+            return classifyApprovalChannel(lastApprovedVia);
+        } catch (Exception ex) {
+            return "PORTAL";
+        }
+    }
+
+    private String classifyApprovalChannel(String approvedVia) {
+        String normalized = approvedVia == null ? "" : approvedVia.trim().toUpperCase(Locale.ROOT);
+        if (normalized.isEmpty()
+                || "SYSTEM".equals(normalized)
+                || "SUBMISSION".equals(normalized)
+                || normalized.contains("PORTAL")) {
+            return "PORTAL";
+        }
+        if ("EMAIL".equals(normalized) || normalized.contains("EMAIL")) {
+            return "EMAIL";
+        }
+        return "PORTAL";
+    }
+
     @RequestMapping(value = "/getAuditAllTemplateApplications", method = RequestMethod.GET)
     public Map<String, Object> getAuditAllTemplateApplications(@RequestParam Integer userId,
                                                                @RequestParam(defaultValue = "0") Integer page,

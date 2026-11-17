@@ -1,5 +1,5 @@
 import { Component, OnDestroy, OnInit, ViewChild } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { finalize } from 'rxjs';
 import { NotificationService } from 'src/app/NotificationService';
 import { DepartmentService } from 'src/app/services/department/department.service';
@@ -59,6 +59,7 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
     };
 
     constructor(
+        private route: ActivatedRoute,
         private router: Router,
         private templateWorkflowService: TemplateWorkflowService,
         private departmentService: DepartmentService,
@@ -70,6 +71,9 @@ export class TemplateFormsComponent implements OnInit, OnDestroy {
     ngOnInit(): void {
         this.currentUserId = this.getCurrentUserId();
         this.isAdmin = this.isCurrentUserAdmin();
+        if (this.isAdmin && this.route.snapshot.queryParamMap.get('list') === 'drafts') {
+            this.listMode = 'drafts';
+        }
         if (this.isAdmin) {
             this.loadDepartments();
             this.loadUsers();

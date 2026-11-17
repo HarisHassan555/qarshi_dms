@@ -29,6 +29,18 @@ export class AuthService {
     return this.http.post(urls.API_URL + urls.SIGNIN_URL, payload);
   }
 
+  requestForgotPasswordOtp(email: string) {
+    return this.http.post(urls.API_URL + urls.FORGOT_PASSWORD_REQUEST_OTP, { email });
+  }
+
+  verifyForgotPasswordOtp(email: string, otp: string) {
+    return this.http.post(urls.API_URL + urls.FORGOT_PASSWORD_VERIFY_OTP, { email, otp });
+  }
+
+  resetForgotPassword(email: string, otp: string, newPassword: string) {
+    return this.http.post(urls.API_URL + urls.FORGOT_PASSWORD_RESET, { email, otp, newPassword });
+  }
+
   refreshAccessToken(refreshToken: string): Observable<TokenRefreshResponse> {
     return this.http
       .post<TokenRefreshResponse>(urls.API_URL + urls.REFRESH_URL, { refreshToken })

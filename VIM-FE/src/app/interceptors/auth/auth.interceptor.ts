@@ -24,6 +24,7 @@ export class AuthInterceptor implements HttpInterceptor {
   intercept(request: HttpRequest<unknown>, next: HttpHandler): Observable<HttpEvent<unknown>> {
     const isLoginUrl = request.url.includes('api/auth/login') || request.url.includes('/login');
     const isRefreshUrl = request.url.includes('api/auth/refresh');
+    const isForgotPasswordUrl = request.url.includes('api/auth/forgot-password/');
     const isUserDetails = request.url.includes('getloginCustomer');
     const isSaleInvoiceEditUrl = request.url.includes('addNewSaleOrderNew');
     const isUploadDocument = request.url.includes('uploadCandidateDocument');
@@ -37,7 +38,7 @@ export class AuthInterceptor implements HttpInterceptor {
     const isOpenMeteo = request.url.includes('api.open-meteo.com');
     const isFormDataRequest = request.body instanceof FormData;
 
-    if (isLoginUrl || isRefreshUrl || isEmailApproval || isOpenMeteo || isPublicDocumentShare) {
+    if (isLoginUrl || isRefreshUrl || isForgotPasswordUrl || isEmailApproval || isOpenMeteo || isPublicDocumentShare) {
       return next.handle(request);
     }
 

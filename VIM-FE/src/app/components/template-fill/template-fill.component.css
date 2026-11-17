@@ -12,7 +12,9 @@
 .header-actions {
     align-items: center;
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
+    justify-content: flex-end;
 }
 
 .fill-header h2 {
@@ -200,14 +202,27 @@
     width: 78px;
 }
 
+.filled-field.grows-with-table {
+    height: auto;
+    width: max-content;
+}
+
 .inline-table-shell {
     align-items: stretch;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: 6px;
-    height: 100%;
-    overflow: hidden;
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+    width: max-content;
+    min-width: 100%;
+}
+
+.table-field-panel app-template-fillable-table-field,
+.inline-table-shell app-template-fillable-table-field {
+    display: block;
     width: 100%;
 }
 
@@ -463,9 +478,30 @@
     overflow-wrap: anywhere;
 }
 
-.attachment-field-panel input[type="file"] {
-    background: #f8fafc;
-    cursor: pointer;
+.attachment-source-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.attachment-source-select,
+.attachment-source-action {
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.attachment-source-select {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    color: #111827;
+    font-size: 13px;
+    min-height: 36px;
+    padding: 7px 9px;
+}
+
+.attachment-computer-input {
+    display: none;
 }
 
 .attachment-list {
@@ -596,6 +632,55 @@
     min-width: 0;
     overflow-wrap: anywhere;
     word-break: break-word;
+}
+
+:host ::ng-deep .document-fillable-table-host {
+    display: block;
+    margin: 8px 0;
+    max-width: 100%;
+}
+
+:host ::ng-deep .panel-word-editor figure.table,
+:host ::ng-deep .panel-word-editor table,
+:host ::ng-deep .inline-word-editor figure.table,
+:host ::ng-deep .inline-word-editor table {
+    display: none;
+}
+
+.value-field app-template-fillable-table-field,
+.inline-word-editor-shell > app-template-fillable-table-field {
+    display: block;
+    margin-top: 8px;
+    position: relative;
+    z-index: 20;
+}
+
+:host ::ng-deep app-template-fillable-table-field .fill-table-cell-menu {
+    z-index: 200;
+}
+
+:host ::ng-deep .document-html .document-table-cell-input {
+    background: transparent;
+    border: 0;
+    box-sizing: border-box;
+    color: inherit;
+    display: block;
+    font: inherit;
+    min-height: 22px;
+    outline: none;
+    padding: 0;
+    width: 100%;
+}
+
+:host ::ng-deep .inline-word-editor .ck-editor__nested-editable,
+:host ::ng-deep .panel-word-editor .ck-editor__nested-editable {
+    cursor: text;
+    min-height: 1.2em;
+}
+
+:host ::ng-deep .inline-word-editor .ck-widget__type-around,
+:host ::ng-deep .panel-word-editor .ck-widget__type-around {
+    pointer-events: none;
 }
 
 :host ::ng-deep .document-html tr,
@@ -859,7 +944,9 @@
 }
 
 .inline-word-editor-shell {
-    height: 100%;
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
     position: relative;
     width: 100%;
     z-index: 4;
@@ -909,6 +996,7 @@
     border: 1px solid #e0e6ed;
     border-radius: 6px;
     box-sizing: border-box;
+    min-height: 80px;
     overflow: auto;
     padding: 6px;
 }
@@ -1074,15 +1162,33 @@
 }
 
 .individual-footer-preview {
+    max-width: 100%;
+    overflow: hidden;
     padding: 0;
     position: relative;
 }
 
+.filled-field .individual-footer-preview,
+.filled-field .individual-footer-preview-inner {
+    max-width: 100% !important;
+    overflow: hidden !important;
+}
+
 .individual-footer-preview-inner {
     box-sizing: border-box;
-    inset: 0 8px 4px;
-    overflow: hidden;
+    inset: 0 !important;
+    left: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
     position: absolute;
+    right: 0 !important;
+    width: 100% !important;
+}
+
+.filled-field table.individual-pipeline-footer-table {
+    height: auto;
+    margin-top: 0;
+    max-width: 100%;
 }
 
 .document-footer-preview table {

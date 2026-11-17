@@ -326,6 +326,13 @@ export class TemplateWorkflowService {
         return this.http.get<any>(urls.API_URL + 'getMyTemplateApplications?' + params.toString());
     }
 
+    getTemplateApprovalChannels(userId: number, all = false): Observable<any> {
+        const params = new URLSearchParams();
+        params.set('userId', String(userId));
+        params.set('all', String(!!all));
+        return this.http.get<any>(urls.API_URL + 'getTemplateApprovalChannels?' + params.toString());
+    }
+
     getAuditAllTemplateApplications(
         userId: number,
         options: {
@@ -547,12 +554,14 @@ export class TemplateWorkflowService {
         }
     ): Observable<{ applicationId: number; formCode: string }> {
         const normalizedValues = this.normalizeApplicationValuesForStorage(values);
+        const documentTableCells = this.takeDocumentTableCells(normalizedValues);
         const applicationData: Record<string, any> = {
             ...normalizedValues,
             templateValues: normalizedValues,
             footerFields: userPipeline,
             templatePayload: template.payload,
-            documentHtml: String(template.payload?.html || '')
+            documentHtml: String(template.payload?.html || ''),
+            ...(documentTableCells ? { documentTableCells } : {})
         };
         const applicationId = Number(options?.applicationId);
         const payload: any = {
@@ -592,12 +601,14 @@ export class TemplateWorkflowService {
         submitAccess?: TemplateSubmitAccessContext
     ): Observable<TemplateSubmission> {
         const normalizedValues = this.normalizeApplicationValuesForStorage(values);
+        const documentTableCells = this.takeDocumentTableCells(normalizedValues);
         const applicationData: Record<string, any> = {
             ...normalizedValues,
             templateValues: normalizedValues,
             footerFields: userPipeline,
             templatePayload: template.payload,
-            documentHtml: String(template.payload?.html || '')
+            documentHtml: String(template.payload?.html || ''),
+            ...(documentTableCells ? { documentTableCells } : {})
         };
         const numericApplicationId = Number(applicationId);
         const payload: any = {
@@ -730,6 +741,7 @@ export class TemplateWorkflowService {
     ) {
         const existingData = this.parseApplicationData(application?.txtApplicationData);
         const normalizedValues = this.normalizeApplicationValuesForStorage(values);
+        const documentTableCells = this.takeDocumentTableCells(normalizedValues) || existingData.documentTableCells;
         const existingFieldChangeLogs = Array.isArray(existingData.templateFieldChangeLogs)
             ? existingData.templateFieldChangeLogs
             : [];
@@ -745,6 +757,7 @@ export class TemplateWorkflowService {
             footerFields: userPipeline.length > 0 ? userPipeline : (existingData.footerFields || []),
             templatePayload,
             documentHtml: String(templatePayload?.html || existingData.documentHtml || ''),
+            ...(documentTableCells ? { documentTableCells } : {}),
             templateFieldChangeLogs: incomingFieldChangeLogs.length > 0
                 ? [...existingFieldChangeLogs, ...incomingFieldChangeLogs]
                 : existingFieldChangeLogs
@@ -1237,6 +1250,15 @@ export class TemplateWorkflowService {
         } catch {
             return {};
         }
+    }
+
+    private takeDocumentTableCells(values: Record<string, any>): Record<string, any> | null {
+        const cells = values?.['__documentTableCells'];
+        if (!cells || typeof cells !== 'object' || Array.isArray(cells)) {
+            return null;
+        }
+        delete values['__documentTableCells'];
+        return { ...cells };
     }
 
     private normalizeApplicationValuesForStorage(values: Record<string, any>): Record<string, any> {

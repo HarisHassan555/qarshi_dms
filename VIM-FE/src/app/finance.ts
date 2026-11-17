@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, NgZone, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom, Observable } from 'rxjs';
 import { ActivityLogService } from './services/activity-log/activity-log.service';
@@ -115,8 +115,13 @@ export class FinanceComponent implements OnInit {
     availableStatuses: string[] = [];
     availableFormTypes: string[] = [];
     statusDonutChart: any = null;
+    showStatusApplicationsModal = false;
+    statusApplicationsLabel = '';
+    statusApplicationsColor = '#64748b';
+    statusApplications: DashboardApplicationItem[] = [];
     submissionsLineChart: any = null;
     categoryBarChart: any = null;
+    approvalChannelPieChart: any = null;
     categoryBarMode: 'department' | 'formType' = 'department';
     showDashboardCsvModal = false;
     availableDashboardCsvColumns: DashboardCsvColumn[] = [];
@@ -136,6 +141,7 @@ export class FinanceComponent implements OnInit {
     private readonly userDepartmentById = new Map<number, string>();
     private allDashboardItems: DashboardApplicationItem[] = [];
     private filteredDashboardItems: DashboardApplicationItem[] = [];
+    private readonly approvalChannelByAppId = new Map<number, 'EMAIL' | 'PORTAL'>();
     private readonly breakdownColors = ['#3b6fe8', '#7c5cff', '#38bdf8', '#2563eb', '#22c55e'];
 
     constructor(
@@ -143,7 +149,8 @@ export class FinanceComponent implements OnInit {
         private sharedDataService: SharedDataService,
         private templateWorkflowService: TemplateWorkflowService,
         private userService: UserService,
-        private router: Router
+        private router: Router,
+        private zone: NgZone
     ) {
         this.hydrateUserFromStorage();
     }
@@ -191,7 +198,12 @@ export class FinanceComponent implements OnInit {
     }
 
     get hasChartData(): boolean {
-        return !!(this.statusDonutChart || this.submissionsLineChart || this.categoryBarChart);
+        return !!(
+            this.statusDonutChart
+            || this.submissionsLineChart
+            || this.categoryBarChart
+            || this.approvalChannelPieChart
+        );
     }
 
     get categoryBarTitle(): string {
@@ -260,6 +272,28 @@ export class FinanceComponent implements OnInit {
 
     trackByDashboardCsvColumn(index: number, column: DashboardCsvColumn): DashboardCsvColumnKey {
         return column.key;
+    }
+
+    openStatusApplications(label: string): void {
+        const statusLabel = String(label || '').trim();
+        if (!statusLabel) {
+            return;
+        }
+        this.statusApplicationsLabel = statusLabel;
+        this.statusApplicationsColor = this.getChartColorForStatus(statusLabel);
+        this.statusApplications = this.filteredDashboardItems
+            .filter((item) => this.humanizeStatus(item.txtStatus || 'Unknown') === statusLabel)
+            .sort((left, right) => this.getCreatedAtMillis(right) - this.getCreatedAtMillis(left));
+        this.showStatusApplicationsModal = true;
+    }
+
+    closeStatusApplicationsModal(): void {
+        this.showStatusApplicationsModal = false;
+    }
+
+    openStatusApplication(item: DashboardApplicationItem): void {
+        this.closeStatusApplicationsModal();
+        this.openApplication(item);
     }
 
     openApplication(item: DashboardApplicationItem): void {
@@ -380,12 +414,31 @@ export class FinanceComponent implements OnInit {
         this.isLoadingDashboard = true;
         try {
             const activityFilters = this.isAdmin ? {} : { userId: this.currentUserId };
-            const [submittedItemsRaw, pendingItemsRaw, usersResponse, activityLogs] = await Promise.all([
+            const [submittedItemsRaw, pendingItemsRaw, usersResponse, activityLogs, approvalChannelResponse] = await Promise.all([
                 this.fetchAllSubmittedApplications(),
                 this.fetchAllPendingApprovals(),
                 firstValueFrom(this.userService.getUsers()),
-                this.isAdmin ? firstValueFrom(this.activityLogService.getAll(activityFilters)) : Promise.resolve([])
+                this.isAdmin ? firstValueFrom(this.activityLogService.getAll(activityFilters)) : Promise.resolve([]),
+                firstValueFrom(
+                    this.templateWorkflowService.getTemplateApprovalChannels(this.currentUserId, this.isAdmin)
+                )
             ]);
+
+            this.approvalChannelByAppId.clear();
+            const approvalChannelItems = Array.isArray(approvalChannelResponse?.items)
+                ? approvalChannelResponse.items
+                : [];
+            approvalChannelItems.forEach((row: any) => {
+                const applicationId = Number(row?.serApplicationId || 0);
+                if (!applicationId) {
+                    return;
+                }
+                const channel = String(row?.approvalChannel || 'PORTAL').trim().toUpperCase();
+                this.approvalChannelByAppId.set(
+                    applicationId,
+                    channel === 'EMAIL' ? 'EMAIL' : 'PORTAL'
+                );
+            });
 
             this.userNameById.clear();
             this.userDepartmentById.clear();
@@ -439,6 +492,8 @@ export class FinanceComponent implements OnInit {
             this.statusDonutChart = null;
             this.submissionsLineChart = null;
             this.categoryBarChart = null;
+            this.approvalChannelPieChart = null;
+            this.approvalChannelByAppId.clear();
         } finally {
             this.isLoadingDashboard = false;
         }
@@ -743,6 +798,63 @@ export class FinanceComponent implements OnInit {
         this.statusDonutChart = this.buildStatusDonutChart(items);
         this.submissionsLineChart = this.buildSubmissionsLineChart(items);
         this.categoryBarChart = this.buildCategoryBarChart(items);
+        this.approvalChannelPieChart = this.buildApprovalChannelPieChart(items);
+    }
+
+    private buildApprovalChannelPieChart(items: DashboardApplicationItem[]): any {
+        const completedItems = items.filter((item) => this.isCompletedStatus(item.txtStatus));
+        if (!completedItems.length) {
+            return null;
+        }
+
+        let emailCount = 0;
+        let portalCount = 0;
+        completedItems.forEach((item) => {
+            const applicationId = Number(item.serApplicationId || 0);
+            const channel = this.approvalChannelByAppId.get(applicationId) || 'PORTAL';
+            if (channel === 'EMAIL') {
+                emailCount += 1;
+            } else {
+                portalCount += 1;
+            }
+        });
+
+        const labels = ['Email', 'Portal'];
+        const series = [emailCount, portalCount];
+        if (emailCount + portalCount === 0) {
+            return null;
+        }
+
+        return {
+            chart: {
+                type: 'pie',
+                height: 320,
+                fontFamily: 'Nunito, sans-serif',
+                toolbar: { show: false },
+            },
+            series,
+            labels,
+            colors: ['#2563eb', '#10b981'],
+            legend: {
+                position: 'bottom',
+                horizontalAlign: 'center',
+                fontSize: '13px',
+            },
+            dataLabels: {
+                enabled: true,
+                formatter: (value: number) => `${Math.round(value)}%`,
+            },
+            stroke: {
+                show: true,
+                width: 2,
+                colors: ['#fff'],
+            },
+            tooltip: {
+                y: {
+                    formatter: (value: number) => `${value} application${value === 1 ? '' : 's'}`,
+                },
+            },
+        };
     }
 
     private buildStatusDonutChart(items: DashboardApplicationItem[]): any {
@@ -756,12 +868,26 @@ export class FinanceComponent implements OnInit {
         if (!labels.length) {
             return null;
         }
+        const component = this;
         return {
             chart: {
                 type: 'donut',
                 height: 320,
                 fontFamily: 'Nunito, sans-serif',
                 toolbar: { show: false },
+                events: {
+                    dataPointSelection: (_event: any, _chartContext: any, config: any) => {
+                        const label = labels[Number(config?.dataPointIndex)];
+                        component.zone.run(() => component.openStatusApplications(label));
+                    },
+                    legendClick: (_chartContext: any, seriesIndex: number, options: any) => {
+                        const index = Number.isFinite(Number(seriesIndex))
+                            ? Number(seriesIndex)
+                            : Number(options?.seriesIndex);
+                        const label = labels[index];
+                        component.zone.run(() => component.openStatusApplications(label));
+                    },
+                },
             },
             series,
             labels,
@@ -770,6 +896,9 @@ export class FinanceComponent implements OnInit {
                 position: 'bottom',
                 horizontalAlign: 'center',
                 fontSize: '13px',
+                onItemClick: {
+                    toggleDataSeries: false,
+                },
             },
             dataLabels: { enabled: false },
             stroke: {

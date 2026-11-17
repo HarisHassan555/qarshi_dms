@@ -781,13 +781,20 @@
     gap: 8px;
 }
 
+.filled-field.grows-with-table {
+    height: auto;
+    width: max-content;
+}
+
 .inline-table-shell {
     align-items: stretch;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: 6px;
-    height: 100%;
-    overflow: auto;
-    width: 100%;
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+    width: max-content;
+    min-width: 100%;
 }

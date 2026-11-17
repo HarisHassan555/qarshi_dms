@@ -2,6 +2,7 @@ import { Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } fro
 import { ActivatedRoute, Router } from '@angular/router';
 import { PDFDocument } from 'pdf-lib';
 import { EditorConfig } from 'ckeditor5';
+import { NotificationService } from 'src/app/NotificationService';
 import { DepartmentService } from 'src/app/services/department/department.service';
 import { TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
 import { UserService } from 'src/app/services/user/user.service';
@@ -169,6 +170,8 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     codeConvention = 'TPL-0000';
     editingTemplateId = '';
     templateIsActive = true;
+    isSavingTemplate = false;
+    savingAsDraft = false;
     editorContent = '<h2>Template Title</h2><p>Select any text or table cell content, then assign it as a field from the side panel.</p><p>Example: Vendor Name, Amount, Delivery Date, Approval Notes.</p>';
     selectedFieldId = '';
     private routeTemplateId = '';
@@ -209,6 +212,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     private lastValidNewTableHtml = this.newTableHtml;
     private revertingTableFieldIds = new Set<string>();
     private tableEditorsByFieldId: Record<string, any> = {};
+    private inlineTableEditorsByFieldId: Record<string, any> = {};
+    private designTableEditorsByFieldId: Record<string, any> = {};
+    private lastTableWriterByFieldId: Record<string, any> = {};
+    private syncingTableEditors = new WeakSet<object>();
     private newTableEditor: any = null;
     private revertingNewTableEditor = false;
     private tableResizeObserversByEditor = new WeakMap<object, ResizeObserver>();
@@ -281,7 +288,8 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         private router: Router,
         private departmentService: DepartmentService,
         private templateWorkflowService: TemplateWorkflowService,
-        private userService: UserService
+        private userService: UserService,
+        private notificationService: NotificationService
     ) { }
 
     ngOnInit(): void {
@@ -315,6 +323,15 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     get selectedField(): TemplateField | undefined {
         return this.fields.find((field) => field.id === this.selectedFieldId);
+    }
+
+    get tableDesignEditorFields(): TemplateField[] {
+        const field = this.selectedField;
+        return field?.type === 'table' ? [field] : [];
+    }
+
+    trackByTemplateFieldId(_index: number, field: TemplateField): string {
+        return field.id;
     }
 
     get hidePayloadButton(): boolean {
@@ -597,39 +614,23 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             field.tableHtml = nextHtml;
             return;
         }
-        if (this.revertingTableFieldIds.has(field.id)) {
+        // The canvas editor and the side-panel editor both bind this HTML.
+        // Committing here lets the editor you are not using write its old table back.
+        if (field.id !== this.selectedFieldId || this.revertingTableFieldIds.has(field.id)) {
             return;
         }
-
         const normalizedHtml = this.normalizeTableHtml(nextHtml);
-        if (!this.shouldRejectTableFieldChange(field, null, normalizedHtml)) {
-            field.tableHtml = normalizedHtml;
+        const savedHtml = this.lastValidTableHtmlByFieldId[field.id];
+        if (savedHtml && normalizedHtml !== savedHtml) {
             return;
         }
-
-        const previousHtml = this.getRestorableTableHtmlForField(field);
-        this.revertingTableFieldIds.add(field.id);
-        field.tableHtml = previousHtml;
-        setTimeout(() => {
-            field.tableHtml = previousHtml;
-            this.revertingTableFieldIds.delete(field.id);
-        });
-        console.warn('[template-builder] table size limit reached for field', {
-            fieldId: field.id,
-            fieldLabel: field.label,
-            placement: field.placement,
-            attempted: this.getTableHtmlDimensions(normalizedHtml),
-            allowed: field.placement ? this.getAllowedTableDimensions(field.placement) : null
-        });
     }
 
     onTableDesignEditorReady(field: TemplateField, editor: any): void {
-        if (field.type !== 'table') {
+        if (field.type !== 'table' || field.id !== this.selectedFieldId) {
             return;
         }
-        field.tableHtml = this.normalizeTableHtml(field.tableHtml);
-        this.lastValidTableHtmlByFieldId[field.id] = field.tableHtml;
-        this.tableEditorsByFieldId[field.id] = editor;
+        this.registerTableEditor(field, editor, 'design');
         this.hideTableEditorTopToolbar(editor);
         this.attachTableFieldEditorSizeGuard(field, editor);
     }
@@ -638,11 +639,16 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (field.type !== 'table' || this.revertingTableFieldIds.has(field.id)) {
             return;
         }
-        const editor = event?.editor || this.tableEditorsByFieldId[field.id];
+        const editor = event?.editor || (event?.getData ? event : null) || this.inlineTableEditorsByFieldId[field.id] || this.tableEditorsByFieldId[field.id];
+        if (!this.editorBelongsToField(field, editor)) {
+            return;
+        }
         const nextHtml = this.normalizeTableHtml(editor?.getData ? editor.getData() : field.tableHtml);
+        if (this.shouldIgnoreForeignTableEditor(field, editor, nextHtml)) {
+            return;
+        }
         if (!this.shouldRejectTableFieldChange(field, editor, nextHtml)) {
-            field.tableHtml = nextHtml;
-            this.lastValidTableHtmlByFieldId[field.id] = nextHtml;
+            this.applyAcceptedTableEditorHtml(field, editor, nextHtml);
             return;
         }
 
@@ -1253,9 +1259,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (field.id !== this.selectedFieldId) {
             return;
         }
-        field.tableHtml = this.normalizeTableHtml(field.tableHtml);
-        this.lastValidTableHtmlByFieldId[field.id] = field.tableHtml;
-        this.tableEditorsByFieldId[field.id] = editor;
+        this.registerTableEditor(field, editor, 'inline');
         this.attachTableFieldEditorSizeGuard(field, editor);
         this.hideTableEditorTopToolbar(editor);
     }
@@ -1443,16 +1447,46 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     }
 
     saveTemplate(): void {
+        this.persistTemplate(false);
+    }
+
+    saveTemplateAsDraft(): void {
+        this.persistTemplate(true);
+    }
+
+    private persistTemplate(asDraft: boolean): void {
+        if (this.isSavingTemplate) {
+            return;
+        }
         const payload = JSON.parse(this.getTemplatePayload());
         if (this.editingTemplateId) {
             payload.id = this.editingTemplateId;
         }
-        this.templateWorkflowService.saveTemplate(payload, this.editingTemplateId || undefined).subscribe({
+        if (!asDraft) {
+            payload.isActive = true;
+        }
+        this.isSavingTemplate = true;
+        this.savingAsDraft = asDraft;
+        this.templateWorkflowService.saveTemplate(payload, this.editingTemplateId || undefined, { asDraft }).subscribe({
             next: (template) => {
+                this.isSavingTemplate = false;
+                this.savingAsDraft = false;
                 sessionStorage.setItem('templateBuilder:lastTemplate', JSON.stringify(template.payload));
-                this.router.navigate(['/template-list']);
+                this.notificationService.showMessage(
+                    asDraft ? 'Digital document saved as draft.' : 'Digital document saved.',
+                    'success'
+                );
+                this.router.navigate(['/template-list'], asDraft ? { queryParams: { list: 'drafts' } } : undefined);
             },
-            error: (error) => console.error('Template save failed', error)
+            error: (error) => {
+                this.isSavingTemplate = false;
+                this.savingAsDraft = false;
+                console.error('Template save failed', error);
+                this.notificationService.showMessage(
+                    error?.error?.message || error?.message || (asDraft ? 'Draft could not be saved.' : 'Digital document could not be saved.'),
+                    'danger'
+                );
+            }
         });
     }
 
@@ -1662,7 +1696,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             return growsStructure;
         }
 
-        if (!editor || this.doesRenderedTableFitField(field, editor)) {
+        // The side-panel editor is a different width than the field on the page.
+        // Measuring it was cancelling row and column inserts on the second table.
+        if (!editor || this.isDesignTableEditor(editor) || this.doesRenderedTableFitField(field, editor)) {
             return false;
         }
 
@@ -1772,6 +1808,21 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         editor.model?.document?.on?.('change:data', () => {
             this.scheduleTableSizeEnforcement(() => this.enforceRenderedTableFieldSize(field, editor));
         });
+        editor.on?.('destroy', () => {
+            this.tableResizeObserversByEditor.get(editor)?.disconnect();
+            if (this.inlineTableEditorsByFieldId[field.id] === editor) {
+                delete this.inlineTableEditorsByFieldId[field.id];
+            }
+            if (this.designTableEditorsByFieldId[field.id] === editor) {
+                delete this.designTableEditorsByFieldId[field.id];
+            }
+            if (this.lastTableWriterByFieldId[field.id] === editor) {
+                delete this.lastTableWriterByFieldId[field.id];
+            }
+            if (this.tableEditorsByFieldId[field.id] === editor) {
+                this.tableEditorsByFieldId[field.id] = this.inlineTableEditorsByFieldId[field.id] || this.designTableEditorsByFieldId[field.id];
+            }
+        });
         this.observeEditorTableSize(editor, () => this.enforceRenderedTableFieldSize(field, editor));
         this.scheduleTableSizeEnforcement(() => this.enforceRenderedTableFieldSize(field, editor));
     }
@@ -1788,14 +1839,116 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         this.scheduleTableSizeEnforcement(() => this.enforceRenderedNewTableSize(editor));
     }
 
+    private registerTableEditor(field: TemplateField, editor: any, kind: 'inline' | 'design'): void {
+        this.bindTableEditorToField(field, editor);
+        if (kind === 'inline') {
+            this.inlineTableEditorsByFieldId[field.id] = editor;
+        } else {
+            this.designTableEditorsByFieldId[field.id] = editor;
+        }
+        this.tableEditorsByFieldId[field.id] = this.inlineTableEditorsByFieldId[field.id] || editor;
+        const normalizedHtml = this.normalizeTableHtml(field.tableHtml);
+        field.tableHtml = normalizedHtml;
+        if (!this.lastValidTableHtmlByFieldId[field.id]) {
+            this.lastValidTableHtmlByFieldId[field.id] = normalizedHtml;
+        }
+        this.setTableEditorData(editor, this.lastValidTableHtmlByFieldId[field.id]);
+        this.attachTableEditorFocusSync(field, editor);
+    }
+
+    private bindTableEditorToField(field: TemplateField, editor: any): void {
+        if (!editor || !field?.id) {
+            return;
+        }
+        editor.__templateBuilderTableFieldId = field.id;
+    }
+
+    private isDesignTableEditor(editor: any): boolean {
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        return !!editable?.closest('.table-design-editor');
+    }
+
+    private shouldIgnoreForeignTableEditor(field: TemplateField, editor: any, nextHtml: string): boolean {
+        if (this.syncingTableEditors.has(editor)) {
+            return true;
+        }
+        const writer = this.lastTableWriterByFieldId[field.id];
+        if (!writer || writer === editor || writer.state === 'destroyed') {
+            return false;
+        }
+        const savedHtml = this.lastValidTableHtmlByFieldId[field.id] || '';
+        return nextHtml !== savedHtml;
+    }
+
+    private applyAcceptedTableEditorHtml(field: TemplateField, editor: any, nextHtml: string): void {
+        const savedHtml = this.lastValidTableHtmlByFieldId[field.id] || '';
+        const writer = this.lastTableWriterByFieldId[field.id];
+        if (writer && writer !== editor && writer.state !== 'destroyed' && nextHtml === savedHtml) {
+            return;
+        }
+        field.tableHtml = nextHtml;
+        this.lastValidTableHtmlByFieldId[field.id] = nextHtml;
+        if (nextHtml !== savedHtml) {
+            this.lastTableWriterByFieldId[field.id] = editor;
+        }
+    }
+
+    private attachTableEditorFocusSync(field: TemplateField, editor: any): void {
+        const focusTracker = editor?.ui?.focusTracker;
+        if (!focusTracker?.on || editor.__templateBuilderFocusSyncAttached) {
+            return;
+        }
+        editor.__templateBuilderFocusSyncAttached = true;
+        focusTracker.on('change:isFocused', () => {
+            if (!focusTracker.isFocused || !this.editorBelongsToField(field, editor)) {
+                return;
+            }
+            const focused = focusTracker.focusedElement as HTMLElement | null;
+            const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+            if (!editable || !focused || (focused !== editable && !editable.contains(focused))) {
+                return;
+            }
+            this.lastTableWriterByFieldId[field.id] = editor;
+            const savedHtml = this.lastValidTableHtmlByFieldId[field.id];
+            const currentHtml = this.normalizeTableHtml(editor.getData ? editor.getData() : '');
+            if (!savedHtml || currentHtml === savedHtml || this.syncingTableEditors.has(editor)) {
+                return;
+            }
+            this.syncingTableEditors.add(editor);
+            this.setTableEditorData(editor, savedHtml);
+            setTimeout(() => this.syncingTableEditors.delete(editor));
+        });
+    }
+
+    private editorBelongsToField(field: TemplateField, editor: any): boolean {
+        if (!editor || editor.state === 'destroyed') {
+            return false;
+        }
+        const ownerId = editor.__templateBuilderTableFieldId;
+        return !ownerId || ownerId === field.id;
+    }
+
+    private setTableEditorData(editor: any, html: string): void {
+        if (!editor?.setData || editor.state === 'destroyed') {
+            return;
+        }
+        const currentHtml = editor.getData ? String(editor.getData() || '') : '';
+        if (currentHtml === html) {
+            return;
+        }
+        editor.setData(html);
+    }
+
     private enforceRenderedTableFieldSize(field: TemplateField, editor: any): void {
-        if (field.type !== 'table' || this.revertingTableFieldIds.has(field.id)) {
+        if (field.type !== 'table' || this.revertingTableFieldIds.has(field.id) || !this.editorBelongsToField(field, editor)) {
             return;
         }
         const nextHtml = this.normalizeTableHtml(editor?.getData ? editor.getData() : field.tableHtml);
+        if (this.shouldIgnoreForeignTableEditor(field, editor, nextHtml)) {
+            return;
+        }
         if (!this.shouldRejectTableFieldChange(field, editor, nextHtml)) {
-            field.tableHtml = nextHtml;
-            this.lastValidTableHtmlByFieldId[field.id] = nextHtml;
+            this.applyAcceptedTableEditorHtml(field, editor, nextHtml);
             return;
         }
 
@@ -1849,10 +2002,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     }
 
     private doesRenderedTableFitPlacement(editor: any, placement: TemplateFieldPlacement): boolean {
-        const editableOverflow = this.getInlineEditorOverflow(editor);
-        if (editableOverflow && (editableOverflow.overflowsX || editableOverflow.overflowsY)) {
-            return false;
-        }
         const rendered = this.getRenderedTableSize(editor);
         if (!rendered) {
             return true;
@@ -1871,25 +2020,6 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         return {
             width: Math.ceil(tableRect.width),
             height: Math.ceil(tableRect.height)
-        };
-    }
-
-    private getInlineEditorOverflow(editor: any): { overflowsX: boolean; overflowsY: boolean; scrollWidth: number; clientWidth: number; scrollHeight: number; clientHeight: number } | null {
-        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
-        if (!editable || !editable.closest('.table-field-inline-editor')) {
-            return null;
-        }
-        const scrollWidth = Math.ceil(editable.scrollWidth);
-        const clientWidth = Math.ceil(editable.clientWidth);
-        const scrollHeight = Math.ceil(editable.scrollHeight);
-        const clientHeight = Math.ceil(editable.clientHeight);
-        return {
-            overflowsX: scrollWidth > clientWidth + 2,
-            overflowsY: scrollHeight > clientHeight + 2,
-            scrollWidth,
-            clientWidth,
-            scrollHeight,
-            clientHeight
         };
     }
 

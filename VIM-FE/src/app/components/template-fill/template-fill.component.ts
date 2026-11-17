@@ -1,4 +1,4 @@
-import { Component, ElementRef, HostListener, OnDestroy, OnInit } from '@angular/core';
+import { AfterViewChecked, ApplicationRef, Component, ComponentRef, ElementRef, EnvironmentInjector, HostListener, OnDestroy, OnInit, createComponent } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
@@ -12,6 +12,15 @@ import {
     normalizeWordEditorValueForCkeditor,
 } from 'src/app/utils/word-editor-ckeditor.util';
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
+import {
+    ensureWordEditorTableInputCells,
+    normalizeTableHtmlForField,
+    prepareTableFieldOnLoad,
+    refreshTableFieldFormulaValues,
+    TableFieldLike,
+} from 'src/app/utils/template-fillable-table-field.util';
+import { extractTopLevelTables, isSavedDocumentTable, replaceDocumentTables, replaceNthTable } from 'src/app/utils/document-table-cells.util';
+import { TemplateFillableTableFieldComponent } from '../shared/template-fillable-table-field/template-fillable-table-field.component';
 import { stabilizeWordEditorTables } from 'src/app/utils/word-editor-display.util';
 import {
     resolveDocumentHeaderAddress,
@@ -20,8 +29,17 @@ import {
 } from 'src/app/utils/document-header.util';
 import {
     applyIndividualFooterPdfFineTuneStyles,
+    applyIndividualFooterTemplatePdfCaptureStyles,
     applyPipelineSignaturePdfCaptureStyles,
+    buildIndividualFooterPdfFieldPlacements,
+    syncIndividualFooterFieldsOnPdfClone,
+    waitForPdfCaptureImages,
 } from 'src/app/utils/individual-footer-pdf-capture.util';
+import {
+    buildIndividualFooterTableBands,
+    getIndividualFooterRenderedHeightPx,
+    IndividualFooterTableBand,
+} from 'src/app/utils/individual-footer-pipeline.util';
 
 type TemplateFieldType =
     'document_header'
@@ -150,7 +168,7 @@ const TEMPLATE_FILL_HIDE_CKEDITOR_BADGE_CLASS = 'template-fill-hide-ckeditor-bad
     templateUrl: './template-fill.component.html',
     styleUrls: ['./template-fill.component.css']
 })
-export class TemplateFillComponent implements OnInit, OnDestroy {
+export class TemplateFillComponent implements OnInit, AfterViewChecked, OnDestroy {
     private static readonly MAX_ATTACHMENT_FIELD_BYTES = 5 * 1024 * 1024;
     private static readonly TABLE_MIN_COLUMN_WIDTH = 56;
     private static readonly TABLE_MIN_ROW_HEIGHT = 36;
@@ -174,11 +192,16 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     allUsers: any[] = [];
     userPipeline: IndividualPipelineFooterSection[] = [];
     submittedCode = '';
+    draftCode = '';
     generatedApplicationCode = '';
     isSendingTestEmail = false;
     testEmailMessage = '';
     isSubmitting = false;
+    isSavingDraft = false;
     showAttachmentsModal = false;
+    showPortalAttachmentModal = false;
+    private portalAttachmentTargetField: TemplateField | null = null;
+    private attachmentSourceByFieldId: { [fieldId: string]: 'computer' | 'portal' | '' } = {};
     activeInlineWordEditorFieldId: string | null = null;
     readonly wordEditor = WORD_EDITOR_CKEDITOR;
     readonly wordEditorConfig = WORD_EDITOR_CKEDITOR_CONFIG;
@@ -186,8 +209,22 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     private tableRenderRowsCache = new Map<string, { html: string; rows: TableRenderRow[] }>();
     private initiatorSignatureApproved = false;
     private acceptedWordEditorValues: { [fieldId: string]: string } = {};
+    private documentTableCells: Record<string, any> = {};
+    private documentFillableTables = new Map<string, { field: TableFieldLike; values: Record<string, string> }>();
+    private documentTableRefs = new Map<string, ComponentRef<TemplateFillableTableFieldComponent>>();
+    private extractedDocumentTables: Array<{ key: string; tableHtml: string }> = [];
+    private documentTablesNeedMount = false;
+    private suppressWordEditorRefresh = false;
     private revertingWordEditorFields = new Set<string>();
     private inlineWordEditors = new Map<string, any>();
+    private wordEditorTablesCache = new Map<string, Array<{ key: string; field: TableFieldLike; values: Record<string, string> }>>();
+    private pendingWordEditorTablePatches = new Map<string, {
+        field: TemplateField;
+        index: number;
+        values?: Record<string, string>;
+        tableHtml?: string;
+    }>();
+    private wordEditorTablePatchScheduled = new Set<string>();
     private activeToolbarElement: HTMLElement | null = null;
     private activeToolbarOriginParent: HTMLElement | null = null;
     private activeToolbarOriginNextSibling: ChildNode | null = null;
@@ -199,7 +236,9 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         private sanitizer: DomSanitizer,
         private notificationService: NotificationService,
         private templateWorkflowService: TemplateWorkflowService,
-        private userService: UserService
+        private userService: UserService,
+        private environmentInjector: EnvironmentInjector,
+        private appRef: ApplicationRef
     ) { }
 
     async ngOnInit(): Promise<void> {
@@ -225,6 +264,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
 
             if (!this.editingApplication) {
                 this.generatedApplicationCode = await this.resolveInitialApplicationCode();
+            } else if (this.isDraftApplication) {
+                this.draftCode = String(this.editingApplication?.txtFormCode || this.generatedApplicationCode || '');
             }
         } catch (error) {
             console.error('Template load failed', error);
@@ -243,12 +284,12 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 this.values[field.id] = this.normalizeExistingAttachmentPayloads(this.values[field.id]);
             }
             if (field.type === 'table') {
-                field.tableHtml = this.normalizeTableHtmlForField(field, field.tableHtml);
-                this.values[field.id] = this.normalizeTableCellValues(this.values[field.id]);
+                this.prepareFillTableField(field);
             }
             this.persistedValues[field.id] = this.values[field.id];
             if (field.type === 'word_editor') {
                 this.acceptedWordEditorValues[field.id] = String(this.values[field.id] || '');
+                this.refreshWordEditorTables(field);
             }
         });
         this.safeHtml = this.sanitizer.bypassSecurityTrustHtml(this.getFillHtml(this.template.html || ''));
@@ -256,6 +297,23 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
 
     get isEditingExistingApplication(): boolean {
         return !!this.editingApplication?.serApplicationId;
+    }
+
+    get isDraftApplication(): boolean {
+        return String(this.editingApplication?.txtStatus || '').trim().toUpperCase() === 'DRAFT';
+    }
+
+    get isSentBackApplication(): boolean {
+        const status = String(this.editingApplication?.txtStatus || '').trim().toUpperCase();
+        const currentLevel = Number(this.editingApplication?.intCurrentApprovalLevel);
+        return !!this.editingApplication
+            && status === 'PENDING'
+            && Number.isFinite(currentLevel)
+            && currentLevel < 0;
+    }
+
+    get canSaveApplicationDraft(): boolean {
+        return !!this.savedTemplate && (!this.editingApplication || this.isDraftApplication);
     }
 
     private async resolveInitialApplicationCode(): Promise<string> {
@@ -334,7 +392,18 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         if (field.type !== 'individual_pipeline_footer') {
             return height;
         }
-        return Math.max(height, TemplateFillComponent.INDIVIDUAL_FOOTER_MIN_HEIGHT);
+        return getIndividualFooterRenderedHeightPx(
+            height,
+            Math.max(this.getIndividualFooterBands().length, 1),
+            TemplateFillComponent.INDIVIDUAL_FOOTER_MIN_HEIGHT
+        );
+    }
+
+    getIndividualFooterBands(): IndividualFooterTableBand[] {
+        return buildIndividualFooterTableBands(
+            this.userPipeline,
+            (section) => this.getIndividualFooterSlots(section)
+        );
     }
 
     isDocumentRegionFieldType(type: TemplateFieldType): boolean {
@@ -469,6 +538,18 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         this.onPanelValueChanged();
     }
 
+    onFillTableValuesChange(field: TemplateField, values: Record<string, string>): void {
+        this.values[field.id] = values;
+        this.tableRenderRowsCache.delete(field.id);
+        this.onPanelValueChanged();
+    }
+
+    onFillTableHtmlChange(field: TemplateField, tableHtml: string): void {
+        field.tableHtml = tableHtml;
+        this.tableRenderRowsCache.delete(field.id);
+        this.onPanelValueChanged();
+    }
+
     getFieldValueHtml(field: TemplateField): SafeHtml {
         return this.sanitizer.bypassSecurityTrustHtml(String(this.values[field.id] || ''));
     }
@@ -498,17 +579,103 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         if (editable) {
             editable.setAttribute('data-inline-word-editor-field-id', field.id);
         }
+        this.bindWordEditorTableTyping(editor);
         if (this.activeInlineWordEditorFieldId === field.id) {
             this.attachInlineWordEditorToolbar(field.id);
         }
     }
 
+    ngAfterViewChecked(): void {
+        if (!this.documentTablesNeedMount) {
+            return;
+        }
+        this.documentTablesNeedMount = false;
+        this.mountDocumentFillableTables();
+    }
+
     ngOnDestroy(): void {
+        this.destroyDocumentFillableTables();
         document.body.classList.remove(TEMPLATE_FILL_HIDE_CKEDITOR_BADGE_CLASS);
     }
 
     onInlineWordEditorFocus(field: TemplateField): void {
         this.activateInlineWordEditor(field);
+    }
+
+    onPanelWordEditorReady(_field: TemplateField, editor: any): void {
+        this.bindWordEditorTableTyping(editor);
+    }
+
+    getWordEditorTables(field: TemplateField): Array<{ key: string; field: TableFieldLike; values: Record<string, string> }> {
+        if (field.type !== 'word_editor') {
+            return [];
+        }
+        if (!this.wordEditorTablesCache.has(field.id)) {
+            this.refreshWordEditorTables(field);
+        }
+        return this.wordEditorTablesCache.get(field.id) || [];
+    }
+
+    trackWordEditorTable(_index: number, table: { key: string }): string {
+        return table.key;
+    }
+
+    onWordEditorTableValues(field: TemplateField, index: number, values: Record<string, string>): void {
+        this.queueWordEditorTablePatch(field, index, { values });
+    }
+
+    onWordEditorTableHtml(field: TemplateField, index: number, tableHtml: string): void {
+        this.queueWordEditorTablePatch(field, index, { tableHtml });
+    }
+
+    private queueWordEditorTablePatch(
+        field: TemplateField,
+        index: number,
+        patch: { values?: Record<string, string>; tableHtml?: string }
+    ): void {
+        const slotKey = `${field.id}:${index}`;
+        const current = this.pendingWordEditorTablePatches.get(slotKey) || { field, index };
+        this.pendingWordEditorTablePatches.set(slotKey, { ...current, ...patch, field, index });
+        if (this.wordEditorTablePatchScheduled.has(slotKey)) {
+            return;
+        }
+        this.wordEditorTablePatchScheduled.add(slotKey);
+        queueMicrotask(() => {
+            this.wordEditorTablePatchScheduled.delete(slotKey);
+            this.flushWordEditorTablePatch(slotKey);
+        });
+    }
+
+    private flushWordEditorTablePatch(slotKey: string): void {
+        const pending = this.pendingWordEditorTablePatches.get(slotKey);
+        if (!pending) {
+            return;
+        }
+        this.pendingWordEditorTablePatches.delete(slotKey);
+        const { field, index } = pending;
+        const key = `field:${field.id}:${index}`;
+        const state = this.ensureDocumentFillableTable(key, pending.tableHtml || '');
+        if (pending.tableHtml) {
+            state.field.tableHtml = pending.tableHtml;
+        }
+        if (pending.values) {
+            state.values = refreshTableFieldFormulaValues(state.field, pending.values);
+        } else if (pending.tableHtml) {
+            state.values = refreshTableFieldFormulaValues(state.field, state.values);
+        }
+        this.documentTableCells[key] = { tableHtml: state.field.tableHtml || '', values: state.values };
+        this.patchWordEditorTableCacheEntry(field, key, state);
+        this.syncWordEditorTableToField(field, index, { refreshDocumentPreview: !!pending.tableHtml });
+        this.syncMountedDocumentTableRef(key);
+    }
+
+    onDocumentTableInput(event: Event): void {
+        const input = event.target as HTMLInputElement | null;
+        const key = input?.getAttribute('data-document-cell') || '';
+        if (!input || !input.classList.contains('document-table-cell-input') || !key) {
+            return;
+        }
+        this.documentTableCells[key] = input.value;
     }
 
     isAttachmentField(field: TemplateField): boolean {
@@ -523,6 +690,56 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     getAttachmentDisplayText(field: TemplateField): string {
         const attachments = this.getAttachmentPayloads(field);
         return attachments.length > 0 ? attachments.map((attachment) => attachment.fileName).join(', ') : '';
+    }
+
+    getAttachmentSource(fieldId: string): 'computer' | 'portal' | '' {
+        return this.attachmentSourceByFieldId[fieldId] || '';
+    }
+
+    onAttachmentSourceChanged(field: TemplateField, source: 'computer' | 'portal' | ''): void {
+        this.attachmentSourceByFieldId[field.id] = source || '';
+        if (source === 'portal' && this.canCurrentStepFillField(field)) {
+            this.openPortalAttachmentModal(field);
+        }
+    }
+
+    openPortalAttachmentModal(field: TemplateField): void {
+        if (!this.canCurrentStepFillField(field)) {
+            return;
+        }
+        this.attachmentSourceByFieldId[field.id] = 'portal';
+        this.portalAttachmentTargetField = field;
+        this.showPortalAttachmentModal = true;
+    }
+
+    closePortalAttachmentModal(): void {
+        this.showPortalAttachmentModal = false;
+        this.portalAttachmentTargetField = null;
+    }
+
+    onPortalFilesSelected(payloads: AttachmentPayload[]): void {
+        const field = this.portalAttachmentTargetField;
+        if (!field || !payloads?.length) {
+            return;
+        }
+        const currentPayloads = this.getAttachmentPayloads(field);
+        const nextBytes = this.getAttachmentBytes(currentPayloads) + this.getAttachmentBytes(payloads);
+        if (nextBytes > TemplateFillComponent.MAX_ATTACHMENT_FIELD_BYTES) {
+            this.notificationService.showMessage(
+                `This attachment field is using ${(nextBytes / (1024 * 1024)).toFixed(2)} MB. Each attachment field can hold up to 5 MB independently.`,
+                'danger'
+            );
+            return;
+        }
+        this.setAttachmentPayloads(field, [...currentPayloads, ...payloads]);
+        this.onPanelValueChanged();
+        this.notificationService.showMessage(
+            payloads.length === 1
+                ? `Added ${payloads[0].fileName} from portal.`
+                : `Added ${payloads.length} files from portal.`,
+            'success'
+        );
+        this.closePortalAttachmentModal();
     }
 
     get hasAnyAttachments(): boolean {
@@ -647,6 +864,9 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     onWordEditorChanged(field: TemplateField, event: any): void {
+        if (this.suppressWordEditorRefresh) {
+            return;
+        }
         if (this.revertingWordEditorFields.has(field.id)) {
             const restoredValue = normalizeWordEditorValueForCkeditor(event?.editor?.getData?.() ?? this.values[field.id]);
             this.values[field.id] = restoredValue;
@@ -658,16 +878,22 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
 
         const nextValue = normalizeWordEditorValueForCkeditor(this.values[field.id]);
         const previousValue = this.acceptedWordEditorValues[field.id] || '';
-        this.values[field.id] = nextValue;
-        this.onPanelValueChanged();
         if (!field.placement) {
-            this.acceptedWordEditorValues[field.id] = nextValue;
+            if (previousValue !== nextValue) {
+                this.acceptedWordEditorValues[field.id] = nextValue;
+                this.refreshWordEditorTables(field);
+                this.onPanelValueChanged();
+            }
             return;
         }
 
         setTimeout(() => {
-            if (!this.doesWordEditorFieldOverflow(field.id)) {
-                this.acceptedWordEditorValues[field.id] = nextValue;
+            if (!this.doesWordEditorFieldOverflow(field.id) || /<table[\s>]/i.test(nextValue)) {
+                if (this.acceptedWordEditorValues[field.id] !== nextValue) {
+                    this.acceptedWordEditorValues[field.id] = nextValue;
+                    this.refreshWordEditorTables(field);
+                    this.onPanelValueChanged();
+                }
                 return;
             }
 
@@ -693,6 +919,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             || target.closest('.inline-word-editor-toolbar-panel')
             || target.closest('.ck.ck-balloon-panel')
             || target.closest('.ck-body-wrapper')
+            || target.closest('.ck-dialog')
         ) {
             return;
         }
@@ -825,15 +1052,60 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         return '';
     }
 
-    async submitTemplate(): Promise<void> {
-        if (!this.savedTemplate || this.isSubmitting) {
+    async saveApplicationDraft(): Promise<void> {
+        if (!this.savedTemplate || !this.canSaveApplicationDraft || this.isSubmitting || this.isSavingDraft) {
             return;
         }
-        (this.template?.fields || []).forEach((field: TemplateField) => {
-            if (field.type === 'word_editor' && field.placement) {
-                this.values[field.id] = this.acceptedWordEditorValues[field.id] || '';
-            }
-        });
+        this.captureWordEditorValues();
+        this.isSavingDraft = true;
+        try {
+            const userPipeline = this.hasIndividualPipelineFooter() ? this.getNormalizedUserPipeline() : [];
+            const result = await firstValueFrom(this.templateWorkflowService.saveTemplateDraft(
+                this.savedTemplate,
+                this.getSubmissionValues(),
+                userPipeline,
+                {
+                    applicationId: this.isDraftApplication ? this.editingApplication?.serApplicationId : null,
+                    formCode: this.generatedApplicationCode || null
+                }
+            ));
+            const formCode = result.formCode || this.generatedApplicationCode;
+            this.generatedApplicationCode = formCode;
+            this.draftCode = formCode;
+            this.editingApplication = {
+                ...(this.editingApplication || {}),
+                serApplicationId: result.applicationId,
+                serFormId: Number(this.savedTemplate.id),
+                txtFormCode: formCode,
+                txtStatus: 'DRAFT',
+                serSubmittedBy: this.editingApplication?.serSubmittedBy || this.getCurrentUserId()
+            };
+            this.applyGeneratedCodeToFields();
+            await this.router.navigate([], {
+                relativeTo: this.route,
+                queryParams: { applicationId: result.applicationId },
+                queryParamsHandling: 'merge',
+                replaceUrl: true
+            });
+            this.notificationService.showMessage(
+                formCode ? `Draft saved with code ${formCode}.` : 'Draft saved.',
+                'success'
+            );
+        } catch (error: any) {
+            this.notificationService.showMessage(
+                error?.error?.message || error?.message || 'Draft could not be saved.',
+                'danger'
+            );
+        } finally {
+            this.isSavingDraft = false;
+        }
+    }
+
+    async submitTemplate(): Promise<void> {
+        if (!this.savedTemplate || this.isSubmitting || this.isSavingDraft) {
+            return;
+        }
+        this.captureWordEditorValues();
 
         const missingRequiredFields = this.getMissingRequiredFields();
         if (missingRequiredFields.length > 0) {
@@ -848,11 +1120,11 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         }
 
         this.isSubmitting = true;
-        const allowedValues = this.getAllowedSubmissionValues();
+        const allowedValues = this.getSubmissionValues();
 
         try {
             const userPipeline = this.hasIndividualPipelineFooter() ? this.getNormalizedUserPipeline() : [];
-            if (this.isEditingExistingApplication) {
+            if (this.isSentBackApplication) {
                 await firstValueFrom(this.templateWorkflowService.updateTemplateApplication(
                     this.editingApplication,
                     allowedValues,
@@ -902,7 +1174,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 this.savedTemplate,
                 allowedValues,
                 userPipeline,
-                this.generatedApplicationCode
+                this.generatedApplicationCode,
+                this.isDraftApplication ? this.editingApplication?.serApplicationId : null
             ));
             this.submittedCode = submission.code || this.generatedApplicationCode;
             this.generatedApplicationCode = this.submittedCode;
@@ -943,11 +1216,10 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         const submittedBy = Number(application?.serSubmittedBy || 0);
         const currentLevel = Number(application?.intCurrentApprovalLevel);
         const status = String(application?.txtStatus || '').toUpperCase();
-        const canEdit = currentUserId != null
-            && submittedBy === currentUserId
-            && status === 'PENDING'
-            && Number.isFinite(currentLevel)
-            && currentLevel < 0;
+        const isDraft = status === 'DRAFT';
+        const isSentBack = status === 'PENDING' && Number.isFinite(currentLevel) && currentLevel < 0;
+        const ownsApplication = submittedBy === currentUserId || this.isCurrentUserAdmin();
+        const canEdit = currentUserId != null && ownsApplication && (isDraft || (submittedBy === currentUserId && isSentBack));
 
         if (!canEdit) {
             throw new Error('This application is not available for initiator editing.');
@@ -958,9 +1230,12 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         this.template = this.savedTemplate?.payload || null;
         this.editingApplication = application;
         this.generatedApplicationCode = String(application?.txtFormCode || '');
+        this.draftCode = isDraft ? this.generatedApplicationCode : '';
 
         const applicationData = this.parseApplicationData(application?.txtApplicationData);
         const templateValues = applicationData?.templateValues || {};
+        this.documentTableCells = this.readDocumentTableCells(applicationData);
+        this.applySavedTableHtml(applicationData);
         (this.template?.fields || []).forEach((field: TemplateField) => {
             const nextValue = templateValues[field.id] ?? applicationData[field.id];
             this.values[field.id] = nextValue !== undefined
@@ -968,10 +1243,6 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 : (field.type === 'application_code' ? this.generatedApplicationCode : (field.type === 'checkbox' ? false : ''));
             if (this.isAttachmentField(field)) {
                 this.values[field.id] = this.normalizeExistingAttachmentPayloads(this.values[field.id]);
-            }
-            if (field.type === 'table') {
-                field.tableHtml = this.normalizeTableHtmlForField(field, field.tableHtml);
-                this.values[field.id] = this.normalizeTableCellValues(this.values[field.id]);
             }
             this.persistedValues[field.id] = this.values[field.id];
         });
@@ -1110,6 +1381,42 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             this.notificationService.showMessage(this.testEmailMessage, 'danger');
         } finally {
             this.isSendingTestEmail = false;
+        }
+    }
+
+    private captureWordEditorValues(): void {
+        (this.template?.fields || []).forEach((field: TemplateField) => {
+            if (field.type === 'word_editor' && field.placement) {
+                this.values[field.id] = this.acceptedWordEditorValues[field.id] || '';
+            }
+        });
+    }
+
+    private applyGeneratedCodeToFields(): void {
+        (this.template?.fields || []).forEach((field: TemplateField) => {
+            if (field.type === 'application_code') {
+                this.values[field.id] = this.generatedApplicationCode;
+                this.persistedValues[field.id] = this.generatedApplicationCode;
+            }
+        });
+    }
+
+    private isCurrentUserAdmin(): boolean {
+        try {
+            const user = JSON.parse(localStorage.getItem('user') || 'null');
+            const roleName = (
+                user?.cfgTblRole?.txtRoleName ||
+                user?.txtrole ||
+                user?.roleName ||
+                ''
+            ).toString().trim().toUpperCase();
+            return roleName === 'ADMIN'
+                || roleName === 'ROLE_ADMIN'
+                || roleName === 'SUPER ADMIN'
+                || roleName === 'ROLE_SUPER ADMIN'
+                || roleName.includes('ADMIN');
+        } catch {
+            return false;
         }
     }
 
@@ -1278,6 +1585,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 captureHost.appendChild(pageViewport);
 
                 await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                await waitForPdfCaptureImages(clone);
                 const canvas = await html2canvas(pageViewport, {
                     scale: 3,
                     useCORS: true,
@@ -1313,6 +1621,12 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     private prepareTemplatePdfFieldText(root: HTMLElement): void {
+        root.querySelectorAll('.fill-table-cell-menu, .table-index-row').forEach((node) => node.remove());
+        root.querySelectorAll('.fillable-table input').forEach((node) => {
+            const input = node as HTMLInputElement;
+            input.replaceWith(root.ownerDocument.createTextNode(input.value || ''));
+        });
+
         root.querySelectorAll('.inline-word-editor-shell[data-field-id]').forEach((node) => {
             const shell = node as HTMLElement;
             const fieldId = String(shell.getAttribute('data-field-id') || '').trim();
@@ -1412,6 +1726,15 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     private applyTemplateEmailFooterCaptureStyles(root: HTMLElement): void {
+        const placements = buildIndividualFooterPdfFieldPlacements(
+            this.template?.fields || [],
+            Math.max(1, this.getIndividualFooterBands().length),
+            TemplateFillComponent.INDIVIDUAL_FOOTER_MIN_HEIGHT
+        );
+        if (placements.length > 0) {
+            syncIndividualFooterFieldsOnPdfClone(root, placements);
+        }
+        applyIndividualFooterTemplatePdfCaptureStyles(root);
         applyIndividualFooterPdfFineTuneStyles(root);
         applyPipelineSignaturePdfCaptureStyles(root);
     }
@@ -1524,7 +1847,262 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             node.replaceWith(this.createInlineValue(doc, field));
         });
 
-        return doc.body.innerHTML;
+        const rendered = replaceDocumentTables(doc.body.innerHTML, this.documentTableCells, true);
+        this.extractedDocumentTables = rendered.tables;
+        this.documentTablesNeedMount = true;
+        return rendered.html;
+    }
+
+    private ensureDocumentFillableTable(key: string, tableHtml: string): { field: TableFieldLike; values: Record<string, string> } {
+        const existing = this.documentFillableTables.get(key);
+        if (existing) {
+            return existing;
+        }
+        const saved = this.documentTableCells[key];
+        let resolvedHtml = isSavedDocumentTable(saved) ? saved.tableHtml : (tableHtml || '<table><tbody><tr><td></td></tr></tbody></table>');
+        if (key.startsWith('field:')) {
+            resolvedHtml = ensureWordEditorTableInputCells(resolvedHtml);
+        }
+        const field: TableFieldLike = {
+            id: key,
+            type: 'table',
+            tableHtml: resolvedHtml,
+        };
+        const storedValues = isSavedDocumentTable(saved) ? saved.values : this.legacyDocumentCellValues(key);
+        const values = prepareTableFieldOnLoad(field, storedValues);
+        const state = { field, values };
+        this.documentFillableTables.set(key, state);
+        this.documentTableCells[key] = { tableHtml: field.tableHtml || '', values };
+        return state;
+    }
+
+    private legacyDocumentCellValues(key: string): Record<string, string> {
+        const match = /^(.*):(\d+)$/.exec(key);
+        if (!match) {
+            return {};
+        }
+        const prefix = `${match[1]}:t${match[2]}`;
+        return Object.keys(this.documentTableCells).reduce((acc: Record<string, string>, cellKey) => {
+            const cellMatch = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}r(\\d+)c(\\d+)$`).exec(cellKey);
+            if (cellMatch && typeof this.documentTableCells[cellKey] === 'string') {
+                acc[`r${cellMatch[1]}c${cellMatch[2]}`] = this.documentTableCells[cellKey];
+            }
+            return acc;
+        }, {});
+    }
+
+    private refreshWordEditorTables(field: TemplateField): void {
+        if (field.type !== 'word_editor') {
+            return;
+        }
+        const html = String(this.acceptedWordEditorValues[field.id] ?? this.values[field.id] ?? '');
+        const tableHtmlList = extractTopLevelTables(html);
+        const previous = this.wordEditorTablesCache.get(field.id) || [];
+        const next: Array<{ key: string; field: TableFieldLike; values: Record<string, string> }> = [];
+        tableHtmlList.forEach((tableHtml, index) => {
+            const key = `field:${field.id}:${index}`;
+            const state = this.ensureDocumentFillableTable(key, tableHtml);
+            const saved = this.documentTableCells[key];
+            if (isSavedDocumentTable(saved) && saved.tableHtml) {
+                state.field.tableHtml = saved.tableHtml;
+                state.values = refreshTableFieldFormulaValues(state.field, { ...saved.values });
+            } else if (tableHtml) {
+                state.field.tableHtml = ensureWordEditorTableInputCells(normalizeTableHtmlForField(state.field, tableHtml));
+                state.values = prepareTableFieldOnLoad(state.field, state.values);
+                this.documentTableCells[key] = { tableHtml: state.field.tableHtml || '', values: state.values };
+            }
+            const cached = previous.find((item) => item.key === key);
+            if (cached) {
+                cached.field = state.field;
+                cached.values = state.values;
+                next.push(cached);
+            } else {
+                next.push({ key, field: state.field, values: state.values });
+            }
+        });
+        this.wordEditorTablesCache.set(field.id, next);
+    }
+
+    private patchWordEditorTableCacheEntry(
+        field: TemplateField,
+        key: string,
+        state: { field: TableFieldLike; values: Record<string, string> }
+    ): void {
+        const list = this.wordEditorTablesCache.get(field.id) || [];
+        const entry = list.find((item) => item.key === key);
+        if (entry) {
+            entry.field = state.field;
+            entry.values = { ...state.values };
+            return;
+        }
+        list.push({ key, field: state.field, values: { ...state.values } });
+        this.wordEditorTablesCache.set(field.id, list);
+    }
+
+    private syncWordEditorTableToField(
+        field: TemplateField,
+        index: number,
+        options: { refreshDocumentPreview: boolean }
+    ): void {
+        const state = this.documentFillableTables.get(`field:${field.id}:${index}`);
+        if (!state) {
+            return;
+        }
+        this.documentTableCells[state.field.id] = { tableHtml: state.field.tableHtml || '', values: state.values };
+        const currentHtml = String(this.acceptedWordEditorValues[field.id] ?? this.values[field.id] ?? '');
+        const nextHtml = replaceNthTable(currentHtml, index, state.field.tableHtml || '');
+        if (nextHtml !== currentHtml) {
+            this.suppressWordEditorRefresh = true;
+            this.values[field.id] = nextHtml;
+            this.acceptedWordEditorValues[field.id] = nextHtml;
+            setTimeout(() => {
+                this.suppressWordEditorRefresh = false;
+            });
+        }
+        if (options.refreshDocumentPreview) {
+            this.safeHtml = this.sanitizer.bypassSecurityTrustHtml(this.getFillHtml(this.template?.html || ''));
+        }
+    }
+
+    private syncMountedDocumentTableRef(key: string): void {
+        const ref = this.documentTableRefs.get(key);
+        const state = this.documentFillableTables.get(key);
+        if (!ref || !state) {
+            return;
+        }
+        ref.instance.field = state.field;
+        ref.instance.cellValues = { ...state.values };
+        ref.changeDetectorRef.detectChanges();
+    }
+
+    private forwardDocumentTableEditToWordEditor(key: string, refreshDocument = false): void {
+        const match = /^field:([^:]+):(\d+)$/.exec(key);
+        if (!match) {
+            return;
+        }
+        const field = (this.template?.fields || []).find((item: TemplateField) => item.id === match[1]);
+        if (!field) {
+            return;
+        }
+        const index = Number(match[2]);
+        const state = this.documentFillableTables.get(key);
+        if (!state) {
+            return;
+        }
+        this.patchWordEditorTableCacheEntry(field, key, state);
+        this.syncWordEditorTableToField(field, index, { refreshDocumentPreview: refreshDocument });
+    }
+
+    private mountDocumentFillableTables(): void {
+        const root = this.elementRef.nativeElement.querySelector('.document-html');
+        if (!root) {
+            return;
+        }
+        const hosts = Array.from(root.querySelectorAll<HTMLElement>('.document-fillable-table-host'));
+        const liveKeys = new Set(hosts.map((host) => host.getAttribute('data-document-table-key') || ''));
+        Array.from(this.documentTableRefs.keys()).forEach((key) => {
+            const ref = this.documentTableRefs.get(key);
+            const host = ref?.location.nativeElement as HTMLElement | undefined;
+            if (!liveKeys.has(key) || !host?.isConnected) {
+                ref?.destroy();
+                this.documentTableRefs.delete(key);
+            }
+        });
+        hosts.forEach((host) => {
+            const key = host.getAttribute('data-document-table-key') || '';
+            if (!key) {
+                return;
+            }
+            const extracted = this.extractedDocumentTables.find((item) => item.key === key)?.tableHtml || '';
+            const state = this.ensureDocumentFillableTable(key, extracted);
+            const existingRef = this.documentTableRefs.get(key);
+            if (host.dataset['mounted'] === 'true' && existingRef) {
+                existingRef.instance.field = state.field;
+                existingRef.instance.cellValues = { ...state.values };
+                existingRef.changeDetectorRef.detectChanges();
+                return;
+            }
+            if (host.dataset['mounted'] === 'true') {
+                return;
+            }
+            const ref = createComponent(TemplateFillableTableFieldComponent, {
+                environmentInjector: this.environmentInjector,
+                hostElement: host
+            });
+            ref.instance.field = state.field;
+            ref.instance.cellValues = state.values;
+            ref.instance.editable = true;
+            ref.instance.inline = true;
+            ref.instance.cellValuesChange.subscribe((values) => {
+                state.values = refreshTableFieldFormulaValues(state.field, values);
+                ref.instance.cellValues = { ...state.values };
+                this.documentTableCells[key] = { tableHtml: state.field.tableHtml || '', values: state.values };
+                this.forwardDocumentTableEditToWordEditor(key, false);
+            });
+            ref.instance.tableHtmlChange.subscribe((tableHtml) => {
+                state.field.tableHtml = tableHtml;
+                state.values = refreshTableFieldFormulaValues(state.field, state.values);
+                ref.instance.cellValues = { ...state.values };
+                this.documentTableCells[key] = { tableHtml, values: state.values };
+                this.forwardDocumentTableEditToWordEditor(key, true);
+            });
+            this.appRef.attachView(ref.hostView);
+            ref.changeDetectorRef.detectChanges();
+            host.dataset['mounted'] = 'true';
+            this.documentTableRefs.set(key, ref);
+        });
+    }
+
+    private destroyDocumentFillableTables(): void {
+        this.documentTableRefs.forEach((ref) => ref.destroy());
+        this.documentTableRefs.clear();
+    }
+
+    private getSubmissionValues(): { [fieldId: string]: any } {
+        const values = this.getAllowedSubmissionValues();
+        if (Object.keys(this.documentTableCells).length > 0) {
+            values['__documentTableCells'] = { ...this.documentTableCells };
+        }
+        return values;
+    }
+
+    private readDocumentTableCells(data: any): Record<string, any> {
+        const cells = data?.documentTableCells || data?.templateValues?.['__documentTableCells'];
+        if (!cells || typeof cells !== 'object' || Array.isArray(cells)) {
+            return {};
+        }
+        return { ...cells };
+    }
+
+    private bindWordEditorTableTyping(editor: any): void {
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        if (!editable || editable.dataset['tableTypingBound'] === 'true') {
+            return;
+        }
+        editable.dataset['tableTypingBound'] = 'true';
+        editable.addEventListener('mousedown', (event: MouseEvent) => {
+            const target = event.target as HTMLElement | null;
+            const cell = target?.closest('td, th');
+            if (!cell || !editable.contains(cell)) {
+                return;
+            }
+            const nested = cell.querySelector('.ck-editor__nested-editable') as HTMLElement | null;
+            if (!nested || nested.contains(target)) {
+                return;
+            }
+            event.preventDefault();
+            editor.editing?.view?.focus();
+            nested.focus();
+            const selection = window.getSelection();
+            if (!selection) {
+                return;
+            }
+            const range = document.createRange();
+            range.selectNodeContents(nested);
+            range.collapse(false);
+            selection.removeAllRanges();
+            selection.addRange(range);
+        });
     }
 
     private getCurrentStepFieldRight(field: TemplateField): PipelineFieldRight | 'view' {
@@ -2087,6 +2665,30 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         return /<table[\s>]/i.test(html)
             ? html
             : '<figure class="table"><table><tbody><tr><td>Header 1</td><td>Header 2</td></tr><tr><td></td><td></td></tr></tbody></table></figure>';
+    }
+
+    private prepareFillTableField(field: TemplateField): void {
+        this.values[field.id] = prepareTableFieldOnLoad(field, this.values[field.id]);
+        this.tableRenderRowsCache.delete(field.id);
+    }
+
+    private applySavedTableHtml(applicationData: any): void {
+        const savedFields = applicationData?.templatePayload?.fields;
+        if (!Array.isArray(savedFields)) {
+            return;
+        }
+        const savedById = new Map<string, any>(
+            savedFields.filter((item: any) => item?.id).map((item: any) => [String(item.id), item])
+        );
+        (this.template?.fields || []).forEach((field: TemplateField) => {
+            if (field.type !== 'table') {
+                return;
+            }
+            const savedHtml = savedById.get(field.id)?.tableHtml;
+            if (savedHtml) {
+                field.tableHtml = String(savedHtml);
+            }
+        });
     }
 
     private normalizeTableHtmlForField(field: TemplateField, value: any): string {

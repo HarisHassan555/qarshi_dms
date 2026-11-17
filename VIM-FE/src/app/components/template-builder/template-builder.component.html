@@ -23,7 +23,12 @@
                 </button>
             </div>
             <button type="button" class="btn btn-outline" (click)="addPage()">Add Page</button>
-            <button type="button" class="btn btn-primary" (click)="saveTemplate()">Save</button>
+            <button type="button" class="btn btn-outline" [disabled]="isSavingTemplate" (click)="saveTemplateAsDraft()">
+                {{ isSavingTemplate && savingAsDraft ? 'Saving draft...' : 'Save as Draft' }}
+            </button>
+            <button type="button" class="btn btn-primary" [disabled]="isSavingTemplate" (click)="saveTemplate()">
+                {{ isSavingTemplate && !savingAsDraft ? 'Saving...' : 'Save' }}
+            </button>
         </div>
     </div>
 
@@ -391,15 +396,18 @@
                             <strong>Table Design</strong>
                             <span>Use CKEditor table tools to add rows, columns, merged cells, and styling. Empty cells become fillable.</span>
                         </div>
-                        <ckeditor
-                            class="table-design-editor"
-                            [editor]="wordEditor"
-                            [config]="tableFieldEditorConfig"
-                            [ngModel]="field.tableHtml"
-                            (ngModelChange)="onTableFieldHtmlChanged(field, $event)"
-                            (change)="onTableFieldEditorChanged(field, $event)"
-                            (ready)="onTableDesignEditorReady(field, $event)">
-                        </ckeditor>
+                        <ng-container *ngFor="let tableField of tableDesignEditorFields; trackBy: trackByTemplateFieldId">
+                            <ckeditor
+                                *ngIf="tableField.id === field.id"
+                                class="table-design-editor"
+                                [editor]="wordEditor"
+                                [config]="tableFieldEditorConfig"
+                                [ngModel]="tableField.tableHtml"
+                                (ngModelChange)="onTableFieldHtmlChanged(tableField, $event)"
+                                (change)="onTableFieldEditorChanged(tableField, $event)"
+                                (ready)="onTableDesignEditorReady(tableField, $event)">
+                            </ckeditor>
+                        </ng-container>
                     </div>
                 </div>
             </div>

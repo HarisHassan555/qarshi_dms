@@ -334,10 +334,13 @@
                     [class.document-region]="isDocumentRegionFieldType(field.type)"
                     [class.check-mark-filled-field]="field.type === 'checkbox'"
                     [hidden]="field.type === 'radio' || !field.placement || isFieldHiddenForCurrentStep(field)"
+                    [class.grows-with-table]="field.type === 'table'"
                     [style.left.px]="field.placement?.x"
                     [style.top.px]="getRenderedFieldTop(field)"
-                    [style.width.px]="field.placement?.width"
-                    [style.height.px]="getRenderedFieldHeight(field)">
+                    [style.width.px]="field.type === 'table' ? null : field.placement?.width"
+                    [style.min-width.px]="field.type === 'table' ? field.placement?.width : null"
+                    [style.height.px]="field.type === 'table' ? null : getRenderedFieldHeight(field)"
+                    [style.min-height.px]="field.type === 'table' ? getRenderedFieldHeight(field) : null">
                     <ng-container *ngIf="isHeaderFieldType(field.type); else nonHeader">
                         <div class="document-header-preview">
                             <div class="header-date">Date: __________</div>

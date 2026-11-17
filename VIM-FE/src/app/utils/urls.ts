@@ -59,6 +59,9 @@ export class urls {
     static SIGNIN_URL = 'api/auth/login';
     static REFRESH_URL = 'api/auth/refresh';
     static FORGOT_URL = 'auth/forgot';
+    static FORGOT_PASSWORD_REQUEST_OTP = 'api/auth/forgot-password/request-otp';
+    static FORGOT_PASSWORD_VERIFY_OTP = 'api/auth/forgot-password/verify-otp';
+    static FORGOT_PASSWORD_RESET = 'api/auth/forgot-password/reset';
     static COUNTRY_URL = 'country';
     static CITY_URL = 'city';
 }

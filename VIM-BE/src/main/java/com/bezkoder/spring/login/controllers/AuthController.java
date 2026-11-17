@@ -18,6 +18,7 @@ import com.bezkoder.spring.login.repository.UserRepository;
 import com.bezkoder.spring.login.sa.bll.dto.LoginResponse;
 import com.bezkoder.spring.login.sa.bll.services.IAppActivityLogService;
 import com.bezkoder.spring.login.security.jwt.JwtUtils;
+import com.bezkoder.spring.login.security.services.ForgotPasswordOtpService;
 import com.bezkoder.spring.login.security.services.UserDetailsImpl;
 import com.bezkoder.spring.login.admin.utility.common.RequestMetadataUtil;
 
@@ -69,6 +70,36 @@ public class AuthController {
 
   @Autowired
   private UserDetailsServiceImpl userDetailsService;
+
+  @Autowired
+  private ForgotPasswordOtpService forgotPasswordOtpService;
+
+  @PostMapping("/forgot-password/request-otp")
+  public ResponseEntity<Map<String, Object>> requestForgotPasswordOtp(@RequestBody Map<String, String> body) {
+    String email = body != null ? body.get("email") : null;
+    Map<String, Object> result = forgotPasswordOtpService.requestOtp(email);
+    boolean ok = "Success".equalsIgnoreCase(String.valueOf(result.get("status")));
+    return ResponseEntity.status(ok ? HttpStatus.OK : HttpStatus.BAD_REQUEST).body(result);
+  }
+
+  @PostMapping("/forgot-password/verify-otp")
+  public ResponseEntity<Map<String, Object>> verifyForgotPasswordOtp(@RequestBody Map<String, String> body) {
+    String email = body != null ? body.get("email") : null;
+    String otp = body != null ? body.get("otp") : null;
+    Map<String, Object> result = forgotPasswordOtpService.verifyOtp(email, otp);
+    boolean ok = "Success".equalsIgnoreCase(String.valueOf(result.get("status")));
+    return ResponseEntity.status(ok ? HttpStatus.OK : HttpStatus.BAD_REQUEST).body(result);
+  }
+
+  @PostMapping("/forgot-password/reset")
+  public ResponseEntity<Map<String, Object>> resetForgotPassword(@RequestBody Map<String, String> body) {
+    String email = body != null ? body.get("email") : null;
+    String otp = body != null ? body.get("otp") : null;
+    String newPassword = body != null ? body.get("newPassword") : null;
+    Map<String, Object> result = forgotPasswordOtpService.resetPassword(email, otp, newPassword);
+    boolean ok = "Success".equalsIgnoreCase(String.valueOf(result.get("status")));
+    return ResponseEntity.status(ok ? HttpStatus.OK : HttpStatus.BAD_REQUEST).body(result);
+  }
 
   @PostMapping("/signin")
   public ResponseEntity<?> authenticateUser(@Valid @RequestBody LoginRequest loginRequest) {

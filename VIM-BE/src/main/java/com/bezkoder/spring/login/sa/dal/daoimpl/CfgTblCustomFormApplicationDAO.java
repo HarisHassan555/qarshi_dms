@@ -11437,10 +11437,10 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         content.stroke();
 
         // Header background
-        content.setNonStrokingColor(220, 220, 220);
+        content.setNonStrokingColor(220f / 255f, 220f / 255f, 220f / 255f);
         content.addRect(x, y + rowSig, width, rowHeader);
         content.fill();
-        content.setNonStrokingColor(0, 0, 0);
+        content.setNonStrokingColor(0f, 0f, 0f);
 
         content.setFont(PDType1Font.HELVETICA_BOLD, 9);
         float headerFontSize = 9f;
@@ -15532,10 +15532,10 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         content.lineTo(x + width, y + rowSig + rowHeader);
         content.stroke();
 
-        content.setNonStrokingColor(220, 220, 220);
+        content.setNonStrokingColor(220f / 255f, 220f / 255f, 220f / 255f);
         content.addRect(x, y + rowSig, width, rowHeader);
         content.fill();
-        content.setNonStrokingColor(0, 0, 0);
+        content.setNonStrokingColor(0f, 0f, 0f);
 
         content.setFont(PDType1Font.HELVETICA_BOLD, 9);
         float headerFontSize = 9f;
@@ -16624,6 +16624,388 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
         }
     }
 
+    private boolean templateHasIndividualPipelineFooter(Map<String, Object> appData) {
+        if (!isTemplateBuilderApplication(appData) || appData == null) {
+            return false;
+        }
+        Object payloadObj = appData.get("templatePayload");
+        if (!(payloadObj instanceof Map)) {
+            return false;
+        }
+        Object fieldsObj = ((Map<?, ?>) payloadObj).get("fields");
+        if (!(fieldsObj instanceof List)) {
+            return false;
+        }
+        for (Object raw : (List<?>) fieldsObj) {
+            if (!(raw instanceof Map)) {
+                continue;
+            }
+            String type = ((Map<?, ?>) raw).get("type") != null
+                    ? String.valueOf(((Map<?, ?>) raw).get("type")).trim().toLowerCase(Locale.ROOT)
+                    : "";
+            if ("individual_pipeline_footer".equals(type)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Places each approved footer signature in its own cell, including wrapped bands,
+     * on the page that actually contains that footer row.
+     */
+    private void stampTemplateIndividualFooterSignatures(PDDocument document, Map<String, Object> appData,
+            String approvalHistoryJson) {
+        if (document == null || appData == null) {
+            return;
+        }
+        List<Map<String, Object>> footerFields = extractFooterFields(appData);
+        java.util.List<Integer> slotUserIds = new java.util.ArrayList<>();
+        java.util.List<String> slotRoles = new java.util.ArrayList<>();
+        if (footerFields != null) {
+            for (Map<String, Object> field : footerFields) {
+                String role = field != null && field.get("label") != null
+                        ? String.valueOf(field.get("label"))
+                        : "APPROVER";
+                List<Object> users = extractFooterUsers(field);
+                if (users == null || users.isEmpty()) {
+                    slotUserIds.add(null);
+                    slotRoles.add(role);
+                    continue;
+                }
+                for (Object userObj : users) {
+                    slotUserIds.add(extractUserId(userObj));
+                    slotRoles.add(role);
+                }
+            }
+        }
+        if (slotUserIds.isEmpty()) {
+            return;
+        }
+
+        Map<String, Object> templatePayload = appData.get("templatePayload") instanceof Map
+                ? castMap(appData.get("templatePayload"))
+                : java.util.Collections.emptyMap();
+        Map<String, Object> page = templatePayload.get("page") instanceof Map
+                ? castMap(templatePayload.get("page"))
+                : java.util.Collections.emptyMap();
+        Map<String, Object> placement = null;
+        Object fieldsObj = templatePayload.get("fields");
+        if (fieldsObj instanceof List) {
+            for (Object raw : (List<?>) fieldsObj) {
+                if (!(raw instanceof Map)) {
+                    continue;
+                }
+                Map<String, Object> field = castMap(raw);
+                String type = field.get("type") != null
+                        ? String.valueOf(field.get("type")).trim().toLowerCase(Locale.ROOT)
+                        : "";
+                if ("individual_pipeline_footer".equals(type) && field.get("placement") instanceof Map) {
+                    placement = castMap(field.get("placement"));
+                    break;
+                }
+            }
+        }
+        if (placement == null) {
+            return;
+        }
+
+        float templatePageWidth = Math.max(1f, safeFloat(page.get("width"), 794f));
+        float templatePageHeight = Math.max(1f, safeFloat(page.get("height"), 1123f));
+        float templatePageGap = Math.max(0f, safeFloat(page.get("gap"), 16f));
+        float placeX = safeFloat(placement.get("x"), 0f);
+        float placeY = safeFloat(placement.get("y"), 0f);
+        float placeW = Math.max(40f, safeFloat(placement.get("width"), templatePageWidth));
+        float placeH = Math.max(40f, safeFloat(placement.get("height"), 86f));
+        int maxPerRow = 6;
+        int bandCount = Math.max(1, (slotUserIds.size() + maxPerRow - 1) / maxPerRow);
+        float bandPx = 44f + 16f + 36f;
+        float stackPx = bandCount * bandPx + Math.max(0, bandCount - 1) * 4f;
+        float renderedPx = Math.max(placeH, Math.max(136f, stackPx));
+        float topPx = Math.max(0f, placeY - (renderedPx - placeH));
+        float bottomPx = topPx + renderedPx;
+        float stride = templatePageHeight + templatePageGap;
+        int startPage = (int) Math.floor(topPx / stride);
+        int endPage = (int) Math.floor(Math.max(topPx, bottomPx - 1f) / stride);
+        startPage = Math.max(0, Math.min(startPage, document.getNumberOfPages() - 1));
+        endPage = Math.max(startPage, Math.min(endPage, document.getNumberOfPages() - 1));
+
+        List<Map<String, Object>> history = parseApprovalHistory(approvalHistoryJson);
+        java.util.Set<Integer> userIds = new java.util.LinkedHashSet<>();
+        for (Integer userId : slotUserIds) {
+            if (userId != null && userId > 0) {
+                userIds.add(userId);
+            }
+        }
+        Map<Integer, String> signatureFromDb = loadUserSignaturePaths(userIds.toArray(new Integer[0]));
+        int nextSlot = 0;
+        float dpi = 110f;
+        float imageScale = dpi / 72f;
+        PDFRenderer renderer = new PDFRenderer(document);
+        for (int pageIndex = startPage; pageIndex <= endPage && nextSlot < slotUserIds.size(); pageIndex++) {
+            PDPage pdfPage = document.getPage(pageIndex);
+            float pageWidth = pdfPage.getMediaBox().getWidth();
+            float pageHeight = pdfPage.getMediaBox().getHeight();
+            float scaleX = pageWidth / templatePageWidth;
+            float scaleY = pageHeight / templatePageHeight;
+            float pageOriginPx = pageIndex * stride;
+            float localTop = Math.max(0f, topPx - pageOriginPx);
+            float localBottom = Math.min(templatePageHeight, bottomPx - pageOriginPx);
+            BufferedImage image;
+            try {
+                image = renderer.renderImageWithDPI(pageIndex, dpi);
+            } catch (Exception renderError) {
+                log.warn("Unable to render template page {} for footer signatures: {}", pageIndex, renderError.getMessage());
+                continue;
+            }
+            int searchLeft = clampInt(Math.round((placeX * scaleX - 6f) * imageScale), 0, image.getWidth() - 1);
+            int searchRight = clampInt(Math.round(((placeX + placeW) * scaleX + 6f) * imageScale), searchLeft + 1, image.getWidth() - 1);
+            int searchTop = clampInt(Math.round((localTop * scaleY - 12f) * imageScale), 0, image.getHeight() - 1);
+            int searchBottom = clampInt(Math.round((localBottom * scaleY + 12f) * imageScale), searchTop + 1, image.getHeight() - 1);
+            java.util.List<int[]> sigRows = detectFooterSignatureRows(image, searchLeft, searchRight, searchTop, searchBottom);
+            int bandsLeft = Math.max(1, (slotUserIds.size() - nextSlot + maxPerRow - 1) / maxPerRow);
+            if (sigRows.size() < bandsLeft) {
+                int widenedTop = Math.max(0, image.getHeight() / 2);
+                java.util.List<int[]> widened = detectFooterSignatureRows(image, 0, image.getWidth() - 1, widenedTop, image.getHeight() - 1);
+                if (widened.size() > sigRows.size()) {
+                    sigRows = widened;
+                }
+            }
+            if (sigRows.isEmpty()) {
+                continue;
+            }
+            try (PDPageContentStream content = new PDPageContentStream(
+                    document,
+                    pdfPage,
+                    PDPageContentStream.AppendMode.APPEND,
+                    true,
+                    true)) {
+                for (int[] row : sigRows) {
+                    if (nextSlot >= slotUserIds.size()) {
+                        break;
+                    }
+                    int slotsInBand = Math.min(maxPerRow, slotUserIds.size() - nextSlot);
+                    java.util.List<float[]> cells = splitSignatureRowIntoCells(image, row, slotsInBand, imageScale, pageHeight);
+                    for (int cellIndex = 0; cellIndex < slotsInBand && cellIndex < cells.size(); cellIndex++) {
+                        Integer userId = slotUserIds.get(nextSlot);
+                        String role = slotRoles.get(nextSlot);
+                        nextSlot++;
+                        if (userId == null || userId <= 0) {
+                            continue;
+                        }
+                        String sigPath = findSignatureForUser(history, userId, role, true, signatureFromDb);
+                        if (sigPath == null || sigPath.trim().isEmpty()) {
+                            continue;
+                        }
+                        float[] cell = cells.get(cellIndex);
+                        float inset = 3f;
+                        float boxX = cell[0] + inset;
+                        float boxW = Math.max(8f, cell[2] - inset * 2f);
+                        float boxH = Math.max(10f, Math.min(18f, cell[3] * 0.58f));
+                        float boxY = cell[1] + Math.max(7f, cell[3] - boxH - 2f);
+                        content.setNonStrokingColor(1f, 1f, 1f);
+                        content.addRect(boxX, cell[1] + 6f, boxW, Math.max(4f, cell[3] - 8f));
+                        content.fill();
+                        content.setNonStrokingColor(0f, 0f, 0f);
+                        drawSignatureImage(document, content, sigPath, boxX, boxY, boxW, boxH, true, boxH);
+                        Map<String, Object> entry = findApprovalEntryForUser(history, userId, role);
+                        if (entry == null && history != null) {
+                            for (int historyIndex = history.size() - 1; historyIndex >= 0; historyIndex--) {
+                                Map<String, Object> candidate = history.get(historyIndex);
+                                Integer approvedBy = candidate == null
+                                        ? null
+                                        : safeInt(candidate.get("approvedBy"), safeInt(candidate.get("userId"), null));
+                                if (userId.equals(approvedBy) && isApprovedEntry(candidate)
+                                        && isHistoryEntryAfterLatestReset(history, historyIndex)) {
+                                    entry = candidate;
+                                    break;
+                                }
+                            }
+                        }
+                        if (entry != null) {
+                            drawTimestampBelowSignature(content, cell[0], cell[1] + 2.5f, cell[2],
+                                    formatApprovalDateTime(entry.get("approvedDate")));
+                        }
+                    }
+                }
+            } catch (java.io.IOException stampError) {
+                log.warn("Unable to stamp footer signatures on page {}: {}", pageIndex, stampError.getMessage());
+            }
+        }
+    }
+
+    private java.util.List<int[]> detectFooterSignatureRows(BufferedImage image, int left, int right, int top, int bottom) {
+        java.util.List<int[]> rows = new java.util.ArrayList<>();
+        if (image == null || right <= left || bottom <= top) {
+            return rows;
+        }
+        int width = right - left + 1;
+        java.util.List<Integer> lineYs = new java.util.ArrayList<>();
+        for (int y = top; y <= bottom; y++) {
+            int dark = 0;
+            for (int x = left; x <= right; x += 2) {
+                if (isDarkPdfPixel(image.getRGB(x, y))) {
+                    dark++;
+                }
+            }
+            int samples = Math.max(1, (right - left) / 2);
+            if (dark > samples * 0.42f) {
+                lineYs.add(y);
+            }
+        }
+        if (lineYs.size() < 2) {
+            return rows;
+        }
+        java.util.List<Integer> lines = new java.util.ArrayList<>();
+        int clusterStart = lineYs.get(0);
+        int clusterEnd = lineYs.get(0);
+        for (int i = 1; i < lineYs.size(); i++) {
+            int y = lineYs.get(i);
+            if (y - clusterEnd <= 3) {
+                clusterEnd = y;
+            } else {
+                lines.add((clusterStart + clusterEnd) / 2);
+                clusterStart = y;
+                clusterEnd = y;
+            }
+        }
+        lines.add((clusterStart + clusterEnd) / 2);
+        for (int i = 0; i < lines.size() - 1; i++) {
+            int y0 = lines.get(i);
+            int y1 = lines.get(i + 1);
+            int height = y1 - y0;
+            if (height < 16) {
+                continue;
+            }
+            float white = 0f;
+            float gray = 0f;
+            int samples = 0;
+            for (int y = y0 + 2; y < y1 - 1; y += 2) {
+                for (int x = left + 2; x < right - 1; x += 3) {
+                    int rgb = image.getRGB(x, y);
+                    samples++;
+                    if (isWhitePdfPixel(rgb)) {
+                        white++;
+                    } else if (isGrayPdfPixel(rgb)) {
+                        gray++;
+                    }
+                }
+            }
+            if (samples == 0 || white / samples < 0.45f || gray / samples > 0.22f) {
+                continue;
+            }
+            boolean followedByHeader = false;
+            if (i + 2 < lines.size()) {
+                followedByHeader = stripLooksGray(image, left, right, lines.get(i + 1), lines.get(i + 2));
+            }
+            if (!followedByHeader) {
+                continue;
+            }
+            rows.add(new int[] { y0, y1, left, right });
+        }
+        return rows;
+    }
+
+    private boolean stripLooksGray(BufferedImage image, int left, int right, int y0, int y1) {
+        if (y1 - y0 < 6) {
+            return false;
+        }
+        float gray = 0f;
+        int samples = 0;
+        for (int y = y0 + 1; y < y1; y += 2) {
+            for (int x = left + 2; x < right - 1; x += 4) {
+                samples++;
+                if (isGrayPdfPixel(image.getRGB(x, y))) {
+                    gray++;
+                }
+            }
+        }
+        return samples > 0 && gray / samples > 0.28f;
+    }
+
+    private java.util.List<float[]> splitSignatureRowIntoCells(BufferedImage image, int[] row, int slotCount,
+            float imageScale, float pageHeight) {
+        java.util.List<float[]> cells = new java.util.ArrayList<>();
+        int y0 = row[0];
+        int y1 = row[1];
+        int slots = Math.max(1, slotCount);
+        int[] topEdge = horizontalRuleExtent(image, y0, row[2], row[3]);
+        int[] bottomEdge = horizontalRuleExtent(image, y1, row[2], row[3]);
+        int left = topEdge != null ? topEdge[0] : row[2];
+        int right = topEdge != null ? topEdge[1] : row[3];
+        if (bottomEdge != null && (topEdge == null || (bottomEdge[1] - bottomEdge[0]) < (right - left))) {
+            left = bottomEdge[0];
+            right = bottomEdge[1];
+        }
+        if (right <= left) {
+            left = row[2];
+            right = row[3];
+        }
+        float span = Math.max(1f, right - left);
+        float cellW = span / slots;
+        for (int i = 0; i < slots; i++) {
+            int cellX = Math.round(left + i * cellW);
+            int cellWidth = Math.max(8, Math.round(cellW) - 1);
+            cells.add(imageCellToPdf(cellX, y1, cellWidth, Math.max(8, y1 - y0), imageScale, pageHeight));
+        }
+        return cells;
+    }
+
+    private int[] horizontalRuleExtent(BufferedImage image, int y, int left, int right) {
+        if (image == null || y < 0 || y >= image.getHeight()) {
+            return null;
+        }
+        int minX = Integer.MAX_VALUE;
+        int maxX = -1;
+        int start = Math.max(0, left);
+        int end = Math.min(image.getWidth() - 1, right);
+        for (int x = start; x <= end; x++) {
+            if (isDarkPdfPixel(image.getRGB(x, y))) {
+                minX = Math.min(minX, x);
+                maxX = Math.max(maxX, x);
+            }
+        }
+        if (maxX <= minX) {
+            return null;
+        }
+        return new int[] { minX, maxX };
+    }
+
+    private float[] imageCellToPdf(int x, int yBottom, int width, int height, float imageScale, float pageHeight) {
+        float pdfX = x / imageScale;
+        float pdfW = Math.max(8f, width / imageScale);
+        float pdfH = Math.max(8f, height / imageScale);
+        float pdfBottom = pageHeight - (yBottom / imageScale);
+        return new float[] { pdfX, pdfBottom, pdfW, pdfH };
+    }
+
+    private int clampInt(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private boolean isDarkPdfPixel(int rgb) {
+        int r = (rgb >> 16) & 0xff;
+        int g = (rgb >> 8) & 0xff;
+        int b = rgb & 0xff;
+        return (r + g + b) / 3 < 120;
+    }
+
+    private boolean isWhitePdfPixel(int rgb) {
+        int r = (rgb >> 16) & 0xff;
+        int g = (rgb >> 8) & 0xff;
+        int b = rgb & 0xff;
+        return r > 225 && g > 225 && b > 225;
+    }
+
+    private boolean isGrayPdfPixel(int rgb) {
+        int r = (rgb >> 16) & 0xff;
+        int g = (rgb >> 8) & 0xff;
+        int b = rgb & 0xff;
+        int lum = (r + g + b) / 3;
+        int spread = Math.max(r, Math.max(g, b)) - Math.min(r, Math.min(g, b));
+        return lum >= 100 && lum <= 190 && spread < 35;
+    }
+
     private byte[] applyDynamicFooterSignaturesToPdf(byte[] pdfBytes, Map<String, Object> appData,
             String approvalHistoryJson) {
         return applyDynamicFooterSignaturesToPdf(pdfBytes, appData, approvalHistoryJson, false);
@@ -16669,6 +17051,12 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                 effectiveSignatureLift += EMAIL_DYNAMIC_FOOTER_LANDSCAPE_EXTRA_SIGNATURE_LIFT;
             }
             float tableHeight = 110f;
+            if (templateHasIndividualPipelineFooter(appData)) {
+                stampTemplateIndividualFooterSignatures(document, appData, approvalHistoryJson);
+                ByteArrayOutputStream stamped = new ByteArrayOutputStream();
+                document.save(stamped);
+                return stamped.toByteArray();
+            }
             try (PDPageContentStream content = new PDPageContentStream(
                     document,
                     targetPage,
@@ -16757,11 +17145,11 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
     private void clearSignatureImageArea(PDPageContentStream content, float x, float y, float width, float height)
             throws java.io.IOException {
         content.saveGraphicsState();
-        content.setNonStrokingColor(255, 255, 255);
+        content.setNonStrokingColor(1f, 1f, 1f);
         content.addRect(x, y - 1f, width, height + 3f);
         content.fill();
         content.restoreGraphicsState();
-        content.setNonStrokingColor(0, 0, 0);
+        content.setNonStrokingColor(0f, 0f, 0f);
     }
 
     private void drawDynamicFooterSignaturesOnly(PDPageContentStream content,

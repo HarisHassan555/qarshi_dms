@@ -8,6 +8,7 @@ import { IconModule } from 'src/app/shared/icon/icon.module';
 import { BoxedLockscreenComponent } from './boxed-lockscreen';
 import { BoxedPasswordResetComponent } from './boxed-password-reset';
 import { BoxedSigninComponent } from './boxed-signin';
+import { ForgotPasswordComponent } from './forgot-password';
 import { BoxedSignupComponent } from './boxed-signup';
 import { CoverLockscreenComponent } from './cover-lockscreen';
 import { CoverLoginComponent } from './cover-login';
@@ -33,6 +34,11 @@ const routes: Routes = [
         component: BoxedSigninComponent, 
         title: 'Signin'
     },
+    {
+        path: 'auth/forgot-password',
+        component: ForgotPasswordComponent,
+        title: 'Forgot Password',
+    },
     // { path: 'auth/boxed-signup', component: BoxedSignupComponent, title: 'Boxed Signup | VRISTO - Multipurpose Tailwind Dashboard Template' },
     // { path: 'auth/cover-lockscreen', component: CoverLockscreenComponent, title: 'Cover Lockscreen | VRISTO - Multipurpose Tailwind Dashboard Template' },
     // { path: 'auth/cover-login', component: CoverLoginComponent, title: 'Cover Login | VRISTO - Multipurpose Tailwind Dashboard Template' },
@@ -56,6 +62,7 @@ const routes: Routes = [
         BoxedLockscreenComponent,
         BoxedPasswordResetComponent,
         BoxedSigninComponent,
+        ForgotPasswordComponent,
         BoxedSignupComponent,
         CoverLockscreenComponent,
         CoverLoginComponent,

@@ -10,23 +10,40 @@
             <tr *ngFor="let row of getTableRenderRows(); let rowIndex = index; trackBy: trackTableRow">
                 <th *ngIf="!tableFieldIndicatorsDismissed" class="fill-table-index">{{ rowIndex + 1 }}</th>
                 <td
-                    *ngFor="let cell of row.cells; trackBy: trackTableCell"
+                    *ngFor="let cell of row.cells; let columnIndex = index; trackBy: trackTableCell"
                     [attr.colspan]="cell.colspan"
                     [attr.rowspan]="cell.rowspan"
                     [attr.class]="cell.className"
-                    [attr.style]="cell.style">
+                    [attr.style]="cell.style"
+                    (click)="openStructureMenu(cell, $event)">
                     <input
                         *ngIf="cell.editable || cell.formula; else staticTableLabel"
                         type="text"
                         [class.table-formula-expression-input]="cell.formula && isTableFormulaEditing(cell.key)"
-                        [ngModel]="cell.formula ? tableFormulaInputValue(cell.key) : getTableCellValue(cell.key)"
+                        [ngModel]="tableCellEditorValue(cell)"
                         [disabled]="!editable"
                         (focus)="beginTableCellEdit(cell, $event)"
                         (blur)="endTableCellEdit(cell)"
+                        (copy)="onTableCellCopy(cell, $event)"
+                        (paste)="onTableCellPaste(cell, $event)"
                         (ngModelChange)="onTableCellInput(cell, $event)" />
                     <ng-template #staticTableLabel>
                         <span [innerHTML]="cell.html"></span>
                     </ng-template>
+                    <div
+                        class="fill-table-cell-menu"
+                        *ngIf="isStructureMenuOpen(cell.key)"
+                        [style.top.px]="structureMenu?.top"
+                        [style.left.px]="structureMenu?.left"
+                        (mousedown)="$event.preventDefault()"
+                        (click)="$event.stopPropagation()">
+                        <button type="button" (click)="addTableRow('above', rowIndex, $event)">Row above</button>
+                        <button type="button" (click)="addTableRow('below', rowIndex, $event)">Row below</button>
+                        <button type="button" (click)="addTableColumn('before', columnIndex, $event)">Column before</button>
+                        <button type="button" (click)="addTableColumn('after', columnIndex, $event)">Column after</button>
+                        <button type="button" class="is-danger" (click)="deleteTableRow(rowIndex, $event)" [disabled]="tableRowCount <= 1">Delete row</button>
+                        <button type="button" class="is-danger" (click)="deleteTableColumn(columnIndex, $event)" [disabled]="tableColumnCount <= 1">Delete column</button>
+                    </div>
                 </td>
             </tr>
         </tbody>

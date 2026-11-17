@@ -6,6 +6,7 @@ public final class BackgroundJobTypes {
     public static final String CHANGE_PASSWORD_EMAIL = "CHANGE_PASSWORD_EMAIL";
     public static final String DELEGATION_NOTIFY_EMAIL = "DELEGATION_NOTIFY_EMAIL";
     public static final String TEMPLATE_POST_APPROVAL_EMAIL = "TEMPLATE_POST_APPROVAL_EMAIL";
+    public static final String FORGOT_PASSWORD_OTP_EMAIL = "FORGOT_PASSWORD_OTP_EMAIL";
 
     private BackgroundJobTypes() {
     }

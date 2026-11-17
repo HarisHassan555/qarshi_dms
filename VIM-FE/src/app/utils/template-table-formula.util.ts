@@ -168,12 +168,19 @@ export function isExcelFormulaComplete(text: string | null | undefined): boolean
     if (/[+\-*/]$/.test(body)) {
         return false;
     }
-    let remainder = body
-        .replace(/[A-Za-z]{1,3}\d+|[A-Za-z][A-Za-z0-9]*/g, '')
+    const tokens = body.match(/[A-Za-z]{1,3}\d+|[A-Za-z][A-Za-z0-9]*/g) || [];
+    if (tokens.some((token) => !/^[A-Za-z]{1,3}\d+$/.test(token))) {
+        return false;
+    }
+    const remainder = body
+        .replace(/[A-Za-z]{1,3}\d+/g, '')
         .replace(/[+\-*/().]/g, '')
         .replace(/\d+(\.\d+)?/g, '')
         .replace(/\s/g, '');
-    return remainder.length === 0;
+    if (remainder.length > 0) {
+        return false;
+    }
+    return tokens.length > 0 || /\d/.test(body);
 }
 
 export function readTableCellPlainText(cell: HTMLTableCellElement): string {
@@ -212,7 +219,7 @@ export function extractTableCellValuesFromHtml(html: string): Record<string, str
                     return;
                 }
                 const text = getTableCellPlainText(element);
-                if (isExcelFormulaText(text)) {
+                if (isExcelFormulaText(text) && isExcelFormulaComplete(text)) {
                     return;
                 }
                 values[cellKeyFromIndexes(rowIndex, colIndex)] = text;
@@ -516,6 +523,7 @@ export function evaluateTableFieldFormulas(
         ...extractTableCellValuesFromHtml(discoveredHtml),
         ...normalizeTableValues(tableValues),
     };
+    stripFormulaReferenceCache(values);
     stripComputedValuesFromFormulaSources(values, host);
     const validationErrors: string[] = [];
     const tables = Array.from(host.querySelectorAll('table'));
@@ -551,6 +559,7 @@ export function evaluateTableFieldFormulas(
         values[key] = outcome.displayValue;
     });
 
+    stripFormulaReferenceCache(values);
     return { values, validationErrors };
 }
 
@@ -659,6 +668,9 @@ function computeFormulaOutcome(
     defaultTableIndex: number
 ): { displayValue: string; validationMessage?: string } {
     if (formula.expression) {
+        if (!isExcelFormulaComplete(formula.expression)) {
+            return { displayValue: formula.expression };
+        }
         const formulaRow = Math.max(1, Number(formula.target?.row) || 1);
         const status = getExcelExpressionStatus(formula.expression, defaultTableIndex, values, html, new Set(), formulaRow);
         if (status === 'blank') {
@@ -1151,6 +1163,14 @@ function getTableIndexWithinRoot(table: HTMLTableElement, root: ParentNode): num
     const tables = Array.from(root.querySelectorAll('table'));
     const index = tables.indexOf(table);
     return index >= 0 ? index + 1 : 1;
+}
+
+function stripFormulaReferenceCache(values: Record<string, string>): void {
+    Object.keys(values).forEach((key) => {
+        if (key.startsWith('__f:')) {
+            delete values[key];
+        }
+    });
 }
 
 function stripComputedValuesFromFormulaSources(values: Record<string, string>, host: ParentNode): void {

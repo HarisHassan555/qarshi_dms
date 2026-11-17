@@ -44,7 +44,6 @@ export function applyIndividualFooterTemplatePdfCaptureStyles(root: HTMLElement)
             table.querySelectorAll('tr.individual-footer-sig-row td, tr.xyz-signatures-blank td')
         ) as HTMLElement[];
         sigCells.forEach((cell) => {
-            const hasSigContent = !!cell.querySelector('.xyz-sig-img, .xyz-sig-time');
             setImp(cell, 'vertical-align', 'middle');
             setImp(cell, 'padding-top', '0');
             setImp(cell, 'padding-bottom', '0');
@@ -53,9 +52,8 @@ export function applyIndividualFooterTemplatePdfCaptureStyles(root: HTMLElement)
             setImp(cell, 'max-height', 'none');
             setImp(cell, 'overflow', 'visible');
             setImp(cell, 'box-sizing', 'border-box');
-            if (hasSigContent) {
-                setImp(cell, 'position', 'relative');
-            }
+            setImp(cell, 'position', 'static');
+            setImp(cell, 'max-width', 'none');
 
             let wrapper: HTMLElement | null = null;
             for (const child of Array.from(cell.children)) {
@@ -65,36 +63,41 @@ export function applyIndividualFooterTemplatePdfCaptureStyles(root: HTMLElement)
                 }
             }
 
-            if (wrapper && hasSigContent) {
-                setImp(wrapper, 'position', 'absolute');
-                setImp(wrapper, 'top', '2px');
-                setImp(wrapper, 'left', '0');
-                setImp(wrapper, 'right', '0');
+            if (wrapper) {
+                setImp(wrapper, 'position', 'static');
+                setImp(wrapper, 'top', 'auto');
+                setImp(wrapper, 'left', 'auto');
+                setImp(wrapper, 'right', 'auto');
                 setImp(wrapper, 'display', 'flex');
                 setImp(wrapper, 'flex-direction', 'column');
                 setImp(wrapper, 'align-items', 'center');
-                setImp(wrapper, 'justify-content', 'flex-start');
+                setImp(wrapper, 'justify-content', 'flex-end');
                 setImp(wrapper, 'overflow', 'visible');
                 setImp(wrapper, 'max-width', '100%');
                 setImp(wrapper, 'width', '100%');
+                setImp(wrapper, 'height', 'auto');
                 setImp(wrapper, 'margin', '0');
                 setImp(wrapper, 'padding', '0');
                 setImp(wrapper, 'box-sizing', 'border-box');
-                setImp(wrapper, 'transform', 'none');
-            } else if (wrapper) {
-                setImp(wrapper, 'overflow', 'visible');
                 setImp(wrapper, 'transform', 'none');
             }
 
             const img = cell.querySelector('.xyz-sig-img') as HTMLElement | null;
             if (img) {
+                setImp(img, 'position', 'static');
                 setImp(img, 'display', 'block');
                 setImp(img, 'margin', '0 auto 1px auto');
-                setImp(img, 'max-height', '20px');
+                setImp(img, 'max-height', '22px');
+                setImp(img, 'max-width', '92%');
+                setImp(img, 'height', 'auto');
+                setImp(img, 'width', 'auto');
+                setImp(img, 'object-fit', 'contain');
+                setImp(img, 'transform', 'none');
             }
 
             const timeEl = cell.querySelector('.xyz-sig-time') as HTMLElement | null;
             if (timeEl) {
+                setImp(timeEl, 'position', 'static');
                 setImp(timeEl, 'display', 'block');
                 setImp(timeEl, 'margin', '1px auto 0 auto');
                 setImp(timeEl, 'line-height', '1.05');
@@ -200,7 +203,7 @@ export function syncIndividualFooterFieldsOnPdfClone(
 export function applyIndividualFooterPdfFineTuneStyles(root: HTMLElement): void {
     root.querySelectorAll('.individual-footer-preview .xyz-signatures .xyz-signatures-blank td > div').forEach((node) => {
         const wrapper = node as HTMLElement;
-        setImp(wrapper, 'transform', 'translateY(-2px)');
+        setImp(wrapper, 'transform', 'none');
     });
 
     root.querySelectorAll('.individual-footer-preview .xyz-signatures .xyz-sig-time').forEach((node) => {
@@ -208,7 +211,7 @@ export function applyIndividualFooterPdfFineTuneStyles(root: HTMLElement): void 
         setImp(timeEl, 'font-size', '8px');
         setImp(timeEl, 'line-height', '1');
         setImp(timeEl, 'margin-top', '0');
-        setImp(timeEl, 'transform', 'translateY(-2px)');
+        setImp(timeEl, 'transform', 'none');
     });
 
     root.querySelectorAll('.individual-footer-preview .xyz-signatures tr:last-child td').forEach((node) => {
@@ -218,7 +221,7 @@ export function applyIndividualFooterPdfFineTuneStyles(root: HTMLElement): void 
 
     root.querySelectorAll('.individual-footer-preview .xyz-signatures tr:last-child td > span').forEach((node) => {
         const valueEl = node as HTMLElement;
-        setImp(valueEl, 'transform', 'translateY(-2px)');
+        setImp(valueEl, 'transform', 'none');
         setImp(valueEl, 'line-height', '1.2');
     });
 }

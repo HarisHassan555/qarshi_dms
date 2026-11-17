@@ -7,6 +7,7 @@ import { ApplicationPdfService } from 'src/app/services/application-pdf/applicat
 import { SavedTemplateDefinition, TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
 import { urls } from 'src/app/utils/urls';
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
+import { replaceDocumentTables } from 'src/app/utils/document-table-cells.util';
 import { applyWordEditorAlignmentClasses, getTemplateFieldNgStyle, stabilizeWordEditorTables } from 'src/app/utils/word-editor-display.util';
 import { normalizeDocumentBodyHtmlForDisplay } from 'src/app/utils/document-body-html.util';
 import { finalizeTableFormulaHtml } from 'src/app/utils/template-table-formula.util';
@@ -170,6 +171,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     selectedTemplate: any = null;
     safeHtml: SafeHtml = '';
     values: { [fieldId: string]: any } = {};
+    private documentTableCells: Record<string, any> = {};
     page = 0;
     pageSize = 10;
     totalApplications = 0;
@@ -1799,6 +1801,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     private loadApplicationValues(application: MyTemplateApplication): void {
         const data = this.parseApplicationData(application.txtApplicationData);
         const templateValues = data.templateValues || {};
+        this.documentTableCells = this.readDocumentTableCells(data);
         (this.selectedTemplate?.fields || []).forEach((field: TemplateField) => {
             this.values[field.id] = templateValues[field.id] ?? data[field.id] ?? (field.type === 'application_code' ? application.txtFormCode : (field.type === 'checkbox' ? false : ''));
         });
@@ -1815,7 +1818,19 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             }
             node.replaceWith(this.createInlineValue(doc, field));
         });
-        return normalizeDocumentBodyHtmlForDisplay(finalizeTableFormulaHtml(doc.body.innerHTML));
+        return replaceDocumentTables(
+            normalizeDocumentBodyHtmlForDisplay(finalizeTableFormulaHtml(doc.body.innerHTML)),
+            this.documentTableCells,
+            false
+        ).html;
+    }
+
+    private readDocumentTableCells(data: any): Record<string, any> {
+        const cells = data?.documentTableCells || data?.templateValues?.['__documentTableCells'];
+        if (!cells || typeof cells !== 'object' || Array.isArray(cells)) {
+            return {};
+        }
+        return { ...cells };
     }
 
     private createInlineValue(doc: Document, field: TemplateField): HTMLElement {

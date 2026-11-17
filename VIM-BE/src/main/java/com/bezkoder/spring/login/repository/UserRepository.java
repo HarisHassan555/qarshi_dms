@@ -1,5 +1,6 @@
 package com.bezkoder.spring.login.repository;
 
+import java.util.List;
 import java.util.Optional;
 
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
@@ -21,6 +22,12 @@ public interface UserRepository extends JpaRepository<CfgTblUser, Long> {
       "OR ((u.txtLoginName IS NULL OR TRIM(u.txtLoginName) = '') AND LOWER(u.txtUserName) = LOWER(:loginName))) " +
       "AND (u.blIsDeleted IS NULL OR u.blIsDeleted = false)")
   Optional<CfgTblUser> findActiveOrInactiveByLoginName(@Param("loginName") String loginName);
+
+  @Query("SELECT u FROM CfgTblUser u " +
+      "WHERE LOWER(TRIM(u.txtAddress)) = LOWER(TRIM(:email)) " +
+      "AND (u.blIsDeleted IS NULL OR u.blIsDeleted = false) " +
+      "ORDER BY u.serUserId DESC")
+  List<CfgTblUser> findActiveUsersByEmailAddress(@Param("email") String email);
 
   /*Boolean existsByUsername(String username);
 

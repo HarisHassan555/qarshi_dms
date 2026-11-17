@@ -29,6 +29,7 @@ import {
     normalizeWordEditorValueForCkeditor,
 } from 'src/app/utils/word-editor-ckeditor.util';
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
+import { replaceDocumentTables } from 'src/app/utils/document-table-cells.util';
 import { applyWordEditorAlignmentClasses, getTemplateFieldNgStyle, stabilizeWordEditorTables } from 'src/app/utils/word-editor-display.util';
 import { normalizeDocumentBodyHtmlForDisplay } from 'src/app/utils/document-body-html.util';
 import { finalizeTableFormulaHtml } from 'src/app/utils/template-table-formula.util';
@@ -178,6 +179,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     application: any = null;
     safeHtml: SafeHtml = '';
     values: { [fieldId: string]: any } = {};
+    private documentTableCells: Record<string, any> = {};
     persistedValues: { [fieldId: string]: any } = {};
     userPipeline: any[] = [];
     remarks = '';
@@ -1985,6 +1987,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             ? this.applicationDataCache
             : this.parseApplicationData(this.application?.txtApplicationData);
         const templateValues = data.templateValues || {};
+        this.documentTableCells = this.readDocumentTableCells(data);
         this.userPipeline = Array.isArray(data.footerFields) ? data.footerFields : [];
         (this.template?.fields || []).forEach((field: TemplateField) => {
             const rawValue = templateValues[field.id] ?? data[field.id];
@@ -2570,7 +2573,19 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             }
             node.replaceWith(this.createInlineValue(doc, field));
         });
-        return normalizeDocumentBodyHtmlForDisplay(finalizeTableFormulaHtml(doc.body.innerHTML));
+        return replaceDocumentTables(
+            normalizeDocumentBodyHtmlForDisplay(finalizeTableFormulaHtml(doc.body.innerHTML)),
+            this.documentTableCells,
+            false
+        ).html;
+    }
+
+    private readDocumentTableCells(data: any): Record<string, any> {
+        const cells = data?.documentTableCells || data?.templateValues?.['__documentTableCells'];
+        if (!cells || typeof cells !== 'object' || Array.isArray(cells)) {
+            return {};
+        }
+        return { ...cells };
     }
 
     private writeInlineFilledValue(element: HTMLElement, field: TemplateField): void {

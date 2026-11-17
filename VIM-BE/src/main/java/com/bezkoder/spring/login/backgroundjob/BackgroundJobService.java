@@ -2,6 +2,7 @@ package com.bezkoder.spring.login.backgroundjob;
 
 import com.bezkoder.spring.login.backgroundjob.dto.ChangePasswordEmailJobPayload;
 import com.bezkoder.spring.login.backgroundjob.dto.DelegationNotifyEmailJobPayload;
+import com.bezkoder.spring.login.backgroundjob.dto.ForgotPasswordOtpEmailJobPayload;
 import com.bezkoder.spring.login.backgroundjob.dto.TemplatePostApprovalEmailJobPayload;
 import com.bezkoder.spring.login.backgroundjob.dto.UserCredentialEmailJobPayload;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblBackgroundJob;
@@ -100,6 +101,17 @@ public class BackgroundJobService {
                 + payload.getSerUserId() + ":" + Instant.now().toEpochMilli();
         enqueue(BackgroundJobTypes.CHANGE_PASSWORD_EMAIL, key, payload, triggeredByUserId);
         logger.info("Queued CHANGE_PASSWORD_EMAIL job for userId=" + payload.getSerUserId() + " key=" + key);
+    }
+
+    @Transactional
+    public void enqueueForgotPasswordOtpEmail(ForgotPasswordOtpEmailJobPayload payload) {
+        if (payload == null || payload.getRecipientEmail() == null || payload.getRecipientEmail().trim().isEmpty()) {
+            return;
+        }
+        String normalized = payload.getRecipientEmail().trim().toLowerCase();
+        String key = BackgroundJobTypes.FORGOT_PASSWORD_OTP_EMAIL + ":" + normalized + ":" + Instant.now().toEpochMilli();
+        enqueue(BackgroundJobTypes.FORGOT_PASSWORD_OTP_EMAIL, key, payload, null);
+        logger.info("Queued FORGOT_PASSWORD_OTP_EMAIL job for " + normalized);
     }
 
     @Transactional

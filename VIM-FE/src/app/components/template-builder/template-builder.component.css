@@ -575,6 +575,8 @@
 .floating-field.active {
     border-color: #2563eb;
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.22), 0 6px 16px rgba(15, 23, 42, 0.14);
+    overflow: visible;
+    user-select: text;
 }
 
 .floating-field.document-region {
@@ -1154,16 +1156,18 @@
 }
 
 .table-field-preview {
+    align-self: stretch;
     box-sizing: border-box;
     height: 100%;
-    overflow: hidden;
+    overflow: auto;
     width: 100%;
 }
 
 .table-field-editor-surface {
+    align-self: stretch;
     box-sizing: border-box;
     height: 100%;
-    overflow: hidden;
+    overflow: visible;
     padding: 28px 2px 2px;
     width: 100%;
 }
