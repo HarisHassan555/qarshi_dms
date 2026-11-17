@@ -641,7 +641,7 @@
 
 :host ::ng-deep .document-html th,
 :host ::ng-deep .document-html td {
-    border: 1px solid #334155;
+    border: 1px solid #000000;
     padding: 8px;
     vertical-align: top;
 }
@@ -657,7 +657,7 @@
 }
 
 :host ::ng-deep .document-html th {
-    background: #e2e8f0;
+    background: transparent;
     font-weight: 700;
 }
 
@@ -785,21 +785,20 @@
 
 :host ::ng-deep .document-html .inline-filled-word-editor-value figure.table,
 :host ::ng-deep .word-editor-filled-value figure.table {
-    display: table;
+    display: block;
     max-width: 100%;
-    margin: 0.9em auto;
-    width: auto;
+    margin: 0.9em 0;
+    width: 100%;
     box-sizing: border-box;
 }
 
 :host ::ng-deep .document-html .inline-filled-word-editor-value table,
 :host ::ng-deep .word-editor-filled-value table {
     border-collapse: collapse;
-    table-layout: auto;
-    width: auto;
+    table-layout: fixed;
+    width: 100%;
     max-width: 100%;
-    margin-left: auto;
-    margin-right: auto;
+    margin: 0;
 }
 
 :host ::ng-deep .document-html .inline-filled-word-editor-value td,
@@ -807,8 +806,10 @@
 :host ::ng-deep .word-editor-filled-value td,
 :host ::ng-deep .word-editor-filled-value th {
     border: 1px solid #000000;
-    padding: 6px;
-    vertical-align: top;
+    box-sizing: border-box;
+    padding: 3px 4px;
+    vertical-align: middle;
+    word-break: normal;
 }
 
 .page-boundary {

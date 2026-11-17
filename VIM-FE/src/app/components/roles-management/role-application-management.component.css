@@ -32,6 +32,19 @@
     padding-left: 0.75rem;
 }
 
+:host ::ng-deep .scope-ng-select.ng-select.ng-select-multiple .ng-select-container {
+    height: auto;
+    min-height: 2.375rem;
+}
+
+:host ::ng-deep .scope-ng-select.ng-select.ng-select-multiple .ng-select-container .ng-value-container {
+    padding: 4px 8px;
+}
+
+:host ::ng-deep .scope-ng-select.ng-select.ng-select-multiple .ng-value {
+    margin: 2px 4px 2px 0;
+}
+
 :host ::ng-deep .scope-ng-select.ng-select .ng-dropdown-panel {
     z-index: 1100;
 }

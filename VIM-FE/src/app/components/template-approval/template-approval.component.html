@@ -313,8 +313,10 @@
                     <div
                         *ngFor="let optionBox of getRadioOptionPlacements(field)"
                         class="filled-field radio-option-filled-field"
+                        [class.is-canvas-editable]="canEditFieldOnDocumentCanvas(field)"
                         [attr.data-field-id]="field.id"
                         [hidden]="field.type !== 'radio' || isFieldHiddenForCurrentStep(field)"
+                        (click)="onCanvasRadioOptionSelected(field, optionBox.label)"
                         [style.left.px]="optionBox.placement.x"
                         [style.top.px]="optionBox.placement.y"
                         [style.width.px]="optionBox.placement.width"
@@ -431,15 +433,59 @@
                             <ng-template #nonTableCanvasField>
                                 <ng-container *ngIf="field.type === 'word_editor'; else canvasPlainTextValue">
                                     <div
-                                        class="filled-field-value word-editor-filled-value"
-                                        [ngStyle]="getInputStyle(field)"
-                                        [innerHTML]="getFieldValueHtml(field)">
+                                        *ngIf="canEditFieldOnDocumentCanvas(field) && isInlineWordEditorActive(field); else wordEditorPreview"
+                                        class="inline-word-editor-shell filled-field-editor"
+                                        [attr.data-field-id]="field.id">
+                                        <ckeditor
+                                            [editor]="wordEditor"
+                                            [config]="wordEditorConfig"
+                                            [(ngModel)]="values[field.id]"
+                                            (ready)="onInlineWordEditorReady(field, $event)"
+                                            (change)="onWordEditorChanged(field, $event)"
+                                            (focus)="onInlineWordEditorFocus(field)">
+                                        </ckeditor>
                                     </div>
+                                    <ng-template #wordEditorPreview>
+                                        <div
+                                            class="filled-field-value word-editor-filled-value"
+                                            [class.filled-field-editor]="canEditFieldOnDocumentCanvas(field)"
+                                            [ngStyle]="getInputStyle(field)"
+                                            [innerHTML]="getFieldValueHtml(field)"
+                                            (click)="activateInlineWordEditor(field)">
+                                        </div>
+                                    </ng-template>
                                 </ng-container>
                                 <ng-template #canvasPlainTextValue>
-                                    <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
-                                        {{ getFieldValueText(field) }}
-                                    </span>
+                                    <ng-container *ngIf="canEditFieldOnDocumentCanvas(field); else canvasReadOnlyValue">
+                                        <label *ngIf="field.type === 'checkbox'" class="filled-field-checkbox">
+                                            <input
+                                                type="checkbox"
+                                                class="filled-field-editor"
+                                                [(ngModel)]="values[field.id]"
+                                                (ngModelChange)="onPanelValueChanged(field)" />
+                                        </label>
+                                        <textarea
+                                            *ngIf="field.type === 'textarea'"
+                                            class="filled-field-editor"
+                                            [(ngModel)]="values[field.id]"
+                                            (ngModelChange)="onPanelValueChanged(field)"
+                                            [ngStyle]="getInputStyle(field)"></textarea>
+                                        <input
+                                            *ngIf="field.type !== 'checkbox' && field.type !== 'textarea' && field.type !== 'radio'"
+                                            class="filled-field-editor"
+                                            [type]="getPanelInputType(field)"
+                                            [(ngModel)]="values[field.id]"
+                                            (ngModelChange)="onPanelValueChanged(field)"
+                                            [ngStyle]="getInputStyle(field)" />
+                                        <span *ngIf="field.type === 'radio'" class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                                            {{ getFieldValueText(field) }}
+                                        </span>
+                                    </ng-container>
+                                    <ng-template #canvasReadOnlyValue>
+                                        <span class="filled-field-value" [ngStyle]="getInputStyle(field)">
+                                            {{ getFieldValueText(field) }}
+                                        </span>
+                                    </ng-template>
                                 </ng-template>
                             </ng-template>
                         </ng-template>

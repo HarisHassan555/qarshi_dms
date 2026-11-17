@@ -7,14 +7,14 @@ import { TemplateWorkflowService } from 'src/app/services/template-workflow/temp
 import { UserService } from 'src/app/services/user/user.service';
 import { urls } from 'src/app/utils/urls';
 
-export interface AllApplicationScopeRow {
-    serPermissionId?: number;
+export interface AllApplicationScopeRule {
     serRoleId: number;
-    serDepartmentId?: number | null;
-    serSubmitterUserId?: number | null;
-    serApproverUserId?: number | null;
-    serFormId?: number | null;
-    serApplicationId?: number | null;
+    serPermissionIds: number[];
+    serFormIds: number[];
+    serDepartmentIds: number[];
+    serSubmitterUserIds: number[];
+    serApproverUserIds: number[];
+    serApplicationIds: number[];
     blIsEnabled: boolean;
 }
 
@@ -39,7 +39,7 @@ export class RoleApplicationManagementComponent implements OnInit {
 
     scopeRoles: any[] = [];
     searchText = '';
-    scopeRows: AllApplicationScopeRow[] = [];
+    scopeRules: AllApplicationScopeRule[] = [];
     scopePermissionLoading = false;
     scopeSaving = false;
     scopeMasterDepartments: any[] = [];
@@ -49,7 +49,7 @@ export class RoleApplicationManagementComponent implements OnInit {
     scopeModalReferenceLoading = false;
     showRuleModal = false;
     ruleModalIndex: number | null = null;
-    ruleDraft: AllApplicationScopeRow | null = null;
+    ruleDraft: AllApplicationScopeRule | null = null;
 
     readonly ruleModalAppendTo = '#role-app-rule-modal';
 
@@ -136,26 +136,35 @@ export class RoleApplicationManagementComponent implements OnInit {
     }
 
     openNewRuleModal(): void {
+        if (!this.availableRoles.length) {
+            this.notificationService.showMessage('Every role already has a rule. Edit that rule to change its values.', 'warning');
+            return;
+        }
         this.ruleModalIndex = null;
-        this.ruleDraft = this.createEmptyScopeRow();
+        this.ruleDraft = this.createEmptyScopeRule();
         this.showRuleModal = true;
         this.ensureScopeModalReferenceData();
     }
 
-    get filteredScopeRows(): AllApplicationScopeRow[] {
+    get availableRoles(): any[] {
+        const used = new Set(this.scopeRules.map((rule) => Number(rule.serRoleId)));
+        return this.scopeRoles.filter((role) => !used.has(Number(role?.serRoleId || 0)));
+    }
+
+    get filteredScopeRules(): AllApplicationScopeRule[] {
         const query = this.searchText.trim().toLowerCase();
         if (!query) {
-            return this.scopeRows;
+            return this.scopeRules;
         }
-        return this.scopeRows.filter((row) => {
+        return this.scopeRules.filter((rule) => {
             const haystack = [
-                this.getRoleLabel(row.serRoleId),
-                row.blIsEnabled ? 'active' : 'inactive',
-                this.getTemplateLabel(row.serFormId),
-                this.getDepartmentLabel(row.serDepartmentId),
-                this.getUserLabel(row.serSubmitterUserId),
-                this.getUserLabel(row.serApproverUserId),
-                this.getApplicationIdLabel(row.serApplicationId),
+                this.getRoleLabel(rule.serRoleId),
+                rule.blIsEnabled ? 'active' : 'inactive',
+                this.joinLabels(rule.serFormIds, (id) => this.getTemplateLabel(id), 'Any form'),
+                this.joinLabels(rule.serDepartmentIds, (id) => this.getDepartmentLabel(id), 'Any department'),
+                this.joinLabels(rule.serSubmitterUserIds, (id) => this.getUserLabel(id), 'Any user'),
+                this.joinLabels(rule.serApproverUserIds, (id) => this.getUserLabel(id), 'Any user'),
+                this.joinLabels(rule.serApplicationIds, (id) => String(id), '—'),
             ]
                 .join(' ')
                 .toLowerCase();
@@ -163,13 +172,21 @@ export class RoleApplicationManagementComponent implements OnInit {
         });
     }
 
-    openEditRuleModal(row: AllApplicationScopeRow): void {
-        const index = this.scopeRows.indexOf(row);
+    openEditRuleModal(rule: AllApplicationScopeRule): void {
+        const index = this.scopeRules.indexOf(rule);
         if (index < 0) {
             return;
         }
         this.ruleModalIndex = index;
-        this.ruleDraft = { ...row };
+        this.ruleDraft = {
+            ...rule,
+            serPermissionIds: [...rule.serPermissionIds],
+            serFormIds: [...rule.serFormIds],
+            serDepartmentIds: [...rule.serDepartmentIds],
+            serSubmitterUserIds: [...rule.serSubmitterUserIds],
+            serApproverUserIds: [...rule.serApproverUserIds],
+            serApplicationIds: [...rule.serApplicationIds],
+        };
         this.showRuleModal = true;
         this.ensureScopeModalReferenceData();
     }
@@ -189,28 +206,60 @@ export class RoleApplicationManagementComponent implements OnInit {
             this.notificationService.showMessage('Select a role for this rule.', 'warning');
             return;
         }
-        if (this.ruleDraft.blIsEnabled && !this.hasScopeRowFilters(this.ruleDraft)) {
+        if (this.ruleModalIndex === null && this.scopeRules.some((rule) => Number(rule.serRoleId) === roleId)) {
+            this.notificationService.showMessage('This role already has a rule. Edit that rule instead.', 'warning');
+            return;
+        }
+        if (this.ruleDraft.blIsEnabled && !this.hasScopeFilters(this.ruleDraft)) {
             this.notificationService.showMessage(
                 'Choose at least one filter (form, department, user, or application id).',
                 'warning'
             );
             return;
         }
-        const savedDraft = { ...this.ruleDraft, serRoleId: roleId };
+        const savedDraft = this.cloneRule({ ...this.ruleDraft, serRoleId: roleId });
         const isNew = this.ruleModalIndex === null;
         this.closeRuleModal();
-        this.persistSingleRule(savedDraft, isNew ? 'Rule added.' : 'Rule updated.');
+        this.persistRoleRule(savedDraft, isNew ? 'Rule added.' : 'Rule updated.');
     }
 
-    private createEmptyScopeRow(): AllApplicationScopeRow {
+    addApplicationIdTag = (term: string): number | null => {
+        const id = Number(String(term || '').trim());
+        if (!Number.isInteger(id) || id <= 0) {
+            return null;
+        }
+        if (this.ruleDraft?.serApplicationIds.includes(id)) {
+            return null;
+        }
+        return id;
+    };
+
+    private createEmptyScopeRule(): AllApplicationScopeRule {
+        const preferred = Number(this.getRoleId() || 0);
+        const availableIds = this.availableRoles.map((role) => Number(role?.serRoleId || 0));
+        const serRoleId = availableIds.includes(preferred) ? preferred : Number(availableIds[0] || 0);
         return {
-            serRoleId: this.getRoleId() || Number(this.scopeRoles[0]?.serRoleId || 0),
+            serRoleId,
+            serPermissionIds: [],
+            serFormIds: [],
+            serDepartmentIds: [],
+            serSubmitterUserIds: [],
+            serApproverUserIds: [],
+            serApplicationIds: [],
             blIsEnabled: true,
-            serDepartmentId: null,
-            serSubmitterUserId: null,
-            serApproverUserId: null,
-            serFormId: null,
-            serApplicationId: null,
+        };
+    }
+
+    private cloneRule(rule: AllApplicationScopeRule): AllApplicationScopeRule {
+        return {
+            serRoleId: Number(rule.serRoleId || 0),
+            serPermissionIds: this.uniquePositiveIds(rule.serPermissionIds),
+            serFormIds: this.uniquePositiveIds(rule.serFormIds),
+            serDepartmentIds: this.uniquePositiveIds(rule.serDepartmentIds),
+            serSubmitterUserIds: this.uniquePositiveIds(rule.serSubmitterUserIds),
+            serApproverUserIds: this.uniquePositiveIds(rule.serApproverUserIds),
+            serApplicationIds: this.uniquePositiveIds(rule.serApplicationIds),
+            blIsEnabled: rule.blIsEnabled !== false,
         };
     }
 
@@ -242,6 +291,31 @@ export class RoleApplicationManagementComponent implements OnInit {
         return serApplicationId ? String(serApplicationId) : '—';
     }
 
+    joinLabels(ids: number[] | null | undefined, labelFor: (id: number) => string, emptyLabel: string): string {
+        const values = this.uniquePositiveIds(ids).map((id) => labelFor(id));
+        return values.length ? values.join(', ') : emptyLabel;
+    }
+
+    formatForms(rule: AllApplicationScopeRule): string {
+        return this.joinLabels(rule.serFormIds, (id) => this.getTemplateLabel(id), 'Any form');
+    }
+
+    formatDepartments(rule: AllApplicationScopeRule): string {
+        return this.joinLabels(rule.serDepartmentIds, (id) => this.getDepartmentLabel(id), 'Any department');
+    }
+
+    formatSubmitters(rule: AllApplicationScopeRule): string {
+        return this.joinLabels(rule.serSubmitterUserIds, (id) => this.getUserLabel(id), 'Any user');
+    }
+
+    formatApprovers(rule: AllApplicationScopeRule): string {
+        return this.joinLabels(rule.serApproverUserIds, (id) => this.getUserLabel(id), 'Any user');
+    }
+
+    formatApplicationIds(rule: AllApplicationScopeRule): string {
+        return this.joinLabels(rule.serApplicationIds, (id) => String(id), '—');
+    }
+
     getRoleLabel(serRoleId: number | null | undefined): string {
         const roleId = Number(serRoleId || 0);
         if (!roleId) {
@@ -251,12 +325,12 @@ export class RoleApplicationManagementComponent implements OnInit {
         return String(match?.txtRoleName || match?.roleName || `Role #${roleId}`).trim();
     }
 
-    isRuleRowIncomplete(row: AllApplicationScopeRow): boolean {
-        return row.blIsEnabled && !this.hasScopeRowFilters(row);
+    isRuleRowIncomplete(rule: AllApplicationScopeRule): boolean {
+        return rule.blIsEnabled && !this.hasScopeFilters(rule);
     }
 
     hasIncompleteRules(): boolean {
-        return this.scopeRows.some((row) => this.isRuleRowIncomplete(row));
+        return this.scopeRules.some((rule) => this.isRuleRowIncomplete(rule));
     }
 
     /** Departments, templates, and users — loaded only when opening the rule modal (avoids heavy getAllUser on tab open). */
@@ -333,8 +407,8 @@ export class RoleApplicationManagementComponent implements OnInit {
 
     private mergeUsersFromScopeRows(): void {
         const knownIds = new Set(this.scopeMasterUsers.map((u) => u.serUserId));
-        for (const row of this.scopeRows) {
-            for (const id of [row.serSubmitterUserId, row.serApproverUserId]) {
+        for (const rule of this.scopeRules) {
+            for (const id of [...rule.serSubmitterUserIds, ...rule.serApproverUserIds]) {
                 const userId = Number(id || 0);
                 if (userId > 0 && !knownIds.has(userId)) {
                     this.scopeMasterUsers.push({ serUserId: userId, txtUserName: `User #${userId}` });
@@ -352,14 +426,14 @@ export class RoleApplicationManagementComponent implements OnInit {
             .subscribe({
                 next: (response: any) => {
                     const items = Array.isArray(response?.items) ? response.items : [];
-                    this.scopeRows = items.map((row: any) => this.mapScopeRowFromApi(row));
+                    this.scopeRules = this.groupScopeRules(items.map((row: any) => this.mapScopeRowFromApi(row)));
                     this.ensureTableReferenceLabels();
                     if (this.scopeMasterDataLoaded) {
                         this.mergeUsersFromScopeRows();
                     }
                 },
                 error: (error) => {
-                    this.scopeRows = [];
+                    this.scopeRules = [];
                     this.notificationService.showMessage(
                         error.error?.message || 'Could not load application scope rules.',
                         'danger'
@@ -368,7 +442,16 @@ export class RoleApplicationManagementComponent implements OnInit {
             });
     }
 
-    private mapScopeRowFromApi(row: any): AllApplicationScopeRow {
+    private mapScopeRowFromApi(row: any): {
+        serPermissionId?: number;
+        serRoleId: number;
+        serDepartmentId: number | null;
+        serSubmitterUserId: number | null;
+        serApproverUserId: number | null;
+        serFormId: number | null;
+        serApplicationId: number | null;
+        blIsEnabled: boolean;
+    } {
         return {
             serPermissionId: row?.serPermissionId ? Number(row.serPermissionId) : undefined,
             serRoleId: Number(row?.serRoleId || 0),
@@ -381,87 +464,129 @@ export class RoleApplicationManagementComponent implements OnInit {
         };
     }
 
+    private groupScopeRules(rows: ReturnType<RoleApplicationManagementComponent['mapScopeRowFromApi']>[]): AllApplicationScopeRule[] {
+        const byRole = new Map<number, AllApplicationScopeRule>();
+        for (const row of rows) {
+            const roleId = Number(row.serRoleId || 0);
+            if (!roleId) {
+                continue;
+            }
+            let rule = byRole.get(roleId);
+            if (!rule) {
+                rule = {
+                    serRoleId: roleId,
+                    serPermissionIds: [],
+                    serFormIds: [],
+                    serDepartmentIds: [],
+                    serSubmitterUserIds: [],
+                    serApproverUserIds: [],
+                    serApplicationIds: [],
+                    blIsEnabled: false,
+                };
+                byRole.set(roleId, rule);
+            }
+            if (row.serPermissionId) {
+                rule.serPermissionIds.push(row.serPermissionId);
+            }
+            this.pushId(rule.serFormIds, row.serFormId);
+            this.pushId(rule.serDepartmentIds, row.serDepartmentId);
+            this.pushId(rule.serSubmitterUserIds, row.serSubmitterUserId);
+            this.pushId(rule.serApproverUserIds, row.serApproverUserId);
+            this.pushId(rule.serApplicationIds, row.serApplicationId);
+            if (row.blIsEnabled) {
+                rule.blIsEnabled = true;
+            }
+        }
+        return Array.from(byRole.values());
+    }
+
+    private pushId(target: number[], value: number | null): void {
+        const id = Number(value || 0);
+        if (id > 0 && !target.includes(id)) {
+            target.push(id);
+        }
+    }
+
+    private uniquePositiveIds(values: number[] | null | undefined): number[] {
+        const ids: number[] = [];
+        for (const value of values || []) {
+            this.pushId(ids, Number(value));
+        }
+        return ids;
+    }
+
     private positiveOrNull(value: unknown): number | null {
         const n = Number(value);
         return Number.isFinite(n) && n > 0 ? n : null;
     }
 
-    deleteScopeRule(row: AllApplicationScopeRow): void {
-        if (!row || this.scopeSaving) {
+    deleteScopeRule(rule: AllApplicationScopeRule): void {
+        if (!rule || this.scopeSaving) {
             return;
         }
-        const roleId = Number(row.serRoleId || 0);
+        const roleId = Number(rule.serRoleId || 0);
         if (!roleId) {
             return;
         }
-        const permissionId = Number(row.serPermissionId || 0);
-        if (!permissionId) {
-            this.notificationService.showMessage('This rule has no id yet. Refresh the list and try again.', 'warning');
-            return;
-        }
-        const confirmed = window.confirm('Delete this rule? This cannot be undone.');
+        const confirmed = window.confirm(`Delete the rule for ${this.getRoleLabel(roleId)}? This cannot be undone.`);
         if (!confirmed) {
             return;
         }
-        this.scopeSaving = true;
-        this.templateWorkflowService
-            .deleteAllApplicationPagePermission(permissionId)
-            .pipe(finalize(() => (this.scopeSaving = false)))
-            .subscribe({
-                next: (response: any) => {
-                    const status = String(response?.status || 'Success').toLowerCase();
-                    if (status && status !== 'success') {
-                        this.notificationService.showMessage(response?.message || 'Could not delete this rule.', 'danger');
-                        return;
-                    }
-                    this.scopeRows = this.scopeRows.filter((item) => Number(item.serPermissionId) !== permissionId);
-                    this.notificationService.showMessage('Rule deleted.', 'success');
-                },
-                error: (error) => {
-                    this.notificationService.showMessage(
-                        error.error?.message || 'Could not delete this rule.',
-                        'danger'
-                    );
-                },
-            });
-    }
-
-    hasScopeRowFilters(row: AllApplicationScopeRow): boolean {
-        return !!(
-            row.serDepartmentId ||
-            row.serSubmitterUserId ||
-            row.serApproverUserId ||
-            row.serFormId ||
-            row.serApplicationId
+        this.persistRoleRule(
+            {
+                serRoleId: roleId,
+                serPermissionIds: [],
+                serFormIds: [],
+                serDepartmentIds: [],
+                serSubmitterUserIds: [],
+                serApproverUserIds: [],
+                serApplicationIds: [],
+                blIsEnabled: false,
+            },
+            'Rule deleted.',
+            true
         );
     }
 
-    /** Inserts or updates one rule. Does not rewrite the other rules for that role. */
-    private persistSingleRule(row: AllApplicationScopeRow, successMessage = 'Rule saved.'): void {
-        const roleId = Number(row.serRoleId || 0);
+    hasScopeFilters(rule: AllApplicationScopeRule): boolean {
+        return !!(
+            rule.serFormIds.length ||
+            rule.serDepartmentIds.length ||
+            rule.serSubmitterUserIds.length ||
+            rule.serApproverUserIds.length ||
+            rule.serApplicationIds.length
+        );
+    }
+
+    /** Replaces every stored value for this role with the current multi-selects. */
+    private persistRoleRule(rule: AllApplicationScopeRule, successMessage = 'Rule saved.', clearing = false): void {
+        const roleId = Number(rule.serRoleId || 0);
         if (!roleId) {
             this.notificationService.showMessage('Select a role first.', 'warning');
             return;
         }
+        const enabled = rule.blIsEnabled !== false;
+        const base = {
+            serUserId: null,
+            blIsEnabled: enabled,
+            blnStatus: enabled,
+        };
+        const items = clearing
+            ? []
+            : [
+                ...rule.serFormIds.map((serFormId) => ({ ...base, serFormId })),
+                ...rule.serDepartmentIds.map((serDepartmentId) => ({ ...base, serDepartmentId })),
+                ...rule.serSubmitterUserIds.map((serSubmitterUserId) => ({ ...base, serSubmitterUserId })),
+                ...rule.serApproverUserIds.map((serApproverUserId) => ({ ...base, serApproverUserId })),
+                ...rule.serApplicationIds.map((serApplicationId) => ({ ...base, serApplicationId })),
+            ];
         this.scopeSaving = true;
         this.templateWorkflowService
             .saveAllApplicationPagePermissions({
                 serRoleId: roleId,
                 serUserId: null,
-                replaceForRole: false,
-                items: [
-                    {
-                        serPermissionId: row.serPermissionId,
-                        serUserId: null,
-                        serDepartmentId: row.serDepartmentId,
-                        serSubmitterUserId: row.serSubmitterUserId,
-                        serApproverUserId: row.serApproverUserId,
-                        serFormId: row.serFormId,
-                        serApplicationId: row.serApplicationId,
-                        blIsEnabled: row.blIsEnabled,
-                        blnStatus: row.blIsEnabled,
-                    },
-                ],
+                replaceForRole: true,
+                items,
             })
             .pipe(finalize(() => (this.scopeSaving = false)))
             .subscribe({

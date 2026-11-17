@@ -12,6 +12,7 @@ import {
     normalizeWordEditorValueForCkeditor,
 } from 'src/app/utils/word-editor-ckeditor.util';
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
+import { stabilizeWordEditorTables } from 'src/app/utils/word-editor-display.util';
 import {
     resolveDocumentHeaderAddress,
     resolveDocumentHeaderBrandTitle,
@@ -1980,25 +1981,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         qlEditor.className = 'ql-editor';
         qlEditor.innerHTML = wrapper.innerHTML;
 
-        qlEditor.querySelectorAll('figure.table').forEach((figure) => {
-            const el = figure as HTMLElement;
-            el.style.maxWidth = '100%';
-            el.style.width = el.style.width || 'auto';
-        });
-
-        qlEditor.querySelectorAll('table').forEach((tableNode) => {
-            const table = tableNode as HTMLTableElement;
-            table.style.borderCollapse = 'collapse';
-            table.style.maxWidth = '100%';
-            table.style.width = table.style.width || 'auto';
-        });
-
-        qlEditor.querySelectorAll('td, th').forEach((cellNode) => {
-            const cell = cellNode as HTMLElement;
-            cell.style.border = cell.style.border || '1px solid #000000';
-            cell.style.padding = cell.style.padding || '6px';
-            cell.style.verticalAlign = cell.style.verticalAlign || 'top';
-        });
+        stabilizeWordEditorTables(qlEditor);
 
         return `<div class="word-editor-value">${qlEditor.outerHTML}</div>`;
     }

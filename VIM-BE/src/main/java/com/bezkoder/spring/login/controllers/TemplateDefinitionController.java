@@ -1753,11 +1753,15 @@ public class TemplateDefinitionController {
 
     /** Submitter department filter for audit UI (matches FK and legacy txt_department_name). */
     private String submitterDepartmentInListClause() {
-        return "AND (u.hrTblDepartment.serDepartmentId IN :departmentIds "
-                + "OR (COALESCE(u.txtDepartmentName, '') <> '' AND EXISTS ("
-                + "SELECT 1 FROM HrTblDepartment d WHERE d.serDepartmentId IN :departmentIds "
+        return "AND " + submitterDepartmentInListPredicate("departmentIds") + " ";
+    }
+
+    private String submitterDepartmentInListPredicate(String paramName) {
+        return "(u.hrTblDepartment.serDepartmentId IN :" + paramName
+                + " OR (COALESCE(u.txtDepartmentName, '') <> '' AND EXISTS ("
+                + "SELECT 1 FROM HrTblDepartment d WHERE d.serDepartmentId IN :" + paramName + " "
                 + "AND (d.blIsDeleted IS NULL OR d.blIsDeleted = false) "
-                + "AND LOWER(TRIM(COALESCE(d.txtDepartmentName, ''))) = LOWER(TRIM(COALESCE(u.txtDepartmentName, '')))))) ";
+                + "AND LOWER(TRIM(COALESCE(d.txtDepartmentName, ''))) = LOWER(TRIM(COALESCE(u.txtDepartmentName, ''))))))";
     }
 
     private String submitterDepartmentEqualsClause(String paramName) {
@@ -1768,48 +1772,65 @@ public class TemplateDefinitionController {
                 + "AND LOWER(TRIM(COALESCE(d.txtDepartmentName, ''))) = LOWER(TRIM(COALESCE(u.txtDepartmentName, ''))))))";
     }
 
+    /**
+     * One role has one scope. Values stored across rows are combined as:
+     * any selected value within a field, and every field that has values must match.
+     */
     private void appendAllApplicationPagePermissionClause(StringBuilder whereClause,
                                                           List<AllApplicationPagePermission> scopes) {
         if (whereClause == null || scopes == null || scopes.isEmpty()) {
             return;
         }
-        List<String> rowClauses = new ArrayList<>();
-        for (int i = 0; i < scopes.size(); i++) {
-            AllApplicationPagePermission row = scopes.get(i);
+        LinkedHashSet<Integer> departments = new LinkedHashSet<>();
+        LinkedHashSet<Integer> submitters = new LinkedHashSet<>();
+        LinkedHashSet<Integer> approvers = new LinkedHashSet<>();
+        LinkedHashSet<Integer> forms = new LinkedHashSet<>();
+        LinkedHashSet<Integer> applications = new LinkedHashSet<>();
+        for (AllApplicationPagePermission row : scopes) {
             if (row == null) {
                 continue;
             }
-            List<String> parts = new ArrayList<>();
-            if (row.getSerDepartmentId() != null && row.getSerDepartmentId() > 0) {
-                parts.add(submitterDepartmentEqualsClause("scopeDept" + i));
-            }
-            if (row.getSerSubmitterUserId() != null && row.getSerSubmitterUserId() > 0) {
-                parts.add("a.serSubmittedBy = :scopeSubmitter" + i);
-            }
-            if (row.getSerApproverUserId() != null && row.getSerApproverUserId() > 0) {
-                parts.add("(a.serCurrentApprover = :scopeApprover" + i +
-                        " OR LOWER(COALESCE(a.txtApprovalHistory, '')) LIKE :scopeApproverHistUser" + i +
-                        " OR LOWER(COALESCE(a.txtApprovalHistory, '')) LIKE :scopeApproverHistApproved" + i +
-                        " OR LOWER(COALESCE(a.txtPriorApprovals, '')) LIKE :scopeApproverHistUser" + i +
-                        " OR LOWER(COALESCE(a.txtPriorApprovals, '')) LIKE :scopeApproverHistApproved" + i + ")");
-            }
-            if (row.getSerFormId() != null && row.getSerFormId() > 0) {
-                parts.add("a.serFormId = :scopeForm" + i);
-            }
-            if (row.getSerApplicationId() != null && row.getSerApplicationId() > 0) {
-                parts.add("a.serApplicationId = :scopeApp" + i);
-            }
-            if (parts.isEmpty()) {
-                // Explicit empty scope row means "no apps" for this row; skip rather than match all.
-                continue;
-            }
-            rowClauses.add("(" + String.join(" AND ", parts) + ")");
+            addPositiveId(departments, row.getSerDepartmentId());
+            addPositiveId(submitters, row.getSerSubmitterUserId());
+            addPositiveId(approvers, row.getSerApproverUserId());
+            addPositiveId(forms, row.getSerFormId());
+            addPositiveId(applications, row.getSerApplicationId());
         }
-        if (rowClauses.isEmpty()) {
+        List<String> parts = new ArrayList<>();
+        if (!departments.isEmpty()) {
+            parts.add(submitterDepartmentInListPredicate("scopeDepartmentIds"));
+        }
+        if (!submitters.isEmpty()) {
+            parts.add("a.serSubmittedBy IN :scopeSubmitters");
+        }
+        if (!approvers.isEmpty()) {
+            StringBuilder approverClause = new StringBuilder("(a.serCurrentApprover IN :scopeApprovers");
+            for (int i = 0; i < approvers.size(); i++) {
+                approverClause.append(" OR LOWER(COALESCE(a.txtApprovalHistory, '')) LIKE :scopeApproverHistUser").append(i);
+                approverClause.append(" OR LOWER(COALESCE(a.txtApprovalHistory, '')) LIKE :scopeApproverHistApproved").append(i);
+                approverClause.append(" OR LOWER(COALESCE(a.txtPriorApprovals, '')) LIKE :scopeApproverHistUser").append(i);
+                approverClause.append(" OR LOWER(COALESCE(a.txtPriorApprovals, '')) LIKE :scopeApproverHistApproved").append(i);
+            }
+            approverClause.append(")");
+            parts.add(approverClause.toString());
+        }
+        if (!forms.isEmpty()) {
+            parts.add("a.serFormId IN :scopeForms");
+        }
+        if (!applications.isEmpty()) {
+            parts.add("a.serApplicationId IN :scopeApplications");
+        }
+        if (parts.isEmpty()) {
             whereClause.append("AND 1 = 0 ");
             return;
         }
-        whereClause.append("AND (").append(String.join(" OR ", rowClauses)).append(") ");
+        whereClause.append("AND (").append(String.join(" AND ", parts)).append(") ");
+    }
+
+    private void addPositiveId(Set<Integer> target, Integer value) {
+        if (target != null && value != null && value > 0) {
+            target.add(value);
+        }
     }
 
     private javax.persistence.Query bindAllApplicationPagePermissionParams(javax.persistence.Query query,
@@ -1817,29 +1838,41 @@ public class TemplateDefinitionController {
         if (query == null || scopes == null || scopes.isEmpty()) {
             return query;
         }
-        for (int i = 0; i < scopes.size(); i++) {
-            AllApplicationPagePermission row = scopes.get(i);
+        LinkedHashSet<Integer> departments = new LinkedHashSet<>();
+        LinkedHashSet<Integer> submitters = new LinkedHashSet<>();
+        LinkedHashSet<Integer> approvers = new LinkedHashSet<>();
+        LinkedHashSet<Integer> forms = new LinkedHashSet<>();
+        LinkedHashSet<Integer> applications = new LinkedHashSet<>();
+        for (AllApplicationPagePermission row : scopes) {
             if (row == null) {
                 continue;
             }
-            if (row.getSerDepartmentId() != null && row.getSerDepartmentId() > 0) {
-                query.setParameter("scopeDept" + i, row.getSerDepartmentId());
+            addPositiveId(departments, row.getSerDepartmentId());
+            addPositiveId(submitters, row.getSerSubmitterUserId());
+            addPositiveId(approvers, row.getSerApproverUserId());
+            addPositiveId(forms, row.getSerFormId());
+            addPositiveId(applications, row.getSerApplicationId());
+        }
+        if (!departments.isEmpty()) {
+            query.setParameter("scopeDepartmentIds", departments);
+        }
+        if (!submitters.isEmpty()) {
+            query.setParameter("scopeSubmitters", submitters);
+        }
+        if (!approvers.isEmpty()) {
+            query.setParameter("scopeApprovers", approvers);
+            int index = 0;
+            for (Integer approverId : approvers) {
+                query.setParameter("scopeApproverHistUser" + index, "%\"userid\":" + approverId + "%");
+                query.setParameter("scopeApproverHistApproved" + index, "%\"approvedby\":" + approverId + "%");
+                index++;
             }
-            if (row.getSerSubmitterUserId() != null && row.getSerSubmitterUserId() > 0) {
-                query.setParameter("scopeSubmitter" + i, row.getSerSubmitterUserId());
-            }
-            if (row.getSerApproverUserId() != null && row.getSerApproverUserId() > 0) {
-                int approverId = row.getSerApproverUserId();
-                query.setParameter("scopeApprover" + i, approverId);
-                query.setParameter("scopeApproverHistUser" + i, "%\"userid\":" + approverId + "%");
-                query.setParameter("scopeApproverHistApproved" + i, "%\"approvedby\":" + approverId + "%");
-            }
-            if (row.getSerFormId() != null && row.getSerFormId() > 0) {
-                query.setParameter("scopeForm" + i, row.getSerFormId());
-            }
-            if (row.getSerApplicationId() != null && row.getSerApplicationId() > 0) {
-                query.setParameter("scopeApp" + i, row.getSerApplicationId());
-            }
+        }
+        if (!forms.isEmpty()) {
+            query.setParameter("scopeForms", forms);
+        }
+        if (!applications.isEmpty()) {
+            query.setParameter("scopeApplications", applications);
         }
         return query;
     }

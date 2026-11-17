@@ -22,6 +22,7 @@ import {
 } from 'src/app/utils/form-orientation.util';
 import { finalize, firstValueFrom, forkJoin } from 'rxjs';
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
+import { stabilizeWordEditorTables } from 'src/app/utils/word-editor-display.util';
 import { capfHasPipelineCeoSignatureSlot } from 'src/app/utils/capf-form.util';
 import {
   isDocumentHeaderFieldType,
@@ -5274,6 +5275,7 @@ export class ApplicationDetailsComponent implements OnInit, AfterViewInit, OnDes
       rowEl.style.minHeight = '32px';
     });
 
+    stabilizeWordEditorTables(wrapper);
     return wrapper.innerHTML;
   }
 

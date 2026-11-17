@@ -29,7 +29,7 @@ import {
     normalizeWordEditorValueForCkeditor,
 } from 'src/app/utils/word-editor-ckeditor.util';
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
-import { applyWordEditorAlignmentClasses, getTemplateFieldNgStyle } from 'src/app/utils/word-editor-display.util';
+import { applyWordEditorAlignmentClasses, getTemplateFieldNgStyle, stabilizeWordEditorTables } from 'src/app/utils/word-editor-display.util';
 import { normalizeDocumentBodyHtmlForDisplay } from 'src/app/utils/document-body-html.util';
 import { finalizeTableFormulaHtml } from 'src/app/utils/template-table-formula.util';
 import {
@@ -391,11 +391,17 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return `is-${tile.status.toLowerCase()}`;
     }
 
-    /**
-     * Document preview (canvas) is read-only; values are changed from the Form Fields panel only.
-     */
-    canEditFieldOnDocumentCanvas(_field: TemplateField): boolean {
-        return false;
+    /** Admin can type directly on the document output. Those fields show a blue border. */
+    canEditFieldOnDocumentCanvas(field: TemplateField): boolean {
+        return this.canAdminEditAllFormFields() && this.canCurrentStepEditField(field);
+    }
+
+    onCanvasRadioOptionSelected(field: TemplateField, option: string): void {
+        if (!this.canEditFieldOnDocumentCanvas(field)) {
+            return;
+        }
+        this.values[field.id] = option;
+        this.onPanelValueChanged(field);
     }
 
     canCurrentStepEditField(field: TemplateField): boolean {
@@ -1096,7 +1102,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         }
         this.isDownloadingPdf = true;
         try {
-            const pdfBlob = await this.renderTemplatePreviewPdfBlob();
+            const pdfBlob = await firstValueFrom(
+                this.templateWorkflowService.downloadTemplateApplicationPdf(this.application.serApplicationId)
+            );
             const filename = `${this.application?.txtFormCode || 'template-application'}.pdf`;
             this.downloadBlob(pdfBlob, filename);
         } catch (error: any) {
@@ -1719,8 +1727,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     }
 
     private async persistCurrentTemplateState(refreshPdf: boolean): Promise<void> {
+        this.syncInlineWordEditorsForPdf();
         (this.template?.fields || []).forEach((field: TemplateField) => {
-            if (field.type === 'word_editor' && field.placement) {
+            if (field.type === 'word_editor') {
                 this.values[field.id] = this.acceptedWordEditorValues[field.id] ?? this.values[field.id] ?? '';
             }
         });
@@ -1766,24 +1775,28 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             }
             const previousValue = this.persistedValues[fieldId];
             const nextValue = allowedValues[fieldId];
-            if (this.isFieldValueEmpty(field, previousValue)) {
-                return;
-            }
             if (this.areFieldValuesEqual(field, previousValue, nextValue)) {
                 return;
             }
 
+            const previousEmpty = this.isFieldValueEmpty(field, previousValue);
+            const nextEmpty = this.isFieldValueEmpty(field, nextValue);
             const fieldLabel = String(field.label || fieldId).trim() || fieldId;
             const fromText = this.formatFieldValueForLog(field, previousValue);
             const toText = this.formatFieldValueForLog(field, nextValue);
             const actorClause = onBehalfOfUserId && onBehalfOfName
                 ? `${actorName} on behalf of ${onBehalfOfName}`
                 : actorName;
-            const remarks = `${fieldLabel} changed from ${fromText} to ${toText} by ${actorClause}`;
+            const actionName = previousEmpty ? 'FIELD_FILLED' : (nextEmpty ? 'FIELD_CLEARED' : 'FIELD_CHANGED');
+            const remarks = previousEmpty
+                ? `${fieldLabel} filled with ${toText} by ${actorClause}`
+                : nextEmpty
+                    ? `${fieldLabel} cleared (was ${fromText}) by ${actorClause}`
+                    : `${fieldLabel} changed from ${fromText} to ${toText} by ${actorClause}`;
 
             const entry: any = {
-                action: 'FIELD_CHANGED',
-                status: 'FIELD_CHANGED',
+                action: actionName,
+                status: actionName,
                 remarks,
                 comments: remarks,
                 fieldId,
@@ -1874,13 +1887,10 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             if (this.isDynamicApprovalDataField(field)) {
                 return acc;
             }
-            if (adminCanEditAll) {
-                acc[field.id] = this.values[field.id];
-                return acc;
-            }
-            const right = this.getCurrentStepFieldRight(field);
-            if (right === 'edit' || (right === 'fill' && this.isFieldFillAvailable(field))) {
-                acc[field.id] = this.values[field.id];
+            const currentValue = this.values[field.id];
+            const changedFromPersisted = !this.areFieldValuesEqual(field, this.persistedValues[field.id], currentValue);
+            if (adminCanEditAll || this.canCurrentStepEditField(field) || changedFromPersisted) {
+                acc[field.id] = currentValue;
             }
             return acc;
         }, {});
@@ -2312,7 +2322,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 return;
             }
             const filename = `${this.application?.txtFormCode || 'template-application'}_with_logs.pdf`;
-            const applicationPdfBlob = await this.renderTemplatePreviewPdfBlob();
+            const applicationPdfBlob = await firstValueFrom(
+                this.templateWorkflowService.downloadTemplateApplicationPdf(this.application.serApplicationId)
+            );
             const logsPdfHtml = this.buildApprovalLogsPdfHtml(this.approvalLogRowsCache);
             const logsPdfBlob = await this.applicationPdfService.renderHtmlToPdfBlob(logsPdfHtml, filename);
             const mergedPdfBlob = await this.applicationPdfService.mergePdfBlobs([applicationPdfBlob, logsPdfBlob]);
@@ -2507,7 +2519,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return this.getApplicationApprovalHistory()
             .map((entry, index) => {
                 const userId = Number(entry?.performedBy ?? entry?.serUserId ?? entry?.userId ?? entry?.approvedBy ?? entry?.approverId ?? entry?.id);
-                const action = String(entry?.action || entry?.status || '--').toUpperCase();
+                const action = this.formatHistoryActionLabel(String(entry?.action || entry?.status || '--'));
                 const step = this.getStepForHistoryEntry(entry);
                 return {
                     level: String(this.getDisplayLevelForHistoryEntry(entry, index)),
@@ -2543,7 +2555,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
         const fields = new Map<string, TemplateField>((this.template?.fields || []).map((field: TemplateField) => [field.id, field]));
-        doc.querySelectorAll('.template-field[data-field-id]').forEach((node) => {
+        doc.querySelectorAll('.template-field[data-field-id], .inline-filled-value[data-field-id]').forEach((node) => {
             const field = fields.get(node.getAttribute('data-field-id') || '');
             if (!field || field.placement || this.isDocumentRegionFieldType(field.type)) {
                 return;
@@ -2552,9 +2564,25 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 node.remove();
                 return;
             }
+            if ((node as HTMLElement).classList.contains('inline-filled-value')) {
+                this.writeInlineFilledValue(node as HTMLElement, field);
+                return;
+            }
             node.replaceWith(this.createInlineValue(doc, field));
         });
         return normalizeDocumentBodyHtmlForDisplay(finalizeTableFormulaHtml(doc.body.innerHTML));
+    }
+
+    private writeInlineFilledValue(element: HTMLElement, field: TemplateField): void {
+        if (field.type === 'word_editor') {
+            element.innerHTML = this.normalizeWordEditorHtmlForDisplay(String(this.values[field.id] || ''));
+            return;
+        }
+        if (field.type === 'table') {
+            element.textContent = '';
+            return;
+        }
+        element.textContent = this.getFieldValueText(field);
     }
 
     private createInlineValue(doc: Document, field: TemplateField): HTMLElement {
@@ -2562,13 +2590,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         const element = doc.createElement(tagName);
         element.className = `inline-filled-value${field.type === 'textarea' ? ' inline-filled-textarea-value' : ''}${field.type === 'word_editor' ? ' inline-filled-word-editor-value' : ''}`;
         element.dataset['fieldId'] = field.id;
-        if (field.type === 'word_editor') {
-            element.innerHTML = this.normalizeWordEditorHtmlForDisplay(String(this.values[field.id] || ''));
-        } else if (field.type === 'table') {
-            element.textContent = '';
-        } else {
-            element.textContent = this.getFieldValueText(field);
-        }
+        this.writeInlineFilledValue(element, field);
         element.style.fontSize = `${field.style?.fontSize || 14}px`;
         element.style.fontFamily = field.style?.fontFamily || 'Arial, sans-serif';
         element.style.fontWeight = field.style?.bold ? '700' : '400';
@@ -2592,26 +2614,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         qlEditor.className = 'ql-editor';
         qlEditor.innerHTML = wrapper.innerHTML;
 
-        qlEditor.querySelectorAll('figure.table').forEach((figure) => {
-            const el = figure as HTMLElement;
-            el.style.maxWidth = '100%';
-            el.style.width = el.style.width || 'auto';
-        });
-
-        qlEditor.querySelectorAll('table').forEach((tableNode) => {
-            const table = tableNode as HTMLTableElement;
-            table.style.borderCollapse = 'collapse';
-            table.style.maxWidth = '100%';
-            table.style.width = table.style.width || 'auto';
-        });
-
-        qlEditor.querySelectorAll('td, th').forEach((cellNode) => {
-            const cell = cellNode as HTMLElement;
-            cell.style.border = cell.style.border || '1px solid #000000';
-            cell.style.padding = cell.style.padding || '6px';
-            cell.style.verticalAlign = cell.style.verticalAlign || 'top';
-        });
-
+        stabilizeWordEditorTables(qlEditor);
         applyWordEditorAlignmentClasses(qlEditor);
 
         return `<div class="word-editor-value">${qlEditor.outerHTML}</div>`;
@@ -3543,6 +3546,20 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         return `You are acting as administrator on behalf of ${approverName}. All form fields are visible and editable. Changes are logged on their behalf.`;
     }
 
+    private formatHistoryActionLabel(action: string): string {
+        const normalized = String(action || '--').toUpperCase();
+        if (normalized === 'FIELD_FILLED') {
+            return 'FILLED';
+        }
+        if (normalized === 'FIELD_CHANGED') {
+            return 'CHANGED';
+        }
+        if (normalized === 'FIELD_CLEARED') {
+            return 'CLEARED';
+        }
+        return normalized;
+    }
+
     private formatHistoryActorLabel(entry: any, fallbackUserId: number): string {
         const performedByName = String(entry?.performedByName || '').trim();
         const onBehalfOfName = String(entry?.onBehalfOfName || entry?.approverName || entry?.txtUserName || entry?.userName || entry?.name || '').trim();
@@ -4329,6 +4346,13 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         }
     }
 
+    private clearPdfEditChrome(element: HTMLElement): void {
+        element.style.setProperty('border', 'none', 'important');
+        element.style.setProperty('outline', 'none', 'important');
+        element.style.setProperty('box-shadow', 'none', 'important');
+        element.style.setProperty('background', 'transparent', 'important');
+    }
+
     private prepareTemplatePdfFieldText(root: HTMLElement): void {
         root.querySelectorAll('.inline-word-editor-shell[data-field-id]').forEach((node) => {
             const shell = node as HTMLElement;
@@ -4352,19 +4376,41 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
         root.querySelectorAll('.filled-field-editor').forEach((node) => {
             const editorEl = node as HTMLTextAreaElement | HTMLInputElement;
+            if (editorEl.classList.contains('word-editor-filled-value')) {
+                editorEl.classList.remove('filled-field-editor');
+                this.clearPdfEditChrome(editorEl);
+                return;
+            }
             const fieldHost = editorEl.closest('.filled-field[data-field-id]') as HTMLElement | null;
             const fieldId = String(fieldHost?.getAttribute('data-field-id') || '').trim();
+            const field = fieldId
+                ? (this.template?.fields || []).find((item: TemplateField) => item.id === fieldId)
+                : undefined;
             const staticValue = root.ownerDocument.createElement('span');
             staticValue.className = 'filled-field-value';
-            staticValue.textContent = fieldId ? String(this.values[fieldId] ?? editorEl.value ?? '') : String(editorEl.value ?? '');
-            if (fieldHost) {
-                const field = (this.template?.fields || []).find((item: TemplateField) => item.id === fieldId);
-                if (field) {
-                    Object.assign(staticValue.style, this.getInputStyle(field));
-                    this.applyInlineValueAttributes(staticValue, field);
-                }
+            staticValue.textContent = field?.type === 'checkbox'
+                ? (this.values[fieldId] ? '✓' : '')
+                : (fieldId ? String(this.values[fieldId] ?? editorEl.value ?? '') : String(editorEl.value ?? ''));
+            if (field) {
+                Object.assign(staticValue.style, this.getInputStyle(field));
+                this.applyInlineValueAttributes(staticValue, field);
             }
+            this.clearPdfEditChrome(staticValue);
             editorEl.replaceWith(staticValue);
+        });
+
+        root.querySelectorAll('.fillable-table input, .fillable-table textarea').forEach((node) => {
+            const input = node as HTMLInputElement;
+            const staticValue = root.ownerDocument.createElement('span');
+            staticValue.textContent = input.value || '';
+            this.clearPdfEditChrome(staticValue);
+            input.replaceWith(staticValue);
+        });
+
+        root.querySelectorAll('.is-canvas-editable, .filled-field, .radio-option-filled-field').forEach((node) => {
+            const element = node as HTMLElement;
+            element.classList.remove('is-canvas-editable', 'filled-field-editor');
+            this.clearPdfEditChrome(element);
         });
 
         root.querySelectorAll('.word-editor-filled-value').forEach((node) => {
@@ -4387,11 +4433,11 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
         root.querySelectorAll('.word-editor-filled-value figure.table, .document-html .inline-filled-word-editor-value figure.table').forEach((node) => {
             const figureEl = node as HTMLElement;
-            figureEl.style.setProperty('display', 'table', 'important');
-            figureEl.style.setProperty('width', 'auto', 'important');
+            figureEl.style.setProperty('display', 'block', 'important');
+            figureEl.style.setProperty('width', '100%', 'important');
             figureEl.style.setProperty('max-width', '100%', 'important');
-            figureEl.style.setProperty('margin-left', 'auto', 'important');
-            figureEl.style.setProperty('margin-right', 'auto', 'important');
+            figureEl.style.setProperty('margin-left', '0', 'important');
+            figureEl.style.setProperty('margin-right', '0', 'important');
         });
 
         root.querySelectorAll('.filled-field-value').forEach((node) => {
@@ -4409,43 +4455,20 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         });
 
         root.querySelectorAll('.word-editor-filled-value table, .document-html .inline-filled-word-editor-value table').forEach((node) => {
-            const tableEl = node as HTMLElement;
-            tableEl.style.setProperty('border-collapse', 'separate', 'important');
-            tableEl.style.setProperty('border-spacing', '0', 'important');
-            tableEl.style.setProperty('table-layout', 'auto', 'important');
-            tableEl.style.setProperty('width', 'auto', 'important');
-            tableEl.style.setProperty('max-width', '100%', 'important');
-            tableEl.style.setProperty('margin-left', 'auto', 'important');
-            tableEl.style.setProperty('margin-right', 'auto', 'important');
-            tableEl.style.setProperty('border', 'none', 'important');
-        });
-
-        root.querySelectorAll('.word-editor-filled-value table, .document-html .inline-filled-word-editor-value table').forEach((node) => {
             const tableEl = node as HTMLTableElement;
-            const rows = Array.from(tableEl.querySelectorAll('tr'));
-            rows.forEach((rowNode, rowIndex) => {
-                const cells = Array.from(rowNode.children).filter((child) => {
-                    const tagName = child.tagName.toLowerCase();
-                    return tagName === 'td' || tagName === 'th';
-                }) as HTMLElement[];
-
-                cells.forEach((cellEl, cellIndex) => {
-                    cellEl.style.setProperty('border', 'none', 'important');
-                    cellEl.style.setProperty('border-top', '1px solid #000000', 'important');
-                    cellEl.style.setProperty('border-left', '1px solid #000000', 'important');
-                    if (cellIndex === cells.length - 1) {
-                        cellEl.style.setProperty('border-right', '1px solid #000000', 'important');
-                    } else {
-                        cellEl.style.removeProperty('border-right');
-                    }
-                    if (rowIndex === rows.length - 1) {
-                        cellEl.style.setProperty('border-bottom', '1px solid #000000', 'important');
-                    } else {
-                        cellEl.style.removeProperty('border-bottom');
-                    }
-                    cellEl.style.setProperty('padding', '6px', 'important');
-                    cellEl.style.setProperty('vertical-align', 'top', 'important');
-                });
+            tableEl.style.setProperty('border-collapse', 'collapse', 'important');
+            tableEl.style.setProperty('border-spacing', '0', 'important');
+            tableEl.style.setProperty('table-layout', 'fixed', 'important');
+            tableEl.style.setProperty('width', '100%', 'important');
+            tableEl.style.setProperty('max-width', '100%', 'important');
+            tableEl.style.setProperty('margin-left', '0', 'important');
+            tableEl.style.setProperty('margin-right', '0', 'important');
+            tableEl.querySelectorAll('td, th').forEach((cellNode) => {
+                const cellEl = cellNode as HTMLElement;
+                cellEl.style.setProperty('border', '1px solid #000000', 'important');
+                cellEl.style.setProperty('padding', '3px 4px', 'important');
+                cellEl.style.setProperty('vertical-align', 'middle', 'important');
+                cellEl.style.setProperty('box-sizing', 'border-box', 'important');
             });
         });
     }

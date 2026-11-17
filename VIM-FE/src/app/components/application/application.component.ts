@@ -24,6 +24,7 @@ import {
   WORD_EDITOR_CKEDITOR_CONFIG,
 } from 'src/app/utils/word-editor-ckeditor.util';
 import { buildIndividualFooterTableBands, IndividualFooterTableBand } from 'src/app/utils/individual-footer-pipeline.util';
+import { stabilizeWordEditorTables } from 'src/app/utils/word-editor-display.util';
 import {
   isDocumentHeaderFieldType,
   resolveDocumentHeaderAddress,
@@ -2366,6 +2367,7 @@ export class ApplicationComponent implements OnInit, AfterViewChecked, OnDestroy
       rowEl.style.minHeight = '32px';
     });
 
+    stabilizeWordEditorTables(wrapper);
     return wrapper.innerHTML;
   }
 

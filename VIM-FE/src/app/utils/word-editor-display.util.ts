@@ -82,6 +82,81 @@ export function resolveWordEditorLineAlignment(fragmentEl: HTMLElement | null): 
 const WORD_EDITOR_ALIGNMENT_BLOCK_SELECTOR =
   'p,h1,h2,h3,h4,h5,h6,li,blockquote,figcaption,td,th';
 
+/**
+ * Spreadsheet HTML often stores real column widths on `<col width>` while CKEditor
+ * percentage widths squeeze the first columns. Fixed layout with those pixel ratios
+ * keeps merged cells (rowspan/colspan) lined up with the original document.
+ */
+export function stabilizeWordEditorTables(root: ParentNode): void {
+  root.querySelectorAll('figure.table').forEach((node) => {
+    const figure = node as HTMLElement;
+    figure.style.boxSizing = 'border-box';
+    figure.style.display = 'block';
+    figure.style.width = '100%';
+    figure.style.maxWidth = '100%';
+  });
+
+  root.querySelectorAll('table').forEach((node) => {
+    const table = node as HTMLTableElement;
+    applySpreadsheetColumnWidths(table);
+    table.style.boxSizing = 'border-box';
+    table.style.width = '100%';
+    table.style.maxWidth = '100%';
+    table.style.tableLayout = 'fixed';
+    table.style.borderCollapse = 'collapse';
+    table.querySelectorAll('td, th').forEach((cellNode) => {
+      const cell = cellNode as HTMLElement;
+      cell.style.boxSizing = 'border-box';
+      cell.style.border = '1px solid #000000';
+      if (!cell.style.background && !cell.style.backgroundColor) {
+        cell.style.backgroundColor = 'transparent';
+      }
+      cell.style.padding = '3px 4px';
+      cell.style.verticalAlign = 'middle';
+      cell.style.overflowWrap = 'break-word';
+      cell.style.wordBreak = 'normal';
+    });
+  });
+}
+
+function applySpreadsheetColumnWidths(table: HTMLTableElement): void {
+  const cols = Array.from(table.querySelectorAll('colgroup col')) as HTMLElement[];
+  if (!cols.length) {
+    return;
+  }
+  const pixels = cols.map((col) => readColumnPixelWidth(col));
+  if (pixels.some((value) => value <= 0)) {
+    return;
+  }
+  const total = pixels.reduce((sum, value) => sum + value, 0);
+  if (total <= 0) {
+    return;
+  }
+  cols.forEach((col, index) => {
+    col.style.width = `${(pixels[index] / total) * 100}%`;
+  });
+  table.querySelectorAll('td, th').forEach((cellNode) => {
+    const cell = cellNode as HTMLElement;
+    cell.removeAttribute('width');
+    cell.style.removeProperty('width');
+  });
+}
+
+function readColumnPixelWidth(col: HTMLElement): number {
+  const attributeWidth = Number.parseFloat(col.getAttribute('width') || '');
+  if (Number.isFinite(attributeWidth) && attributeWidth > 0) {
+    return attributeWidth;
+  }
+  const styleWidth = String(col.style.width || '').trim();
+  if (styleWidth.endsWith('px')) {
+    const parsed = Number.parseFloat(styleWidth);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return 0;
+}
+
 /** Adds ql-align-* classes so preview/PDF CSS matches CKEditor inline alignment. */
 export function applyWordEditorAlignmentClasses(root: ParentNode): void {
   root.querySelectorAll(WORD_EDITOR_ALIGNMENT_BLOCK_SELECTOR).forEach((node) => {

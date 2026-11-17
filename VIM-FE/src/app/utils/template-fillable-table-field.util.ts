@@ -332,7 +332,27 @@ export function applyTableCellValueChange(
         }
     }
     tableValues[cellKey] = nextValue;
+    if (!(isExcelFormulaText(nextValue) && isExcelFormulaComplete(nextValue))) {
+        tableHtml = writePlainTableCellText(tableHtml, cellKey, nextValue);
+    }
     field.tableHtml = tableHtml;
     const values = refreshTableFieldFormulaValues({ ...field, tableHtml }, tableValues);
     return { values, tableHtml };
+}
+
+function writePlainTableCellText(tableHtml: string, cellKey: string, value: string): string {
+    const match = /^r(\d+)c(\d+)$/.exec(cellKey);
+    if (!match || !tableHtml) {
+        return tableHtml;
+    }
+    const host = document.createElement('div');
+    host.innerHTML = tableHtml;
+    const table = host.querySelector('table');
+    const row = table?.querySelectorAll('tr')[Number(match[1])];
+    const cell = row?.querySelectorAll('th, td')[Number(match[2])] as HTMLTableCellElement | undefined;
+    if (!cell || isFormulaTableCell(cell)) {
+        return tableHtml;
+    }
+    cell.textContent = value;
+    return host.innerHTML;
 }
