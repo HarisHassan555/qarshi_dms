@@ -189,7 +189,7 @@
                     <tr>
                         <th>#</th>
                         <th>Name</th>
-                        <th>CNIC</th>
+                        <th>Employee ID</th>
                         <th>Email</th>
                         <th>Status</th>
                     </tr>
@@ -197,7 +197,21 @@
                 <tbody>
                     <tr *ngFor="let user of getRoleUsersModalList(); let i = index">
                         <td>{{ i + 1 }}</td>
-                        <td class="font-medium">{{ user.txtUserName || '-' }}</td>
+                        <td>
+                            <div class="flex items-center gap-2">
+                                <span class="role-user-avatar" [class.has-photo]="hasProfilePhoto(user.serUserId)">
+                                    <img
+                                        *ngIf="hasProfilePhoto(user.serUserId)"
+                                        [src]="getProfilePhotoUrl(user.serUserId)"
+                                        alt=""
+                                        class="role-user-avatar-img" />
+                                    <span *ngIf="!hasProfilePhoto(user.serUserId)" class="role-user-avatar-letter">
+                                        {{ getAvatarLetter(user.txtUserName) }}
+                                    </span>
+                                </span>
+                                <span class="font-medium">{{ user.txtUserName || '-' }}</span>
+                            </div>
+                        </td>
                         <td>{{ user.txtCnic || '-' }}</td>
                         <td>{{ user.txtEmail || '-' }}</td>
                         <td>

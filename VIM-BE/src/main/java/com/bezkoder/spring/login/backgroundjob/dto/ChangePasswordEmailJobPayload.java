@@ -12,6 +12,8 @@ public class ChangePasswordEmailJobPayload {
     private String plainPassword;
     /** True when an administrator reset the password (no old password supplied). */
     private boolean adminInitiated;
+    /** Browser origin captured when the email was queued, for example http://192.0.0.203:8080/velocity. */
+    private String publicBaseUrl;
 
     public Integer getSerUserId() {
         return serUserId;
@@ -59,5 +61,13 @@ public class ChangePasswordEmailJobPayload {
 
     public void setAdminInitiated(boolean adminInitiated) {
         this.adminInitiated = adminInitiated;
+    }
+
+    public String getPublicBaseUrl() {
+        return publicBaseUrl;
+    }
+
+    public void setPublicBaseUrl(String publicBaseUrl) {
+        this.publicBaseUrl = publicBaseUrl;
     }
 }

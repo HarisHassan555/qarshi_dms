@@ -169,13 +169,17 @@ export class TemplateWorkflowService {
     getTemplate(
         id: string,
         userId?: number | null,
-        options?: { includeBackground?: boolean }
+        options?: { includeBackground?: boolean; applicationId?: number | null }
     ): Observable<SavedTemplateDefinition | null> {
         const resolvedUserId = userId ?? this.getCurrentUserId();
         const params = new URLSearchParams();
         params.set('formId', id);
         if (resolvedUserId != null) {
             params.set('userId', String(resolvedUserId));
+        }
+        const applicationId = Number(options?.applicationId || 0);
+        if (applicationId > 0) {
+            params.set('applicationId', String(applicationId));
         }
         if (options?.includeBackground === false) {
             params.set('includeBackground', 'false');
@@ -185,12 +189,20 @@ export class TemplateWorkflowService {
         );
     }
 
-    getTemplateDefinitionBackground(formId: string | number, userId?: number | null): Observable<any> {
+    getTemplateDefinitionBackground(
+        formId: string | number,
+        userId?: number | null,
+        applicationId?: number | null
+    ): Observable<any> {
         const params = new URLSearchParams();
         params.set('formId', String(formId));
         const resolvedUserId = userId ?? this.getCurrentUserId();
         if (resolvedUserId != null) {
             params.set('userId', String(resolvedUserId));
+        }
+        const resolvedApplicationId = Number(applicationId || 0);
+        if (resolvedApplicationId > 0) {
+            params.set('applicationId', String(resolvedApplicationId));
         }
         return this.http.get<any>(urls.API_URL + 'getTemplateDefinitionBackground?' + params.toString());
     }
@@ -475,8 +487,10 @@ export class TemplateWorkflowService {
         return this.http.get<any>(urls.API_URL + 'searchVelocityReports?' + params.toString());
     }
 
-    getApplicationStorageInfo(): Observable<any> {
-        return this.http.get<any>(urls.API_URL + 'getApplicationStorageInfo');
+    getApplicationStorageInfo(includeContent = false): Observable<any> {
+        return this.http.get<any>(
+            urls.API_URL + 'getApplicationStorageInfo?includeContent=' + (includeContent ? 'true' : 'false')
+        );
     }
 
     getCompletedTemplatePortalAttachmentContent(

@@ -133,6 +133,13 @@ interface AttachmentPayload {
 
 type DetailLoaderStep = 'summary' | 'document' | 'attachments' | 'approval';
 
+interface ApplicationListMetric {
+    label: string;
+    value: number;
+    tone: 'slate' | 'amber' | 'emerald' | 'rose' | 'sky';
+    hint: string;
+}
+
 @Component({
     selector: 'app-my-application',
     templateUrl: './my-application.component.html',
@@ -141,6 +148,13 @@ type DetailLoaderStep = 'summary' | 'document' | 'attachments' | 'approval';
 export class MyApplicationComponent implements OnInit, OnDestroy {
     private static readonly INDIVIDUAL_FOOTER_MIN_HEIGHT = 136;
     search = '';
+    filterStartDate = '';
+    filterEndDate = '';
+    filterStatus = '';
+    filterFormType = '';
+    availableStatuses: string[] = [];
+    availableFormTypes: string[] = [];
+    applicationMetrics: ApplicationListMetric[] = [];
     isLoading = false;
     isDetailsLoading = false;
     isDetailView = false;
@@ -178,6 +192,9 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         { key: 'comments', label: 'Comments' }
     ];
     private searchTimer: ReturnType<typeof setTimeout> | null = null;
+    private applicationLoadId = 0;
+    private allApplications: MyTemplateApplication[] = [];
+    private filteredApplications: MyTemplateApplication[] = [];
     private activeDetailRequestId = 0;
     private activeDetailApplicationId = 0;
     private detailRenderToken = 0;
@@ -207,6 +224,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     ) { }
 
     ngOnInit(): void {
+        this.applicationMetrics = this.buildApplicationMetrics([]);
         const initialApplicationId = Number(this.route.snapshot.paramMap.get('id'));
         if (!initialApplicationId) {
             this.loadApplications();
@@ -255,30 +273,57 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             return;
         }
 
+        const requestId = ++this.applicationLoadId;
         this.isLoading = true;
-        this.templateWorkflowService.getMyTemplateApplications(userId, this.page, this.pageSize, this.search)
-            .pipe(finalize(() => this.isLoading = false))
-            .subscribe({
-            next: (response: any) => {
-                this.applications = (Array.isArray(response?.items) ? response.items : [])
-                    .map((application: any) => this.toShallowApplication(application));
-                this.totalApplications = Number(response?.total || 0);
-
+        void this.fetchAllMyApplications(userId)
+            .then((items) => {
+                if (requestId !== this.applicationLoadId) {
+                    return;
+                }
+                this.allApplications = items.map((application: any) => this.toShallowApplication(application));
+                this.availableStatuses = this.buildDistinctOptions(this.allApplications.map((item) => item.txtStatus || ''));
+                this.availableFormTypes = this.buildDistinctOptions(this.allApplications.map((item) => item.templateName || ''));
+                this.refreshApplicationView();
                 const routeApplicationId = Number(this.route.snapshot.paramMap.get('id'));
                 if (!routeApplicationId) {
                     this.selectApplication(null);
                 }
-            },
-            error: (error) => {
+            })
+            .catch((error) => {
+                if (requestId !== this.applicationLoadId) {
+                    return;
+                }
+                this.allApplications = [];
+                this.filteredApplications = [];
                 this.applications = [];
                 this.totalApplications = 0;
+                this.applicationMetrics = this.buildApplicationMetrics([]);
                 this.selectApplication(null);
                 this.notificationService.showMessage(
-                    'Error loading my applications: ' + (error.error?.message || error.message),
+                    'Error loading my applications: ' + (error?.error?.message || error?.message || 'Request failed'),
                     'danger'
                 );
-            }
-        });
+            })
+            .finally(() => {
+                if (requestId === this.applicationLoadId) {
+                    this.isLoading = false;
+                }
+            });
+    }
+
+    applyApplicationFilters(): void {
+        this.page = 0;
+        this.refreshApplicationView();
+    }
+
+    clearApplicationFilters(): void {
+        this.search = '';
+        this.filterStartDate = '';
+        this.filterEndDate = '';
+        this.filterStatus = '';
+        this.filterFormType = '';
+        this.page = 0;
+        this.refreshApplicationView();
     }
 
     onSearchChanged(): void {
@@ -287,8 +332,8 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         }
         this.searchTimer = setTimeout(() => {
             this.page = 0;
-            this.loadApplications();
-        }, 300);
+            this.refreshApplicationView();
+        }, 200);
     }
 
     changePage(nextPage: number): void {
@@ -298,55 +343,53 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             return;
         }
         this.page = target;
-        this.loadApplications();
+        this.refreshApplicationView();
     }
 
     changePageSize(size: string | number): void {
         const nextSize = Number(size);
         this.pageSize = Number.isFinite(nextSize) && nextSize > 0 ? nextSize : 10;
         this.page = 0;
-        this.loadApplications();
+        this.refreshApplicationView();
+    }
+
+    getMetricClasses(tone: ApplicationListMetric['tone']): string {
+        switch (tone) {
+            case 'amber':
+                return 'border-amber-200 bg-amber-50 text-amber-900';
+            case 'emerald':
+                return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+            case 'rose':
+                return 'border-rose-200 bg-rose-50 text-rose-900';
+            case 'sky':
+                return 'border-sky-200 bg-sky-50 text-sky-900';
+            default:
+                return 'border-slate-200 bg-white text-slate-900';
+        }
     }
 
     exportApplicationsCsv(): void {
-        const userId = this.getCurrentUserId();
-        if (!userId) {
-            this.notificationService.showMessage('Current user could not be resolved.', 'danger');
+        const rows = this.filteredApplications;
+        if (!rows.length) {
+            this.notificationService.showMessage('No applications available to export.', 'warning');
             return;
         }
-        const exportSize = Math.max(this.totalApplications || 0, this.pageSize, 1000);
-        this.templateWorkflowService.getMyTemplateApplications(userId, 0, exportSize, this.search).subscribe({
-            next: (response: any) => {
-                const rows = (Array.isArray(response?.items) ? response.items : [])
-                    .map((application: any) => this.toShallowApplication(application));
-                if (!rows.length) {
-                    this.notificationService.showMessage('No applications available to export.', 'warning');
-                    return;
-                }
-                const headers = ['Application Code', 'Title', 'Template', 'Status', 'Approval Level', 'Submitted Date'];
-                const csvRows = [
-                    headers.join(','),
-                    ...rows.map((application: MyTemplateApplication) => ([
-                        application.txtFormCode || '',
-                        application.applicationTitle || '',
-                        application.templateName || '',
-                        application.txtStatus || '',
-                        String(this.getApplicationDisplayLevel(application)),
-                        application.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleString() : ''
-                    ].map((value) => this.escapeCsvValue(value)).join(',')))
-                ];
-                this.downloadBlob(
-                    new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' }),
-                    `my-applications_${new Date().toISOString().split('T')[0]}.csv`
-                );
-            },
-            error: (error) => {
-                this.notificationService.showMessage(
-                    'Applications CSV could not be exported: ' + (error.error?.message || error.message),
-                    'danger'
-                );
-            }
-        });
+        const headers = ['Application Code', 'Title', 'Template', 'Status', 'Approval Level', 'Submitted Date'];
+        const csvRows = [
+            headers.join(','),
+            ...rows.map((application: MyTemplateApplication) => ([
+                application.txtFormCode || '',
+                application.applicationTitle || '',
+                application.templateName || '',
+                application.txtStatus || '',
+                String(this.getApplicationDisplayLevel(application)),
+                application.dteCreatedDate ? new Date(application.dteCreatedDate).toLocaleString() : ''
+            ].map((value) => this.escapeCsvValue(value)).join(',')))
+        ];
+        this.downloadBlob(
+            new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' }),
+            `my-applications_${new Date().toISOString().split('T')[0]}.csv`
+        );
     }
 
     get totalPages(): number {
@@ -716,7 +759,10 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         this.detailTemplateFormId = normalizedFormId;
         this.pendingDetailTemplate = null;
         this.detailTemplateInFlight = true;
-        this.templateWorkflowService.getTemplate(String(normalizedFormId), userId, { includeBackground: false }).subscribe({
+        this.templateWorkflowService.getTemplate(String(normalizedFormId), userId, {
+            includeBackground: false,
+            applicationId: this.activeDetailApplicationId
+        }).subscribe({
             next: (template) => {
                 if (requestId !== this.activeDetailRequestId || this.detailTemplateFormId !== normalizedFormId) {
                     return;
@@ -879,7 +925,11 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
         const requestId = ++this.backgroundLoadRequestId;
         this.backgroundHardcopyLoading = true;
         const userId = this.getCurrentUserId();
-        this.templateWorkflowService.getTemplateDefinitionBackground(formId, userId).subscribe({
+        this.templateWorkflowService.getTemplateDefinitionBackground(
+            formId,
+            userId,
+            application?.serApplicationId || this.selectedApplication?.serApplicationId
+        ).subscribe({
             next: (response: any) => {
                 if (requestId !== this.backgroundLoadRequestId || !this.selectedTemplate) {
                     return;
@@ -959,6 +1009,147 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
 
     getDisplayedApplications(): MyTemplateApplication[] {
         return this.applications;
+    }
+
+    get hasAnyApplications(): boolean {
+        return this.allApplications.length > 0;
+    }
+
+    private async fetchAllMyApplications(userId: number): Promise<any[]> {
+        const pageSize = 100;
+        const collected: any[] = [];
+        let page = 0;
+        let total = 0;
+        do {
+            const response = await firstValueFrom(
+                this.templateWorkflowService.getMyTemplateApplications(userId, page, pageSize, '')
+            );
+            const items = Array.isArray(response?.items) ? response.items : [];
+            total = Number(response?.total || 0);
+            collected.push(...items);
+            page += 1;
+            if (items.length === 0) {
+                break;
+            }
+        } while (collected.length < total);
+        return collected;
+    }
+
+    private refreshApplicationView(): void {
+        this.filteredApplications = this.getFilteredApplications();
+        this.totalApplications = this.filteredApplications.length;
+        const maxPage = Math.max(0, Math.ceil(this.totalApplications / this.pageSize) - 1);
+        if (this.page > maxPage) {
+            this.page = maxPage;
+        }
+        const start = this.page * this.pageSize;
+        this.applications = this.filteredApplications.slice(start, start + this.pageSize);
+        this.applicationMetrics = this.buildApplicationMetrics(this.filteredApplications);
+    }
+
+    private getFilteredApplications(): MyTemplateApplication[] {
+        const query = this.search.trim().toLowerCase();
+        return this.allApplications.filter((item) => {
+            if (this.filterStatus && (item.txtStatus || '') !== this.filterStatus) {
+                return false;
+            }
+            if (this.filterFormType && (item.templateName || '') !== this.filterFormType) {
+                return false;
+            }
+            const createdAt = new Date(item.dteCreatedDate || '').getTime();
+            if (this.filterStartDate) {
+                const startMs = new Date(`${this.filterStartDate}T00:00:00`).getTime();
+                if (Number.isFinite(startMs) && (!Number.isFinite(createdAt) || createdAt < startMs)) {
+                    return false;
+                }
+            }
+            if (this.filterEndDate) {
+                const endMs = new Date(`${this.filterEndDate}T23:59:59.999`).getTime();
+                if (Number.isFinite(endMs) && (!Number.isFinite(createdAt) || createdAt > endMs)) {
+                    return false;
+                }
+            }
+            if (!query) {
+                return true;
+            }
+            const haystack = [
+                item.txtFormCode,
+                item.applicationTitle,
+                item.templateName,
+                item.txtStatus
+            ].join(' ').toLowerCase();
+            return haystack.includes(query);
+        });
+    }
+
+    private buildApplicationMetrics(items: MyTemplateApplication[]): ApplicationListMetric[] {
+        const draft = items.filter((item) => this.isDraftStatus(item.txtStatus)).length;
+        const pending = items.filter((item) => this.isOpenWorkflowStatus(item.txtStatus)).length;
+        const completed = items.filter((item) => this.isCompletedStatus(item.txtStatus)).length;
+        const rejected = items.filter((item) => this.isRejectedStatus(item.txtStatus)).length;
+        return [
+            {
+                label: 'Total Applications',
+                value: items.length - draft,
+                tone: 'slate',
+                hint: 'Submitted applications in the current filters'
+            },
+            {
+                label: 'Draft Applications',
+                value: draft,
+                tone: 'sky',
+                hint: 'Saved as draft and not yet submitted'
+            },
+            {
+                label: 'Pending In Workflow',
+                value: pending,
+                tone: 'amber',
+                hint: 'Applications still moving through approval'
+            },
+            {
+                label: 'Completed',
+                value: completed,
+                tone: 'emerald',
+                hint: 'Applications that reached final approval'
+            },
+            {
+                label: 'Rejected',
+                value: rejected,
+                tone: 'rose',
+                hint: 'Applications stopped with rejection'
+            }
+        ];
+    }
+
+    private isOpenWorkflowStatus(status: string | undefined): boolean {
+        const normalizedStatus = String(status || '').trim().toUpperCase();
+        return normalizedStatus === 'PENDING'
+            || normalizedStatus === 'IN_PROGRESS'
+            || normalizedStatus === 'OPINION_PENDING'
+            || normalizedStatus === 'CEO_PENDING'
+            || normalizedStatus === 'ASSET_PENDING'
+            || normalizedStatus === 'PR_PENDING'
+            || normalizedStatus === 'PO_PENDING'
+            || normalizedStatus === 'PO_VENDOR_TE_PENDING';
+    }
+
+    private isCompletedStatus(status: string | undefined): boolean {
+        const normalizedStatus = String(status || '').trim().toUpperCase();
+        return normalizedStatus === 'APPROVED' || normalizedStatus === 'COMPLETED';
+    }
+
+    private isRejectedStatus(status: string | undefined): boolean {
+        return String(status || '').trim().toUpperCase() === 'REJECTED';
+    }
+
+    private isDraftStatus(status: string | undefined): boolean {
+        return String(status || '').trim().toUpperCase() === 'DRAFT';
+    }
+
+    private buildDistinctOptions(values: string[]): string[] {
+        return Array.from(new Set(
+            values.map((value) => String(value || '').trim()).filter((value) => !!value)
+        )).sort((left, right) => left.localeCompare(right));
     }
 
     get pageIndexes(): number[] {
@@ -1054,7 +1245,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
 
     getStatusClass(status?: string): string {
         const value = String(status || '').toUpperCase();
-        if (value === 'APPROVED') return 'status-approved';
+        if (value === 'APPROVED' || value === 'COMPLETED') return 'status-approved';
         if (value === 'REJECTED') return 'status-rejected';
         if (value === 'OPINION_PENDING') return 'status-opinion';
         if (value === 'HOLD') return 'status-pending';
@@ -1070,6 +1261,7 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
             case 'HOLD':
                 return 'badge-outline-warning';
             case 'APPROVED':
+            case 'COMPLETED':
                 return 'badge-outline-success';
             case 'REJECTED':
                 return 'badge-outline-danger';

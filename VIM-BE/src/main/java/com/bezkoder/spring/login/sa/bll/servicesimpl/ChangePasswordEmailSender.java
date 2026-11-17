@@ -42,7 +42,7 @@ public class ChangePasswordEmailSender {
 
         Map<String, String> placeholders = emailTemplateRenderService.buildChangePasswordPlaceholders(
                 displayName, loginName, payload.getPlainPassword(), payload.getRecipientEmail(),
-                payload.isAdminInitiated());
+                payload.isAdminInitiated(), payload.getPublicBaseUrl());
 
         Optional<RenderedEmailMessage> rendered =
                 emailTemplateRenderService.renderActiveTemplate(TEMPLATE_USER_CHANGE_PASSWORD, placeholders);

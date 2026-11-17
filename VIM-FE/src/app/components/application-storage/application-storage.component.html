@@ -1,0 +1,103 @@
+<div>
+    <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
+        <div class="mb-4.5 flex flex-col gap-3 px-5 md:flex-row md:items-center">
+            <div>
+                <h5 class="text-xl font-bold dark:text-white-light">Storage</h5>
+                <p class="m-0 text-sm text-gray-500">Disk space, uploaded files, and documents saved with each application.</p>
+            </div>
+            <div class="ltr:ml-auto rtl:mr-auto">
+                <button type="button" class="btn btn-outline-secondary" [disabled]="loading" (click)="loadStorage()">
+                    {{ loading ? 'Refreshing…' : 'Refresh' }}
+                </button>
+            </div>
+        </div>
+
+        <div *ngIf="loading" class="px-5 pb-5 text-sm text-gray-500">Loading storage…</div>
+
+        <ng-container *ngIf="!loading && info">
+            <div class="mb-5 grid grid-cols-1 gap-4 px-5 sm:grid-cols-2 xl:grid-cols-4">
+                <div class="rounded border border-[#e0e6ed] p-4 dark:border-[#1b2e4b]">
+                    <div class="text-sm text-gray-500">Application storage</div>
+                    <div class="mt-1 text-lg font-semibold dark:text-white-light">{{ formatBytes(info.applicationUsedBytes) }}</div>
+                    <div class="mt-1 text-xs text-gray-500">{{ info.applicationUsedLabel }}</div>
+                </div>
+                <div class="rounded border border-[#e0e6ed] p-4 dark:border-[#1b2e4b]">
+                    <div class="text-sm text-gray-500">Upload files</div>
+                    <div class="mt-1 text-lg font-semibold dark:text-white-light">{{ formatBytes(info.fileStorage?.usedBytes) }}</div>
+                    <div class="mt-1 text-xs text-gray-500">Files kept on the server</div>
+                </div>
+                <div class="rounded border border-[#e0e6ed] p-4 dark:border-[#1b2e4b]">
+                    <div class="text-sm text-gray-500">Database</div>
+                    <div class="mt-1 text-lg font-semibold dark:text-white-light">{{ formatBytes(info.databaseStorage?.databaseTotalBytes) }}</div>
+                    <div class="mt-1 text-xs text-gray-500">
+                        {{ info.databaseStorage?.schemaName || 'MySQL' }} · table {{ formatBytes(info.databaseStorage?.applicationTableBytes) }}
+                    </div>
+                </div>
+                <div class="rounded border border-[#e0e6ed] p-4 dark:border-[#1b2e4b]">
+                    <div class="text-sm text-gray-500">Saved applications</div>
+                    <div class="mt-1 text-lg font-semibold dark:text-white-light">{{ info.databaseStorage?.applicationCount || 0 }}</div>
+                    <div class="mt-1 text-xs text-gray-500">{{ info.databaseStorage?.applicationPdfCount || 0 }} include a PDF</div>
+                </div>
+            </div>
+
+            <div class="mb-5 grid grid-cols-1 gap-4 px-5 lg:grid-cols-2">
+                <div class="rounded border border-[#e0e6ed] p-4 dark:border-[#1b2e4b]">
+                    <div class="mb-3 flex items-center justify-between gap-3">
+                        <h6 class="m-0 text-base font-semibold dark:text-white-light">Server disk</h6>
+                        <span class="text-sm font-semibold">{{ usedPercent() | number:'1.0-0' }}%</span>
+                    </div>
+                    <div class="h-2 overflow-hidden rounded bg-[#ebedf2] dark:bg-[#1b2e4b]">
+                        <div class="h-full bg-primary" [style.width.%]="usedPercent()"></div>
+                    </div>
+                    <div class="mt-3 flex flex-wrap justify-between gap-2 text-xs text-gray-500">
+                        <span>{{ formatBytes(info.hostVolume?.usedBytes) }} used of {{ formatBytes(info.hostVolume?.totalBytes) }}</span>
+                        <span>{{ formatBytes(info.hostVolume?.usableBytes) }} free</span>
+                    </div>
+                    <p class="m-0 mt-2 break-all text-xs text-gray-500">{{ info.hostVolume?.mountPath }}</p>
+                </div>
+
+                <div class="rounded border border-[#e0e6ed] p-4 dark:border-[#1b2e4b]">
+                    <h6 class="m-0 text-base font-semibold dark:text-white-light">Documents in the database</h6>
+                    <div *ngIf="!contentLoading" class="mt-2 text-lg font-semibold dark:text-white-light">
+                        {{ formatBytes(info.databaseStorage?.applicationContentBytes) }}
+                    </div>
+                    <div *ngIf="contentLoading" class="mt-2 text-sm text-gray-500">Calculating document size…</div>
+                    <p class="m-0 mt-2 text-sm text-gray-500">
+                        PDF files, stage copies, form data, approval history, and remarks.
+                    </p>
+                    <p class="m-0 mt-3 text-sm text-gray-500">
+                        {{ info.databaseStorage?.applicationCount || 0 }} applications ·
+                        {{ info.databaseStorage?.applicationPdfCount || 0 }} PDFs
+                    </p>
+                </div>
+            </div>
+
+            <div class="px-5 pb-4">
+                <h6 class="m-0 text-base font-semibold dark:text-white-light">Upload folders</h6>
+                <p class="mb-3 mt-1 break-all text-xs text-gray-500">{{ info.fileStorage?.sourcePath }}</p>
+                <div class="table-responsive">
+                    <table class="table-hover">
+                        <thead>
+                            <tr>
+                                <th>Folder</th>
+                                <th>Path</th>
+                                <th class="text-right">Size</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr *ngFor="let item of uploadBreakdown">
+                                <td class="whitespace-nowrap">{{ item.label }}</td>
+                                <td class="break-all">{{ item.path || '—' }}</td>
+                                <td class="whitespace-nowrap text-right">{{ formatBytes(item.bytes) }}</td>
+                            </tr>
+                            <tr *ngIf="!uploadBreakdown.length">
+                                <td colspan="3" class="text-center text-gray-500">No upload folders found.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="m-0 mt-3 text-sm text-gray-500">Total upload size: {{ formatBytes(info.fileStorage?.usedBytes) }}</p>
+            </div>
+        </ng-container>
+    </div>
+</div>

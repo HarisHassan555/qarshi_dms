@@ -39,6 +39,20 @@ interface DashboardMetric {
     hint: string;
 }
 
+interface DashboardBreakdownRow {
+    label: string;
+    count: number;
+    share: number;
+    color: string;
+}
+
+interface DashboardAttentionItem {
+    application: DashboardApplicationItem;
+    badge: string;
+    tone: 'rejected' | 'aging';
+    detail: string;
+}
+
 interface DashboardActivityEntry {
     id: number;
     actionType: string;
@@ -78,7 +92,11 @@ export class FinanceComponent implements OnInit {
     isAdmin = false;
     isLoadingDashboard = false;
     dashboardMetrics: DashboardMetric[] = [];
+    formBreakdown: DashboardBreakdownRow[] = [];
+    submitterBreakdown: DashboardBreakdownRow[] = [];
+    attentionItems: DashboardAttentionItem[] = [];
     boardColumns: DashboardStageColumn[] = [];
+    boardSearch = '';
     recentApplications: DashboardApplicationItem[] = [];
     recentActivities: DashboardActivityEntry[] = [];
     scopeLabel = 'Your workflow';
@@ -117,6 +135,8 @@ export class FinanceComponent implements OnInit {
     private readonly userNameById = new Map<number, string>();
     private readonly userDepartmentById = new Map<number, string>();
     private allDashboardItems: DashboardApplicationItem[] = [];
+    private filteredDashboardItems: DashboardApplicationItem[] = [];
+    private readonly breakdownColors = ['#3b6fe8', '#7c5cff', '#38bdf8', '#2563eb', '#22c55e'];
 
     constructor(
         private activityLogService: ActivityLogService,
@@ -135,6 +155,14 @@ export class FinanceComponent implements OnInit {
 
     get hasBoardData(): boolean {
         return this.boardColumns.some((column) => column.items.length > 0);
+    }
+
+    get hasFilteredApplications(): boolean {
+        return this.filteredDashboardItems.length > 0;
+    }
+
+    onBoardSearchChange(): void {
+        this.boardColumns = this.buildBoardColumns(this.getBoardItems());
     }
 
     async refreshDashboard(): Promise<void> {
@@ -401,7 +429,11 @@ export class FinanceComponent implements OnInit {
         } catch (error) {
             console.error('Dashboard load failed', error);
             this.dashboardMetrics = [];
+            this.formBreakdown = [];
+            this.submitterBreakdown = [];
+            this.attentionItems = [];
             this.boardColumns = [];
+            this.filteredDashboardItems = [];
             this.recentApplications = [];
             this.recentActivities = [];
             this.statusDonutChart = null;
@@ -696,7 +728,11 @@ export class FinanceComponent implements OnInit {
             }
         ];
 
-        this.boardColumns = this.buildBoardColumns(filteredItems);
+        this.filteredDashboardItems = filteredItems;
+        this.formBreakdown = this.buildBreakdown(filteredItems, (item) => item.templateName || 'Untitled form');
+        this.submitterBreakdown = this.buildBreakdown(filteredItems, (item) => item.submittedByName || 'Unknown submitter');
+        this.attentionItems = this.buildAttentionItems(filteredItems);
+        this.boardColumns = this.buildBoardColumns(this.getBoardItems());
         this.recentApplications = [...filteredItems]
             .sort((left, right) => this.getCreatedAtMillis(right) - this.getCreatedAtMillis(left))
             .slice(0, 6);
@@ -1013,6 +1049,108 @@ export class FinanceComponent implements OnInit {
         const date = new Date(ms);
         date.setHours(0, 0, 0, 0);
         return date.getTime();
+    }
+
+    private getBoardItems(): DashboardApplicationItem[] {
+        const query = this.boardSearch.trim().toLowerCase();
+        if (!query) {
+            return this.filteredDashboardItems;
+        }
+        return this.filteredDashboardItems.filter((item) => {
+            const haystack = [
+                item.txtFormCode,
+                item.templateName,
+                item.submittedByName,
+                item.departmentName,
+                item.txtStatus,
+                item.stageLabel
+            ].join(' ').toLowerCase();
+            return haystack.includes(query);
+        });
+    }
+
+    private buildBreakdown(
+        items: DashboardApplicationItem[],
+        labelOf: (item: DashboardApplicationItem) => string
+    ): DashboardBreakdownRow[] {
+        const counts = new Map<string, number>();
+        items.forEach((item) => {
+            const label = String(labelOf(item) || '').trim() || 'Unknown';
+            counts.set(label, (counts.get(label) || 0) + 1);
+        });
+        const ranked = Array.from(counts.entries())
+            .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+            .slice(0, 5);
+        const maxCount = ranked.reduce((max, entry) => Math.max(max, entry[1]), 0);
+        return ranked.map(([label, count], index) => ({
+            label,
+            count,
+            share: maxCount > 0 ? Math.max(12, Math.round((count / maxCount) * 100)) : 0,
+            color: this.breakdownColors[index % this.breakdownColors.length]
+        }));
+    }
+
+    private buildAttentionItems(items: DashboardApplicationItem[]): DashboardAttentionItem[] {
+        const rejected = items
+            .filter((item) => this.isRejectedStatus(item.txtStatus))
+            .sort((left, right) => this.getCreatedAtMillis(right) - this.getCreatedAtMillis(left))
+            .slice(0, 3)
+            .map((item) => ({
+                application: item,
+                badge: 'REJECTED',
+                tone: 'rejected' as const,
+                detail: this.joinAttentionParts([
+                    item.txtFormCode || 'Application',
+                    item.templateName || '',
+                    item.departmentName || '',
+                    this.formatShortDate(item.dteCreatedDate)
+                ])
+            }));
+
+        const aging = items
+            .filter((item) => this.isOpenStatus(item.txtStatus) && this.getAgeInDays(item) >= 7)
+            .sort((left, right) => this.getAgeInDays(right) - this.getAgeInDays(left))
+            .slice(0, 3)
+            .map((item) => {
+                const status = String(item.txtStatus || '').trim().toUpperCase();
+                const since = this.formatShortDate(item.dteCreatedDate);
+                const phrase = status === 'IN_PROGRESS'
+                    ? `in progress since ${since}`
+                    : status === 'OPINION_PENDING'
+                        ? `opinion pending since ${since}`
+                        : `still pending since ${since}`;
+                return {
+                    application: item,
+                    badge: `${this.getAgeInDays(item)} d`,
+                    tone: 'aging' as const,
+                    detail: this.joinAttentionParts([item.txtFormCode || 'Application', phrase])
+                };
+            });
+
+        return [...rejected, ...aging];
+    }
+
+    private joinAttentionParts(parts: string[]): string {
+        return parts.map((part) => String(part || '').trim()).filter((part) => !!part).join(' · ');
+    }
+
+    private getAgeInDays(item: DashboardApplicationItem): number {
+        const createdAt = this.getCreatedAtMillis(item);
+        if (!createdAt) {
+            return 0;
+        }
+        return Math.max(0, Math.floor((Date.now() - createdAt) / 86400000));
+    }
+
+    private formatShortDate(value: string | undefined): string {
+        if (!value) {
+            return '';
+        }
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+            return '';
+        }
+        return parsed.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' });
     }
 
     private getFilteredDashboardItems(): DashboardApplicationItem[] {

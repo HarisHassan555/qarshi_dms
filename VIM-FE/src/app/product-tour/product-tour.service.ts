@@ -234,9 +234,6 @@ export class ProductTourService {
     window.dispatchEvent(
       new CustomEvent('velocity-tour-prepare', { detail: { action: 'roles-close-modals' } })
     );
-    window.dispatchEvent(
-      new CustomEvent('velocity-tour-prepare', { detail: { action: 'activitylogs-close-modal' } })
-    );
     [
       'dept-app-close-csv',
       'template-approved-close-csv',
@@ -331,9 +328,6 @@ export class ProductTourService {
     if (action === 'roles-open-edit-modal') {
       return 280;
     }
-    if (action === 'activitylogs-open-edit-modal') {
-      return 700;
-    }
     if (action === 'email-templates-open-template-modal') {
       return 520;
     }
@@ -357,10 +351,6 @@ export class ProductTourService {
         return !document.querySelector('[data-tour="roles-add-modal"]');
       case 'roles-open-edit-modal':
         return !document.querySelector('[data-tour="roles-edit-modal"]');
-      case 'activitylogs-close-modal':
-        return !!document.querySelector('[data-tour="activitylogs-edit-form"]');
-      case 'activitylogs-open-edit-modal':
-        return !document.querySelector('[data-tour="activitylogs-edit-form"]');
       case 'dept-app-close-csv':
         return !!document.querySelector('[data-tour="dept-app-csv-modal"]');
       case 'dept-app-open-csv':

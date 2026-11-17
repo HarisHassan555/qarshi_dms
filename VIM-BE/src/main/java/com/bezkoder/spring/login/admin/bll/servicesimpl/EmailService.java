@@ -1,5 +1,6 @@
 package com.bezkoder.spring.login.admin.bll.servicesimpl;
 
+import com.bezkoder.spring.login.admin.utility.PublicAppUrl;
 import com.bezkoder.spring.login.sa.bll.servicesimpl.EmailDeliveryLogService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.PropertySource;
@@ -33,6 +34,9 @@ public class EmailService {
 
     @Autowired(required = false)
     private EmailDeliveryLogService emailDeliveryLogService;
+
+    @Autowired
+    private PublicAppUrl publicAppUrl;
 
     public EmailService() {
         properties = new Properties();
@@ -678,6 +682,11 @@ public class EmailService {
      * Welcome email for new users (e.g. created from SAP HCM). Plain password is only in the email body.
      */
     public void sendWelcomeUserMail(String recipientEmail, String displayName, String loginName, String plainPassword) {
+        sendWelcomeUserMail(recipientEmail, displayName, loginName, plainPassword, null);
+    }
+
+    public void sendWelcomeUserMail(String recipientEmail, String displayName, String loginName, String plainPassword,
+            String publicBaseUrl) {
         String username = sanitizeCredential(properties.getProperty("mail.smtp.username"));
         String smtpPassword = sanitizeCredential(properties.getProperty("mail.smtp.password"));
         if (username == null || smtpPassword == null) {
@@ -689,11 +698,7 @@ public class EmailService {
             return;
         }
 
-        String appBaseUrl = loadAppProperty("app.base.url", "http://localhost:4200/velocity");
-        if (!appBaseUrl.endsWith("/")) {
-            appBaseUrl = appBaseUrl + "/";
-        }
-        String loginUrl = appBaseUrl + "auth/login";
+        String loginUrl = publicAppUrl.signInUrl(publicBaseUrl);
         String safeName = displayName != null && !displayName.trim().isEmpty() ? displayName.trim() : "User";
         String safeLogin = loginName != null ? loginName.trim() : "";
         String safePass = plainPassword != null ? plainPassword : "";

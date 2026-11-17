@@ -116,7 +116,7 @@ export class EmailDeliveryLogComponent implements OnInit {
         this.emailDeliveryLogService.getById(row.id).subscribe({
             next: (detail) => {
                 this.previewRow = detail;
-                const html = detail?.bodyHtml || detail?.bodyText || '';
+                const html = this.rewriteSignInLinks(detail?.bodyHtml || detail?.bodyText || '');
                 this.previewHtmlSafe = this.sanitizer.bypassSecurityTrustHtml(
                     html || '<p><em>No body stored for this message.</em></p>'
                 );
@@ -133,5 +133,50 @@ export class EmailDeliveryLogComponent implements OnInit {
         this.previewOpen = false;
         this.previewRow = null;
         this.previewHtmlSafe = null;
+    }
+
+    /** Older messages stored a localhost sign-in link. Show the address of this server instead. */
+    private rewriteSignInLinks(html: string): string {
+        const signInUrl = this.currentSignInUrl();
+        if (!html || !signInUrl) {
+            return html;
+        }
+        return html.replace(
+            /href\s*=\s*(["'])(https?:\/\/[^"']+)\1/gi,
+            (full, quote: string, rawUrl: string) => {
+                let parsed: URL;
+                try {
+                    parsed = new URL(rawUrl);
+                } catch {
+                    return full;
+                }
+                const path = parsed.pathname.replace(/\/+$/, '');
+                if (!/\/auth\/(?:login|signin)$/i.test(path)) {
+                    return full;
+                }
+                if (rawUrl.replace(/\/+$/, '') === signInUrl) {
+                    return full;
+                }
+                return `href=${quote}${signInUrl}${quote}`;
+            }
+        );
+    }
+
+    private currentSignInUrl(): string {
+        if (typeof window === 'undefined') {
+            return '';
+        }
+        const baseHref = document.querySelector('base')?.getAttribute('href') || '/velocity/';
+        let basePath = baseHref;
+        if (/^https?:\/\//i.test(baseHref)) {
+            try {
+                basePath = new URL(baseHref).pathname;
+            } catch {
+                basePath = '/velocity/';
+            }
+        }
+        const prefix = ('/' + basePath.replace(/^\/+|\/+$/g, '')).replace(/\/$/, '');
+        const path = prefix === '/' ? '' : prefix;
+        return `${window.location.origin}${path}/auth/signin`;
     }
 }

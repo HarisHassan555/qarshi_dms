@@ -1149,6 +1149,7 @@ public class TemplateDefinitionController {
     @RequestMapping(value = "/getTemplateDefinitionByFormId", method = RequestMethod.GET)
     public TemplateDefinition getTemplateDefinitionByFormId(@RequestParam Integer formId,
                                                             @RequestParam(required = false) Integer userId,
+                                                            @RequestParam(required = false) Integer applicationId,
                                                             @RequestParam(required = false, defaultValue = "true") Boolean includeBackground,
                                                             HttpServletResponse response) {
         try {
@@ -1162,7 +1163,8 @@ public class TemplateDefinitionController {
                 return null;
             }
             TemplateDefinition definition = matches.get(0);
-            if (canAccessTemplateDefinition(definition, userId)) {
+            if (canAccessTemplateDefinition(definition, userId)
+                    || canReadTemplateForViewedApplication(definition, userId, applicationId)) {
                 TemplateDefinition sanitized = sanitizeTemplateDefinitionResponse(definition, Boolean.TRUE.equals(includeBackground));
                 applyListingAccessMetadata(sanitized, definition, userId);
                 return sanitized;
@@ -1179,6 +1181,7 @@ public class TemplateDefinitionController {
     @RequestMapping(value = "/getTemplateDefinitionBackground", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> getTemplateDefinitionBackground(@RequestParam Integer formId,
                                                                @RequestParam(required = false) Integer userId,
+                                                               @RequestParam(required = false) Integer applicationId,
                                                                HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
         try {
@@ -1194,7 +1197,8 @@ public class TemplateDefinitionController {
                 return result;
             }
             TemplateDefinition definition = matches.get(0);
-            if (!canAccessTemplateDefinition(definition, userId)) {
+            if (!canAccessTemplateDefinition(definition, userId)
+                    && !canReadTemplateForViewedApplication(definition, userId, applicationId)) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 result.put("status", "Failure");
                 result.put("message", "Access denied");
@@ -2828,6 +2832,79 @@ public class TemplateDefinitionController {
             }
         }
         return visible;
+    }
+
+    /**
+     * A viewer who can already open a submitted application may read the template
+     * used to render it, even when they are not on the template's visibility list.
+     */
+    private boolean canReadTemplateForViewedApplication(TemplateDefinition definition,
+                                                        Integer userId,
+                                                        Integer applicationId) {
+        if (definition == null || definition.getSerFormId() == null
+                || userId == null || userId <= 0
+                || applicationId == null || applicationId <= 0) {
+            return false;
+        }
+        CfgTblCustomFormApplication application;
+        try {
+            application = entityManager.find(CfgTblCustomFormApplication.class, applicationId);
+        } catch (Exception ex) {
+            logger.warn("Unable to load application " + applicationId + " for template read: " + ex.getMessage());
+            return false;
+        }
+        if (application == null || Boolean.TRUE.equals(application.getBlIsDeleted())
+                || application.getSerFormId() == null
+                || !definition.getSerFormId().equals(application.getSerFormId())) {
+            return false;
+        }
+        if (userId.equals(application.getSerSubmittedBy()) || userId.equals(application.getSerCurrentApprover())) {
+            return true;
+        }
+        try {
+            if (pendingApproverIdsForCurrentStep(application).contains(userId)) {
+                return true;
+            }
+        } catch (Exception ex) {
+            logger.warn("Unable to resolve pending approvers for application " + applicationId + ": " + ex.getMessage());
+        }
+        String userNeedle = "\"userid\":" + userId;
+        String approvedNeedle = "\"approvedby\":" + userId;
+        String history = application.getTxtApprovalHistory() == null
+                ? ""
+                : application.getTxtApprovalHistory().toLowerCase(Locale.ROOT);
+        String prior = application.getTxtPriorApprovals() == null
+                ? ""
+                : application.getTxtPriorApprovals().toLowerCase(Locale.ROOT);
+        if (history.contains(userNeedle) || history.contains(approvedNeedle)
+                || prior.contains(userNeedle) || prior.contains(approvedNeedle)) {
+            return true;
+        }
+        return userCanAuditApplication(userId, applicationId);
+    }
+
+    private boolean userCanAuditApplication(int userId, int applicationId) {
+        if (!hasAllApplicationsAuditAccess(userId)) {
+            return false;
+        }
+        try {
+            List<AllApplicationPagePermission> pageScopes = loadAllApplicationPagePermissions(userId);
+            StringBuilder whereClause = new StringBuilder(
+                    "WHERE (a.blIsDeleted IS NULL OR a.blIsDeleted = false) " +
+                            "AND a.serApplicationId = :applicationId ");
+            appendAllApplicationScopeRestrictions(whereClause, userId, pageScopes);
+            javax.persistence.Query query = entityManager.createQuery(
+                    "SELECT COUNT(a.serApplicationId) FROM CfgTblCustomFormApplication a " +
+                            "LEFT JOIN CfgTblUser u ON u.serUserId = a.serSubmittedBy " +
+                            whereClause);
+            query.setParameter("applicationId", applicationId);
+            bindAllApplicationPagePermissionParams(query, pageScopes);
+            Long count = (Long) query.getSingleResult();
+            return count != null && count > 0;
+        } catch (Exception ex) {
+            logger.warn("Unable to verify all-applications access for application " + applicationId + ": " + ex.getMessage());
+            return false;
+        }
     }
 
     private boolean canAccessTemplateDefinition(TemplateDefinition definition, Integer userId) {

@@ -1,41 +1,21 @@
-import { Component, OnDestroy, OnInit, ViewChild } from '@angular/core';
-import { FormBuilder, FormGroup } from '@angular/forms';
+import { Component, OnInit, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { NotificationService } from 'src/app/NotificationService';
 import { ActivityLogService } from 'src/app/services/activity-log/activity-log.service';
 import { PermissionService } from 'src/app/services/shared-data/permission-service';
-import { UserService } from 'src/app/services/user/user.service';
 
 @Component({
   selector: 'app-activity-logs',
   templateUrl: './activity-logs.component.html',
   styleUrls: ['./activity-logs.component.css']
 })
-export class ActivityLogsComponent implements OnInit, OnDestroy {
+export class ActivityLogsComponent implements OnInit {
   @ViewChild('datatable') datatable: any;
-  @ViewChild('modal') modal: any;
 
   search = '';
   logs: any[] = [];
-  transactionForm!: FormGroup;
-  isSubmit = false;
-  canEditLogs = false;
-  loadingTransaction = false;
-  transactionEditable = false;
-  users: any[] = [];
-  selectedLog: any = null;
 
   private readonly subMenuName = 'Activity Logs';
-
-  historyActions = [
-    { value: 'APPROVED', label: 'Approved' },
-    { value: 'REJECTED', label: 'Rejected' },
-    { value: 'SENT_BACK', label: 'Sent Back' },
-    { value: 'SENT_BACK_TO_INITIATOR', label: 'Sent Back to Initiator' },
-    { value: 'PO_VENDOR_TE_APPROVED', label: 'PO Vendor TE Approved' },
-    { value: 'PO_VENDOR_TE_REJECTED', label: 'PO Vendor TE Rejected' },
-  ];
-  actionOptions: { value: string; label: string }[] = [];
 
   actionTypes = [
     { value: '', label: 'All Actions' },
@@ -71,15 +51,12 @@ export class ActivityLogsComponent implements OnInit, OnDestroy {
     { field: 'txtStatus', title: 'Status' },
     { field: 'serEntityId', title: 'Entity ID' },
     { field: 'txtMessage', title: 'Message' },
-    { field: 'actions', title: 'Actions', sort: false, headerClass: 'justify-center' },
   ];
 
   constructor(
-    private fb: FormBuilder,
     private activityLogService: ActivityLogService,
     private notificationService: NotificationService,
     private permissionService: PermissionService,
-    private userService: UserService,
     private router: Router
   ) { }
 
@@ -101,69 +78,7 @@ export class ActivityLogsComponent implements OnInit, OnDestroy {
         return;
       }
 
-      this.canEditLogs = this.permissionService.canEditSubMenu(this.subMenuName);
-      this.initForm();
       this.loadLogs();
-      this.loadUsers();
-    });
-
-    window.addEventListener('velocity-tour-prepare', this.onTourPrepare);
-  }
-
-  ngOnDestroy(): void {
-    window.removeEventListener('velocity-tour-prepare', this.onTourPrepare);
-  }
-
-  private onTourPrepare = (event: Event): void => {
-    const action = (event as CustomEvent<{ action?: string }>).detail?.action;
-    switch (action) {
-      case 'activitylogs-close-modal':
-        this.modal?.close();
-        break;
-      case 'activitylogs-open-edit-modal': {
-        if (document.querySelector('[data-tour="activitylogs-edit-form"]')) {
-          break;
-        }
-        const row = this.logs.find((log) => this.canEditRow(log));
-        if (row) {
-          this.edit(row);
-        }
-        break;
-      }
-      default:
-        break;
-    }
-  };
-
-  private initForm(): void {
-    this.transactionForm = this.fb.group({
-      serActivityLogId: [''],
-      applicationId: [''],
-      formCode: [''],
-      applicationStatus: [''],
-      historyIndex: [''],
-      historyAction: [''],
-      remarks: [''],
-      approvedBy: [''],
-      approverName: [''],
-      level: [''],
-      role: [''],
-      approvedIp: [''],
-      approvedVia: [''],
-      approvedDate: [''],
-      designation: [''],
-      departmentName: [''],
-    });
-  }
-
-  private loadUsers(): void {
-    this.userService.getUsers().subscribe({
-      next: (data: any) => {
-        this.users = Array.isArray(data) ? data : [];
-      },
-      error: () => {
-        this.users = [];
-      }
     });
   }
 
@@ -197,144 +112,6 @@ export class ActivityLogsComponent implements OnInit, OnDestroy {
     this.filterStartDate = '';
     this.filterEndDate = '';
     this.loadLogs();
-  }
-
-  canEditRow(row: any): boolean {
-    if (!this.canEditLogs || !row) {
-      return false;
-    }
-    const action = (row.txtActionType || '').toString().toUpperCase();
-    return action === 'APPROVE' || action === 'REJECT' || action === 'SEND_BACK';
-  }
-
-  edit(row: any): void {
-    if (!this.canEditRow(row)) {
-      this.notificationService.showMessage(
-        'Only approve, reject, and send back application transactions can be edited.',
-        'danger'
-      );
-      return;
-    }
-
-    this.isSubmit = false;
-    this.loadingTransaction = true;
-    this.transactionEditable = false;
-    this.selectedLog = row;
-    this.transactionForm.reset();
-    this.modal.open();
-
-    this.activityLogService.getTransaction(row.serActivityLogId).subscribe({
-      next: (tx) => {
-        this.loadingTransaction = false;
-        if (!tx?.editable) {
-          this.notificationService.showMessage(tx?.message || 'This transaction cannot be edited', 'danger');
-          this.modal.close();
-          return;
-        }
-
-        this.transactionEditable = true;
-        this.actionOptions = this.buildActionOptions(tx.historyAction);
-        this.transactionForm.patchValue({
-          serActivityLogId: tx.serActivityLogId,
-          applicationId: tx.applicationId,
-          formCode: tx.formCode,
-          applicationStatus: tx.applicationStatus,
-          historyIndex: tx.historyIndex,
-          historyAction: tx.historyAction || 'APPROVED',
-          remarks: tx.remarks || '',
-          approvedBy: tx.approvedBy ?? '',
-          approverName: tx.approverName || '',
-          level: tx.level ?? '',
-          role: tx.role || '',
-          approvedIp: tx.approvedIp || '',
-          approvedVia: tx.approvedVia || 'SYSTEM',
-          approvedDate: this.formatDateForInput(tx.approvedDate || tx.logCreatedDate),
-          designation: tx.designation || '',
-          departmentName: tx.departmentName || '',
-        });
-      },
-      error: () => {
-        this.loadingTransaction = false;
-        this.notificationService.showMessage('Failed to load application transaction', 'danger');
-        this.modal.close();
-      }
-    });
-  }
-
-  onApproverChange(): void {
-    const userId = Number(this.transactionForm.get('approvedBy')?.value || 0);
-    const user = this.users.find((u) => Number(u.serUserId) === userId);
-    if (user) {
-      this.transactionForm.patchValue({
-        approverName: user.txtUserName || '',
-        designation: user.txtDesignation || '',
-        departmentName: user.txtDepartmentName || '',
-      });
-    }
-  }
-
-  submit(): void {
-    if (!this.canEditLogs || !this.transactionEditable) {
-      return;
-    }
-
-    this.isSubmit = true;
-    const raw = this.transactionForm.getRawValue();
-    const payload: any = {
-      serActivityLogId: Number(raw.serActivityLogId),
-      historyAction: raw.historyAction,
-      remarks: raw.remarks,
-      approvedBy: raw.approvedBy !== '' ? Number(raw.approvedBy) : null,
-      level: raw.level !== '' ? Number(raw.level) : null,
-      role: raw.role,
-      approvedIp: raw.approvedIp,
-      approvedVia: raw.approvedVia,
-    };
-
-    if (raw.approvedDate) {
-      payload.approvedDate = raw.approvedDate.replace('T', ' ');
-    }
-
-    this.activityLogService.updateTransaction(payload).subscribe({
-      next: (res) => {
-        if (res?.status === 'Success') {
-          this.notificationService.showMessage(res.message || 'Application transaction updated', 'success');
-          this.modal.close();
-          this.loadLogs();
-        } else {
-          this.notificationService.showMessage(res?.message || 'Update failed', 'danger');
-        }
-      },
-      error: () => {
-        this.notificationService.showMessage('Error updating application transaction', 'danger');
-      }
-    });
-  }
-
-  formatDateForInput(value: any): string {
-    if (!value) return '';
-    const d = new Date(value);
-    if (isNaN(d.getTime())) {
-      const normalized = String(value).replace(' ', 'T');
-      const retry = new Date(normalized);
-      if (isNaN(retry.getTime())) return '';
-      return this.toLocalInput(retry);
-    }
-    return this.toLocalInput(d);
-  }
-
-  private toLocalInput(d: Date): string {
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  }
-
-  private buildActionOptions(currentAction?: string): { value: string; label: string }[] {
-    const options = [...this.historyActions];
-    const current = (currentAction || '').trim();
-    if (current && !options.some((opt) => opt.value === current)) {
-      options.unshift({ value: current, label: current });
-    }
-    return options;
   }
 
   truncate(value: string, max: number): string {

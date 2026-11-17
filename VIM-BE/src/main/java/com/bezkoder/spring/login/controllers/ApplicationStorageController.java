@@ -9,6 +9,7 @@ import org.apache.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.persistence.EntityManager;
@@ -34,7 +35,9 @@ public class ApplicationStorageController {
     private EntityManager entityManager;
 
     @GetMapping("/getApplicationStorageInfo")
-    public Map<String, Object> getApplicationStorageInfo(HttpServletResponse response) {
+    public Map<String, Object> getApplicationStorageInfo(
+            @RequestParam(value = "includeContent", defaultValue = "false") boolean includeContent,
+            HttpServletResponse response) {
         Map<String, Object> result = new HashMap<>();
         try {
             int userId = commonService.getCurrentLoggedInUser();
@@ -44,7 +47,7 @@ public class ApplicationStorageController {
                 result.put("message", "Only administrators can view storage information.");
                 return result;
             }
-            return applicationStorageInfoService.buildStorageInfo();
+            return applicationStorageInfoService.buildStorageInfo(includeContent);
         } catch (Exception ex) {
             logger.error("Failed to load application storage info: " + ex.getMessage(), ex);
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);

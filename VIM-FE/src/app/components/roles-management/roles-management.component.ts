@@ -1,4 +1,5 @@
 import { Component, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 import { RoleApplicationManagementComponent } from './role-application-management.component';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { forkJoin, of } from 'rxjs';
@@ -28,6 +29,7 @@ interface RoleAssignedUser {
     txtCnic?: string;
     txtEmail?: string;
     blnStatus?: boolean;
+    hasProfilePicture?: boolean;
 }
 
 type RolesManagementTab = 'roles' | 'applications';
@@ -67,13 +69,17 @@ export class RolesManagementComponent implements OnInit, OnDestroy {
     editingRole: RoleViewModel | null = null;
 
     private currentUser: any;
+    private profilePhotoBlobUrls: Record<number, string> = {};
+    private profilePhotoSafeUrls: Record<number, SafeUrl> = {};
+    private profilePhotoLoading = new Set<number>();
 
     constructor(
         private fb: FormBuilder,
         private userService: UserService,
         private menuService: MenuService,
         private notificationService: NotificationService,
-        private sharedDataService: SharedDataService
+        private sharedDataService: SharedDataService,
+        private sanitizer: DomSanitizer
     ) { }
 
     ngOnInit(): void {
@@ -93,6 +99,7 @@ export class RolesManagementComponent implements OnInit, OnDestroy {
 
     ngOnDestroy(): void {
         window.removeEventListener('velocity-tour-prepare', this.onTourPrepare);
+        Object.values(this.profilePhotoBlobUrls).forEach((url) => URL.revokeObjectURL(url));
     }
 
     private onTourPrepare = (event: Event): void => {
@@ -137,7 +144,6 @@ export class RolesManagementComponent implements OnInit, OnDestroy {
             .pipe(finalize(() => (this.loading = false)))
             .subscribe(({ roles, users, menuTree }: any) => {
                 this.initializeMenuTree(menuTree || []);
-                this.mergeActivityLogsSubMenu(menuTree || []);
                 this.mergeDelegationManagementSubMenu(menuTree || []);
                 this.roles = (roles || []).map((role: any) => {
                     const roleId = Number(role?.serRoleId);
@@ -148,7 +154,8 @@ export class RolesManagementComponent implements OnInit, OnDestroy {
                             txtUserName: (u?.txtUserName || u?.userName || '').toString().trim(),
                             txtCnic: (u?.txtCnic || '').toString().trim(),
                             txtEmail: (u?.txtEmail || u?.txtUserEmail || '').toString().trim(),
-                            blnStatus: u?.blnStatus === true
+                            blnStatus: u?.blnStatus === true,
+                            hasProfilePicture: !!(u?.txtProfilePicturePath || '').toString().trim()
                         }))
                         .filter((u: RoleAssignedUser) => u.serUserId > 0)
                         .sort((a: RoleAssignedUser, b: RoleAssignedUser) => a.txtUserName.localeCompare(b.txtUserName));
@@ -244,6 +251,7 @@ export class RolesManagementComponent implements OnInit, OnDestroy {
         }
         this.usersModalRole = role;
         this.showUsersModal = true;
+        (role.users || []).forEach((user) => this.prefetchProfilePhoto(user));
     }
 
     closeRoleUsersModal(): void {
@@ -253,6 +261,39 @@ export class RolesManagementComponent implements OnInit, OnDestroy {
 
     getRoleUsersModalList(): RoleAssignedUser[] {
         return this.usersModalRole?.users || [];
+    }
+
+    hasProfilePhoto(userId: number): boolean {
+        return !!this.profilePhotoSafeUrls[Number(userId)];
+    }
+
+    getProfilePhotoUrl(userId: number): SafeUrl | null {
+        return this.profilePhotoSafeUrls[Number(userId)] || null;
+    }
+
+    getAvatarLetter(name: string): string {
+        const trimmed = String(name || '')
+            .trim()
+            .replace(/^(mr|ms|mrs|dr)\.?\s+/i, '');
+        return trimmed ? trimmed.charAt(0).toUpperCase() : '?';
+    }
+
+    private prefetchProfilePhoto(user: RoleAssignedUser): void {
+        const id = Number(user?.serUserId);
+        if (!id || !user?.hasProfilePicture || this.profilePhotoSafeUrls[id] || this.profilePhotoLoading.has(id)) {
+            return;
+        }
+        this.profilePhotoLoading.add(id);
+        this.userService.loadProfilePictureObjectUrl(id).subscribe({
+            next: (objectUrl) => {
+                this.profilePhotoBlobUrls[id] = objectUrl;
+                this.profilePhotoSafeUrls[id] = this.sanitizer.bypassSecurityTrustUrl(objectUrl);
+                this.profilePhotoLoading.delete(id);
+            },
+            error: () => {
+                this.profilePhotoLoading.delete(id);
+            },
+        });
     }
 
     toggleMenu(menu: MenuNode): void {
@@ -615,55 +656,6 @@ export class RolesManagementComponent implements OnInit, OnDestroy {
                     .filter((sm: SubMenuNode) => sm.subMenuId > 0)
             }))
             .filter((menu: MenuNode) => !!menu.menuName && menu.menuId > 0 && menu.subMenus.length > 0);
-    }
-
-    private mergeActivityLogsSubMenu(apiMenus: any[]): void {
-        const userMgmt = this.menus.find(
-            (menu) => (menu.menuName || '').trim().toLowerCase() === 'user management'
-        );
-        if (!userMgmt) {
-            return;
-        }
-
-        const alreadyListed = userMgmt.subMenus.some(
-            (sm) => (sm.subMenuName || '').trim().toLowerCase() === 'activity logs'
-        );
-        if (alreadyListed) {
-            return;
-        }
-
-        let activityLogsRaw: any = null;
-        for (const menu of apiMenus || []) {
-            const subMenus = menu?.cfgTblSubMenus || menu?.subMenus || [];
-            for (const sm of subMenus) {
-                const name = (sm?.txtSubMenuName || sm?.subMenuName || '').toString().trim().toLowerCase();
-                const url = (sm?.txtSubMenuUrl || sm?.subMenuAction || '')
-                    .toString()
-                    .trim()
-                    .replace(/^\/+/, '')
-                    .toLowerCase();
-                if (name === 'activity logs' || url === 'activitylogs') {
-                    activityLogsRaw = sm;
-                    break;
-                }
-            }
-            if (activityLogsRaw) {
-                break;
-            }
-        }
-
-        const subMenuId = Number(activityLogsRaw?.serSubMenuId || activityLogsRaw?.subMenuId || 0);
-        if (subMenuId <= 0) {
-            return;
-        }
-
-        userMgmt.subMenus.push({
-            subMenuId,
-            subMenuName: activityLogsRaw?.txtSubMenuName || activityLogsRaw?.subMenuName || 'Activity Logs',
-            menuId: userMgmt.menuId,
-            selected: false
-        });
-        userMgmt.subMenus.sort((a, b) => a.subMenuName.localeCompare(b.subMenuName));
     }
 
     private mergeDelegationManagementSubMenu(apiMenus: any[]): void {

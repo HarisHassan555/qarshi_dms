@@ -1,6 +1,6 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
-import { finalize } from 'rxjs';
+import { firstValueFrom } from 'rxjs';
 import { NotificationService } from 'src/app/NotificationService';
 import { TemplateWorkflowService } from 'src/app/services/template-workflow/template-workflow.service';
 import { resolveApplicationTitle } from 'src/app/utils/application-title.util';
@@ -21,6 +21,13 @@ interface TemplateApprovedApplication {
 type ApprovedApplicationCsvColumnKey = 'txtFormCode' | 'applicationTitle' | 'templateName' | 'txtStatus' | 'myApprovalDate' | 'dteCreatedDate';
 interface ApprovedApplicationCsvColumn { key: ApprovedApplicationCsvColumnKey; label: string; }
 
+interface ApprovedApplicationMetric {
+    label: string;
+    value: number;
+    tone: 'slate' | 'amber' | 'emerald' | 'rose' | 'sky';
+    hint: string;
+}
+
 @Component({
     selector: 'app-template-approved-applications',
     templateUrl: './template-approved-applications.component.html',
@@ -28,6 +35,13 @@ interface ApprovedApplicationCsvColumn { key: ApprovedApplicationCsvColumnKey; l
 })
 export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy {
     search = '';
+    filterStartDate = '';
+    filterEndDate = '';
+    filterStatus = '';
+    filterFormType = '';
+    availableStatuses: string[] = [];
+    availableFormTypes: string[] = [];
+    applicationMetrics: ApprovedApplicationMetric[] = [];
     currentUser: any = null;
     isLoading = false;
     approvedApplications: TemplateApprovedApplication[] = [];
@@ -38,6 +52,9 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
     pageSize = 10;
     totalApprovedApplications = 0;
     private searchTimer: ReturnType<typeof setTimeout> | null = null;
+    private applicationLoadId = 0;
+    private allApprovedApplications: TemplateApprovedApplication[] = [];
+    private filteredApprovedApplications: TemplateApprovedApplication[] = [];
 
     cols = [
         { field: 'txtFormCode', title: 'Application Code' },
@@ -69,6 +86,7 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
         } catch {
             this.currentUser = null;
         }
+        this.applicationMetrics = this.buildApplicationMetrics([]);
         this.loadApprovedApplications();
         window.addEventListener('velocity-tour-prepare', this.onTourPrepare);
     }
@@ -91,28 +109,53 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
     };
 
     loadApprovedApplications(): void {
+        const userId = this.getCurrentUserId();
+        const requestId = ++this.applicationLoadId;
         this.isLoading = true;
-
-        this.templateWorkflowService.getTemplateApprovedApplications(
-            this.currentUser?.serUserId || this.currentUser?.userId || this.currentUser?.id || 0,
-            this.page,
-            this.pageSize,
-            this.search
-        ).pipe(finalize(() => this.isLoading = false)).subscribe({
-            next: (response: any) => {
-                this.approvedApplications = (Array.isArray(response?.items) ? response.items : [])
-                    .map((application: any) => this.toShallowApprovedApplication(application));
-                this.totalApprovedApplications = Number(response?.total || 0);
-            },
-            error: (error) => {
+        void this.fetchAllApprovedApplications(userId)
+            .then((items) => {
+                if (requestId !== this.applicationLoadId) {
+                    return;
+                }
+                this.allApprovedApplications = items.map((application: any) => this.toShallowApprovedApplication(application));
+                this.availableStatuses = this.buildDistinctOptions(this.allApprovedApplications.map((item) => item.txtStatus || ''));
+                this.availableFormTypes = this.buildDistinctOptions(this.allApprovedApplications.map((item) => item.templateName || ''));
+                this.refreshApplicationView();
+            })
+            .catch((error) => {
+                if (requestId !== this.applicationLoadId) {
+                    return;
+                }
+                this.allApprovedApplications = [];
+                this.filteredApprovedApplications = [];
                 this.approvedApplications = [];
                 this.totalApprovedApplications = 0;
+                this.applicationMetrics = this.buildApplicationMetrics([]);
                 this.notificationService.showMessage(
-                    'Error loading template approved applications: ' + (error.error?.message || error.message),
+                    'Error loading template approved applications: ' + (error?.error?.message || error?.message || 'Request failed'),
                     'danger'
                 );
-            }
-        });
+            })
+            .finally(() => {
+                if (requestId === this.applicationLoadId) {
+                    this.isLoading = false;
+                }
+            });
+    }
+
+    applyApplicationFilters(): void {
+        this.page = 0;
+        this.refreshApplicationView();
+    }
+
+    clearApplicationFilters(): void {
+        this.search = '';
+        this.filterStartDate = '';
+        this.filterEndDate = '';
+        this.filterStatus = '';
+        this.filterFormType = '';
+        this.page = 0;
+        this.refreshApplicationView();
     }
 
     onSearchChanged(): void {
@@ -121,8 +164,8 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
         }
         this.searchTimer = setTimeout(() => {
             this.page = 0;
-            this.loadApprovedApplications();
-        }, 300);
+            this.refreshApplicationView();
+        }, 200);
     }
 
     changePage(nextPage: number): void {
@@ -132,14 +175,33 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
             return;
         }
         this.page = target;
-        this.loadApprovedApplications();
+        this.refreshApplicationView();
     }
 
     changePageSize(size: string | number): void {
         const nextSize = Number(size);
         this.pageSize = Number.isFinite(nextSize) && nextSize > 0 ? nextSize : 10;
         this.page = 0;
-        this.loadApprovedApplications();
+        this.refreshApplicationView();
+    }
+
+    getMetricClasses(tone: ApprovedApplicationMetric['tone']): string {
+        switch (tone) {
+            case 'amber':
+                return 'border-amber-200 bg-amber-50 text-amber-900';
+            case 'emerald':
+                return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+            case 'rose':
+                return 'border-rose-200 bg-rose-50 text-rose-900';
+            case 'sky':
+                return 'border-sky-200 bg-sky-50 text-sky-900';
+            default:
+                return 'border-slate-200 bg-white text-slate-900';
+        }
+    }
+
+    get hasAnyApprovedApplications(): boolean {
+        return this.allApprovedApplications.length > 0;
     }
 
     openCsvModal(): void {
@@ -184,35 +246,22 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
             this.notificationService.showMessage('Select at least one column before downloading CSV.', 'warning');
             return;
         }
-        const userId = this.currentUser?.serUserId || this.currentUser?.userId || this.currentUser?.id || 0;
-        const exportSize = Math.max(this.totalApprovedApplications || 0, this.pageSize, 1000);
-        this.templateWorkflowService.getTemplateApprovedApplications(userId, 0, exportSize, this.search).subscribe({
-            next: (response: any) => {
-                const rows = (Array.isArray(response?.items) ? response.items : [])
-                    .map((application: any) => this.toShallowApprovedApplication(application));
-                if (!rows.length) {
-                    this.notificationService.showMessage('No approved applications available to export.', 'warning');
-                    return;
-                }
-                const csvRows = [
-                    this.selectedCsvColumns.map((column) => this.escapeCsvValue(column.label)).join(','),
-                    ...rows.map((application: TemplateApprovedApplication) => this.selectedCsvColumns
-                        .map((column) => this.escapeCsvValue(this.getCsvCellValue(application, column.key)))
-                        .join(','))
-                ];
-                this.downloadBlob(
-                    new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' }),
-                    `template-approved-applications_${new Date().toISOString().split('T')[0]}.csv`
-                );
-                this.showCsvModal = false;
-            },
-            error: (error) => {
-                this.notificationService.showMessage(
-                    'Approved applications CSV could not be exported: ' + (error.error?.message || error.message),
-                    'danger'
-                );
-            }
-        });
+        const rows = this.filteredApprovedApplications;
+        if (!rows.length) {
+            this.notificationService.showMessage('No approved applications available to export.', 'warning');
+            return;
+        }
+        const csvRows = [
+            this.selectedCsvColumns.map((column) => this.escapeCsvValue(column.label)).join(','),
+            ...rows.map((application: TemplateApprovedApplication) => this.selectedCsvColumns
+                .map((column) => this.escapeCsvValue(this.getCsvCellValue(application, column.key)))
+                .join(','))
+        ];
+        this.downloadBlob(
+            new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' }),
+            `template-approved-applications_${new Date().toISOString().split('T')[0]}.csv`
+        );
+        this.showCsvModal = false;
     }
 
     trackByCsvColumn(index: number, column: ApprovedApplicationCsvColumn): ApprovedApplicationCsvColumnKey {
@@ -238,7 +287,10 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
     getStatusBadgeClass(status: string | undefined): string {
         if (!status) return 'badge-outline-secondary';
         switch (status.toUpperCase()) {
+            case 'DRAFT':
+                return 'badge-outline-secondary';
             case 'PENDING':
+            case 'HOLD':
                 return 'badge-outline-warning';
             case 'APPROVED':
             case 'COMPLETED':
@@ -247,6 +299,11 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
                 return 'badge-outline-danger';
             case 'IN_PROGRESS':
             case 'OPINION_PENDING':
+            case 'CEO_PENDING':
+            case 'ASSET_PENDING':
+            case 'PR_PENDING':
+            case 'PO_PENDING':
+            case 'PO_VENDOR_TE_PENDING':
                 return 'badge-outline-info';
             default:
                 return 'badge-outline-secondary';
@@ -259,6 +316,147 @@ export class TemplateApprovedApplicationsComponent implements OnInit, OnDestroy 
             return;
         }
         this.router.navigate(['/template-approval', application.serApplicationId]);
+    }
+
+    private getCurrentUserId(): number {
+        return Number(this.currentUser?.serUserId || this.currentUser?.userId || this.currentUser?.id || 0);
+    }
+
+    private async fetchAllApprovedApplications(userId: number): Promise<any[]> {
+        const pageSize = 100;
+        const collected: any[] = [];
+        let page = 0;
+        let total = 0;
+        do {
+            const response = await firstValueFrom(
+                this.templateWorkflowService.getTemplateApprovedApplications(userId, page, pageSize, '')
+            );
+            const items = Array.isArray(response?.items) ? response.items : [];
+            total = Number(response?.total || 0);
+            collected.push(...items);
+            page += 1;
+            if (items.length === 0) {
+                break;
+            }
+        } while (collected.length < total);
+        return collected;
+    }
+
+    private refreshApplicationView(): void {
+        this.filteredApprovedApplications = this.getFilteredApplications();
+        this.totalApprovedApplications = this.filteredApprovedApplications.length;
+        const maxPage = Math.max(0, Math.ceil(this.totalApprovedApplications / this.pageSize) - 1);
+        if (this.page > maxPage) {
+            this.page = maxPage;
+        }
+        const start = this.page * this.pageSize;
+        this.approvedApplications = this.filteredApprovedApplications.slice(start, start + this.pageSize);
+        this.applicationMetrics = this.buildApplicationMetrics(this.filteredApprovedApplications);
+    }
+
+    private getFilteredApplications(): TemplateApprovedApplication[] {
+        const query = this.search.trim().toLowerCase();
+        return this.allApprovedApplications.filter((item) => {
+            if (this.filterStatus && (item.txtStatus || '') !== this.filterStatus) {
+                return false;
+            }
+            if (this.filterFormType && (item.templateName || '') !== this.filterFormType) {
+                return false;
+            }
+            const createdAt = new Date(item.dteCreatedDate || '').getTime();
+            if (this.filterStartDate) {
+                const startMs = new Date(`${this.filterStartDate}T00:00:00`).getTime();
+                if (Number.isFinite(startMs) && (!Number.isFinite(createdAt) || createdAt < startMs)) {
+                    return false;
+                }
+            }
+            if (this.filterEndDate) {
+                const endMs = new Date(`${this.filterEndDate}T23:59:59.999`).getTime();
+                if (Number.isFinite(endMs) && (!Number.isFinite(createdAt) || createdAt > endMs)) {
+                    return false;
+                }
+            }
+            if (!query) {
+                return true;
+            }
+            const haystack = [
+                item.txtFormCode,
+                item.applicationTitle,
+                item.templateName,
+                item.txtStatus
+            ].join(' ').toLowerCase();
+            return haystack.includes(query);
+        });
+    }
+
+    private buildApplicationMetrics(items: TemplateApprovedApplication[]): ApprovedApplicationMetric[] {
+        const draft = items.filter((item) => this.isDraftStatus(item.txtStatus)).length;
+        const pending = items.filter((item) => this.isOpenWorkflowStatus(item.txtStatus)).length;
+        const completed = items.filter((item) => this.isCompletedStatus(item.txtStatus)).length;
+        const rejected = items.filter((item) => this.isRejectedStatus(item.txtStatus)).length;
+        return [
+            {
+                label: 'Total Applications',
+                value: items.length - draft,
+                tone: 'slate',
+                hint: 'Submitted applications in the current filters'
+            },
+            {
+                label: 'Draft Applications',
+                value: draft,
+                tone: 'sky',
+                hint: 'Saved as draft and not yet submitted'
+            },
+            {
+                label: 'Pending In Workflow',
+                value: pending,
+                tone: 'amber',
+                hint: 'Applications still moving through approval'
+            },
+            {
+                label: 'Completed',
+                value: completed,
+                tone: 'emerald',
+                hint: 'Applications that reached final approval'
+            },
+            {
+                label: 'Rejected',
+                value: rejected,
+                tone: 'rose',
+                hint: 'Applications stopped with rejection'
+            }
+        ];
+    }
+
+    private isOpenWorkflowStatus(status: string | undefined): boolean {
+        const normalizedStatus = String(status || '').trim().toUpperCase();
+        return normalizedStatus === 'PENDING'
+            || normalizedStatus === 'IN_PROGRESS'
+            || normalizedStatus === 'OPINION_PENDING'
+            || normalizedStatus === 'CEO_PENDING'
+            || normalizedStatus === 'ASSET_PENDING'
+            || normalizedStatus === 'PR_PENDING'
+            || normalizedStatus === 'PO_PENDING'
+            || normalizedStatus === 'PO_VENDOR_TE_PENDING';
+    }
+
+    private isCompletedStatus(status: string | undefined): boolean {
+        const normalizedStatus = String(status || '').trim().toUpperCase();
+        return normalizedStatus === 'APPROVED' || normalizedStatus === 'COMPLETED';
+    }
+
+    private isRejectedStatus(status: string | undefined): boolean {
+        return String(status || '').trim().toUpperCase() === 'REJECTED';
+    }
+
+    private isDraftStatus(status: string | undefined): boolean {
+        return String(status || '').trim().toUpperCase() === 'DRAFT';
+    }
+
+    private buildDistinctOptions(values: string[]): string[] {
+        return Array.from(new Set(
+            values.map((value) => String(value || '').trim()).filter((value) => !!value)
+        )).sort((left, right) => left.localeCompare(right));
     }
 
     private toShallowApprovedApplication(application: any): TemplateApprovedApplication {

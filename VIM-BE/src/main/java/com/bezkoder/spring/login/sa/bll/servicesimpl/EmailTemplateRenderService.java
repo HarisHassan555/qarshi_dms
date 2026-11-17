@@ -1,5 +1,6 @@
 package com.bezkoder.spring.login.sa.bll.servicesimpl;
 
+import com.bezkoder.spring.login.admin.utility.PublicAppUrl;
 import com.bezkoder.spring.login.sa.bll.dto.RenderedEmailMessage;
 import com.bezkoder.spring.login.sa.bll.services.IEmailTemplateRenderService;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblEmailLayout;
@@ -9,8 +10,6 @@ import com.bezkoder.spring.login.sa.dal.entities.EmailTemplateRepository;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.core.io.support.PropertiesLoaderUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -19,7 +18,6 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -35,6 +33,9 @@ public class EmailTemplateRenderService implements IEmailTemplateRenderService {
 
     @Autowired
     private EmailLayoutRepository layoutRepository;
+
+    @Autowired
+    private PublicAppUrl publicAppUrl;
 
     @Override
     public Optional<RenderedEmailMessage> renderActiveTemplate(String templateCode, Map<String, String> placeholders) {
@@ -112,6 +113,11 @@ public class EmailTemplateRenderService implements IEmailTemplateRenderService {
 
     public Map<String, String> buildUserCredentialPlaceholders(
             String displayName, String loginName, String plainPassword, String recipientEmail) {
+        return buildUserCredentialPlaceholders(displayName, loginName, plainPassword, recipientEmail, null);
+    }
+
+    public Map<String, String> buildUserCredentialPlaceholders(
+            String displayName, String loginName, String plainPassword, String recipientEmail, String publicBaseUrl) {
         Map<String, String> map = new HashMap<>();
         String safeLogin = StringUtils.hasText(loginName) ? loginName.trim() : recipientEmail;
         String safeName = StringUtils.hasText(displayName) ? displayName.trim() : safeLogin;
@@ -120,7 +126,7 @@ public class EmailTemplateRenderService implements IEmailTemplateRenderService {
         map.put("userName", safeLogin);
         map.put("plainPassword", plainPassword != null ? plainPassword : "");
         map.put("recipientEmail", recipientEmail != null ? recipientEmail.trim() : "");
-        map.put("loginUrl", resolveLoginUrl());
+        map.put("loginUrl", publicAppUrl.signInUrl(publicBaseUrl));
         map.put("applicationName", "Qarshi DMS");
         return map;
     }
@@ -131,8 +137,19 @@ public class EmailTemplateRenderService implements IEmailTemplateRenderService {
             String plainPassword,
             String recipientEmail,
             boolean adminInitiated) {
+        return buildChangePasswordPlaceholders(
+                displayName, loginName, plainPassword, recipientEmail, adminInitiated, null);
+    }
+
+    public Map<String, String> buildChangePasswordPlaceholders(
+            String displayName,
+            String loginName,
+            String plainPassword,
+            String recipientEmail,
+            boolean adminInitiated,
+            String publicBaseUrl) {
         Map<String, String> map = buildUserCredentialPlaceholders(
-                displayName, loginName, plainPassword, recipientEmail);
+                displayName, loginName, plainPassword, recipientEmail, publicBaseUrl);
         if (adminInitiated) {
             map.put("changeMessage",
                     "An administrator has reset your " + map.get("applicationName")
@@ -143,27 +160,6 @@ public class EmailTemplateRenderService implements IEmailTemplateRenderService {
                             + "If you made this change, you can sign in with your new password below.");
         }
         return map;
-    }
-
-    private String resolveLoginUrl() {
-        String base = loadAppProperty("app.base.url", "http://localhost:4200/velocity");
-        if (!base.endsWith("/")) {
-            base = base + "/";
-        }
-        return base + "auth/login";
-    }
-
-    private String loadAppProperty(String key, String defaultValue) {
-        try {
-            Properties props = PropertiesLoaderUtils.loadProperties(new ClassPathResource("application.properties"));
-            String value = props.getProperty(key);
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        } catch (Exception ex) {
-            logger.warn("Could not load property " + key + ": " + ex.getMessage());
-        }
-        return defaultValue;
     }
 
     private String mergeLayoutBody(String wrapper, String body) {

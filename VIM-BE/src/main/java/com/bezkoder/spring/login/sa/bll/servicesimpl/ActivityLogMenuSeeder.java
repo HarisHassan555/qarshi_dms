@@ -17,7 +17,7 @@ import javax.persistence.NoResultException;
 import java.util.List;
 
 /**
- * Ensures Activity Logs submenu exists under User Management for /roles and routing.
+ * Keeps the Activity Logs submenu under the Logs menu.
  */
 @Component
 public class ActivityLogMenuSeeder {
@@ -25,7 +25,7 @@ public class ActivityLogMenuSeeder {
     private static final Logger log = LoggerFactory.getLogger(ActivityLogMenuSeeder.class);
     private static final String SUBMENU_NAME = "Activity Logs";
     private static final String SUBMENU_URL = "activitylogs";
-    private static final String PARENT_MENU_NAME = "User Management";
+    private static final String PARENT_MENU_NAME = "Logs";
 
     @Autowired
     private EntityManagerFactory entityManagerFactory;
@@ -39,21 +39,21 @@ public class ActivityLogMenuSeeder {
         try {
             em.getTransaction().begin();
 
-            CfgTblMenu userManagementMenu = findUserManagementMenu(em);
-            if (userManagementMenu == null) {
+            CfgTblMenu logsMenu = findLogsMenu(em);
+            if (logsMenu == null) {
                 log.warn("ActivityLogMenuSeeder: '{}' menu not found; skipping Activity Logs submenu seed.",
                         PARENT_MENU_NAME);
                 em.getTransaction().rollback();
                 return;
             }
 
-            CfgTblSubMenu activityLogsSubMenu = findActivityLogsSubMenu(em, userManagementMenu.getSerMenuId());
+            CfgTblSubMenu activityLogsSubMenu = findActivityLogsSubMenu(em, logsMenu.getSerMenuId());
             if (activityLogsSubMenu == null) {
-                activityLogsSubMenu = createActivityLogsSubMenu(em, userManagementMenu);
+                activityLogsSubMenu = createActivityLogsSubMenu(em, logsMenu);
                 log.info("ActivityLogMenuSeeder: created '{}' submenu (id={}).", SUBMENU_NAME,
                         activityLogsSubMenu.getSerSubMenuId());
             } else {
-                normalizeActivityLogsSubMenu(activityLogsSubMenu, userManagementMenu);
+                normalizeActivityLogsSubMenu(activityLogsSubMenu, logsMenu);
                 em.merge(activityLogsSubMenu);
                 log.info("ActivityLogMenuSeeder: normalized '{}' submenu (id={}).", SUBMENU_NAME,
                         activityLogsSubMenu.getSerSubMenuId());
@@ -73,7 +73,7 @@ public class ActivityLogMenuSeeder {
         }
     }
 
-    private CfgTblMenu findUserManagementMenu(EntityManager em) {
+    private CfgTblMenu findLogsMenu(EntityManager em) {
         try {
             return em.createQuery(
                     "FROM CfgTblMenu m WHERE LOWER(m.txtMenuName) = LOWER(:name) " +
@@ -144,6 +144,7 @@ public class ActivityLogMenuSeeder {
         subMenu.setCfgTblMenu(parentMenu);
         subMenu.setTxtSubMenuName(SUBMENU_NAME);
         subMenu.setTxtSubMenuUrl(SUBMENU_URL);
+        subMenu.setIntSubMenuOrder(1);
         subMenu.setBlIsActive(true);
         subMenu.setBlnStatus(true);
         subMenu.setBlIsDeleted(false);

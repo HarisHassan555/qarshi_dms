@@ -1,3 +1,57 @@
+<div class="panel mb-6" data-tour="tpl-approved-filters">
+    <div>
+        <h2 class="text-lg font-semibold text-slate-900">Filters</h2>
+        <p class="mt-1 text-sm text-slate-500">
+            Narrow approved applications by submitted date, status, and form type. The counts below follow these filters.
+        </p>
+    </div>
+    <div class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div>
+            <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">From Date</label>
+            <input [(ngModel)]="filterStartDate" type="date" class="form-input" />
+        </div>
+        <div>
+            <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">To Date</label>
+            <input [(ngModel)]="filterEndDate" type="date" class="form-input" />
+        </div>
+        <div>
+            <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Status</label>
+            <select [(ngModel)]="filterStatus" class="form-select">
+                <option value="">All Statuses</option>
+                <option *ngFor="let status of availableStatuses" [value]="status">{{ status }}</option>
+            </select>
+        </div>
+        <div>
+            <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Form Type</label>
+            <select [(ngModel)]="filterFormType" class="form-select">
+                <option value="">All Form Types</option>
+                <option *ngFor="let formType of availableFormTypes" [value]="formType">{{ formType }}</option>
+            </select>
+        </div>
+    </div>
+    <div class="mt-4 flex flex-wrap gap-3">
+        <button type="button" class="btn btn-primary" (click)="applyApplicationFilters()">Apply Filters</button>
+        <button type="button" class="btn btn-outline-secondary" (click)="clearApplicationFilters()">Clear</button>
+    </div>
+</div>
+
+<div class="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" data-tour="tpl-approved-metrics">
+    <div
+        *ngFor="let metric of applicationMetrics"
+        class="panel border !py-2.5"
+        [ngClass]="getMetricClasses(metric.tone)">
+        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+            {{ metric.label }}
+        </p>
+        <h2 class="mt-1 text-2xl font-bold">
+            {{ metric.value }}
+        </h2>
+        <p class="mt-2 text-xs text-slate-600">
+            {{ metric.hint }}
+        </p>
+    </div>
+</div>
+
 <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
     <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
         <div class="flex items-center gap-2" data-tour="tpl-approved-header">
@@ -85,7 +139,9 @@
     </div>
 
     <div *ngIf="!isLoading && getDisplayedApprovedApplications().length === 0" class="px-5 py-8 text-center">
-        <p class="text-gray-600 dark:text-gray-400">No approved template applications found.</p>
+        <p class="text-gray-600 dark:text-gray-400">
+            {{ hasAnyApprovedApplications ? 'No applications match the current filters.' : 'No approved template applications found.' }}
+        </p>
     </div>
 </div>
 

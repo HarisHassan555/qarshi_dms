@@ -11,6 +11,8 @@ public class UserCredentialEmailJobPayload {
     private String loginName;
     private String plainPassword;
     private boolean welcomeEmail;
+    /** Browser origin captured when the email was queued, for example http://192.0.0.203:8080/velocity. */
+    private String publicBaseUrl;
 
     public Integer getSerUserId() {
         return serUserId;
@@ -58,5 +60,13 @@ public class UserCredentialEmailJobPayload {
 
     public void setWelcomeEmail(boolean welcomeEmail) {
         this.welcomeEmail = welcomeEmail;
+    }
+
+    public String getPublicBaseUrl() {
+        return publicBaseUrl;
+    }
+
+    public void setPublicBaseUrl(String publicBaseUrl) {
+        this.publicBaseUrl = publicBaseUrl;
     }
 }

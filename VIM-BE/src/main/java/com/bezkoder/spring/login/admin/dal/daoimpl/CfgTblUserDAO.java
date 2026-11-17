@@ -20,6 +20,7 @@ import com.bezkoder.spring.login.sa.bll.servicesimpl.UserCredentialEmailSender;
 import com.bezkoder.spring.login.admin.dal.dao.ICfgTblRoleDAO;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblRole;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomer;
+import com.bezkoder.spring.login.admin.utility.PublicAppUrl;
 import com.bezkoder.spring.login.admin.utility.common.UserProfilePictureStorageUtil;
 import com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment;
 import com.bezkoder.spring.login.sa.dal.entities.HrTblDivision;
@@ -72,6 +73,9 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 
 	@Autowired
 	private ChangePasswordEmailSender changePasswordEmailSender;
+
+	@Autowired
+	private PublicAppUrl publicAppUrl;
 
 
 	@Autowired
@@ -286,6 +290,7 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 				payload.setLoginName(loginName);
 				payload.setPlainPassword(plainPassword);
 				payload.setAdminInitiated(adminInitiated);
+				payload.setPublicBaseUrl(publicAppUrl.currentRequestBase());
 				int createdBy = commonService != null ? commonService.getCurrentLoggedInUser() : 0;
 				Integer actorId = createdBy > 0 ? createdBy : null;
 				backgroundJobService.enqueueChangePasswordEmail(payload, actorId);
@@ -303,6 +308,7 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			payload.setLoginName(loginName);
 			payload.setPlainPassword(plainPassword);
 			payload.setAdminInitiated(adminInitiated);
+			payload.setPublicBaseUrl(publicAppUrl.currentRequestBase());
 			changePasswordEmailSender.sendChangePasswordEmail(payload);
 		} catch (Exception mailEx) {
 			log.error("Password updated but change-password email could not be sent: {}", mailEx.getMessage(), mailEx);
@@ -323,6 +329,7 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 				payload.setLoginName(loginName);
 				payload.setPlainPassword(plainPassword);
 				payload.setWelcomeEmail(welcomeEmail);
+				payload.setPublicBaseUrl(publicAppUrl.currentRequestBase());
 				int createdBy = commonService != null ? commonService.getCurrentLoggedInUser() : 0;
 				Integer actorId = createdBy > 0 ? createdBy : null;
 				if (onCreate) {
@@ -345,6 +352,7 @@ public class CfgTblUserDAO implements ICfgTblUserDAO {
 			payload.setLoginName(loginName);
 			payload.setPlainPassword(plainPassword);
 			payload.setWelcomeEmail(welcomeEmail);
+			payload.setPublicBaseUrl(publicAppUrl.currentRequestBase());
 			userCredentialEmailSender.sendCredentialEmail(payload);
 		} catch (Exception mailEx) {
 			log.error("User saved but credential email could not be sent: {}", mailEx.getMessage(), mailEx);

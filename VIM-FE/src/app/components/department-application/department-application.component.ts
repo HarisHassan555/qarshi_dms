@@ -28,6 +28,13 @@ interface DepartmentApplicationCsvColumn {
   label: string;
 }
 
+interface DepartmentApplicationMetric {
+  label: string;
+  value: number;
+  tone: 'slate' | 'amber' | 'emerald' | 'rose' | 'sky';
+  hint: string;
+}
+
 @Component({
   selector: 'app-department-application',
   templateUrl: './department-application.component.html',
@@ -35,6 +42,13 @@ interface DepartmentApplicationCsvColumn {
 })
 export class DepartmentApplicationComponent implements OnInit, OnDestroy {
   search = '';
+  filterStartDate = '';
+  filterEndDate = '';
+  filterStatus = '';
+  filterFormType = '';
+  availableStatuses: string[] = [];
+  availableFormTypes: string[] = [];
+  applicationMetrics: DepartmentApplicationMetric[] = [];
   applications: DepartmentApplication[] = [];
   displayedApplications: DepartmentApplication[] = [];
   currentUser: any;
@@ -75,6 +89,7 @@ export class DepartmentApplicationComponent implements OnInit, OnDestroy {
     if (userJson) {
       this.currentUser = JSON.parse(userJson);
     }
+    this.applicationMetrics = this.buildApplicationMetrics([]);
     this.loadDepartmentApplications();
     window.addEventListener('velocity-tour-prepare', this.onTourPrepare);
   }
@@ -114,11 +129,14 @@ export class DepartmentApplicationComponent implements OnInit, OnDestroy {
           } else {
             this.applications = [];
           }
+          this.availableStatuses = this.buildDistinctOptions(this.applications.map((item) => item.txtStatus || ''));
+          this.availableFormTypes = this.buildDistinctOptions(this.applications.map((item) => item.formName || ''));
           this.applySearchFilter();
         },
         (error) => {
           this.applications = [];
           this.displayedApplications = [];
+          this.applicationMetrics = this.buildApplicationMetrics([]);
           this.notificationService.showMessage(
             'Error loading department applications: ' + (error.error?.message || error.message),
             'danger'
@@ -134,21 +152,70 @@ export class DepartmentApplicationComponent implements OnInit, OnDestroy {
     return app.serFormId ? 'Unknown Form' : 'N/A';
   }
 
-  applySearchFilter(): void {
-    if (!this.search) {
-      this.displayedApplications = [...this.applications];
-      return;
+  applyApplicationFilters(): void {
+    this.applySearchFilter();
+  }
+
+  clearApplicationFilters(): void {
+    this.search = '';
+    this.filterStartDate = '';
+    this.filterEndDate = '';
+    this.filterStatus = '';
+    this.filterFormType = '';
+    this.applySearchFilter();
+  }
+
+  getMetricClasses(tone: DepartmentApplicationMetric['tone']): string {
+    switch (tone) {
+      case 'amber':
+        return 'border-amber-200 bg-amber-50 text-amber-900';
+      case 'emerald':
+        return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+      case 'rose':
+        return 'border-rose-200 bg-rose-50 text-rose-900';
+      case 'sky':
+        return 'border-sky-200 bg-sky-50 text-sky-900';
+      default:
+        return 'border-slate-200 bg-white text-slate-900';
     }
-    const searchLower = this.search.toLowerCase();
-    this.displayedApplications = this.applications.filter((app) =>
-      (app.txtFormCode && app.txtFormCode.toLowerCase().includes(searchLower)) ||
-      (app.applicationTitle && app.applicationTitle.toLowerCase().includes(searchLower)) ||
-      (app.formName && app.formName.toLowerCase().includes(searchLower)) ||
-      (app.submittedByUserName && app.submittedByUserName.toLowerCase().includes(searchLower)) ||
-      (app.submittedDepartmentName && app.submittedDepartmentName.toLowerCase().includes(searchLower)) ||
-      (app.txtStatus && app.txtStatus.toLowerCase().includes(searchLower)) ||
-      (app.dteCreatedDate && new Date(app.dteCreatedDate).toLocaleString().toLowerCase().includes(searchLower))
-    );
+  }
+
+  applySearchFilter(): void {
+    const searchLower = this.search.trim().toLowerCase();
+    this.displayedApplications = this.applications.filter((app) => {
+      if (this.filterStatus && (app.txtStatus || '') !== this.filterStatus) {
+        return false;
+      }
+      if (this.filterFormType && (app.formName || '') !== this.filterFormType) {
+        return false;
+      }
+      const createdAt = new Date(app.dteCreatedDate || '').getTime();
+      if (this.filterStartDate) {
+        const startMs = new Date(`${this.filterStartDate}T00:00:00`).getTime();
+        if (Number.isFinite(startMs) && (!Number.isFinite(createdAt) || createdAt < startMs)) {
+          return false;
+        }
+      }
+      if (this.filterEndDate) {
+        const endMs = new Date(`${this.filterEndDate}T23:59:59.999`).getTime();
+        if (Number.isFinite(endMs) && (!Number.isFinite(createdAt) || createdAt > endMs)) {
+          return false;
+        }
+      }
+      if (!searchLower) {
+        return true;
+      }
+      return (
+        (app.txtFormCode && app.txtFormCode.toLowerCase().includes(searchLower)) ||
+        (app.applicationTitle && app.applicationTitle.toLowerCase().includes(searchLower)) ||
+        (app.formName && app.formName.toLowerCase().includes(searchLower)) ||
+        (app.submittedByUserName && app.submittedByUserName.toLowerCase().includes(searchLower)) ||
+        (app.submittedDepartmentName && app.submittedDepartmentName.toLowerCase().includes(searchLower)) ||
+        (app.txtStatus && app.txtStatus.toLowerCase().includes(searchLower)) ||
+        (app.dteCreatedDate && new Date(app.dteCreatedDate).toLocaleString().toLowerCase().includes(searchLower))
+      );
+    });
+    this.applicationMetrics = this.buildApplicationMetrics(this.displayedApplications);
   }
 
   openCsvModal(): void {
@@ -213,13 +280,18 @@ export class DepartmentApplicationComponent implements OnInit, OnDestroy {
   getStatusBadgeClass(status: string | undefined): string {
     if (!status) return 'badge-outline-secondary';
     switch (status.toUpperCase()) {
+      case 'DRAFT':
+        return 'badge-outline-secondary';
       case 'PENDING':
+      case 'HOLD':
         return 'badge-outline-warning';
       case 'APPROVED':
+      case 'COMPLETED':
         return 'badge-outline-success';
       case 'REJECTED':
         return 'badge-outline-danger';
       case 'IN_PROGRESS':
+      case 'OPINION_PENDING':
       case 'CEO_PENDING':
       case 'ASSET_PENDING':
       case 'PR_PENDING':
@@ -229,6 +301,76 @@ export class DepartmentApplicationComponent implements OnInit, OnDestroy {
       default:
         return 'badge-outline-secondary';
     }
+  }
+
+  private buildApplicationMetrics(items: DepartmentApplication[]): DepartmentApplicationMetric[] {
+    const draft = items.filter((item) => this.isDraftStatus(item.txtStatus)).length;
+    const pending = items.filter((item) => this.isOpenWorkflowStatus(item.txtStatus)).length;
+    const completed = items.filter((item) => this.isCompletedStatus(item.txtStatus)).length;
+    const rejected = items.filter((item) => this.isRejectedStatus(item.txtStatus)).length;
+    return [
+      {
+        label: 'Total Applications',
+        value: items.length - draft,
+        tone: 'slate',
+        hint: 'Submitted applications in the current filters'
+      },
+      {
+        label: 'Draft Applications',
+        value: draft,
+        tone: 'sky',
+        hint: 'Saved as draft and not yet submitted'
+      },
+      {
+        label: 'Pending In Workflow',
+        value: pending,
+        tone: 'amber',
+        hint: 'Applications still moving through approval'
+      },
+      {
+        label: 'Completed',
+        value: completed,
+        tone: 'emerald',
+        hint: 'Applications that reached final approval'
+      },
+      {
+        label: 'Rejected',
+        value: rejected,
+        tone: 'rose',
+        hint: 'Applications stopped with rejection'
+      }
+    ];
+  }
+
+  private isOpenWorkflowStatus(status: string | undefined): boolean {
+    const normalizedStatus = String(status || '').trim().toUpperCase();
+    return normalizedStatus === 'PENDING'
+      || normalizedStatus === 'IN_PROGRESS'
+      || normalizedStatus === 'OPINION_PENDING'
+      || normalizedStatus === 'CEO_PENDING'
+      || normalizedStatus === 'ASSET_PENDING'
+      || normalizedStatus === 'PR_PENDING'
+      || normalizedStatus === 'PO_PENDING'
+      || normalizedStatus === 'PO_VENDOR_TE_PENDING';
+  }
+
+  private isCompletedStatus(status: string | undefined): boolean {
+    const normalizedStatus = String(status || '').trim().toUpperCase();
+    return normalizedStatus === 'APPROVED' || normalizedStatus === 'COMPLETED';
+  }
+
+  private isRejectedStatus(status: string | undefined): boolean {
+    return String(status || '').trim().toUpperCase() === 'REJECTED';
+  }
+
+  private isDraftStatus(status: string | undefined): boolean {
+    return String(status || '').trim().toUpperCase() === 'DRAFT';
+  }
+
+  private buildDistinctOptions(values: string[]): string[] {
+    return Array.from(new Set(
+      values.map((value) => String(value || '').trim()).filter((value) => !!value)
+    )).sort((left, right) => left.localeCompare(right));
   }
 
   isOpeningApplication(application: DepartmentApplication): boolean {

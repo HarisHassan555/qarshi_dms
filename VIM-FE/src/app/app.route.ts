@@ -104,6 +104,7 @@ import { TemplateApprovedApplicationsComponent } from './components/template-app
 import { MyApplicationComponent } from './components/my-application/my-application.component';
 import { UniverFormBuilderComponent } from './components/univer-form-builder/univer-form-builder.component';
 import { ReportsComponent } from './components/reports/reports.component';
+import { ApplicationStorageComponent } from './components/application-storage/application-storage.component';
 import { DocumentShareViewComponent } from './components/document-share-view/document-share-view.component';
 
 
@@ -243,6 +244,7 @@ export const routes: Routes = [
                 title: 'Email Delivery Log',
             },
             { path: 'reports', canActivate: [canActivate], component: ReportsComponent, title: 'Reports' },
+            { path: 'application-storage', canActivate: [canActivate], component: ApplicationStorageComponent, title: 'Application Storage' },
 
 
 

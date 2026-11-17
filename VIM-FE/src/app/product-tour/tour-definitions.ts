@@ -43,10 +43,16 @@ export const PRODUCT_TOUR_CATALOG: ProductTourDefinition[] = [
           'Status donut, submissions over time, and a department or form-type bar chart. All three follow the filters above so the picture matches the board.',
       },
       {
+        target: 'dashboard-insights',
+        title: 'Volume and attention',
+        body:
+          'These cards show which forms and submitters drive the filtered list, plus rejected items and applications that have been open for 7 days or more. Click an attention row to open that application.',
+      },
+      {
         target: 'dashboard-board',
         title: 'Approval stage board',
         body:
-          'Applications are grouped into workflow lanes (for example Initiator, HOD, Approver). Click a card to open that application. Scroll horizontally to see every stage column.',
+          'Applications are grouped into workflow status lanes. Use the search box to find a code, form, or submitter. Click a card to open that application, and scroll horizontally to see every lane.',
       },
       {
         target: 'dashboard-recent-apps',
@@ -547,10 +553,9 @@ export const PRODUCT_TOUR_CATALOG: ProductTourDefinition[] = [
     roles: ['*'],
     name: 'Activity logs walkthrough',
     icon: '📜',
-    desc: 'Audit user actions, filter the log, and (when permitted) correct application transactions.',
+    desc: 'Audit user actions and filter the log.',
     steps: [
       {
-        prepare: 'activitylogs-close-modal',
         target: 'activitylogs-header',
         title: 'Activity logs',
         body:
@@ -575,57 +580,12 @@ export const PRODUCT_TOUR_CATALOG: ProductTourDefinition[] = [
           'Apply Filters reloads data from the API with your criteria. Clear resets all filters and loads the full recent log again.',
       },
       {
-        prepare: 'activitylogs-close-modal',
         target: 'activitylogs-grid',
         title: 'Log table',
         body:
-          'Each row shows action, user, IP, device, timestamp, status, entity ID, and message. Edit Transaction appears for approve/reject/send-back rows when you have edit permission.',
+          'Each row shows action, user, IP, device, timestamp, status, entity ID, and message.',
       },
       {
-        prepare: 'activitylogs-open-edit-modal',
-        target: 'activitylogs-edit-header',
-        skipIfMissingTarget: true,
-        title: 'Edit transaction (modal)',
-        body:
-          'Opens the linked application history entry. This is a direct database correction—workflow emails and routing are not re-run.',
-      },
-      {
-        target: 'activitylogs-edit-notice',
-        skipIfMissingTarget: true,
-        title: 'Important notice',
-        body:
-          'Read this warning before changing data. Use only when you must fix audit/history records after a support investigation.',
-      },
-      {
-        target: 'activitylogs-edit-context',
-        skipIfMissingTarget: true,
-        title: 'Application context',
-        body:
-          'Application ID, form code, status, and history index are read-only anchors so you know which workflow step you are editing.',
-      },
-      {
-        target: 'activitylogs-edit-fields',
-        skipIfMissingTarget: true,
-        title: 'Transaction fields',
-        body:
-          'Adjust action (approve, reject, send back), level, approver user, role, IP, via channel, and transaction date. Approver name, designation, and department update when you pick a user.',
-      },
-      {
-        target: 'activitylogs-edit-remarks',
-        skipIfMissingTarget: true,
-        title: 'Remarks',
-        body:
-          'Update approval or rejection comments shown in the history. Keep remarks factual for future auditors.',
-      },
-      {
-        target: 'activitylogs-edit-actions',
-        skipIfMissingTarget: true,
-        title: 'Save or close',
-        body:
-          'Save Transaction persists changes to the history record. Close discards unsaved edits.',
-      },
-      {
-        prepare: 'activitylogs-close-modal',
         title: 'Done',
         body:
           'Return here anytime from the dashboard activity feed or the Activity Logs menu. Export and deeper reporting may be added alongside your IT policies.',
@@ -648,10 +608,24 @@ export const PRODUCT_TOUR_CATALOG: ProductTourDefinition[] = [
           'See digital applications submitted by colleagues in your department. The badge shows how many records are in the current view.',
       },
       {
+        prepare: 'dept-app-close-csv',
+        target: 'dept-app-filters',
+        title: 'Filters',
+        body:
+          'Limit the list by date range, status, or form type. Apply Filters updates the cards and the table. Clear resets the filters and the search box.',
+      },
+      {
+        prepare: 'dept-app-close-csv',
+        target: 'dept-app-metrics',
+        title: 'Application counts',
+        body:
+          'These cards count department applications: submitted total, drafts, items still in approval, completed, and rejected. Completed uses the same green as the table.',
+      },
+      {
         target: 'dept-app-toolbar',
         title: 'Search & export',
         body:
-          'Search filters the table locally. Download CSV opens a column picker and exports the department list (when data is loaded).',
+          'Search narrows the list by code, title, form, submitter, department, or status. Download CSV exports the applications that match the current filters.',
       },
       {
         prepare: 'dept-app-close-csv',
@@ -689,12 +663,26 @@ export const PRODUCT_TOUR_CATALOG: ProductTourDefinition[] = [
         target: 'tpl-approved-header',
         title: 'Approved applications',
         body:
-          'Lists template applications where you completed approval. The count reflects server-side pagination totals.',
+          'Lists template applications where you completed approval. The badge shows how many records match the current filters.',
+      },
+      {
+        prepare: 'template-approved-close-csv',
+        target: 'tpl-approved-filters',
+        title: 'Filters',
+        body:
+          'Limit the list by submitted date, current status, or form type. Apply Filters updates the cards and the table. Clear resets the filters and the search box.',
+      },
+      {
+        prepare: 'template-approved-close-csv',
+        target: 'tpl-approved-metrics',
+        title: 'Application counts',
+        body:
+          'These cards count the filtered applications. Completed and approved rows use the same green as the Completed card.',
       },
       {
         target: 'tpl-approved-toolbar',
         title: 'Search & CSV',
-        body: 'Search within the current page results. Download CSV exports approved rows with configurable columns.',
+        body: 'Search narrows the list by code, title, template, or status. Download CSV exports the applications that match the current filters.',
       },
       {
         prepare: 'template-approved-close-csv',
@@ -740,9 +728,23 @@ export const PRODUCT_TOUR_CATALOG: ProductTourDefinition[] = [
           'Every template application you started appears here with status and approval level.',
       },
       {
+        prepare: 'my-app-close-detail',
+        target: 'my-app-filters',
+        title: 'Filters',
+        body:
+          'Limit the list by date range, status, or form type. Apply Filters updates the cards and the table. Clear resets the filters and the search box.',
+      },
+      {
+        prepare: 'my-app-close-detail',
+        target: 'my-app-metrics',
+        title: 'Application counts',
+        body:
+          'These cards count your applications: submitted total, drafts, items still in approval, completed, and rejected. They update when you apply filters or search.',
+      },
+      {
         target: 'my-app-list-toolbar',
         title: 'Search & export',
-        body: 'Search loads matching pages from the server. Download CSV exports your initiated applications.',
+        body: 'Search narrows the list by code, title, template, or status. Download CSV exports the applications that match the current filters.',
       },
       {
         prepare: 'my-app-close-detail',
@@ -757,7 +759,7 @@ export const PRODUCT_TOUR_CATALOG: ProductTourDefinition[] = [
         target: 'my-app-list-pagination',
         skipIfMissingTarget: true,
         title: 'Pagination',
-        body: 'Navigate pages and change how many rows load per request.',
+        body: 'Move between pages and choose how many matching applications to show at once.',
       },
       {
         target: 'my-app-detail-summary',

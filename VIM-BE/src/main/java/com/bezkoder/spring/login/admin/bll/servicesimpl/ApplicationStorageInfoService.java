@@ -23,8 +23,13 @@ public class ApplicationStorageInfoService {
     private EntityManager entityManager;
 
     public Map<String, Object> buildStorageInfo() {
+        return buildStorageInfo(false);
+    }
+
+    public Map<String, Object> buildStorageInfo(boolean includeExactContent) {
         Map<String, Object> result = new HashMap<>();
         result.put("status", "Success");
+        result.put("exactContentReady", includeExactContent);
 
         File uploadRoot = new File(SignatureStorageUtil.uploadRoot());
         long uploadRootBytes = directorySize(uploadRoot);
@@ -40,13 +45,16 @@ public class ApplicationStorageInfoService {
         Map<String, Object> hostVolume = buildHostVolumeInfo(uploadRoot);
         result.put("hostVolume", hostVolume);
 
-        Map<String, Object> databaseStorage = buildDatabaseStorageInfo();
+        Map<String, Object> databaseStorage = buildDatabaseStorageInfo(includeExactContent);
         result.put("databaseStorage", databaseStorage);
 
         long applicationContentBytes = toLong(databaseStorage.get("applicationContentBytes"));
-        long applicationUsedBytes = uploadRootBytes + applicationContentBytes;
+        long applicationTableBytes = toLong(databaseStorage.get("applicationTableBytes"));
+        long applicationUsedBytes = uploadRootBytes + (includeExactContent ? applicationContentBytes : applicationTableBytes);
         result.put("applicationUsedBytes", applicationUsedBytes);
-        result.put("applicationUsedLabel", "Upload files + application PDF/JSON data in database");
+        result.put("applicationUsedLabel", includeExactContent
+                ? "Upload files + application PDF/JSON data in database"
+                : "Upload files + application table size");
 
         return result;
     }
@@ -99,7 +107,7 @@ public class ApplicationStorageInfoService {
         return hostVolume;
     }
 
-    private Map<String, Object> buildDatabaseStorageInfo() {
+    private Map<String, Object> buildDatabaseStorageInfo(boolean includeExactContent) {
         Map<String, Object> databaseStorage = new HashMap<>();
         String schemaName = querySingleString("SELECT DATABASE()");
         databaseStorage.put("sourceLabel", "MySQL database");
@@ -116,26 +124,29 @@ public class ApplicationStorageInfoService {
                         + "WHERE table_schema = DATABASE() AND table_name = 'cfg_tbl_custom_form_application'");
         databaseStorage.put("applicationTableBytes", applicationTableBytes == null ? 0L : applicationTableBytes.longValue());
 
+        String contentSelect = includeExactContent
+                ? "COALESCE(SUM("
+                + "COALESCE(LENGTH(blb_pdf_data), 0) + "
+                + "COALESCE(LENGTH(blb_pdf_stage_0), 0) + "
+                + "COALESCE(LENGTH(blb_pdf_stage_1), 0) + "
+                + "COALESCE(LENGTH(blb_pdf_stage_2), 0) + "
+                + "COALESCE(LENGTH(blb_pdf_stage_3), 0) + "
+                + "COALESCE(LENGTH(blb_pdf_stage_4), 0) + "
+                + "COALESCE(LENGTH(blb_pdf_stage_5), 0) + "
+                + "COALESCE(LENGTH(blb_pdf_stage_6), 0) + "
+                + "COALESCE(LENGTH(blb_pdf_stage_7), 0) + "
+                + "COALESCE(LENGTH(blb_pdf_stage_8), 0) + "
+                + "COALESCE(LENGTH(blb_pdf_stage_9), 0) + "
+                + "COALESCE(LENGTH(txt_application_data), 0) + "
+                + "COALESCE(LENGTH(txt_approval_history), 0) + "
+                + "COALESCE(LENGTH(txt_prior_approvals), 0) + "
+                + "COALESCE(LENGTH(txt_remarks), 0)"
+                + "), 0)"
+                : "0";
         Object[] contentRow = querySingleRow(
-                "SELECT COALESCE(SUM("
-                        + "COALESCE(LENGTH(blb_pdf_data), 0) + "
-                        + "COALESCE(LENGTH(blb_pdf_stage_0), 0) + "
-                        + "COALESCE(LENGTH(blb_pdf_stage_1), 0) + "
-                        + "COALESCE(LENGTH(blb_pdf_stage_2), 0) + "
-                        + "COALESCE(LENGTH(blb_pdf_stage_3), 0) + "
-                        + "COALESCE(LENGTH(blb_pdf_stage_4), 0) + "
-                        + "COALESCE(LENGTH(blb_pdf_stage_5), 0) + "
-                        + "COALESCE(LENGTH(blb_pdf_stage_6), 0) + "
-                        + "COALESCE(LENGTH(blb_pdf_stage_7), 0) + "
-                        + "COALESCE(LENGTH(blb_pdf_stage_8), 0) + "
-                        + "COALESCE(LENGTH(blb_pdf_stage_9), 0) + "
-                        + "COALESCE(LENGTH(txt_application_data), 0) + "
-                        + "COALESCE(LENGTH(txt_approval_history), 0) + "
-                        + "COALESCE(LENGTH(txt_prior_approvals), 0) + "
-                        + "COALESCE(LENGTH(txt_remarks), 0)"
-                        + "), 0), "
+                "SELECT " + contentSelect + ", "
                         + "COUNT(*), "
-                        + "COALESCE(SUM(CASE WHEN blb_pdf_data IS NOT NULL AND LENGTH(blb_pdf_data) > 0 THEN 1 ELSE 0 END), 0) "
+                        + "COALESCE(SUM(CASE WHEN blb_pdf_data IS NOT NULL THEN 1 ELSE 0 END), 0) "
                         + "FROM cfg_tbl_custom_form_application "
                         + "WHERE (bl_is_deleted IS NULL OR bl_is_deleted = false)");
 

@@ -42,7 +42,8 @@ public class UserCredentialEmailSender {
         String displayName = StringUtils.hasText(payload.getDisplayName()) ? payload.getDisplayName() : loginName;
 
         Map<String, String> placeholders = emailTemplateRenderService.buildUserCredentialPlaceholders(
-                displayName, loginName, payload.getPlainPassword(), payload.getRecipientEmail());
+                displayName, loginName, payload.getPlainPassword(), payload.getRecipientEmail(),
+                payload.getPublicBaseUrl());
 
         String primaryCode = payload.isWelcomeEmail() ? TEMPLATE_USER_WELCOME : TEMPLATE_USER_PASSWORD;
         Optional<RenderedEmailMessage> rendered = emailTemplateRenderService.renderActiveTemplate(primaryCode, placeholders);
@@ -64,7 +65,8 @@ public class UserCredentialEmailSender {
                 + payload.getSerUserId());
         if (payload.isWelcomeEmail()) {
             emailService.sendWelcomeUserMail(
-                    payload.getRecipientEmail(), displayName, loginName, payload.getPlainPassword());
+                    payload.getRecipientEmail(), displayName, loginName, payload.getPlainPassword(),
+                    payload.getPublicBaseUrl());
         } else {
             emailService.sendPassordinMail(payload.getRecipientEmail(), loginName, payload.getPlainPassword());
         }

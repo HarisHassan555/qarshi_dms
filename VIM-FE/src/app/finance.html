@@ -216,6 +216,70 @@
         </div>
     </div>
 
+    <div class="grid gap-6 xl:grid-cols-3" data-tour="dashboard-insights">
+        <div class="panel">
+            <h2 class="text-lg font-semibold text-slate-900">By Form / Template</h2>
+            <p class="mt-1 text-sm text-slate-500">Which processes drive the volume.</p>
+            <div *ngIf="isLoadingDashboard" class="mt-6 text-sm text-slate-500">Loading...</div>
+            <div *ngIf="!isLoadingDashboard && formBreakdown.length === 0" class="mt-6 text-sm text-slate-500">
+                No forms in the current filters.
+            </div>
+            <div *ngIf="!isLoadingDashboard && formBreakdown.length > 0" class="mt-5 space-y-4">
+                <div *ngFor="let row of formBreakdown" class="flex items-center gap-3">
+                    <p class="min-w-0 flex-1 truncate text-sm text-slate-800">{{ row.label }}</p>
+                    <div class="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
+                        <div class="h-full rounded-full" [style.width.%]="row.share" [style.background]="row.color"></div>
+                    </div>
+                    <span class="w-6 text-right text-sm font-semibold text-slate-700">{{ row.count }}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2 class="text-lg font-semibold text-slate-900">By Submitter</h2>
+            <p class="mt-1 text-sm text-slate-500">Who is raising applications.</p>
+            <div *ngIf="isLoadingDashboard" class="mt-6 text-sm text-slate-500">Loading...</div>
+            <div *ngIf="!isLoadingDashboard && submitterBreakdown.length === 0" class="mt-6 text-sm text-slate-500">
+                No submitters in the current filters.
+            </div>
+            <div *ngIf="!isLoadingDashboard && submitterBreakdown.length > 0" class="mt-5 space-y-4">
+                <div *ngFor="let row of submitterBreakdown" class="flex items-center gap-3">
+                    <p class="min-w-0 flex-1 truncate text-sm text-slate-800">{{ row.label }}</p>
+                    <span class="h-2 w-2 shrink-0 rounded-full" [style.background]="row.color"></span>
+                    <div class="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100">
+                        <div class="h-full rounded-full" [style.width.%]="row.share" [style.background]="row.color"></div>
+                    </div>
+                    <span class="w-6 text-right text-sm font-semibold text-slate-700">{{ row.count }}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2 class="text-lg font-semibold text-slate-900">Needs Attention</h2>
+            <p class="mt-1 text-sm text-slate-500">Rejected and aging items.</p>
+            <div *ngIf="isLoadingDashboard" class="mt-6 text-sm text-slate-500">Loading...</div>
+            <div *ngIf="!isLoadingDashboard && attentionItems.length === 0" class="mt-6 text-sm text-slate-500">
+                Nothing needs attention right now.
+            </div>
+            <div *ngIf="!isLoadingDashboard && attentionItems.length > 0" class="mt-5 space-y-4">
+                <button
+                    *ngFor="let item of attentionItems"
+                    type="button"
+                    class="flex w-full items-start gap-3 text-left"
+                    (click)="openApplication(item.application)">
+                    <span
+                        class="mt-0.5 shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
+                        [ngClass]="item.tone === 'rejected'
+                            ? 'border-rose-300 text-rose-600'
+                            : 'border-amber-300 text-amber-600'">
+                        {{ item.badge }}
+                    </span>
+                    <span class="min-w-0 text-sm leading-5 text-slate-700">{{ item.detail }}</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div class="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.85fr)]">
         <div class="panel" data-tour="dashboard-board">
             <div class="flex flex-wrap items-center justify-between gap-3">
@@ -227,17 +291,29 @@
                         Applications grouped into fixed workflow status lanes.
                     </p>
                 </div>
-                <span class="badge badge-outline-secondary rounded-full">
-                    {{ totalApplications }} total applications
-                </span>
+                <div class="flex flex-wrap items-center gap-3">
+                    <input
+                        type="search"
+                        class="form-input w-full sm:w-64"
+                        placeholder="Search code, form, or submitter"
+                        [(ngModel)]="boardSearch"
+                        (ngModelChange)="onBoardSearchChange()" />
+                    <span class="badge badge-outline-secondary rounded-full">
+                        {{ totalApplications }} total applications
+                    </span>
+                </div>
             </div>
 
             <div *ngIf="isLoadingDashboard" class="py-16 text-center text-sm text-slate-500">
                 Loading workflow board...
             </div>
 
-            <div *ngIf="!isLoadingDashboard && !hasBoardData" class="py-16 text-center text-sm text-slate-500">
+            <div *ngIf="!isLoadingDashboard && !hasFilteredApplications" class="py-16 text-center text-sm text-slate-500">
                 No applications are available for this dashboard scope right now.
+            </div>
+
+            <div *ngIf="!isLoadingDashboard && hasFilteredApplications && !hasBoardData" class="py-16 text-center text-sm text-slate-500">
+                No applications match this search.
             </div>
 
             <div *ngIf="!isLoadingDashboard && hasBoardData" class="mt-6 overflow-x-auto pb-2">

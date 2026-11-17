@@ -58,7 +58,8 @@ export class PermissionService {
             'Form Builder',
             'Budget Approval'
         ],
-        'User Management': ['User', 'Password Policy', 'Change Password', 'Role Management', 'Activity Logs', 'Delegation Management']
+        'User Management': ['User', 'Password Policy', 'Change Password', 'Role Management', 'Delegation Management'],
+        'Logs': ['Activity Logs', 'Email Delivery Log', 'Storage']
     };
 
     constructor(private menuService: MenuService) {}
