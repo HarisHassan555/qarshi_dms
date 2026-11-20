@@ -63,7 +63,7 @@
                 >
                     <div>
                         <strong>{{ field.label }}</strong>
-                        <span>{{ field.type }}{{ field.required ? ' - required' : '' }}{{ field.placement ? ' - positioned' : '' }}{{ isDocumentRegionFieldType(field.type) ? ' - pinned' : '' }}</span>
+                        <span>{{ field.type }}{{ field.required ? ' - required' : '' }}{{ field.placement ? ' - positioned' : (isWordEditorFieldType(field.type) ? ' - document body' : '') }}{{ isDocumentRegionFieldType(field.type) ? ' - pinned' : '' }}</span>
                     </div>
                     <div class="field-row-actions">
                         <button type="button" title="Move field up" [disabled]="i === 0" (click)="moveField(i, 'up'); $event.stopPropagation()">Up</button>
@@ -439,7 +439,7 @@
                     <div class="step-index">{{ i + 1 }}</div>
                     <div class="step-body">
                         <strong>{{ step.name }}</strong>
-                        <span>{{ step.type }} - {{ step.approvalMode }}</span>
+                        <span>{{ getPipelineStepTypeLabel(step) }} - {{ getPipelineStepModeLabel(step) }}</span>
                         <small>{{ getPipelineTargetLabel(step) }}</small>
                         <small>{{ getPipelineFieldPermissionSummary(step) }}</small>
                     </div>
@@ -508,12 +508,23 @@
                 <input type="number" min="1" [max]="pageCount" [(ngModel)]="newFieldPage" />
             </label>
             <button
-                *ngIf="!isAttachmentFieldType(newFieldType) && newFieldType !== 'table'"
+                *ngIf="!isAttachmentFieldType(newFieldType) && newFieldType !== 'table' && newFieldType !== 'word_editor'"
                 type="button"
                 class="btn btn-primary full-width"
                 (click)="assignField()">
                 Assign Selected Area
             </button>
+            <button
+                *ngIf="newFieldType === 'word_editor'"
+                type="button"
+                class="btn btn-primary full-width"
+                (click)="addDocumentBodyWordEditor()">
+                Add Word Editor to Document Body
+            </button>
+            <p class="field-add-hint" *ngIf="newFieldType === 'word_editor'">
+                Document body grows with content and pushes fields below onto the next page.
+                Use Place Draggable Field for a fixed overlay box.
+            </p>
             <button type="button" class="btn btn-outline full-width mt-2" (click)="addFloatingField()">
                 {{ getFieldAddActionLabel() }}
             </button>
@@ -599,6 +610,11 @@
                 </select>
             </label>
 
+            <div class="pipeline-field-rights-header" *ngIf="newPipelineType === 'initiator_choice'">
+                <strong>Initiator Choice</strong>
+                <span>Assignees are not fixed here. Configure field rights now; the initiator picks department, individual, or role and OR/AND when filling the form.</span>
+            </div>
+
             <label *ngIf="newPipelineType === 'department'">
                 Department
                 <select [(ngModel)]="selectedPipelineDepartmentId">
@@ -679,7 +695,7 @@
 
             <label>
                 Step Name
-                <input type="text" [(ngModel)]="newPipelineName" placeholder="Optional display name" />
+                <input type="text" [(ngModel)]="newPipelineName" [placeholder]="newPipelineType === 'initiator_choice' ? 'e.g. Approver chosen by initiator' : 'Optional display name'" />
             </label>
 
             <div class="pipeline-field-rights">
@@ -729,7 +745,7 @@
 
             <div class="rights-step-summary" *ngIf="editingPipelineStep as step">
                 <strong>{{ step.name }}</strong>
-                <span>{{ step.type }} - {{ step.approvalMode }}</span>
+                <span>{{ getPipelineStepTypeLabel(step) }} - {{ getPipelineStepModeLabel(step) }}</span>
                 <small>{{ getPipelineTargetLabel(step) }}</small>
             </div>
 

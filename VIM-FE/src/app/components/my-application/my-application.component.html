@@ -1,4 +1,4 @@
-<ng-container *ngIf="!isDetailView; else applicationDetails">
+﻿<ng-container *ngIf="!isDetailView; else applicationDetails">
     <div class="panel border-[#e0e6ed] px-0 pb-1.5 dark:border-[#1b2e4b]">
         <div class="mb-4.5 flex flex-col gap-5 px-5 md:flex-row md:items-center">
             <div class="flex items-center gap-2" data-tour="my-app-list-header">
@@ -161,13 +161,13 @@
             <div
                 class="fill-frame"
                 [style.width.px]="selectedTemplate.page?.width || 794"
-                [style.min-height.px]="(selectedTemplate.page?.count || 1) * (selectedTemplate.page?.height || 1123) + (((selectedTemplate.page?.count || 1) - 1) * (selectedTemplate.page?.gap || 32))"
+                [style.min-height.px]="(selectedTemplate.page?.count || 1) * (selectedTemplate.page?.height || 1123) + (((selectedTemplate.page?.count || 1) - 1) * (selectedTemplate.page?.gap || 16))"
                 [style.--template-page-height]="(selectedTemplate.page?.height || 1123) + 'px'"
-                [style.--template-page-gap]="(selectedTemplate.page?.gap || 32) + 'px'">
+                [style.--template-page-gap]="(selectedTemplate.page?.gap || 16) + 'px'">
                 <div
                     *ngFor="let pageIndex of pageIndexes"
                     class="page-boundary"
-                    [style.top.px]="pageIndex * ((selectedTemplate.page?.height || 1123) + (selectedTemplate.page?.gap || 32))"
+                    [style.top.px]="pageIndex * ((selectedTemplate.page?.height || 1123) + (selectedTemplate.page?.gap || 16))"
                     [style.height.px]="selectedTemplate.page?.height || 1123">
                     <span>Page {{ pageIndex + 1 }}</span>
                 </div>
@@ -177,17 +177,17 @@
                     class="background-hardcopy-loading"
                     [style.height.px]="(selectedTemplate.page?.height || 1123)">
                     <span class="loader-spinner" aria-hidden="true"></span>
-                    <span>Loading hardcopy form…</span>
+                    <span>Loading hardcopy formâ€¦</span>
                 </div>
 
                 <div
                     *ngIf="selectedTemplate.background"
                     class="background-document-layer"
-                    [style.height.px]="(selectedTemplate.page?.count || 1) * (selectedTemplate.page?.height || 1123) + (((selectedTemplate.page?.count || 1) - 1) * (selectedTemplate.page?.gap || 32))">
+                    [style.height.px]="(selectedTemplate.page?.count || 1) * (selectedTemplate.page?.height || 1123) + (((selectedTemplate.page?.count || 1) - 1) * (selectedTemplate.page?.gap || 16))">
                     <div
                         *ngFor="let pageIndex of pageIndexes"
                         class="background-document-page"
-                        [style.top.px]="pageIndex * ((selectedTemplate.page?.height || 1123) + (selectedTemplate.page?.gap || 32))"
+                        [style.top.px]="pageIndex * ((selectedTemplate.page?.height || 1123) + (selectedTemplate.page?.gap || 16))"
                         [style.width.px]="selectedTemplate.page?.width || 794"
                         [style.height.px]="selectedTemplate.page?.height || 1123">
                         <img *ngIf="selectedTemplate.background.type === 'image' && pageIndex === 0" [src]="selectedTemplate.background.dataUrl" [alt]="selectedTemplate.background.name" />

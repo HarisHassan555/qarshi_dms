@@ -267,7 +267,7 @@ export class SidebarComponent implements OnInit, OnDestroy {
         if (!this.user && user) {
             this.user = user;
         }
-        const rawRoleId = user?.cfgTblRole?.serRoleId ?? user?.cfgTblRole;
+        const rawRoleId = this.getRoleIdFromUser(user);
         if (!rawRoleId || !user?.serUserId) {
             console.warn('Sidebar menus not loaded: missing user role/userId');
             this.menus = [];
@@ -275,13 +275,7 @@ export class SidebarComponent implements OnInit, OnDestroy {
             return;
         }
 
-        const roleId = this.getRoleIdFromUser(user);
-        if (!roleId) {
-            console.warn('Sidebar menus not loaded: missing roleId after fallback resolution', user?.cfgTblRole);
-            this.menus = [];
-            this.isDashboardPresent = false;
-            return;
-        }
+        const roleId = rawRoleId;
 
         // Use userId=0 so the sidebar loads only ROLE-LEVEL permission rows
         // (cfgTblUser IS NULL in DB), exactly matching what Role Management
@@ -615,28 +609,55 @@ export class SidebarComponent implements OnInit, OnDestroy {
      */
     private getRoleIdFromUser(user: any): number | null {
         if (!user) return null;
-        const candidate =
-            user?.cfgTblRole?.serRoleId ??
-            user?.cfgTblRole ??
-            user?.cfgTblRoleId ??
-            user?.roleId;
-        const num = Number(candidate);
-        if (Number.isFinite(num) && num > 0) {
-            return num;
+
+        const nestedRole = user?.cfgTblRole;
+        if (nestedRole && typeof nestedRole === 'object') {
+            const nestedId = Number(nestedRole?.serRoleId);
+            if (Number.isFinite(nestedId) && nestedId > 0) {
+                return nestedId;
+            }
         }
 
-        // Fallback: derive from role name when payload only sends txtrole/txtRoleName
-        const roleName = (user?.cfgTblRole?.txtRoleName || user?.txtrole || '').toString().toUpperCase().trim();
-        if (!roleName) return null;
+        const numericRole = Number(nestedRole);
+        if (Number.isFinite(numericRole) && numericRole > 0) {
+            return numericRole;
+        }
+
+        const userRoles = Array.isArray(user?.cfgTblUserRoles) ? user.cfgTblUserRoles : [];
+        for (const link of userRoles) {
+            const linkedRoleId = Number(link?.cfgTblRole?.serRoleId);
+            if (Number.isFinite(linkedRoleId) && linkedRoleId > 0) {
+                return linkedRoleId;
+            }
+        }
+
+        const directId = Number(user?.cfgTblRoleId ?? user?.roleId ?? user?.serRoleId);
+        if (Number.isFinite(directId) && directId > 0 && user?.cfgTblRole === undefined) {
+            return directId;
+        }
+
+        const roleName = (
+            user?.cfgTblRole?.txtRoleName ||
+            user?.txtrole ||
+            user?.txtRole ||
+            user?.roleName ||
+            ''
+        ).toString().toUpperCase().trim();
+        if (!roleName) {
+            return null;
+        }
+
+        // Legacy fallback only when API omits numeric role ids (local DB ids may differ).
         const roleMap: { [key: string]: number } = {
             'ADMIN': 1,
-            'VENDOR': 2,
-            'MARKETING': 3,
+            'VENDOR': 7,
+            'MARKETING': 6,
             'PROCURE': 4,
             'PROCUREMENT': 4,
             'FINANCE': 5,
-            'AUDIT': 6,
-            'CEO': 7
+            'AUDIT': 2,
+            'CEO': 14,
+            'DEPARTMENT_ADMIN': 16,
         };
         return roleMap[roleName] || null;
     }

@@ -1,4 +1,36 @@
-/* Shared document body HTML (template builder output / fill / approval preview). */
+/* Shared document body HTML (template builder output / fill / approval / application / PDF). */
+
+.document-html {
+    box-sizing: border-box;
+    color: #111827;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    max-width: 100%;
+    min-height: 1123px;
+    overflow-x: hidden;
+    padding: 22mm 18mm;
+    position: relative;
+    width: 100%;
+    word-break: break-word;
+}
+
+.document-html *,
+.document-html *::before,
+.document-html *::after {
+    box-sizing: border-box;
+}
+
+.document-html .template-field.template-word-editor-body,
+.document-html .inline-filled-word-editor-value.document-body-word-editor {
+    box-sizing: border-box;
+    clear: both;
+    display: block;
+    margin: 12px 0;
+    max-width: 100%;
+    min-height: 120px;
+    width: 100%;
+}
 
 .document-html figure.table {
     box-sizing: border-box;
@@ -6,6 +38,7 @@
     display: block;
     margin: 12px 0;
     max-width: 100%;
+    width: 100%;
 }
 
 .document-html figure.table > table {
@@ -13,7 +46,7 @@
     box-sizing: border-box;
     margin: 0;
     max-width: 100%;
-    table-layout: auto;
+    table-layout: fixed;
     width: 100%;
 }
 
@@ -49,9 +82,45 @@
     page-break-inside: avoid;
 }
 
+.document-html .template-page-break,
+.document-html [data-template-page-break="true"] {
+    background: transparent;
+    border: 0 !important;
+    box-shadow: none !important;
+    clear: both;
+    display: block !important;
+    margin: 0 !important;
+    overflow: hidden;
+    padding: 0 !important;
+    pointer-events: none !important;
+    user-select: none;
+    width: 100% !important;
+}
+
+.document-html figure.table[data-table-continuation="true"],
+.document-html table[data-table-continuation="true"] {
+    margin-top: 0;
+}
+
+.document-html tr[data-table-header-clone="true"] th,
+.document-html tr[data-table-header-clone="true"] td {
+    background: #e2e8f0;
+    font-weight: 700;
+}
+
 .document-html figure.table > table th,
 .document-html figure.table > table td {
     border: 1px solid #334155;
+}
+
+.document-html h2 {
+    font-size: 22px;
+    line-height: 1.25;
+    margin: 0 0 18px;
+}
+
+.document-html p {
+    margin: 0 0 12px;
 }
 
 /* Word-editor tables and text alignment match the submitted email PDF. */

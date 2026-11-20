@@ -259,6 +259,16 @@
     margin: 0 auto;
 }
 
+/* Base .document-html / table look lives in styles/document-body-content.css */
+:host ::ng-deep .readonly-stage .document-html figure.table {
+    width: 100% !important;
+}
+
+:host ::ng-deep .readonly-stage .document-html figure.table > table,
+:host ::ng-deep .readonly-stage .document-html > table {
+    width: 100% !important;
+}
+
 .readonly-stage .filled-field {
     pointer-events: none;
 }

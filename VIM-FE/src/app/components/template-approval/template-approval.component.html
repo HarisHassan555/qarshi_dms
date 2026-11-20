@@ -1,4 +1,4 @@
-<div class="template-fill-page template-approval-page">
+﻿<div class="template-fill-page template-approval-page">
     <div class="template-action-overlay" *ngIf="isActing || isRedirectingAfterAction">
         <div class="template-action-dialog">
             <span class="template-action-spinner" aria-hidden="true"></span>
@@ -272,13 +272,13 @@
             <div
                 class="fill-frame"
                 [style.width.px]="template.page?.width || 794"
-                [style.min-height.px]="(template.page?.count || 1) * (template.page?.height || 1123) + (((template.page?.count || 1) - 1) * (template.page?.gap || 32))"
+                [style.min-height.px]="(template.page?.count || 1) * (template.page?.height || 1123) + (((template.page?.count || 1) - 1) * (template.page?.gap || 16))"
                 [style.--template-page-height]="(template.page?.height || 1123) + 'px'"
-                [style.--template-page-gap]="(template.page?.gap || 32) + 'px'">
+                [style.--template-page-gap]="(template.page?.gap || 16) + 'px'">
                 <div
                     *ngFor="let pageIndex of pageIndexes"
                     class="page-boundary"
-                    [style.top.px]="pageIndex * ((template.page?.height || 1123) + (template.page?.gap || 32))"
+                    [style.top.px]="pageIndex * ((template.page?.height || 1123) + (template.page?.gap || 16))"
                     [style.height.px]="template.page?.height || 1123">
                     <span>Page {{ pageIndex + 1 }}</span>
                 </div>
@@ -286,11 +286,11 @@
                 <div
                     *ngIf="template.background"
                     class="background-document-layer"
-                    [style.height.px]="(template.page?.count || 1) * (template.page?.height || 1123) + (((template.page?.count || 1) - 1) * (template.page?.gap || 32))">
+                    [style.height.px]="(template.page?.count || 1) * (template.page?.height || 1123) + (((template.page?.count || 1) - 1) * (template.page?.gap || 16))">
                     <div
                         *ngFor="let pageIndex of pageIndexes"
                         class="background-document-page"
-                        [style.top.px]="pageIndex * ((template.page?.height || 1123) + (template.page?.gap || 32))"
+                        [style.top.px]="pageIndex * ((template.page?.height || 1123) + (template.page?.gap || 16))"
                         [style.width.px]="template.page?.width || 794"
                         [style.height.px]="template.page?.height || 1123">
                         <img *ngIf="template.background.type === 'image' && pageIndex === 0" [src]="template.background.dataUrl" [alt]="template.background.name" />

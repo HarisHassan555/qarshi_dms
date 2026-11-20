@@ -1629,10 +1629,19 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     private createInlineValue(doc: Document, field: TemplateField): HTMLElement {
         const tagName = field.type === 'word_editor' ? 'div' : 'span';
         const element = doc.createElement(tagName);
-        element.className = `inline-filled-value${field.type === 'textarea' ? ' inline-filled-textarea-value' : ''}${field.type === 'word_editor' ? ' inline-filled-word-editor-value' : ''}`;
+        const isBodyWordEditor = field.type === 'word_editor' && !field.placement;
+        element.className = `inline-filled-value${field.type === 'textarea' ? ' inline-filled-textarea-value' : ''}${field.type === 'word_editor' ? ' inline-filled-word-editor-value' : ''}${isBodyWordEditor ? ' document-body-word-editor' : ''}`;
         element.dataset['fieldId'] = field.id;
+        if (isBodyWordEditor) {
+            element.setAttribute('data-body-word-editor', 'true');
+        }
         if (field.type === 'word_editor') {
             element.innerHTML = this.normalizeWordEditorHtmlForDisplay(String(this.values[field.id] || ''));
+            element.style.display = 'block';
+            element.style.width = '100%';
+            element.style.maxWidth = '100%';
+            element.style.boxSizing = 'border-box';
+            element.style.minHeight = '120px';
         } else {
             element.textContent = this.getFieldValueText(field);
         }
@@ -2696,22 +2705,34 @@ export class MyApplicationComponent implements OnInit, OnDestroy {
     private buildSelectedTemplate(application: MyTemplateApplication | null): any | null {
         const liveTemplate = application?.template?.payload;
         const savedTemplate = this.getApplicationTemplatePayload(application);
+        const applicationData = this.parseApplicationData(application?.txtApplicationData);
+        const submittedDocumentHtml = typeof applicationData?.documentHtml === 'string'
+            ? applicationData.documentHtml.trim()
+            : '';
         if (!liveTemplate && !savedTemplate) {
             return null;
         }
         if (!liveTemplate) {
-            return savedTemplate;
+            return submittedDocumentHtml
+                ? { ...savedTemplate, html: submittedDocumentHtml }
+                : savedTemplate;
         }
         if (!savedTemplate) {
-            return liveTemplate;
+            return submittedDocumentHtml
+                ? { ...liveTemplate, html: submittedDocumentHtml }
+                : liveTemplate;
         }
+        const payloadHtml = typeof savedTemplate.html === 'string' && savedTemplate.html.length > 0
+            ? savedTemplate.html
+            : liveTemplate.html;
         return {
             ...liveTemplate,
             ...savedTemplate,
             fields: Array.isArray(savedTemplate.fields) && savedTemplate.fields.length > 0 ? savedTemplate.fields : liveTemplate.fields,
             pipeline: this.resolveWorkflowPipeline(application, savedTemplate, liveTemplate),
             page: savedTemplate.page || liveTemplate.page,
-            html: typeof savedTemplate.html === 'string' && savedTemplate.html.length > 0 ? savedTemplate.html : liveTemplate.html
+            // Prefer the HTML captured at submit (includes body-table edits/splits).
+            html: submittedDocumentHtml || payloadHtml
         };
     }
 

@@ -60,7 +60,9 @@ public class WorkflowThresholdRuleApplyService implements IWorkflowThresholdRule
         }
 
         boolean hasFooterSelections = hasFooterSelections(appData);
-        if (rules.isEmpty() && !hasFooterSelections) {
+        boolean hasInitiatorChoiceWork = hasInitiatorChoiceSteps(asListOfMaps(templatePayload.get("pipeline")))
+                || hasInitiatorChoiceSelections(appData);
+        if (rules.isEmpty() && !hasFooterSelections && !hasInitiatorChoiceWork) {
             return;
         }
 
@@ -82,12 +84,15 @@ public class WorkflowThresholdRuleApplyService implements IWorkflowThresholdRule
             }
         }
 
+        int initiatorChoicesMaterialized = materializeInitiatorChoiceSteps(pipeline, appData);
+        assertNoUnresolvedInitiatorChoiceSteps(pipeline);
+
         int footerStepsAppended = appendFooterFieldsToPipeline(pipeline, appData);
-        if (!appliedRuleIds.isEmpty() || footerStepsAppended > 0) {
+        if (!appliedRuleIds.isEmpty() || footerStepsAppended > 0 || initiatorChoicesMaterialized > 0) {
             renumberPipelineOrders(pipeline);
         }
 
-        if (appliedRuleIds.isEmpty() && footerStepsAppended == 0) {
+        if (appliedRuleIds.isEmpty() && footerStepsAppended == 0 && initiatorChoicesMaterialized == 0) {
             return;
         }
 
@@ -98,6 +103,9 @@ public class WorkflowThresholdRuleApplyService implements IWorkflowThresholdRule
         }
         if (footerStepsAppended > 0) {
             appData.put("workflowPipelineMergedFooter", true);
+        }
+        if (initiatorChoicesMaterialized > 0) {
+            appData.put("workflowPipelineMergedInitiatorChoice", true);
         }
         try {
             application.setTxtApplicationData(objectMapper.writeValueAsString(appData));
@@ -133,6 +141,249 @@ public class WorkflowThresholdRuleApplyService implements IWorkflowThresholdRule
 
     private boolean hasFooterSelections(Map<String, Object> appData) {
         return countFooterApproverSteps(appData) > 0;
+    }
+
+    private boolean hasInitiatorChoiceSelections(Map<String, Object> appData) {
+        Object raw = appData != null ? appData.get("initiatorChoiceSelections") : null;
+        if (raw instanceof Map) {
+            return !((Map<?, ?>) raw).isEmpty();
+        }
+        if (raw instanceof List) {
+            return !((List<?>) raw).isEmpty();
+        }
+        return false;
+    }
+
+    private boolean hasInitiatorChoiceSteps(List<Map<String, Object>> pipeline) {
+        for (Map<String, Object> step : pipeline) {
+            if ("initiator_choice".equalsIgnoreCase(valueAsString(step.get("type")))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Turns template {@code initiator_choice} steps into concrete department/individual/role steps
+     * using the initiator's fill-time selections. Preserves step id and field rights.
+     */
+    private int materializeInitiatorChoiceSteps(List<Map<String, Object>> pipeline, Map<String, Object> appData) {
+        Map<String, Map<String, Object>> selections = extractInitiatorChoiceSelections(appData);
+        if (pipeline == null || pipeline.isEmpty()) {
+            return 0;
+        }
+        int materialized = 0;
+        for (int i = 0; i < pipeline.size(); i++) {
+            Map<String, Object> step = pipeline.get(i);
+            if (!"initiator_choice".equalsIgnoreCase(valueAsString(step.get("type")))) {
+                continue;
+            }
+            String stepId = valueAsString(step.get("id"));
+            Map<String, Object> selection = stepId != null ? selections.get(stepId) : null;
+            if (selection == null || selection.isEmpty()) {
+                continue;
+            }
+            Map<String, Object> concrete = materializeInitiatorChoiceStep(step, selection);
+            if (concrete != null) {
+                pipeline.set(i, concrete);
+                materialized++;
+            }
+        }
+        return materialized;
+    }
+
+    private void assertNoUnresolvedInitiatorChoiceSteps(List<Map<String, Object>> pipeline) {
+        for (Map<String, Object> step : pipeline) {
+            if ("initiator_choice".equalsIgnoreCase(valueAsString(step.get("type")))) {
+                String name = valueAsString(step.get("name"));
+                throw new IllegalArgumentException(
+                        "Please complete initiator choice for step \""
+                                + (name != null ? name : "Initiator Choice")
+                                + "\" before submitting.");
+            }
+        }
+    }
+
+    private Map<String, Map<String, Object>> extractInitiatorChoiceSelections(Map<String, Object> appData) {
+        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+        Object raw = appData != null ? appData.get("initiatorChoiceSelections") : null;
+        if (raw instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) raw;
+            for (Map.Entry<String, Object> entry : map.entrySet()) {
+                String key = entry.getKey() != null ? entry.getKey().trim() : "";
+                if (key.isEmpty() || !(entry.getValue() instanceof Map)) {
+                    continue;
+                }
+                @SuppressWarnings("unchecked")
+                Map<String, Object> selection = (Map<String, Object>) entry.getValue();
+                String stepId = firstText(selection.get("stepId"), selection.get("id"), key);
+                if (stepId != null) {
+                    result.put(stepId, selection);
+                }
+            }
+            return result;
+        }
+        if (raw instanceof List) {
+            for (Map<String, Object> selection : asListOfMaps(raw)) {
+                String stepId = firstText(selection.get("stepId"), selection.get("id"));
+                if (stepId != null) {
+                    result.put(stepId, selection);
+                }
+            }
+        }
+        return result;
+    }
+
+    private Map<String, Object> materializeInitiatorChoiceStep(Map<String, Object> originalStep,
+                                                               Map<String, Object> selection) {
+        String choiceType = firstText(selection.get("choiceType"), selection.get("type"));
+        if (choiceType == null) {
+            return null;
+        }
+        choiceType = choiceType.trim().toLowerCase(Locale.ROOT);
+        String approvalMode = "AND".equalsIgnoreCase(valueAsString(selection.get("approvalMode"))) ? "AND" : "OR";
+
+        Map<String, Object> step = new LinkedHashMap<>();
+        if (originalStep != null) {
+            step.putAll(originalStep);
+        }
+        step.put("approvalMode", approvalMode);
+        step.put("initiatorChoice", true);
+        step.put("initiatorChoiceResolved", true);
+        step.put("initiatorChoiceType", choiceType);
+        clearApproverFields(step);
+
+        String selectedName = valueAsString(selection.get("name"));
+        String originalName = valueAsString(originalStep != null ? originalStep.get("name") : null);
+
+        if ("department".equals(choiceType)) {
+            Integer departmentId = toInteger(firstPresent(
+                    selection.get("serDepartmentId"),
+                    selection.get("departmentId"),
+                    nested(selection.get("hrTblDepartment"), "serDepartmentId")));
+            if (departmentId == null || departmentId <= 0) {
+                return null;
+            }
+            step.put("type", "department");
+            step.put("serDepartmentId", departmentId);
+            Map<String, Object> department = asMap(selection.get("hrTblDepartment"));
+            if (department.isEmpty()) {
+                HrTblDepartment entity = entityManager.find(HrTblDepartment.class, departmentId);
+                if (entity != null) {
+                    department = new LinkedHashMap<>();
+                    department.put("serDepartmentId", entity.getSerDepartmentId());
+                    department.put("txtDepartmentName", entity.getTxtDepartmentName());
+                }
+            }
+            if (!department.isEmpty()) {
+                step.put("hrTblDepartment", department);
+            }
+            step.put("name", firstText(originalName, selectedName, valueAsString(department.get("txtDepartmentName")), "Department"));
+            return step;
+        }
+
+        if ("role".equals(choiceType)) {
+            Integer roleId = toInteger(firstPresent(
+                    selection.get("serRoleId"),
+                    selection.get("roleId"),
+                    nested(selection.get("cfgTblRole"), "serRoleId")));
+            if (roleId == null || roleId <= 0) {
+                return null;
+            }
+            step.put("type", "role");
+            step.put("serRoleId", roleId);
+            Map<String, Object> role = asMap(selection.get("cfgTblRole"));
+            if (role.isEmpty()) {
+                CfgTblRole entity = entityManager.find(CfgTblRole.class, roleId);
+                if (entity != null) {
+                    role = new LinkedHashMap<>();
+                    role.put("serRoleId", entity.getSerRoleId());
+                    role.put("txtRoleName", entity.getTxtRoleName());
+                }
+            }
+            if (!role.isEmpty()) {
+                step.put("cfgTblRole", role);
+            }
+            step.put("name", firstText(originalName, selectedName, valueAsString(role.get("txtRoleName")), "Role"));
+            return step;
+        }
+
+        if ("individual".equals(choiceType)) {
+            List<Map<String, Object>> users = asListOfMaps(selection.get("users"));
+            List<Integer> userIds = new ArrayList<>();
+            List<Map<String, Object>> normalizedUsers = new ArrayList<>();
+            for (Map<String, Object> user : users) {
+                Integer userId = toInteger(firstPresent(user.get("serUserId"), user.get("userId"), user.get("id")));
+                if (userId == null || userId <= 0 || userIds.contains(userId)) {
+                    continue;
+                }
+                userIds.add(userId);
+                Map<String, Object> copy = new LinkedHashMap<>(user);
+                copy.put("serUserId", userId);
+                normalizedUsers.add(copy);
+            }
+            if (normalizedUsers.isEmpty()) {
+                for (Object rawId : asList(selection.get("userIds"))) {
+                    Integer userId = toInteger(rawId);
+                    if (userId == null || userId <= 0 || userIds.contains(userId)) {
+                        continue;
+                    }
+                    userIds.add(userId);
+                    Map<String, Object> userMap = new LinkedHashMap<>();
+                    userMap.put("serUserId", userId);
+                    CfgTblUser entity = entityManager.find(CfgTblUser.class, userId);
+                    if (entity != null && entity.getTxtUserName() != null) {
+                        userMap.put("txtUserName", entity.getTxtUserName());
+                    }
+                    normalizedUsers.add(userMap);
+                }
+            }
+            if (normalizedUsers.isEmpty()) {
+                return null;
+            }
+            step.put("type", "individual");
+            step.put("users", normalizedUsers);
+            step.put("userIds", userIds);
+            if (userIds.size() <= 1) {
+                step.put("approvalMode", "OR");
+            }
+            step.put("name", firstText(originalName, selectedName, "Individual"));
+            return step;
+        }
+
+        return null;
+    }
+
+    private String firstText(Object... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Object value : values) {
+            String text = valueAsString(value);
+            if (text != null) {
+                return text;
+            }
+        }
+        return null;
+    }
+
+    private Object nested(Object value, String key) {
+        Map<String, Object> map = asMap(value);
+        return map.isEmpty() ? null : map.get(key);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Object> asList(Object value) {
+        List<Object> result = new ArrayList<>();
+        if (value instanceof List) {
+            result.addAll((List<Object>) value);
+            return result;
+        }
+        if (value != null) {
+            result.add(value);
+        }
+        return result;
     }
 
     /**
@@ -352,7 +603,8 @@ public class WorkflowThresholdRuleApplyService implements IWorkflowThresholdRule
             return false;
         }
         Map<String, Object> step = pipeline.get(stepIndex);
-        if ("initiator".equalsIgnoreCase(valueAsString(step.get("type")))) {
+        String stepType = valueAsString(step.get("type"));
+        if ("initiator".equalsIgnoreCase(stepType) || "initiator_choice".equalsIgnoreCase(stepType)) {
             return false;
         }
         clearApproverFields(step);

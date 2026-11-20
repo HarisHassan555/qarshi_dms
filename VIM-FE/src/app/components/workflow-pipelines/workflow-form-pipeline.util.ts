@@ -67,6 +67,9 @@ function backendStepApproverLabel(step: any): string {
     if (type === 'role') {
         return String(step?.roleName || step?.cfgTblRole?.txtRoleName || step?.name || 'Role').trim();
     }
+    if (type === 'initiator_choice') {
+        return String(step?.name || 'Initiator Choice').trim();
+    }
     return String(step?.txtDepartmentName || step?.departmentName || step?.hrTblDepartment?.txtDepartmentName || 'Department').trim();
 }
 

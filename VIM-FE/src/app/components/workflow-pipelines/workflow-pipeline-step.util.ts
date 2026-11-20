@@ -1,4 +1,4 @@
-export type WorkflowPipelineStepType = 'initiator' | 'department' | 'individual' | 'role';
+export type WorkflowPipelineStepType = 'initiator' | 'department' | 'individual' | 'role' | 'initiator_choice';
 export type WorkflowPipelineApprovalMode = 'AND' | 'OR';
 
 export interface WorkflowPipelineStep {
@@ -23,6 +23,7 @@ export const WORKFLOW_PIPELINE_STEP_TYPES: { value: Exclude<WorkflowPipelineStep
     { value: 'department', label: 'Department' },
     { value: 'individual', label: 'Individual' },
     { value: 'role', label: 'Role' },
+    { value: 'initiator_choice', label: 'Initiator Choice' },
 ];
 
 export const SELF_HOD_DEPARTMENT_ID = -1;
@@ -137,6 +138,9 @@ export function pipelineStepTargetLabel(step: WorkflowPipelineStep): string {
     }
     if (step.type === 'initiator') {
         return 'Submitter';
+    }
+    if (step.type === 'initiator_choice') {
+        return 'Chosen by initiator at fill';
     }
     if (step.dynamicTarget === 'initiator_hod') {
         return 'Self HOD';

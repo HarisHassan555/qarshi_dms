@@ -34,6 +34,10 @@ import {
 } from 'src/app/utils/document-header.util';
 import { buildIndividualFooterTableBands } from 'src/app/utils/individual-footer-pipeline.util';
 import { getTemplateFieldNgStyle } from 'src/app/utils/word-editor-display.util';
+import {
+    collapseBodyTablePagination,
+    paginateBodyTableHtmlFromLiveRoot,
+} from 'src/app/utils/template-body-table-pagination.util';
 import { WorkflowPipelineService } from 'src/app/services/workflow-pipeline/workflow-pipeline.service';
 import { WorkflowPipelineListItem } from 'src/app/components/workflow-pipelines/workflow-pipelines.demo-data';
 
@@ -67,7 +71,7 @@ type TemplateFieldType =
     | 'radio'
     | 'table'
     | 'orientation';
-type PipelineStepType = 'initiator' | 'department' | 'individual' | 'role';
+type PipelineStepType = 'initiator' | 'department' | 'individual' | 'role' | 'initiator_choice';
 type PipelineApprovalMode = 'AND' | 'OR';
 type PipelineDynamicTarget = 'initiator_hod' | 'initiator_manager' | 'initiator';
 type PipelineFieldRight = 'fill' | 'edit' | 'hide';
@@ -298,7 +302,8 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     pipelineTypes: { value: PipelineStepType; label: string }[] = [
         { value: 'department', label: 'Department' },
         { value: 'individual', label: 'Individual' },
-        { value: 'role', label: 'Role' }
+        { value: 'role', label: 'Role' },
+        { value: 'initiator_choice', label: 'Initiator Choice' }
     ];
     pipelineFieldRights: { value: PipelineFieldRight; label: string }[] = [
         { value: 'fill', label: 'Fill' },
@@ -317,6 +322,12 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     private editorInstance: any = null;
     private paginationFrame: number | null = null;
+    private bodyTablePaginationFrame: number | null = null;
+    private bodyTablePaginationTimer: ReturnType<typeof setTimeout> | null = null;
+    private isPaginatingBodyTables = false;
+    /** Ignore body-table repagination briefly while switching fields (table <-> word editor). */
+    private suppressBodyTablePaginationUntil = 0;
+    private lastBodyTableFingerprint = '';
     private activePointerAction: {
         fieldId: string;
         radioOptionId?: string;
@@ -358,6 +369,18 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     ngOnDestroy(): void {
         window.removeEventListener('velocity-tour-prepare', this.onTourPrepare);
         document.body.classList.remove(TEMPLATE_BUILDER_HIDE_CKEDITOR_BADGE_CLASS);
+        if (this.paginationFrame !== null) {
+            cancelAnimationFrame(this.paginationFrame);
+            this.paginationFrame = null;
+        }
+        if (this.bodyTablePaginationFrame !== null) {
+            cancelAnimationFrame(this.bodyTablePaginationFrame);
+            this.bodyTablePaginationFrame = null;
+        }
+        if (this.bodyTablePaginationTimer !== null) {
+            clearTimeout(this.bodyTablePaginationTimer);
+            this.bodyTablePaginationTimer = null;
+        }
         this.excelIndicatorCleanups.forEach((cleanup) => cleanup());
         this.excelIndicatorCleanups = [];
         this.tableFormulaEditorCleanups.forEach((cleanup) => cleanup());
@@ -512,6 +535,8 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
             this.scalePlacementOwner(field, field.placement, xScale, yScale);
             (field.optionPlacements || []).forEach((option) => this.scalePlacementOwner(option, option.placement, xScale, yScale));
         });
+        this.scheduleBodyTablePagination();
+        this.schedulePaginationUpdate();
     }
 
     onEditorReady(editor: any): void {
@@ -532,6 +557,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         });
         this.protectTableInsert(editor);
         this.updateFieldLayerTop();
+        this.scheduleBodyTablePagination();
         this.schedulePaginationUpdate();
     }
 
@@ -1275,13 +1301,30 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
 
     onEditorContentChanged(event?: { editor?: any }): void {
         const editor = event?.editor || this.editorInstance;
-        if (editor && this.tableFormulaSyncGuard.has(editor)) {
+        if (editor && (this.tableFormulaSyncGuard.has(editor) || this.isPaginatingBodyTables)) {
             this.schedulePaginationUpdate();
             return;
         }
         const html = String(editor?.getData?.() || this.editorContent || '');
         const cleanedContent = this.removeRadioFieldMarkers(html);
         this.editorContent = cleanedContent;
+
+        // Page-count update is cheap; body-table split uses setData and must not run on
+        // every word-editor / paragraph keystroke or markers on later pages break.
+        const tableFingerprint = this.getBodyTableFingerprint(cleanedContent);
+        const tablesChanged = tableFingerprint !== this.lastBodyTableFingerprint;
+        const editingNearWordMarker = this.isDomSelectionInsideWordEditorMarker(editor);
+        const editingInsideBodyTable = this.isDomSelectionInsideBodyTable(editor);
+        if (tablesChanged || editingInsideBodyTable) {
+            this.lastBodyTableFingerprint = tableFingerprint;
+            this.scheduleBodyTablePagination(60);
+        } else if (editingNearWordMarker || this.isDocumentBodyWordEditorFieldSelected()) {
+            // Content above/around markers can push tables; debounce heavily.
+            this.scheduleBodyTablePagination(450);
+        } else if (/<table[\s>]/i.test(cleanedContent)) {
+            this.scheduleBodyTablePagination(250);
+        }
+
         this.schedulePaginationUpdate();
     }
 
@@ -1297,6 +1340,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
                 this.tableFormulaSyncGuard.delete(editor);
                 this.editorContent = String(editor.getData?.() || this.editorContent || '');
                 this.scheduleExcelTableIndicators(editor);
+                this.scheduleBodyTablePagination();
                 setTimeout(() => this.scheduleExcelTableIndicators(editor), 200);
             }, 300);
         });
@@ -1308,6 +1352,10 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         }
         if (this.isAttachmentFieldType(this.newFieldType)) {
             this.addInlineOnlyField();
+            return;
+        }
+        if (this.newFieldType === 'word_editor') {
+            this.addDocumentBodyWordEditor();
             return;
         }
 
@@ -1325,6 +1373,34 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         const selectedText = this.getSelectedEditorText().trim();
         const markerText = selectedText || field.placeholder;
         const markerHtml = `<span class="template-field selected" data-field-id="${field.id}" data-field-type="${field.type}" data-required="${field.required}" title="${this.escapeHtml(field.label)} (${field.type})">${this.escapeHtml(markerText)}</span>`;
+        const viewFragment = this.editorInstance.data.processor.toView(markerHtml);
+        const modelFragment = this.editorInstance.data.toModel(viewFragment);
+
+        this.editorInstance.model.change(() => {
+            this.editorInstance.model.insertContent(modelFragment, this.editorInstance.model.document.selection);
+        });
+
+        this.selectedFieldId = field.id;
+        this.editorContent = this.editorInstance.getData();
+        this.schedulePaginationUpdate();
+        this.closeAndResetFieldModal();
+    }
+
+    /**
+     * Insert a block word-editor marker into the document body (no placement box).
+     * During fill it grows in-flow and pushes content onto later pages.
+     */
+    addDocumentBodyWordEditor(): void {
+        if (!this.editorInstance) {
+            return;
+        }
+        if (this.newFieldType !== 'word_editor') {
+            this.newFieldType = 'word_editor';
+        }
+
+        const field = this.createField();
+        delete field.placement;
+        const markerHtml = this.buildDocumentBodyWordEditorMarkerHtml(field);
         const viewFragment = this.editorInstance.data.processor.toView(markerHtml);
         const modelFragment = this.editorInstance.data.toModel(viewFragment);
 
@@ -1356,12 +1432,18 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         const isHeader = this.isHeaderFieldType(field.type);
         const isFooter = this.isFooterFieldType(field.type);
         const pageTop = (field.page - 1) * (this.pageHeight + this.pageGap);
-        field.placement = field.type === 'table' ? this.buildDefaultTablePlacement(field.page, index) : {
-            x: isHeader || isFooter ? 0 : 32 + (index % 4) * 18,
-            y: isHeader ? pageTop : (isFooter ? pageTop + this.pageHeight - 86 : pageTop + 120 + (index % 5) * 18),
-            width: isHeader || isFooter ? this.pageWidth : 160,
-            height: isHeader ? 116 : (isFooter ? 86 : 38)
-        };
+        if (field.type === 'table') {
+            field.placement = this.buildDefaultTablePlacement(field.page, index);
+        } else if (field.type === 'word_editor') {
+            field.placement = this.buildDefaultWordEditorPlacement(field.page, index);
+        } else {
+            field.placement = {
+                x: isHeader || isFooter ? 0 : 32 + (index % 4) * 18,
+                y: isHeader ? pageTop : (isFooter ? pageTop + this.pageHeight - 86 : pageTop + 120 + (index % 5) * 18),
+                width: isHeader || isFooter ? this.pageWidth : 160,
+                height: isHeader ? 116 : (isFooter ? 86 : 38)
+            };
+        }
         this.selectedFieldId = field.id;
         this.closeAndResetFieldModal();
     }
@@ -1851,7 +1933,24 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     }
 
     shouldShowPipelineApprovalMode(): boolean {
+        if (this.newPipelineType === 'initiator_choice') {
+            return false;
+        }
         return this.newPipelineType !== 'individual' || this.selectedPipelineUsers.length > 1;
+    }
+
+    getPipelineStepTypeLabel(step: PipelineStep): string {
+        if (step?.type === 'initiator_choice') {
+            return 'initiator choice';
+        }
+        return step?.type || '';
+    }
+
+    getPipelineStepModeLabel(step: PipelineStep): string {
+        if (step?.type === 'initiator_choice') {
+            return 'chosen at fill';
+        }
+        return step?.approvalMode || 'OR';
     }
 
     isPipelineFieldSelected(field: TemplateField): boolean {
@@ -2022,6 +2121,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     getPipelineTargetLabel(step: PipelineStep): string {
         if (step.type === 'initiator') {
             return 'Current user submitting the form';
+        }
+        if (step.type === 'initiator_choice') {
+            return 'Initiator picks department, individual, or role (and OR/AND) when filling';
         }
         if (step.dynamicTarget === 'initiator_hod') {
             return 'Self HOD - resolves from initiator department';
@@ -2200,6 +2302,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         if (step?.type === 'role') {
             return [{ txtUserName: this.getRoleName(step.cfgTblRole) || step.name || 'Role' }];
         }
+        if (step?.type === 'initiator_choice') {
+            return [{ txtUserName: step.name || 'Initiator Choice' }];
+        }
 
         return [this.getBuilderPlaceholderFooterUser()];
     }
@@ -2222,12 +2327,47 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     }
 
     selectField(fieldId: string): void {
-        if (this.selectedFieldId && this.selectedFieldId !== fieldId) {
+        if (this.selectedFieldId === fieldId) {
+            return;
+        }
+        // Field switches mount/unmount floating table editors; block body-table setData
+        // so word-editor markers are not rewritten mid-switch.
+        this.suppressBodyTablePaginationUntil = Date.now() + 500;
+        if (this.bodyTablePaginationTimer !== null) {
+            clearTimeout(this.bodyTablePaginationTimer);
+            this.bodyTablePaginationTimer = null;
+        }
+        if (this.selectedFieldId) {
             this.releaseTableFieldEditor(this.selectedFieldId);
         }
         this.selectedFieldId = fieldId;
+        // Pull live HTML first so we do not clobber unsaved canvas edits.
+        if (this.editorInstance?.getData) {
+            this.editorContent = this.removeRadioFieldMarkers(String(this.editorInstance.getData() || ''));
+        }
+        // Highlight in the live DOM only. Calling setData() here reloads CKEditor and
+        // breaks document-body word-editor markers after switching fields.
+        this.applySelectedFieldHighlight(fieldId);
+    }
+
+    /** Toggle `.selected` on markers without setData (preserves editor/caret state). */
+    private applySelectedFieldHighlight(fieldId: string): void {
+        const editable = this.editorInstance?.ui?.view?.editable?.element as HTMLElement | undefined;
+        if (editable) {
+            editable.querySelectorAll('.template-field.selected').forEach((node) => {
+                node.classList.remove('selected');
+            });
+            if (fieldId) {
+                const markers = editable.querySelectorAll(`[data-field-id="${fieldId}"]`);
+                markers.forEach((node) => {
+                    node.classList.add('selected');
+                });
+                // Markers pushed to page 2+ still need to be reachable after field switches.
+                const first = markers.item(0) as HTMLElement | null;
+                first?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+            }
+        }
         this.editorContent = this.withSelectedField(fieldId);
-        this.editorInstance?.setData(this.editorContent);
     }
 
     removeField(fieldId: string): void {
@@ -2561,6 +2701,7 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
                 this.showPipelineLibraryModal = false;
                 this.linkedWorkflowPipelineId = null;
                 this.editorInstance?.setData(this.editorContent);
+                this.scheduleBodyTablePagination();
                 this.schedulePaginationUpdate();
             },
             error: (error) => console.error('Template edit load failed', error)
@@ -2568,8 +2709,14 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
     }
 
     getTemplatePayload(): string {
+        // Keep editor HTML in sync and strip characters MySQL latin1 columns reject.
+        if (this.editorInstance?.getData) {
+            this.editorContent = this.sanitizeTemplatePayloadText(String(this.editorInstance.getData() || ''));
+        } else {
+            this.editorContent = this.sanitizeTemplatePayloadText(this.editorContent || '');
+        }
         return JSON.stringify({
-            name: this.templateName,
+            name: this.sanitizeTemplatePayloadText(this.templateName),
             codeConvention: this.codeConvention,
             isActive: this.templateIsActive,
             html: this.editorContent || '',
@@ -2590,6 +2737,17 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
                 ? { workflowPipelineId: this.linkedWorkflowPipelineId }
                 : {})
         }, null, 2);
+    }
+
+    /** Replace Windows/Unicode punctuation that breaks latin1 `txt_template_payload`. */
+    private sanitizeTemplatePayloadText(value: string): string {
+        return String(value || '')
+            .replace(/\u2014|\u2013|\u2212/g, '-') // em/en/minus dashes
+            .replace(/\u2018|\u2019|\u201A|\u2032/g, "'")
+            .replace(/\u201C|\u201D|\u201E|\u2033/g, '"')
+            .replace(/\u00A0/g, ' ')
+            .replace(/\u2026/g, '...')
+            .replace(/[\u0080-\u009F]/g, ''); // stray C1 controls (e.g. 0x97)
     }
 
     saveTemplateAsDraft(): void {
@@ -2695,6 +2853,9 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         }
         if (this.newFieldType === 'table') {
             return 'Place Table Field';
+        }
+        if (this.newFieldType === 'word_editor') {
+            return 'Place Draggable Word Editor';
         }
         return this.isDocumentRegionFieldType(this.newFieldType) ? 'Add Page Region' : 'Place Draggable Field';
     }
@@ -3356,6 +3517,17 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         const approvalMode = this.shouldShowPipelineApprovalMode() ? this.newPipelineApprovalMode : 'OR';
         const fieldPermissions = this.buildPipelineFieldPermissions();
 
+        if (this.newPipelineType === 'initiator_choice') {
+            return {
+                id,
+                name: name || 'Initiator Choice',
+                type: 'initiator_choice',
+                approvalMode: 'OR',
+                fieldPermissions,
+                fieldPermissionsConfigured: true
+            };
+        }
+
         if (this.newPipelineType === 'department') {
             if (Number(this.selectedPipelineDepartmentId) === this.selfHodDepartmentValue) {
                 return { id, name: name || 'Self HOD', type: 'department', approvalMode, dynamicTarget: 'initiator_hod', fieldPermissions, fieldPermissionsConfigured: true };
@@ -3613,6 +3785,261 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         });
     }
 
+    /**
+     * Live WYSIWYG: split document-body tables at page edges with gap spacers
+     * and repeated headers. Floating table fields are not affected.
+     */
+    private scheduleBodyTablePagination(delayMs = 60): void {
+        if (this.isPaginatingBodyTables || Date.now() < this.suppressBodyTablePaginationUntil) {
+            return;
+        }
+        if (this.bodyTablePaginationTimer !== null) {
+            clearTimeout(this.bodyTablePaginationTimer);
+        }
+        if (this.bodyTablePaginationFrame !== null) {
+            cancelAnimationFrame(this.bodyTablePaginationFrame);
+            this.bodyTablePaginationFrame = null;
+        }
+        this.bodyTablePaginationTimer = setTimeout(() => {
+            this.bodyTablePaginationTimer = null;
+            if (Date.now() < this.suppressBodyTablePaginationUntil) {
+                return;
+            }
+            this.bodyTablePaginationFrame = requestAnimationFrame(() => {
+                this.bodyTablePaginationFrame = null;
+                this.runBodyTablePagination();
+            });
+        }, Math.max(0, delayMs));
+    }
+
+    private runBodyTablePagination(): void {
+        const editor = this.editorInstance;
+        if (!editor?.getData || this.isPaginatingBodyTables || this.previewMode) {
+            return;
+        }
+        if (Date.now() < this.suppressBodyTablePaginationUntil) {
+            return;
+        }
+
+        const currentHtml = this.removeRadioFieldMarkers(String(editor.getData() || this.editorContent || ''));
+        if (!/<table[\s>]/i.test(currentHtml)) {
+            this.lastBodyTableFingerprint = '';
+            return;
+        }
+
+        const collapsed = collapseBodyTablePagination(currentHtml);
+        const needsCollapse =
+            this.normalizeHtmlForCompare(collapsed) !== this.normalizeHtmlForCompare(currentHtml);
+
+        if (needsCollapse) {
+            this.isPaginatingBodyTables = true;
+            this.tableFormulaSyncGuard.add(editor);
+            const selection = this.captureEditorSelectionContext(editor);
+            editor.setData(collapsed);
+            this.editorContent = collapsed;
+            // Remeasure after CKEditor finishes laying out the collapsed table.
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    this.finishBodyTablePaginationFromLive(editor, collapsed, selection);
+                });
+            });
+            return;
+        }
+
+        this.finishBodyTablePaginationFromLive(editor, collapsed);
+    }
+
+    private finishBodyTablePaginationFromLive(
+        editor: any,
+        collapsedHtml: string,
+        priorSelection: { path: number[]; offset: number; fieldId: string } | null = null
+    ): void {
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        if (!editable) {
+            this.isPaginatingBodyTables = false;
+            this.tableFormulaSyncGuard.delete(editor);
+            return;
+        }
+
+        const paginated = paginateBodyTableHtmlFromLiveRoot(editable, collapsedHtml, {
+            pageHeight: this.pageHeight,
+            pageGap: this.pageGap,
+            repeatHeader: true,
+            coordinateScale: this.documentZoom || 1
+        });
+        const nextHtml = this.removeRadioFieldMarkers(paginated);
+        const currentHtml = this.removeRadioFieldMarkers(String(editor.getData() || collapsedHtml || ''));
+        if (this.normalizeHtmlForCompare(nextHtml) === this.normalizeHtmlForCompare(currentHtml)) {
+            this.isPaginatingBodyTables = false;
+            this.tableFormulaSyncGuard.delete(editor);
+            this.lastBodyTableFingerprint = this.getBodyTableFingerprint(currentHtml);
+            this.schedulePaginationUpdate();
+            return;
+        }
+
+        this.isPaginatingBodyTables = true;
+        this.tableFormulaSyncGuard.add(editor);
+        try {
+            const selection = priorSelection || this.captureEditorSelectionContext(editor);
+            editor.setData(nextHtml);
+            this.editorContent = nextHtml;
+            this.lastBodyTableFingerprint = this.getBodyTableFingerprint(nextHtml);
+            this.restoreEditorSelectionContext(editor, selection);
+            if (this.selectedFieldId) {
+                this.applySelectedFieldHighlight(this.selectedFieldId);
+            }
+        } finally {
+            setTimeout(() => {
+                this.tableFormulaSyncGuard.delete(editor);
+                this.isPaginatingBodyTables = false;
+                this.schedulePaginationUpdate();
+            }, 0);
+        }
+    }
+
+    private getBodyTableFingerprint(html: string): string {
+        if (!html || !/<table[\s>]/i.test(html)) {
+            return '';
+        }
+        const host = document.createElement('div');
+        host.innerHTML = html;
+        const parts: string[] = [];
+        host.querySelectorAll('table').forEach((table) => {
+            if (table.closest('.inline-table-shell, .floating-field, .word-editor-value, .ql-editor, .template-word-editor-body')) {
+                return;
+            }
+            parts.push(`${table.rows?.length || 0}x${table.rows?.[0]?.cells?.length || 0}:${(table.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120)}`);
+        });
+        return parts.join('|');
+    }
+
+    private isDocumentBodyWordEditorFieldSelected(): boolean {
+        const field = this.selectedField;
+        return !!field && field.type === 'word_editor' && !field.placement;
+    }
+
+    private isDomSelectionInsideWordEditorMarker(editor: any): boolean {
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        const node = this.getDomSelectionAnchorInside(editable);
+        return !!node?.closest?.('.template-word-editor-body, .template-field[data-field-type="word_editor"]');
+    }
+
+    private isDomSelectionInsideBodyTable(editor: any): boolean {
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        const node = this.getDomSelectionAnchorInside(editable);
+        const table = node?.closest?.('table') as HTMLElement | null;
+        if (!table) {
+            return false;
+        }
+        return !table.closest('.inline-table-shell, .floating-field, .word-editor-value, .ql-editor, .template-word-editor-body');
+    }
+
+    private getDomSelectionAnchorInside(editable: HTMLElement | undefined): HTMLElement | null {
+        if (!editable) {
+            return null;
+        }
+        const selection = editable.ownerDocument?.getSelection?.();
+        const anchor = selection?.anchorNode as Node | null;
+        if (!anchor || !editable.contains(anchor)) {
+            return null;
+        }
+        return (anchor.nodeType === Node.ELEMENT_NODE ? anchor : anchor.parentElement) as HTMLElement | null;
+    }
+
+    private captureEditorSelectionContext(editor: any): { path: number[]; offset: number; fieldId: string } | null {
+        const base = this.captureEditorSelection(editor);
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        const node = this.getDomSelectionAnchorInside(editable);
+        const fieldId = node?.closest?.('[data-field-id]')?.getAttribute?.('data-field-id') || this.selectedFieldId || '';
+        if (!base && !fieldId) {
+            return null;
+        }
+        return {
+            path: base?.path || [],
+            offset: base?.offset || 0,
+            fieldId
+        };
+    }
+
+    private restoreEditorSelectionContext(
+        editor: any,
+        saved: { path: number[]; offset: number; fieldId: string } | null
+    ): void {
+        if (!saved) {
+            return;
+        }
+        if (saved.path?.length) {
+            this.restoreEditorSelection(editor, saved);
+        }
+        if (!saved.fieldId) {
+            return;
+        }
+        const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+        const marker = editable?.querySelector?.(`[data-field-id="${saved.fieldId}"]`) as HTMLElement | null;
+        if (!marker) {
+            return;
+        }
+        try {
+            marker.scrollIntoView({ block: 'nearest' });
+            const ownerDocument = editable?.ownerDocument;
+            const selection = ownerDocument?.getSelection?.();
+            if (!ownerDocument || !selection) {
+                return;
+            }
+            const range = ownerDocument.createRange();
+            range.selectNodeContents(marker);
+            range.collapse(false);
+            selection.removeAllRanges();
+            selection.addRange(range);
+        } catch {
+            // Best effort only.
+        }
+    }
+
+    private normalizeHtmlForCompare(html: string): string {
+        return String(html || '')
+            .replace(/\s+/g, ' ')
+            .replace(/>\s+</g, '><')
+            .trim();
+    }
+
+    private captureEditorSelection(editor: any): { path: number[]; offset: number } | null {
+        try {
+            const selection = editor?.model?.document?.selection;
+            const first = selection?.getFirstPosition?.();
+            if (!first) {
+                return null;
+            }
+            return {
+                path: Array.from(first.path || []) as number[],
+                offset: Number(first.offset) || 0
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    private restoreEditorSelection(editor: any, saved: { path: number[]; offset: number } | null): void {
+        if (!saved?.path?.length || !editor?.model) {
+            return;
+        }
+        try {
+            editor.model.change((writer: any) => {
+                try {
+                    const root = editor.model.document.getRoot();
+                    const maxOffset = Math.max(0, (root?.maxOffset ?? 0) - 1);
+                    const offset = Math.min(Math.max(0, saved.offset), maxOffset);
+                    const position = writer.createPositionAt(root, offset);
+                    writer.setSelection(position);
+                } catch {
+                    // Selection restore is best-effort after structural table splits.
+                }
+            });
+        } catch {
+            // ignore
+        }
+    }
+
     private updateFieldLayerTop(): void {
         const frame = this.editorFrame?.nativeElement;
         const editable = this.editorInstance?.ui?.view?.editable?.element as HTMLElement | undefined;
@@ -3649,9 +4076,41 @@ export class TemplateBuilderComponent implements OnInit, OnDestroy {
         const parser = new DOMParser();
         const doc = parser.parseFromString(this.editorContent || '', 'text/html');
         doc.querySelectorAll(`[data-field-id="${fieldId}"]`).forEach((node) => {
+            const el = node as HTMLElement;
+            if (
+                el.classList.contains('template-word-editor-body')
+                || el.getAttribute('data-field-type') === 'word_editor'
+            ) {
+                el.remove();
+                return;
+            }
             node.replaceWith(doc.createTextNode(node.textContent || ''));
         });
         return doc.body.innerHTML;
+    }
+
+    private buildDocumentBodyWordEditorMarkerHtml(field: TemplateField): string {
+        const label = this.escapeHtml(field.label || 'Word Editor');
+        return (
+            `<div class="template-field template-word-editor-body selected"`
+            + ` data-field-id="${field.id}"`
+            + ` data-field-type="word_editor"`
+            + ` data-required="${field.required ? 'true' : 'false'}"`
+            + ` title="${label} (word_editor)">`
+            + `<p class="template-word-editor-body-label">${label}</p>`
+            + `<p class="template-word-editor-body-hint">Document-body word editor - grows during fill and pushes content below onto the next page.</p>`
+            + `</div>`
+        );
+    }
+
+    private buildDefaultWordEditorPlacement(page: number, index: number): { x: number; y: number; width: number; height: number } {
+        const pageTop = (Math.max(1, page) - 1) * (this.pageHeight + this.pageGap);
+        return {
+            x: 48 + (index % 3) * 24,
+            y: pageTop + 160 + (index % 4) * 24,
+            width: Math.min(520, Math.max(280, this.pageWidth - 96)),
+            height: 180
+        };
     }
 
     private removeRadioFieldMarkers(html: string): string {

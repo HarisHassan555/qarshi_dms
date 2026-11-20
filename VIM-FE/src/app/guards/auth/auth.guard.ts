@@ -35,20 +35,54 @@ export const canActivate: CanActivateFn = (
 
   const getRoleIdFromUser = (u: any): number | null => {
       if (!u) return null;
-      const candidate = u?.cfgTblRole?.serRoleId ?? u?.cfgTblRole ?? u?.cfgTblRoleId ?? u?.roleId;
-      const num = Number(candidate);
-      if (Number.isFinite(num) && num > 0) return num;
 
-      const roleName = (u?.cfgTblRole?.txtRoleName || u?.txtrole || '').toString().toUpperCase().trim();
+      const nestedRole = u?.cfgTblRole;
+      if (nestedRole && typeof nestedRole === 'object') {
+          const nestedId = Number(nestedRole?.serRoleId);
+          if (Number.isFinite(nestedId) && nestedId > 0) {
+              return nestedId;
+          }
+      }
+
+      const numericRole = Number(nestedRole);
+      if (Number.isFinite(numericRole) && numericRole > 0) {
+          return numericRole;
+      }
+
+      const userRoles = Array.isArray(u?.cfgTblUserRoles) ? u.cfgTblUserRoles : [];
+      for (const link of userRoles) {
+          const linkedRoleId = Number(link?.cfgTblRole?.serRoleId);
+          if (Number.isFinite(linkedRoleId) && linkedRoleId > 0) {
+              return linkedRoleId;
+          }
+      }
+
+      const directId = Number(u?.cfgTblRoleId ?? u?.roleId ?? u?.serRoleId);
+      if (Number.isFinite(directId) && directId > 0 && u?.cfgTblRole === undefined) {
+          return directId;
+      }
+
+      const roleName = (
+          u?.cfgTblRole?.txtRoleName ||
+          u?.txtrole ||
+          u?.txtRole ||
+          u?.roleName ||
+          ''
+      ).toString().toUpperCase().trim();
+      if (!roleName) {
+          return null;
+      }
+
       const roleMap: { [key: string]: number } = {
           'ADMIN': 1,
-          'VENDOR': 2,
-          'MARKETING': 3,
+          'VENDOR': 7,
+          'MARKETING': 6,
           'PROCURE': 4,
           'PROCUREMENT': 4,
           'FINANCE': 5,
-          'AUDIT': 6,
-          'CEO': 7
+          'AUDIT': 2,
+          'CEO': 14,
+          'DEPARTMENT_ADMIN': 16,
       };
       return roleMap[roleName] || null;
   };

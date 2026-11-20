@@ -8,7 +8,7 @@ $dataDir   = "C:\ProgramData\MySQL\MySQL Server 8.4\Data"
 $myIni     = Join-Path $mysqlHome "my.ini"
 $service   = "MySQL84"
 $port      = 3308
-$dbName    = "velocity"
+$dbName    = "velocity_workbench"
 $rootPass  = "dsg123"
 
 if (-not (Test-Path "$mysqlHome\bin\mysqld.exe")) {

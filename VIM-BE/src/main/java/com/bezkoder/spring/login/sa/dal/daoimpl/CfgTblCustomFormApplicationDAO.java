@@ -20,6 +20,7 @@ import com.bezkoder.spring.login.sa.dal.dao.ICfgTblCustomFormApplicationDAO;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormApplication;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomForm;
 import com.bezkoder.spring.login.sa.dal.entities.CfgTblCustomFormField;
+import com.bezkoder.spring.login.admin.dal.entities.CfgTblRole;
 import com.bezkoder.spring.login.admin.dal.entities.CfgTblUser;
 import java.io.InputStream;
 import java.io.File;
@@ -16984,6 +16985,13 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
             CfgTblCustomForm form, EntityManager entityManager) {
         Map<String, Object> appData = parseApplicationData(application);
         if (isTemplateBuilderApplication(appData)) {
+            // Prefer the snapshotted template pipeline. On submit this already includes
+            // materialized initiator_choice steps, threshold inserts/overrides, and footer merges.
+            List<Map<String, Object>> templatePipeline = extractTemplatePayloadApprovalPipeline(appData);
+            if (!templatePipeline.isEmpty()) {
+                return resolveInitiatorChoiceStepsForEmail(templatePipeline, appData, entityManager);
+            }
+
             List<Map<String, Object>> footerFields = extractFooterFields(appData);
             if (footerFields != null && !footerFields.isEmpty()) {
                 List<Map<String, Object>> footerPipeline = new java.util.ArrayList<>();
@@ -17040,26 +17048,248 @@ if (entityManager == null || application == null || form == null || !isCapfForm(
                     return footerPipeline;
                 }
             }
-            Object templatePayloadObj = appData.get("templatePayload");
-            if (templatePayloadObj instanceof Map) {
-                Object pipelineObj = ((Map<?, ?>) templatePayloadObj).get("pipeline");
-                if (pipelineObj instanceof List) {
-                    List<Map<String, Object>> templatePipeline = new java.util.ArrayList<>();
-                    for (Object item : (List<?>) pipelineObj) {
-                        if (item instanceof Map) {
-                            @SuppressWarnings("unchecked")
-                            Map<String, Object> step = (Map<String, Object>) item;
-                            if (!"initiator".equalsIgnoreCase(String.valueOf(step.get("type")))) {
-                                templatePipeline.add(step);
-                            }
-                        }
-                    }
-                    return templatePipeline;
-                }
-            }
             return new java.util.ArrayList<>();
         }
         return applyCapfTechnicalExpertRoutingIfNeeded(application, form, entityManager, loadApprovalPipeline(form));
+    }
+
+    private List<Map<String, Object>> extractTemplatePayloadApprovalPipeline(Map<String, Object> appData) {
+        List<Map<String, Object>> templatePipeline = new java.util.ArrayList<>();
+        Object templatePayloadObj = appData != null ? appData.get("templatePayload") : null;
+        if (!(templatePayloadObj instanceof Map)) {
+            return templatePipeline;
+        }
+        Object pipelineObj = ((Map<?, ?>) templatePayloadObj).get("pipeline");
+        if (!(pipelineObj instanceof List)) {
+            return templatePipeline;
+        }
+        for (Object item : (List<?>) pipelineObj) {
+            if (!(item instanceof Map)) {
+                continue;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> step = (Map<String, Object>) item;
+            if (!"initiator".equalsIgnoreCase(String.valueOf(step.get("type")))) {
+                templatePipeline.add(new java.util.LinkedHashMap<>(step));
+            }
+        }
+        return templatePipeline;
+    }
+
+    /**
+     * Safety net for approval emails: if an initiator_choice step was not materialized into the
+     * snapshot yet, resolve it from initiatorChoiceSelections so recipients are still emailed.
+     */
+    private List<Map<String, Object>> resolveInitiatorChoiceStepsForEmail(List<Map<String, Object>> pipeline,
+            Map<String, Object> appData, EntityManager entityManager) {
+        if (pipeline == null || pipeline.isEmpty()) {
+            return pipeline != null ? pipeline : new java.util.ArrayList<>();
+        }
+        Map<String, Map<String, Object>> selections = extractInitiatorChoiceSelectionMap(appData);
+        List<Map<String, Object>> resolved = new java.util.ArrayList<>(pipeline.size());
+        for (Map<String, Object> step : pipeline) {
+            if (step == null) {
+                continue;
+            }
+            if (!"initiator_choice".equalsIgnoreCase(String.valueOf(step.get("type")))) {
+                resolved.add(step);
+                continue;
+            }
+            String stepId = step.get("id") != null ? String.valueOf(step.get("id")).trim() : "";
+            Map<String, Object> selection = !stepId.isEmpty() ? selections.get(stepId) : null;
+            Map<String, Object> concrete = materializeInitiatorChoiceStepForEmail(step, selection, entityManager);
+            resolved.add(concrete != null ? concrete : step);
+        }
+        return resolved;
+    }
+
+    private Map<String, Map<String, Object>> extractInitiatorChoiceSelectionMap(Map<String, Object> appData) {
+        Map<String, Map<String, Object>> result = new java.util.LinkedHashMap<>();
+        Object raw = appData != null ? appData.get("initiatorChoiceSelections") : null;
+        if (raw instanceof Map) {
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) raw).entrySet()) {
+                String key = entry.getKey() != null ? String.valueOf(entry.getKey()).trim() : "";
+                if (key.isEmpty() || !(entry.getValue() instanceof Map)) {
+                    continue;
+                }
+                @SuppressWarnings("unchecked")
+                Map<String, Object> selection = (Map<String, Object>) entry.getValue();
+                String stepId = firstNonBlank(
+                        selection.get("stepId") != null ? String.valueOf(selection.get("stepId")) : null,
+                        selection.get("id") != null ? String.valueOf(selection.get("id")) : null,
+                        key);
+                if (stepId != null && !stepId.trim().isEmpty()) {
+                    result.put(stepId.trim(), selection);
+                }
+            }
+            return result;
+        }
+        if (raw instanceof List) {
+            for (Object item : (List<?>) raw) {
+                if (!(item instanceof Map)) {
+                    continue;
+                }
+                @SuppressWarnings("unchecked")
+                Map<String, Object> selection = (Map<String, Object>) item;
+                String stepId = firstNonBlank(
+                        selection.get("stepId") != null ? String.valueOf(selection.get("stepId")) : null,
+                        selection.get("id") != null ? String.valueOf(selection.get("id")) : null);
+                if (stepId != null && !stepId.trim().isEmpty()) {
+                    result.put(stepId.trim(), selection);
+                }
+            }
+        }
+        return result;
+    }
+
+    private Map<String, Object> materializeInitiatorChoiceStepForEmail(Map<String, Object> originalStep,
+            Map<String, Object> selection, EntityManager entityManager) {
+        if (selection == null || selection.isEmpty()) {
+            return null;
+        }
+        String choiceType = firstNonBlank(
+                selection.get("choiceType") != null ? String.valueOf(selection.get("choiceType")) : null,
+                selection.get("type") != null ? String.valueOf(selection.get("type")) : null);
+        if (choiceType == null || choiceType.trim().isEmpty()) {
+            return null;
+        }
+        choiceType = choiceType.trim().toLowerCase(Locale.ROOT);
+        String approvalMode = "AND".equalsIgnoreCase(String.valueOf(selection.get("approvalMode"))) ? "AND" : "OR";
+
+        Map<String, Object> step = new java.util.LinkedHashMap<>();
+        if (originalStep != null) {
+            step.putAll(originalStep);
+        }
+        step.put("approvalMode", approvalMode);
+        step.put("initiatorChoice", true);
+        step.put("initiatorChoiceResolved", true);
+        step.put("initiatorChoiceType", choiceType);
+        step.remove("users");
+        step.remove("userIds");
+        step.remove("serUserId");
+        step.remove("userId");
+        step.remove("serDepartmentId");
+        step.remove("departmentId");
+        step.remove("hrTblDepartment");
+        step.remove("serRoleId");
+        step.remove("cfgTblRole");
+        step.remove("dynamicTarget");
+        step.remove("dynamicTargets");
+
+        String originalName = originalStep != null && originalStep.get("name") != null
+                ? String.valueOf(originalStep.get("name")).trim()
+                : "";
+        String selectedName = selection.get("name") != null ? String.valueOf(selection.get("name")).trim() : "";
+
+        if ("department".equals(choiceType)) {
+            Integer departmentId = safeInt(selection.get("serDepartmentId"),
+                    safeInt(selection.get("departmentId"),
+                            safeInt(castMap(selection.get("hrTblDepartment")).get("serDepartmentId"), null)));
+            if (departmentId == null || departmentId <= 0) {
+                return null;
+            }
+            step.put("type", "department");
+            step.put("serDepartmentId", departmentId);
+            Map<String, Object> department = castMap(selection.get("hrTblDepartment"));
+            if (department.isEmpty() && entityManager != null) {
+                HrTblDepartment entity = entityManager.find(HrTblDepartment.class, departmentId);
+                if (entity != null) {
+                    department = new java.util.LinkedHashMap<>();
+                    department.put("serDepartmentId", entity.getSerDepartmentId());
+                    department.put("txtDepartmentName", entity.getTxtDepartmentName());
+                }
+            }
+            if (!department.isEmpty()) {
+                step.put("hrTblDepartment", department);
+            }
+            step.put("name", firstNonBlank(originalName, selectedName,
+                    department.get("txtDepartmentName") != null ? String.valueOf(department.get("txtDepartmentName")) : null,
+                    "Department"));
+            return step;
+        }
+
+        if ("role".equals(choiceType)) {
+            Integer roleId = safeInt(selection.get("serRoleId"),
+                    safeInt(selection.get("roleId"),
+                            safeInt(castMap(selection.get("cfgTblRole")).get("serRoleId"), null)));
+            if (roleId == null || roleId <= 0) {
+                return null;
+            }
+            step.put("type", "role");
+            step.put("serRoleId", roleId);
+            Map<String, Object> role = castMap(selection.get("cfgTblRole"));
+            if (role.isEmpty() && entityManager != null) {
+                CfgTblRole entity = entityManager.find(CfgTblRole.class, roleId);
+                if (entity != null) {
+                    role = new java.util.LinkedHashMap<>();
+                    role.put("serRoleId", entity.getSerRoleId());
+                    role.put("txtRoleName", entity.getTxtRoleName());
+                }
+            }
+            if (!role.isEmpty()) {
+                step.put("cfgTblRole", role);
+            }
+            step.put("name", firstNonBlank(originalName, selectedName,
+                    role.get("txtRoleName") != null ? String.valueOf(role.get("txtRoleName")) : null,
+                    "Role"));
+            return step;
+        }
+
+        if ("individual".equals(choiceType)) {
+            java.util.LinkedHashSet<Integer> userIds = new java.util.LinkedHashSet<>();
+            java.util.List<Map<String, Object>> normalizedUsers = new java.util.ArrayList<>();
+            Object usersObj = selection.get("users");
+            if (usersObj instanceof List) {
+                for (Object userObj : (List<?>) usersObj) {
+                    Integer userId = extractUserId(userObj);
+                    if (userId == null || userId <= 0 || userIds.contains(userId)) {
+                        continue;
+                    }
+                    userIds.add(userId);
+                    if (userObj instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> castUser = new java.util.LinkedHashMap<>((Map<String, Object>) userObj);
+                        castUser.put("serUserId", userId);
+                        normalizedUsers.add(castUser);
+                    } else {
+                        Map<String, Object> userMap = new java.util.LinkedHashMap<>();
+                        userMap.put("serUserId", userId);
+                        normalizedUsers.add(userMap);
+                    }
+                }
+            }
+            Object userIdsObj = selection.get("userIds");
+            if (normalizedUsers.isEmpty() && userIdsObj instanceof List) {
+                for (Object rawId : (List<?>) userIdsObj) {
+                    Integer userId = safeInt(rawId, null);
+                    if (userId == null || userId <= 0 || userIds.contains(userId)) {
+                        continue;
+                    }
+                    userIds.add(userId);
+                    Map<String, Object> userMap = new java.util.LinkedHashMap<>();
+                    userMap.put("serUserId", userId);
+                    if (entityManager != null) {
+                        CfgTblUser entity = entityManager.find(CfgTblUser.class, userId);
+                        if (entity != null && entity.getTxtUserName() != null) {
+                            userMap.put("txtUserName", entity.getTxtUserName());
+                        }
+                    }
+                    normalizedUsers.add(userMap);
+                }
+            }
+            if (normalizedUsers.isEmpty()) {
+                return null;
+            }
+            step.put("type", "individual");
+            step.put("users", normalizedUsers);
+            step.put("userIds", new java.util.ArrayList<>(userIds));
+            if (userIds.size() <= 1) {
+                step.put("approvalMode", "OR");
+            }
+            step.put("name", firstNonBlank(originalName, selectedName, "Individual"));
+            return step;
+        }
+        return null;
     }
 
     private List<Map<String, Object>> applyCapfTechnicalExpertRoutingIfNeeded(

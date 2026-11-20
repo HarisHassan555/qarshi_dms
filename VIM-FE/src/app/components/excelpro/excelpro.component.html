@@ -1,0 +1,39 @@
+<div class="excelpro-shell">
+    <div class="excelpro-toolbar">
+        <div class="excelpro-toolbar-spacer"></div>
+        <div class="mode-switch" aria-label="Editor mode">
+            <button type="button" [class.active]="mode === 'excel'" (click)="setMode('excel')">Excel</button>
+            <button type="button" [class.active]="mode === 'word'" (click)="setMode('word')">Word</button>
+        </div>
+    </div>
+
+    <div *ngIf="loadError" class="excelpro-banner excelpro-banner--error">
+        {{ loadError }}
+        <span class="excelpro-hint" *ngIf="mode === 'excel'">
+            Build GridCraft web assets and copy them to <code>src/assets/gridcraft/</code> (see <code>scripts/copy-gridcraft.ps1</code>).
+        </span>
+        <span class="excelpro-hint" *ngIf="mode === 'word'">
+            Build WordCraft web assets and copy them to <code>src/assets/wordcraft/</code> (see <code>scripts/copy-wordcraft.ps1</code>).
+        </span>
+    </div>
+
+    <div class="excelpro-frame-wrap" *ngIf="gridcraftUrl && wordcraftUrl">
+        <iframe
+            class="excelpro-frame"
+            [class.excelpro-frame--hidden]="mode !== 'excel'"
+            title="GridCraft"
+            [src]="gridcraftUrl"
+            #gridcraftFrame
+            (load)="onGridcraftLoad(gridcraftFrame)"
+        ></iframe>
+        <iframe
+            *ngFor="let frameId of [wordFrameKey]"
+            class="excelpro-frame"
+            [class.excelpro-frame--hidden]="mode !== 'word'"
+            title="WordCraft"
+            [src]="wordcraftUrl"
+            #wordcraftFrame
+            (load)="onWordcraftLoad(wordcraftFrame)"
+        ></iframe>
+    </div>
+</div>

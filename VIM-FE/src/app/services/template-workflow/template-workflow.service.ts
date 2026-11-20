@@ -523,6 +523,7 @@ export class TemplateWorkflowService {
             applicationId?: number | string | null;
             formCode?: string | null;
             submitAccess?: TemplateSubmitAccessContext;
+            initiatorChoiceSelections?: Record<string, any>;
         }
     ): Observable<{ applicationId: number; formCode: string }> {
         const normalizedValues = this.normalizeApplicationValuesForStorage(values);
@@ -530,6 +531,7 @@ export class TemplateWorkflowService {
             ...normalizedValues,
             templateValues: normalizedValues,
             footerFields: userPipeline,
+            initiatorChoiceSelections: options?.initiatorChoiceSelections || {},
             templatePayload: template.payload,
             documentHtml: String(template.payload?.html || '')
         };
@@ -568,13 +570,15 @@ export class TemplateWorkflowService {
         userPipeline: any[] = [],
         codeOverride?: string,
         applicationId?: number | string | null,
-        submitAccess?: TemplateSubmitAccessContext
+        submitAccess?: TemplateSubmitAccessContext,
+        initiatorChoiceSelections: Record<string, any> = {}
     ): Observable<TemplateSubmission> {
         const normalizedValues = this.normalizeApplicationValuesForStorage(values);
         const applicationData: Record<string, any> = {
             ...normalizedValues,
             templateValues: normalizedValues,
             footerFields: userPipeline,
+            initiatorChoiceSelections: initiatorChoiceSelections || {},
             templatePayload: template.payload,
             documentHtml: String(template.payload?.html || '')
         };
@@ -705,7 +709,7 @@ export class TemplateWorkflowService {
         values: Record<string, any>,
         templatePayload: any,
         userPipeline: any[] = [],
-        options?: { fieldChangeLogs?: any[] }
+        options?: { fieldChangeLogs?: any[]; initiatorChoiceSelections?: Record<string, any> }
     ) {
         const existingData = this.parseApplicationData(application?.txtApplicationData);
         const normalizedValues = this.normalizeApplicationValuesForStorage(values);
@@ -722,7 +726,13 @@ export class TemplateWorkflowService {
                 ...normalizedValues
             },
             footerFields: userPipeline.length > 0 ? userPipeline : (existingData.footerFields || []),
-            templatePayload,
+            initiatorChoiceSelections: options?.initiatorChoiceSelections
+                || existingData.initiatorChoiceSelections
+                || {},
+            templatePayload: this.mergeTemplatePayloadPreservingResolvedInitiatorChoice(
+                existingData.templatePayload,
+                templatePayload
+            ),
             documentHtml: String(templatePayload?.html || existingData.documentHtml || ''),
             templateFieldChangeLogs: incomingFieldChangeLogs.length > 0
                 ? [...existingFieldChangeLogs, ...incomingFieldChangeLogs]
@@ -1022,6 +1032,57 @@ export class TemplateWorkflowService {
             isDraft: false,
             visibleUserIds: Array.isArray(template?.visibilityUserIds) ? [...template.visibilityUserIds] : [],
             visibilityUserIds: Array.isArray(template?.visibilityUserIds) ? [...template.visibilityUserIds] : []
+        };
+    }
+
+    private mergeTemplatePayloadPreservingResolvedInitiatorChoice(existingPayload: any, incomingPayload: any): any {
+        if (!incomingPayload || typeof incomingPayload !== 'object') {
+            return existingPayload || incomingPayload;
+        }
+        if (!existingPayload || typeof existingPayload !== 'object') {
+            return incomingPayload;
+        }
+        const existingPipeline = Array.isArray(existingPayload.pipeline) ? existingPayload.pipeline : [];
+        const incomingPipeline = Array.isArray(incomingPayload.pipeline) ? incomingPayload.pipeline : [];
+        if (existingPipeline.length === 0 || incomingPipeline.length === 0) {
+            return {
+                ...existingPayload,
+                ...incomingPayload,
+                pipeline: incomingPipeline.length > 0 ? incomingPipeline : existingPipeline
+            };
+        }
+
+        const existingById = new Map<string, any>();
+        existingPipeline.forEach((step: any) => {
+            const id = String(step?.id || '').trim();
+            if (id) {
+                existingById.set(id, step);
+            }
+        });
+
+        const pipeline = incomingPipeline.map((incomingStep: any) => {
+            const id = String(incomingStep?.id || '').trim();
+            const existingStep = id ? existingById.get(id) : null;
+            if (!existingStep) {
+                return incomingStep;
+            }
+            const incomingType = String(incomingStep?.type || '').toLowerCase();
+            const existingType = String(existingStep?.type || '').toLowerCase();
+            const existingResolved = existingStep?.initiatorChoiceResolved === true
+                || (incomingType === 'initiator_choice'
+                    && existingType
+                    && existingType !== 'initiator_choice'
+                    && existingType !== 'initiator');
+            if (incomingType === 'initiator_choice' && existingResolved) {
+                return existingStep;
+            }
+            return incomingStep;
+        });
+
+        return {
+            ...existingPayload,
+            ...incomingPayload,
+            pipeline
         };
     }
 

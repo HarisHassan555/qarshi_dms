@@ -118,12 +118,14 @@
             <div class="inline-word-editor-toolbar-panel" *ngIf="getActiveInlineWordEditorField() as activeWordEditorField">
                 <div class="inline-word-editor-toolbar-panel-header">
                     <strong>{{ activeWordEditorField.label }}</strong>
-                    <span>Formatting toolbar for the selected editor on the form.</span>
+                    <span>Click inside the word editor on the form preview to type. Use this toolbar for formatting.</span>
                 </div>
                 <div class="inline-word-editor-toolbar-host"></div>
             </div>
-            <div class="empty-template" *ngIf="fillableFields.length === 0">No fillable fields found.</div>
-            <div class="value-field" *ngFor="let field of panelFields">
+            <div class="empty-template" *ngIf="panelFields.length === 0 && !getActiveInlineWordEditorField()">
+                No fillable fields in the side panel. Word editors are edited directly on the form preview.
+            </div>
+            <div class="value-field" *ngFor="let field of panelFields; trackBy: trackPanelFieldById">
                 <label [attr.for]="field.id">{{ field.label }}{{ isTemplateFieldRequired(field) ? ' *' : '' }}</label>
                 <textarea
                     *ngIf="field.type === 'textarea'"
@@ -132,14 +134,6 @@
                     [required]="isTemplateFieldRequired(field)"
                     (ngModelChange)="onPanelValueChanged()">
                 </textarea>
-                <ckeditor
-                    *ngIf="field.type === 'word_editor'"
-                    class="panel-word-editor"
-                    [editor]="wordEditor"
-                    [config]="wordEditorConfig"
-                    [(ngModel)]="values[field.id]"
-                    (change)="onWordEditorChanged(field, $event)">
-                </ckeditor>
                 <label *ngIf="field.type === 'checkbox'" class="panel-checkbox">
                     <input
                         type="checkbox"
@@ -249,6 +243,84 @@
                     </ng-select>
                 </div>
             </div>
+
+            <div
+                class="user-pipeline-panel initiator-choice-panel"
+                *ngIf="hasInitiatorChoiceSteps() && !builderPreviewMode"
+                data-tour="template-fill-initiator-choice">
+                <div class="user-pipeline-header">
+                    <h3>Initiator Choice Steps</h3>
+                </div>
+                <p class="initiator-choice-help">
+                    This template asks you to assign one or more approval steps. Pick the type, the assignee(s), and OR/AND logic.
+                </p>
+                <div class="user-pipeline-step" *ngFor="let selection of initiatorChoiceSelections">
+                    <div class="initiator-choice-step-title">
+                        <strong>{{ selection.stepName }}</strong>
+                    </div>
+                    <label class="initiator-choice-field">
+                        Step Type
+                        <select
+                            [(ngModel)]="selection.choiceType"
+                            (ngModelChange)="onInitiatorChoiceTypeChanged(selection)">
+                            <option value="">Select type</option>
+                            <option *ngFor="let type of initiatorChoiceTypes" [value]="type.value">{{ type.label }}</option>
+                        </select>
+                    </label>
+
+                    <label class="initiator-choice-field" *ngIf="selection.choiceType === 'department'">
+                        Department
+                        <select [(ngModel)]="selection.serDepartmentId">
+                            <option [ngValue]="null">Select department</option>
+                            <option *ngFor="let department of departments" [ngValue]="department.serDepartmentId">
+                                {{ getDepartmentDisplayName(department) }}
+                            </option>
+                        </select>
+                    </label>
+
+                    <label class="initiator-choice-field" *ngIf="selection.choiceType === 'role'">
+                        Role
+                        <select [(ngModel)]="selection.serRoleId">
+                            <option [ngValue]="null">Select role</option>
+                            <option *ngFor="let role of roles" [ngValue]="role.serRoleId">
+                                {{ getRoleDisplayName(role) }}
+                            </option>
+                        </select>
+                    </label>
+
+                    <div class="initiator-choice-field" *ngIf="selection.choiceType === 'individual'">
+                        <span>Employees</span>
+                        <ng-select
+                            [items]="allUsers"
+                            bindLabel="txtUserName"
+                            [multiple]="true"
+                            [clearable]="true"
+                            placeholder="Select employees"
+                            [(ngModel)]="selection.users">
+                        </ng-select>
+                    </div>
+
+                    <div class="approval-mode-row" *ngIf="shouldShowInitiatorChoiceApprovalMode(selection)">
+                        <span>Step Logic</span>
+                        <label class="check-row">
+                            <input
+                                type="radio"
+                                [name]="'initiatorChoiceMode_' + selection.stepId"
+                                value="OR"
+                                [(ngModel)]="selection.approvalMode" />
+                            OR
+                        </label>
+                        <label class="check-row">
+                            <input
+                                type="radio"
+                                [name]="'initiatorChoiceMode_' + selection.stepId"
+                                value="AND"
+                                [(ngModel)]="selection.approvalMode" />
+                            AND
+                        </label>
+                    </div>
+                </div>
+            </div>
         </aside>
 
         <div class="fill-stage" data-tour="template-fill-stage" (wheel)="onFillStageWheel($event)">
@@ -283,11 +355,11 @@
                 class="fill-frame"
                 [ngStyle]="fillFrameZoomTransform"
                 [style.--template-page-height]="(template.page?.height || 1123) + 'px'"
-                [style.--template-page-gap]="(template.page?.gap || 32) + 'px'">
+                [style.--template-page-gap]="(template.page?.gap || 16) + 'px'">
                 <div
                     *ngFor="let pageIndex of pageIndexes"
                     class="page-boundary"
-                    [style.top.px]="pageIndex * ((template.page?.height || 1123) + (template.page?.gap || 32))"
+                    [style.top.px]="pageIndex * ((template.page?.height || 1123) + (template.page?.gap || 16))"
                     [style.height.px]="template.page?.height || 1123">
                     <span>Page {{ pageIndex + 1 }}</span>
                 </div>
@@ -295,11 +367,11 @@
                 <div
                     *ngIf="template.background"
                     class="background-document-layer"
-                    [style.height.px]="(template.page?.count || 1) * (template.page?.height || 1123) + (((template.page?.count || 1) - 1) * (template.page?.gap || 32))">
+                    [style.height.px]="(template.page?.count || 1) * (template.page?.height || 1123) + (((template.page?.count || 1) - 1) * (template.page?.gap || 16))">
                     <div
                         *ngFor="let pageIndex of pageIndexes"
                         class="background-document-page"
-                        [style.top.px]="pageIndex * ((template.page?.height || 1123) + (template.page?.gap || 32))"
+                        [style.top.px]="pageIndex * ((template.page?.height || 1123) + (template.page?.gap || 16))"
                         [style.width.px]="template.page?.width || 794"
                         [style.height.px]="template.page?.height || 1123">
                         <img

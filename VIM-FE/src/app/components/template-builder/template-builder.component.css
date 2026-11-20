@@ -996,6 +996,34 @@
     page-break-inside: avoid;
 }
 
+/* Live WYSIWYG page-break spacer between split body-table fragments. */
+:host ::ng-deep .template-ckeditor .ck-content .template-page-break,
+:host ::ng-deep .template-ckeditor .ck-content [data-template-page-break="true"] {
+    background: transparent;
+    border: 0 !important;
+    box-shadow: none !important;
+    clear: both;
+    display: block !important;
+    margin: 0 !important;
+    max-width: none !important;
+    overflow: hidden;
+    padding: 0 !important;
+    pointer-events: none !important;
+    user-select: none;
+    width: 100% !important;
+}
+
+:host ::ng-deep .template-ckeditor .ck-content figure.table[data-table-continuation="true"],
+:host ::ng-deep .template-ckeditor .ck-content table[data-table-continuation="true"] {
+    margin-top: 0;
+}
+
+:host ::ng-deep .template-ckeditor .ck-content tr[data-table-header-clone="true"] th,
+:host ::ng-deep .template-ckeditor .ck-content tr[data-table-header-clone="true"] td {
+    background: #e2e8f0;
+    font-weight: 700;
+}
+
 :host ::ng-deep .template-ckeditor .ck-content img,
 :host ::ng-deep .template-ckeditor .ck-content figure.image {
     height: auto;
@@ -1025,6 +1053,45 @@
     font-weight: 700;
     line-height: 1.25;
     padding: 2px 6px;
+}
+
+:host ::ng-deep .template-ckeditor .ck-content .template-field.template-word-editor-body,
+.template-field.template-word-editor-body {
+    background: #eff6ff;
+    border: 1px dashed #3b82f6;
+    border-radius: 8px;
+    box-sizing: border-box;
+    clear: both;
+    color: #1e3a8a;
+    display: block;
+    margin: 12px 0;
+    max-width: 100%;
+    min-height: 140px;
+    padding: 12px 14px;
+    width: 100%;
+}
+
+:host ::ng-deep .template-ckeditor .ck-content .template-word-editor-body-label,
+.template-word-editor-body-label {
+    font-size: 13px;
+    font-weight: 700;
+    margin: 0 0 6px;
+}
+
+:host ::ng-deep .template-ckeditor .ck-content .template-word-editor-body-hint,
+.template-word-editor-body-hint {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.4;
+    margin: 0;
+}
+
+.field-add-hint {
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.4;
+    margin: 8px 0 0;
 }
 
 :host ::ng-deep .template-ckeditor .ck-content .template-field.selected,

@@ -240,7 +240,8 @@ public class TemplateDefinitionController {
             logTemplateAction("FORM_SUBMIT", request, application.getSerApplicationId(), "SUCCESS",
                     "Template application submitted successfully",
                     buildTemplateApplicationPayload(application, "FORM_SUBMIT", null), null);
-            templateWorkflowNotificationService.notifySubmitted(application, actorUserId);
+            templateWorkflowNotificationService.notifySubmitted(application, actorUserId,
+                    pendingApproverIdsForCurrentStep(application));
 
             result.put("status", "Success");
             result.put("message", "Template application submitted successfully");
@@ -824,7 +825,8 @@ public class TemplateDefinitionController {
             logTemplateAction("RESUBMIT_INITIATOR", request, application.getSerApplicationId(), "SUCCESS",
                     "Template application resubmitted by initiator",
                     buildTemplateApplicationPayload(application, "RESUBMITTED_BY_INITIATOR", remarks), null);
-            templateWorkflowNotificationService.notifyResubmitted(application, actorId, remarks);
+            templateWorkflowNotificationService.notifyResubmitted(application, actorId, remarks,
+                    pendingApproverIdsForCurrentStep(application));
             return success("Application resubmitted successfully");
         } catch (Exception ex) {
             logTemplateAction("RESUBMIT_INITIATOR", request, toInteger(requestBody.get("applicationId")), "FAILURE",
@@ -2330,7 +2332,7 @@ public class TemplateDefinitionController {
                 throw new IllegalArgumentException("serFormId is required");
             }
 
-            String payload = valueAsString(requestBody.get("txtTemplatePayload"));
+            String payload = sanitizeLatin1CompatibleText(valueAsString(requestBody.get("txtTemplatePayload")));
             if (payload == null || payload.trim().isEmpty()) {
                 throw new IllegalArgumentException("txtTemplatePayload is required");
             }
@@ -2349,7 +2351,7 @@ public class TemplateDefinitionController {
             Map<String, Object> payloadMap = parseMap(payload);
             boolean isActive = isTemplatePayloadMarkedActive(payloadMap);
 
-            definition.setTxtTemplateName(valueAsString(requestBody.get("txtTemplateName")));
+            definition.setTxtTemplateName(sanitizeLatin1CompatibleText(valueAsString(requestBody.get("txtTemplateName"))));
             definition.setTxtCodeConvention(valueAsString(requestBody.get("txtCodeConvention")));
             definition.setTxtTemplatePayload(payload);
             definition.setBlIsActive(isActive);
@@ -3239,7 +3241,20 @@ public class TemplateDefinitionController {
             }
             return footerContext;
         }
-        List<Map<String, Object>> rawSteps = asListOfMaps(templatePayload.get("pipeline"));
+        List<Map<String, Object>> originalSteps = asListOfMaps(templatePayload.get("pipeline"));
+        List<Map<String, Object>> rawSteps = rematerializeInitiatorChoiceStepsForWorkflow(
+                originalSteps, appData, application);
+        if (rawSteps != originalSteps) {
+            // Keep the application snapshot aligned with resolved initiator-choice steps.
+            templatePayload.put("pipeline", rawSteps);
+            appData.put("templatePayload", templatePayload);
+            try {
+                application.setTxtApplicationData(writeJson(appData));
+            } catch (Exception ex) {
+                logger.warn("Could not persist rematerialized initiator-choice pipeline for applicationId="
+                        + application.getSerApplicationId() + ": " + ex.getMessage());
+            }
+        }
         TemplateWorkflowContext context = new TemplateWorkflowContext();
         for (Map<String, Object> rawStep : rawSteps) {
             TemplateStep step = buildTemplateStep(rawStep, application);
@@ -3248,6 +3263,16 @@ public class TemplateDefinitionController {
             } else if (!step.approverIds.isEmpty()) {
                 step.level = context.steps.size();
                 context.steps.add(step);
+            } else if ("initiator_choice".equalsIgnoreCase(valueAsString(rawStep.get("type")))) {
+                throw new IllegalStateException(
+                        "Initiator choice step \""
+                                + firstText(rawStep.get("name"), "Initiator Choice")
+                                + "\" has no resolved assignees and cannot be skipped.");
+            } else {
+                logger.warn("Skipping template pipeline step with no resolvable approvers: id="
+                        + valueAsString(rawStep.get("id"))
+                        + ", type=" + valueAsString(rawStep.get("type"))
+                        + ", name=" + valueAsString(rawStep.get("name")));
             }
         }
         if (context.initiator == null) {
@@ -3260,6 +3285,225 @@ public class TemplateDefinitionController {
             }
         }
         return context;
+    }
+
+    /**
+     * Ensures initiator_choice steps are turned into concrete department/individual/role steps
+     * using fill-time selections before workflow routing. Prevents those steps from being
+     * silently dropped when approverIds resolve empty.
+     */
+    private List<Map<String, Object>> rematerializeInitiatorChoiceStepsForWorkflow(
+            List<Map<String, Object>> pipeline,
+            Map<String, Object> appData,
+            CfgTblCustomFormApplication application) {
+        if (pipeline == null || pipeline.isEmpty()) {
+            return pipeline != null ? pipeline : new ArrayList<>();
+        }
+        boolean hasChoice = false;
+        for (Map<String, Object> step : pipeline) {
+            if ("initiator_choice".equalsIgnoreCase(valueAsString(step.get("type")))) {
+                hasChoice = true;
+                break;
+            }
+        }
+        if (!hasChoice) {
+            return pipeline;
+        }
+
+        Map<String, Map<String, Object>> selections = extractInitiatorChoiceSelections(appData);
+        List<Map<String, Object>> resolved = new ArrayList<>(pipeline.size());
+        boolean changed = false;
+        for (Map<String, Object> step : pipeline) {
+            if (!"initiator_choice".equalsIgnoreCase(valueAsString(step.get("type")))) {
+                resolved.add(step);
+                continue;
+            }
+            String stepId = valueAsString(step.get("id"));
+            Map<String, Object> selection = stepId != null ? selections.get(stepId) : null;
+            Map<String, Object> concrete = materializeInitiatorChoiceStepForWorkflow(step, selection, application);
+            if (concrete != null) {
+                resolved.add(concrete);
+                changed = true;
+            } else {
+                resolved.add(step);
+            }
+        }
+        return changed ? resolved : pipeline;
+    }
+
+    private Map<String, Map<String, Object>> extractInitiatorChoiceSelections(Map<String, Object> appData) {
+        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+        Object raw = appData != null ? appData.get("initiatorChoiceSelections") : null;
+        if (raw instanceof Map) {
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) raw).entrySet()) {
+                String key = entry.getKey() != null ? String.valueOf(entry.getKey()).trim() : "";
+                if (key.isEmpty() || !(entry.getValue() instanceof Map)) {
+                    continue;
+                }
+                @SuppressWarnings("unchecked")
+                Map<String, Object> selection = (Map<String, Object>) entry.getValue();
+                String stepId = firstText(selection.get("stepId"), selection.get("id"), key);
+                if (stepId != null) {
+                    result.put(stepId, selection);
+                }
+            }
+            return result;
+        }
+        if (raw instanceof List) {
+            for (Map<String, Object> selection : asListOfMaps(raw)) {
+                String stepId = firstText(selection.get("stepId"), selection.get("id"));
+                if (stepId != null) {
+                    result.put(stepId, selection);
+                }
+            }
+        }
+        return result;
+    }
+
+    private Map<String, Object> materializeInitiatorChoiceStepForWorkflow(Map<String, Object> originalStep,
+                                                                          Map<String, Object> selection,
+                                                                          CfgTblCustomFormApplication application) {
+        if (selection == null || selection.isEmpty()) {
+            return null;
+        }
+        String choiceType = firstText(selection.get("choiceType"), selection.get("type"));
+        if (choiceType == null) {
+            return null;
+        }
+        choiceType = choiceType.trim().toLowerCase(Locale.ROOT);
+        String approvalMode = "AND".equalsIgnoreCase(valueAsString(selection.get("approvalMode"))) ? "AND" : "OR";
+
+        Map<String, Object> step = new LinkedHashMap<>();
+        if (originalStep != null) {
+            step.putAll(originalStep);
+        }
+        step.put("approvalMode", approvalMode);
+        step.put("initiatorChoice", true);
+        step.put("initiatorChoiceResolved", true);
+        step.put("initiatorChoiceType", choiceType);
+        step.remove("users");
+        step.remove("userIds");
+        step.remove("serUserId");
+        step.remove("userId");
+        step.remove("serDepartmentId");
+        step.remove("departmentId");
+        step.remove("hrTblDepartment");
+        step.remove("serRoleId");
+        step.remove("cfgTblRole");
+        step.remove("dynamicTarget");
+        step.remove("dynamicTargets");
+
+        String originalName = valueAsString(originalStep != null ? originalStep.get("name") : null);
+        String selectedName = valueAsString(selection.get("name"));
+
+        if ("department".equals(choiceType)) {
+            Integer departmentId = toInteger(firstObject(
+                    selection.get("serDepartmentId"),
+                    selection.get("departmentId"),
+                    nested(selection.get("hrTblDepartment"), "serDepartmentId")));
+            if (departmentId == null || departmentId <= 0) {
+                return null;
+            }
+            step.put("type", "department");
+            step.put("serDepartmentId", departmentId);
+            Map<String, Object> department = asMap(selection.get("hrTblDepartment"));
+            if (department.isEmpty()) {
+                try {
+                    com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment entity =
+                            entityManager.find(com.bezkoder.spring.login.sa.dal.entities.HrTblDepartment.class, departmentId);
+                    if (entity != null) {
+                        department = new LinkedHashMap<>();
+                        department.put("serDepartmentId", entity.getSerDepartmentId());
+                        department.put("txtDepartmentName", entity.getTxtDepartmentName());
+                    }
+                } catch (Exception ignored) {
+                    // keep empty; serDepartmentId is enough for runtime resolve
+                }
+            }
+            if (!department.isEmpty()) {
+                step.put("hrTblDepartment", department);
+            }
+            step.put("name", firstText(originalName, selectedName, valueAsString(department.get("txtDepartmentName")), "Department"));
+            return step;
+        }
+
+        if ("role".equals(choiceType)) {
+            Integer roleId = toInteger(firstObject(
+                    selection.get("serRoleId"),
+                    selection.get("roleId"),
+                    nested(selection.get("cfgTblRole"), "serRoleId")));
+            if (roleId == null || roleId <= 0) {
+                return null;
+            }
+            step.put("type", "role");
+            step.put("serRoleId", roleId);
+            Map<String, Object> role = asMap(selection.get("cfgTblRole"));
+            if (role.isEmpty()) {
+                try {
+                    CfgTblRole entity = entityManager.find(CfgTblRole.class, roleId);
+                    if (entity != null) {
+                        role = new LinkedHashMap<>();
+                        role.put("serRoleId", entity.getSerRoleId());
+                        role.put("txtRoleName", entity.getTxtRoleName());
+                    }
+                } catch (Exception ignored) {
+                    // keep empty; serRoleId is enough for runtime resolve
+                }
+            }
+            if (!role.isEmpty()) {
+                step.put("cfgTblRole", role);
+            }
+            step.put("name", firstText(originalName, selectedName, valueAsString(role.get("txtRoleName")), "Role"));
+            return step;
+        }
+
+        if ("individual".equals(choiceType)) {
+            List<Map<String, Object>> users = asListOfMaps(selection.get("users"));
+            List<Integer> userIds = new ArrayList<>();
+            List<Map<String, Object>> normalizedUsers = new ArrayList<>();
+            for (Map<String, Object> user : users) {
+                Integer userId = toInteger(firstObject(user.get("serUserId"), user.get("userId"), user.get("id")));
+                if (userId == null || userId <= 0 || userIds.contains(userId)) {
+                    continue;
+                }
+                userIds.add(userId);
+                Map<String, Object> copy = new LinkedHashMap<>(user);
+                copy.put("serUserId", userId);
+                normalizedUsers.add(copy);
+            }
+            if (normalizedUsers.isEmpty()) {
+                for (Object rawId : asList(selection.get("userIds"))) {
+                    Integer userId = toInteger(rawId);
+                    if (userId == null || userId <= 0 || userIds.contains(userId)) {
+                        continue;
+                    }
+                    userIds.add(userId);
+                    Map<String, Object> userMap = new LinkedHashMap<>();
+                    userMap.put("serUserId", userId);
+                    try {
+                        CfgTblUser entity = entityManager.find(CfgTblUser.class, userId);
+                        if (entity != null && entity.getTxtUserName() != null) {
+                            userMap.put("txtUserName", entity.getTxtUserName());
+                        }
+                    } catch (Exception ignored) {
+                        // id alone is enough
+                    }
+                    normalizedUsers.add(userMap);
+                }
+            }
+            if (normalizedUsers.isEmpty()) {
+                return null;
+            }
+            step.put("type", "individual");
+            step.put("users", normalizedUsers);
+            step.put("userIds", userIds);
+            if (userIds.size() <= 1) {
+                step.put("approvalMode", "OR");
+            }
+            step.put("name", firstText(originalName, selectedName, "Individual"));
+            return step;
+        }
+        return null;
     }
 
     private CfgTblCustomFormApplication toPendingApprovalCandidate(Object[] row) {
@@ -3749,8 +3993,10 @@ public class TemplateDefinitionController {
         if (application == null || templatePayload == null) {
             return null;
         }
+        Map<String, Object> appData = parseMap(application.getTxtApplicationData());
         List<Map<String, Object>> approvalSteps = new ArrayList<>();
-        for (Map<String, Object> rawStep : asListOfMaps(templatePayload.get("pipeline"))) {
+        for (Map<String, Object> rawStep : rematerializeInitiatorChoiceStepsForWorkflow(
+                asListOfMaps(templatePayload.get("pipeline")), appData, application)) {
             if (rawStep == null || rawStep.isEmpty()) {
                 continue;
             }
@@ -4447,7 +4693,8 @@ public class TemplateDefinitionController {
         logTemplateAction("FORM_SUBMIT", request, existing.getSerApplicationId(), "SUCCESS",
                 "Template application submitted from draft",
                 buildTemplateApplicationPayload(existing, "FORM_SUBMIT", null), null);
-        templateWorkflowNotificationService.notifySubmitted(existing, actorUserId);
+        templateWorkflowNotificationService.notifySubmitted(existing, actorUserId,
+                pendingApproverIdsForCurrentStep(existing));
 
         result.put("status", "Success");
         result.put("message", "Template application submitted successfully");
@@ -4683,7 +4930,8 @@ public class TemplateDefinitionController {
             if (key == null) {
                 continue;
             }
-            if ("templateValues".equals(key) || "footerFields".equals(key) || "templatePayload".equals(key)) {
+            if ("templateValues".equals(key) || "footerFields".equals(key) || "initiatorChoiceSelections".equals(key)
+                    || "templatePayload".equals(key)) {
                 continue;
             }
             Object value = entry.getValue();
@@ -5008,6 +5256,7 @@ public class TemplateDefinitionController {
                 }
                 if ("templateValues".equals(fieldId)
                         || "footerFields".equals(fieldId)
+                        || "initiatorChoiceSelections".equals(fieldId)
                         || "templatePayload".equals(fieldId)
                         || "templateOpinionRequest".equals(fieldId)) {
                     continue;
@@ -5820,5 +6069,52 @@ public class TemplateDefinitionController {
 
     private String valueAsString(Object value) {
         return value == null ? null : value.toString();
+    }
+
+    /**
+     * Soften characters that MySQL latin1 columns reject (e.g. em dash U+2014 / 0x97).
+     * Keeps template saves from failing when builders insert Unicode punctuation.
+     */
+    private String sanitizeLatin1CompatibleText(String value) {
+        if (value == null || value.isEmpty()) {
+            return value;
+        }
+        StringBuilder out = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            switch (ch) {
+                case '\u2014': // em dash
+                case '\u2013': // en dash
+                case '\u2212': // minus
+                    out.append('-');
+                    break;
+                case '\u2018':
+                case '\u2019':
+                case '\u201A':
+                case '\u2032':
+                    out.append('\'');
+                    break;
+                case '\u201C':
+                case '\u201D':
+                case '\u201E':
+                case '\u2033':
+                    out.append('"');
+                    break;
+                case '\u00A0':
+                    out.append(' ');
+                    break;
+                case '\u2026':
+                    out.append("...");
+                    break;
+                default:
+                    if (ch >= 0x80 && ch <= 0x9F) {
+                        // Strip C1 controls (Windows-1252 private use like 0x97).
+                        break;
+                    }
+                    out.append(ch);
+                    break;
+            }
+        }
+        return out.toString();
     }
 }

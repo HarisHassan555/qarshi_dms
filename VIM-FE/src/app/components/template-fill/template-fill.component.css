@@ -454,6 +454,46 @@
     padding-top: 14px;
 }
 
+.initiator-choice-help {
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.4;
+    margin: 0 0 12px;
+}
+
+.initiator-choice-step-title {
+    margin-bottom: 8px;
+}
+
+.initiator-choice-field {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.initiator-choice-field select {
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    min-height: 38px;
+    padding: 6px 10px;
+    width: 100%;
+}
+
+.initiator-choice-panel .approval-mode-row {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+.initiator-choice-panel .approval-mode-row .check-row {
+    align-items: center;
+    display: inline-flex;
+    gap: 6px;
+    margin: 0;
+}
+
 .user-pipeline-header {
     align-items: center;
     display: flex;
@@ -1221,27 +1261,20 @@
     font-weight: 600;
 }
 
+/* Base .document-html / table look lives in styles/document-body-content.css */
 .document-html {
-    box-sizing: border-box;
-    color: #111827;
-    font-family: Georgia, "Times New Roman", serif;
-    font-size: 14px;
-    line-height: 1.55;
-    max-width: 100%;
-    min-height: 1123px;
-    overflow-x: hidden;
-    padding: 22mm 18mm;
-    position: relative;
-    width: 100%;
-    word-break: break-word;
     z-index: 2;
 }
 
 :host ::ng-deep .document-html figure.table {
-    clear: both;
-    display: block;
-    margin: 12px 0;
-    max-width: 100%;
+    width: 100% !important;
+}
+
+:host ::ng-deep .document-html figure.table > table,
+:host ::ng-deep .document-html > table {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    width: 100% !important;
 }
 
 :host ::ng-deep .document-html img,
@@ -1422,6 +1455,41 @@
     min-height: 120px;
     padding: 0;
     width: 100%;
+}
+
+:host ::ng-deep .document-html .inline-filled-word-editor-value.document-body-word-editor {
+    box-sizing: border-box;
+    clear: both;
+    margin: 12px 0;
+    max-width: 100%;
+    min-height: 120px;
+    position: relative;
+    width: 100%;
+    z-index: 4;
+}
+
+:host ::ng-deep .document-html .document-body-word-editor .ck.ck-editor {
+    width: 100%;
+}
+
+:host ::ng-deep .document-html .document-body-word-editor .ck.ck-editor__top {
+    display: none;
+}
+
+:host ::ng-deep .document-html .document-body-word-editor .ck.ck-editor__main > .ck-editor__editable {
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid #e0e6ed;
+    border-radius: 6px;
+    box-sizing: border-box;
+    min-height: 120px;
+    overflow: visible;
+    padding: 8px 10px;
+}
+
+:host ::ng-deep .document-html .document-body-word-editor .ck.ck-editor__main > .ck-editor__editable.ck-focused {
+    border-color: #93c5fd;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
+    outline: none;
 }
 
 :host ::ng-deep .document-html .inline-filled-word-editor-value figure.table,

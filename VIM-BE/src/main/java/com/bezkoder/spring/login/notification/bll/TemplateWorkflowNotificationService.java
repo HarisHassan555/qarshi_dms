@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
@@ -150,6 +151,33 @@ public class TemplateWorkflowNotificationService {
         }
     }
 
+    public void notifySubmitted(CfgTblCustomFormApplication application, Integer actorUserId,
+            Collection<Integer> pendingApproverIds) {
+        if (application == null) {
+            return;
+        }
+        try {
+            String docLabel = documentLabel(application);
+            String status = normalizeStatus(application.getTxtStatus());
+            Integer initiatorId = application.getSerSubmittedBy();
+
+            if (initiatorId != null && initiatorId > 0) {
+                String title = "COMPLETED".equals(status) ? "Document completed" : "Document submitted";
+                String message = "COMPLETED".equals(status)
+                        ? docLabel + " was submitted and completed (no approval steps required)."
+                        : docLabel + " was submitted successfully.";
+                String eventType = "COMPLETED".equals(status) ? "COMPLETED" : "SUBMITTED";
+                send(initiatorId, application, eventType, title, message, deepLinkForInitiator(application), actorUserId);
+            }
+
+            notifyPendingApprovers(application, actorUserId, pendingApproverIds,
+                    docLabel + " is pending your approval.");
+        } catch (Exception ex) {
+            logger.warn("Template submit notification failed for applicationId="
+                    + application.getSerApplicationId() + ": " + ex.getMessage(), ex);
+        }
+    }
+
     public void notifyResubmitted(CfgTblCustomFormApplication application, Integer actorUserId, String remarks) {
         if (application == null) {
             return;
@@ -166,6 +194,29 @@ public class TemplateWorkflowNotificationService {
             String pendingMessage = docLabel + " was resubmitted and is pending your approval.";
             pendingMessage = appendRemarks(pendingMessage, remarks);
             notifyCurrentApproverPending(application, actorUserId, pendingMessage);
+        } catch (Exception ex) {
+            logger.warn("Template resubmit notification failed for applicationId="
+                    + application.getSerApplicationId() + ": " + ex.getMessage(), ex);
+        }
+    }
+
+    public void notifyResubmitted(CfgTblCustomFormApplication application, Integer actorUserId, String remarks,
+            Collection<Integer> pendingApproverIds) {
+        if (application == null) {
+            return;
+        }
+        try {
+            String docLabel = documentLabel(application);
+            Integer initiatorId = application.getSerSubmittedBy();
+            if (initiatorId != null && initiatorId > 0) {
+                String message = docLabel + " was resubmitted by the initiator.";
+                message = appendRemarks(message, remarks);
+                send(initiatorId, application, "RESUBMITTED", "Document resubmitted", message,
+                        deepLinkForInitiator(application), actorUserId);
+            }
+            String pendingMessage = docLabel + " was resubmitted and is pending your approval.";
+            pendingMessage = appendRemarks(pendingMessage, remarks);
+            notifyPendingApprovers(application, actorUserId, pendingApproverIds, pendingMessage);
         } catch (Exception ex) {
             logger.warn("Template resubmit notification failed for applicationId="
                     + application.getSerApplicationId() + ": " + ex.getMessage(), ex);
@@ -312,16 +363,41 @@ public class TemplateWorkflowNotificationService {
         if (application == null) {
             return;
         }
+        Set<Integer> pendingIds = new LinkedHashSet<>();
+        if (application.getSerCurrentApprover() != null && application.getSerCurrentApprover() > 0) {
+            pendingIds.add(application.getSerCurrentApprover());
+        }
+        notifyPendingApprovers(application, actorUserId, pendingIds, message);
+    }
+
+    private void notifyPendingApprovers(CfgTblCustomFormApplication application, Integer actorUserId,
+            Collection<Integer> pendingApproverIds, String message) {
+        if (application == null) {
+            return;
+        }
         String status = normalizeStatus(application.getTxtStatus());
         if (!"IN_PROGRESS".equals(status) && !"PENDING".equals(status)) {
             return;
         }
-        Integer approverId = application.getSerCurrentApprover();
-        if (approverId == null || approverId <= 0 || approverId.equals(actorUserId)) {
-            return;
+        Set<Integer> recipientIds = new LinkedHashSet<>();
+        if (pendingApproverIds != null) {
+            for (Integer pendingId : pendingApproverIds) {
+                if (pendingId != null && pendingId > 0) {
+                    recipientIds.add(pendingId);
+                }
+            }
         }
-        send(approverId, application, "APPROVAL_PENDING", "Approval pending", message,
-                deepLinkForApprover(application), actorUserId);
+        if (recipientIds.isEmpty() && application.getSerCurrentApprover() != null
+                && application.getSerCurrentApprover() > 0) {
+            recipientIds.add(application.getSerCurrentApprover());
+        }
+        for (Integer approverId : recipientIds) {
+            if (approverId.equals(actorUserId)) {
+                continue;
+            }
+            send(approverId, application, "APPROVAL_PENDING", "Approval pending", message,
+                    deepLinkForApprover(application), actorUserId);
+        }
     }
 
     private String appendRemarks(String message, String remarks) {

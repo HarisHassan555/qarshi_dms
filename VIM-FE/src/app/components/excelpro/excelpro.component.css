@@ -1,0 +1,95 @@
+/* Full-height sheet workspace inside VIM content area */
+.excelpro-shell {
+    --excelpro-accent: #2f6fed;
+    --excelpro-border: #d8e0ea;
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 5.5rem);
+    min-height: 32rem;
+    margin: -1.5rem -1.5rem -1.5rem;
+}
+
+.excelpro-toolbar {
+    align-items: center;
+    display: flex;
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    padding: 8px 12px;
+    background: #ffffff;
+    border-bottom: 1px solid var(--excelpro-border);
+}
+
+.excelpro-toolbar-spacer {
+    flex: 1 1 auto;
+}
+
+.mode-switch {
+    background: #eef2f7;
+    border: 1px solid var(--excelpro-border);
+    border-radius: 6px;
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+}
+
+.mode-switch button {
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: #4b5563;
+    cursor: pointer;
+    font-size: 13px;
+    min-height: 32px;
+    padding: 0 14px;
+}
+
+.mode-switch button.active {
+    background: var(--excelpro-accent);
+    color: #ffffff;
+}
+
+.excelpro-banner {
+    flex: 0 0 auto;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.75rem;
+    color: #b91c1c;
+    background: #fef2f2;
+    border-bottom: 1px solid #fecaca;
+}
+
+.excelpro-hint {
+    display: block;
+    margin-top: 0.25rem;
+    color: #64748b;
+    font-size: 0.7rem;
+}
+
+/*
+ * Crop only GridCraft's title bar (AutoSave, Save, Book title, Share, …).
+ * Extra ribbon tabs (Insert, Draw, …) are removed in the embed WASM build (host=parent).
+ * After copying a fresh build, set --excelpro-title-crop: 0 (title bar is hidden in embed mode).
+ */
+.excelpro-frame-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    position: relative;
+    background: #ffffff;
+}
+
+.excelpro-frame {
+    position: absolute;
+    left: 0;
+    right: 0;
+    width: 100%;
+    border: 0;
+    --excelpro-title-crop: 0px;
+    top: calc(-1 * var(--excelpro-title-crop));
+    height: calc(100% + var(--excelpro-title-crop));
+}
+
+.excelpro-frame--hidden {
+    visibility: hidden;
+    pointer-events: none;
+    z-index: -1;
+}

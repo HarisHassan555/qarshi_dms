@@ -474,6 +474,17 @@ export class WorkflowPipelinesComponent implements OnInit, OnDestroy {
         const approvalMode = this.stepApprovalMode || 'OR';
         const emptyPermissions: unknown[] = [];
 
+        if (this.stepType === 'initiator_choice') {
+            return {
+                id,
+                name: name || 'Initiator Choice',
+                type: 'initiator_choice',
+                approvalMode: 'OR',
+                fieldPermissions: emptyPermissions,
+                fieldPermissionsConfigured: true,
+            };
+        }
+
         if (this.stepType === 'department') {
             if (Number(this.stepDepartmentId) === this.selfHodDepartmentId) {
                 return {
@@ -629,6 +640,9 @@ export class WorkflowPipelinesComponent implements OnInit, OnDestroy {
     }
 
     showStepApprovalMode(): boolean {
+        if (this.stepType === 'initiator_choice') {
+            return false;
+        }
         return this.stepType !== 'individual' || this.stepSelectedUserIds.length > 1;
     }
 

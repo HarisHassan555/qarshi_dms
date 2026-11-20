@@ -225,6 +225,10 @@
                         </div>
                     </div>
 
+                    <p class="text-xs text-gray-500" *ngIf="stepType === 'initiator_choice'">
+                        Assignees are not fixed here. When filling the form, the initiator chooses department, individual, or role and OR/AND logic. Field rights are set on the template.
+                    </p>
+
                     <div *ngIf="stepType === 'department'">
                         <label class="block mb-1 text-sm">Department</label>
                         <select class="form-select" [(ngModel)]="stepDepartmentId" [ngModelOptions]="{ standalone: true }">

@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Expense Claim — Fill Form 625 | Velocity DMS</title>
+    <style>
+        :root {
+            --bg-app: #f1f5f9;
+            --bg-panel: #ffffff;
+            --border: #e2e8f0;
+            --border-input: #cbd5e1;
+            --text: #172033;
+            --text-muted: #64748b;
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --stage: #dbe3ef;
+            --radius: 8px;
+            --shadow-page: 0 16px 40px rgba(15, 23, 42, 0.12);
+            --sidebar-width: 300px;
+            --page-w: 794px;
+            --page-h: 1123px;
+        }
+
+        * { box-sizing: border-box; }
+
+        .is-hidden { display: none !important; }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+            background: var(--bg-app);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* —— App chrome (mockup top bar) —— */
+        .app-chrome {
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            padding: 0 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 56px;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .chrome-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            min-width: 0;
+        }
+
+        .chrome-logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 700;
+            font-size: 18px;
+            color: #b91c1c;
+        }
+
+        .chrome-logo img {
+            height: 36px;
+            width: auto;
+        }
+
+        .breadcrumbs {
+            font-size: 13px;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .breadcrumbs strong { color: var(--text); font-weight: 600; }
+
+        .chrome-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 12px;
+            color: var(--text-muted);
+            flex-wrap: wrap;
+        }
+
+        .chip {
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 4px 10px;
+            background: #f8fafc;
+        }
+
+        .icon-btn {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+            background: #fff;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+        }
+
+        /* —— Page shell —— */
+        .page-wrap {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 16px 20px 48px;
+        }
+
+        .fill-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .fill-header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .fill-header p {
+            margin: 4px 0 0;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            border: 1px solid var(--border-input);
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 700;
+            min-height: 34px;
+            padding: 8px 14px;
+            font-size: 13px;
+            font-family: inherit;
+        }
+
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .btn-outline { background: #fff; color: var(--text); }
+
+        .btn-primary {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #fff;
+        }
+
+        .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+
+        .toast {
+            display: none;
+            background: #ecfdf5;
+            border: 1px solid #86efac;
+            border-radius: var(--radius);
+            color: #14532d;
+            padding: 12px 14px;
+            margin-bottom: 16px;
+            font-size: 13px;
+        }
+
+        .toast.is-visible { display: block; }
+
+        /* —— Workspace —— */
+        .fill-workspace {
+            display: grid;
+            grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+            gap: 16px;
+            align-items: start;
+        }
+
+        @media (max-width: 1100px) {
+            .fill-workspace { grid-template-columns: 1fr; }
+        }
+
+        .fill-values-panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px;
+            max-height: calc(100vh - 140px);
+            overflow-y: auto;
+            position: sticky;
+            top: 12px;
+        }
+
+        .fill-values-panel h2 {
+            margin: 0 0 14px;
+            font-size: 16px;
+        }
+
+        .value-field {
+            border-top: 1px solid var(--border);
+            padding: 12px 0;
+        }
+
+        .value-field:first-of-type { border-top: 0; padding-top: 0; }
+
+        .value-field.is-hidden { display: none; }
+
+        .value-field label {
+            display: block;
+            font-size: 12px;
+            font-weight: 700;
+            color: #475569;
+            margin-bottom: 6px;
+        }
+
+        .value-field input[type="text"],
+        .value-field input[type="date"],
+        .value-field select {
+            width: 100%;
+            border: 1px solid var(--border-input);
+            border-radius: 6px;
+            padding: 8px 9px;
+            font-size: 13px;
+            font-family: inherit;
+        }
+
+        .field-hint {
+            margin-top: 4px;
+            font-size: 11px;
+            color: var(--text-muted);
+            line-height: 1.35;
+        }
+
+        .field-hint.is-success { color: #15803d; }
+
+        .panel-radio-group { display: grid; gap: 8px; }
+
+        .panel-radio-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 9px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .panel-radio-option input { margin: 0; }
+
+        .section-divider {
+            margin: 14px 0 10px;
+            padding-top: 14px;
+            border-top: 1px dashed var(--border);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #6366f1;
+        }
+
+        /* —— Preview stage —— */
+        .fill-stage {
+            background: var(--stage);
+            border: 1px solid var(--border-input);
+            border-radius: var(--radius);
+            overflow: hidden;
+            min-height: 520px;
+        }
+
+        .preview-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 14px;
+            background: rgba(255, 255, 255, 0.65);
+            border-bottom: 1px solid var(--border-input);
+            flex-wrap: wrap;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .zoom-controls {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .zoom-controls button {
+            width: 28px;
+            height: 28px;
+            border: 1px solid var(--border-input);
+            border-radius: 6px;
+            background: #fff;
+            cursor: pointer;
+            font-weight: 700;
+        }
+
+        .zoom-label {
+            min-width: 44px;
+            text-align: center;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .preview-scroll {
+            overflow: auto;
+            padding: 24px;
+            max-height: calc(100vh - 200px);
+        }
+
+        .preview-scale-wrap {
+            transform-origin: top center;
+            margin: 0 auto;
+            width: fit-content;
+        }
+
+        .fill-frame {
+            width: var(--page-w);
+            min-height: var(--page-h);
+            background: #fff;
+            box-shadow: var(--shadow-page);
+            position: relative;
+        }
+
+        /* —— Expense slip (document) —— */
+        .ec-slip {
+            font-family: Helvetica, Arial, sans-serif;
+            color: #000;
+            padding: 18px 20px 28px;
+            min-height: var(--page-h);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .ec-slip-title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 14px;
+        }
+
+        .ec-slip-title {
+            margin: 0;
+            font-size: 17px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        .ec-slip-title-rule {
+            border-bottom: 1px solid #000;
+            margin-top: 6px;
+        }
+
+        .ec-slip-logo { width: 52px; height: auto; }
+
+        .ec-slip-meta-rows { margin: 12px 0 10px; font-size: 11px; }
+
+        .ec-slip-meta-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px 32px;
+            margin-bottom: 6px;
+        }
+
+        .ec-slip-field {
+            display: flex;
+            align-items: flex-end;
+            gap: 8px;
+            min-width: 0;
+            padding: 4px 10px;
+        }
+
+        .ec-slip-label {
+            flex-shrink: 0;
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 9px;
+        }
+
+        .ec-slip-value {
+            flex: 1;
+            min-height: 1.15em;
+            border-bottom: 1px solid #000;
+            font-size: 11px;
+            padding: 0 2px 2px;
+            word-break: break-word;
+        }
+
+        .expense-claim-preview-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10px;
+        }
+
+        .expense-claim-preview-table th,
+        .expense-claim-preview-table td {
+            border: 1px solid #000;
+            padding: 4px 5px;
+            vertical-align: top;
+        }
+
+        .expense-claim-preview-table th {
+            background: #e8e8e8;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .ec-col-sn { width: 36px; }
+        .ec-col-amt { width: 72px; }
+
+        .ec-total-row td { font-weight: 700; }
+        .ec-total-label { text-align: right; padding-right: 8px; }
+
+        .ec-slip-footer-box {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            border: 1px solid #000;
+            margin-top: 16px;
+            font-size: 9px;
+        }
+
+        .ec-slip-footer-cell {
+            border-right: 1px solid #000;
+            padding: 6px 8px;
+            min-height: 44px;
+        }
+
+        .ec-slip-footer-cell:last-child { border-right: none; }
+
+        .ec-slip-footer-key { font-weight: 700; }
+
+        .ec-slip-footer-meta {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 10px;
+        }
+
+        .sig-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 14px;
+            font-size: 9px;
+        }
+
+        .sig-block label {
+            display: block;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .sig-line {
+            border-bottom: 1px solid #000;
+            min-height: 28px;
+        }
+
+        .page-badge {
+            position: absolute;
+            left: -68px;
+            top: 8px;
+            background: var(--stage);
+            color: var(--primary);
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 6px;
+        }
+
+        .site-footer {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 12px 20px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .back-top {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+            background: #fff;
+            cursor: pointer;
+        }
+
+        /* SAP payload drawer */
+        .modal-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .modal-backdrop.is-open { display: flex; }
+
+        .modal {
+            background: #fff;
+            border-radius: 12px;
+            max-width: 640px;
+            width: 100%;
+            max-height: 80vh;
+            overflow: auto;
+            padding: 18px;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
+        }
+
+        .modal header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .modal pre {
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            overflow: auto;
+        }
+    </style>
+</head>
+<body>
+    <header class="app-chrome">
+        <div class="chrome-left">
+            <div class="chrome-logo">
+                <img src="assets/images/qarshi-logo.png" alt="Qarshi" onerror="this.style.display='none'" />
+                <span>Qarshi</span>
+            </div>
+            <nav class="breadcrumbs" aria-label="Breadcrumb">
+                Home / Velocity / Fill Form / <strong>Form 625</strong>
+            </nav>
+        </div>
+        <div class="chrome-right">
+            <span class="chip">27°C · Clear</span>
+            <span id="clock"></span>
+            <button type="button" class="btn btn-outline" style="min-height:30px;padding:6px 10px;">Digital Walkthrough</button>
+            <button type="button" class="icon-btn" title="Notifications" aria-label="Notifications">🔔</button>
+            <button type="button" class="icon-btn" title="Search" aria-label="Search">⌕</button>
+            <button type="button" class="icon-btn" title="Profile" aria-label="Profile">👤</button>
+        </div>
+    </header>
+
+    <main class="page-wrap" id="top">
+        <div class="fill-header">
+            <div>
+                <h1>Expense Claim</h1>
+                <p>Fill the mapped fields on the saved template. <span>Code: TPL-0000</span></p>
+            </div>
+            <div class="header-actions">
+                <button type="button" class="btn btn-outline" id="btn-sap-payload">{ } Live SAP Payload</button>
+                <button type="button" class="btn btn-outline" id="btn-save-draft">Save as Draft</button>
+                <button type="button" class="btn btn-primary" id="btn-submit">Submit</button>
+            </div>
+        </div>
+
+        <div class="toast" id="toast" role="status"></div>
+
+        <div class="fill-workspace">
+            <aside class="fill-values-panel" aria-label="Fields">
+                <h2>Fields</h2>
+
+                <div class="value-field" data-field-id="vendorCode">
+                    <label for="vendorCode">Vendor Code</label>
+                    <input type="text" id="vendorCode" name="vendorCode" autocomplete="off" placeholder="e.g. V10294" />
+                    <p class="field-hint" id="vendorCodeHint">Maps to SAP LIFNR on the claim payload.</p>
+                </div>
+
+                <div class="value-field" data-field-id="paymentMode">
+                    <label>Radio</label>
+                    <div class="panel-radio-group" role="radiogroup" aria-label="Payment mode">
+                        <label class="panel-radio-option">
+                            <input type="radio" name="paymentMode" value="Cash" checked />
+                            <span>Cash</span>
+                        </label>
+                        <label class="panel-radio-option">
+                            <input type="radio" name="paymentMode" value="Online" />
+                            <span>Online</span>
+                        </label>
+                    </div>
+                </div>
+
+                <p class="section-divider">SAP posting (conditional)</p>
+
+                <div class="value-field" data-field-id="gl" data-show-when="paymentMode=Cash">
+                    <label for="gl">GL</label>
+                    <input type="text" id="gl" name="gl" placeholder="G/L account" />
+                    <p class="field-hint">Visible when payment mode is Cash (FI document line).</p>
+                </div>
+
+                <div class="value-field" data-field-id="costCenter" data-show-when="paymentMode=Cash">
+                    <label for="costCenter">Cost Center</label>
+                    <input type="text" id="costCenter" name="costCenter" placeholder="KOSTL" />
+                </div>
+
+                <div class="value-field is-hidden" data-field-id="onlineTxnId" data-show-when="paymentMode=Online">
+                    <label for="onlineTxnId">Online Transaction ID</label>
+                    <input type="text" id="onlineTxnId" name="onlineTxnId" placeholder="Bank reference / UTR" />
+                    <p class="field-hint">Visible when payment mode is Online.</p>
+                </div>
+
+                <div class="value-field is-hidden" data-field-id="beneficiaryBank" data-show-when="paymentMode=Online">
+                    <label for="beneficiaryBank">Beneficiary Bank</label>
+                    <input type="text" id="beneficiaryBank" name="beneficiaryBank" placeholder="House bank / partner bank" />
+                </div>
+
+                <div class="value-field" data-field-id="accountHead">
+                    <label for="accountHead">Account Head</label>
+                    <input type="text" id="accountHead" name="accountHead" />
+                </div>
+
+                <div class="value-field" data-field-id="approvedBudget">
+                    <label for="approvedBudget">Approved Budget</label>
+                    <input type="text" id="approvedBudget" name="approvedBudget" />
+                </div>
+
+                <div class="value-field" data-field-id="budgetPeriod">
+                    <label for="budgetPeriod">Budget Period</label>
+                    <input type="text" id="budgetPeriod" name="budgetPeriod" placeholder="e.g. FY2025-Q4" />
+                </div>
+
+                <div class="value-field" data-field-id="claimDate">
+                    <label for="claimDate">Claim Date</label>
+                    <input type="date" id="claimDate" name="claimDate" />
+                </div>
+            </aside>
+
+            <section class="fill-stage" aria-label="Document preview">
+                <div class="preview-toolbar">
+                    <div class="zoom-controls">
+                        <span style="font-weight:600;color:#334155;margin-right:6px;">Preview zoom</span>
+                        <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+                        <span class="zoom-label" id="zoom-label">90%</span>
+                        <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+                    </div>
+                    <span><strong>Page 1</strong></span>
+                    <span>Ctrl + scroll to zoom</span>
+                </div>
+                <div class="preview-scroll" id="preview-scroll">
+                    <div class="preview-scale-wrap" id="preview-scale-wrap">
+                        <div class="fill-frame">
+                            <span class="page-badge">Page 1</span>
+                            <article class="ec-slip" id="slip-preview">
+                                <div class="ec-slip-top">
+                                    <div class="ec-slip-title-row">
+                                        <h2 class="ec-slip-title">Expense Claim Slip</h2>
+                                        <img class="ec-slip-logo" src="assets/images/qarshi-logo.png" alt="" onerror="this.alt='Qarshi'" />
+                                    </div>
+                                    <div class="ec-slip-title-rule" aria-hidden="true"></div>
+                                </div>
+
+                                <div class="ec-slip-meta-rows">
+                                    <div class="ec-slip-meta-row">
+                                        <div class="ec-slip-field">
+                                            <span class="ec-slip-label">ACCOUNT HEAD:</span>
+                                            <span class="ec-slip-value" data-preview="accountHead"></span>
+                                        </div>
+                                        <div class="ec-slip-field">
+                                            <span class="ec-slip-label">DATED:</span>
+                                            <span class="ec-slip-value" data-preview="claimDate"></span>
+                                        </div>
+                                    </div>
+                                    <div class="ec-slip-meta-row">
+                                        <div class="ec-slip-field">
+                                            <span class="ec-slip-label">APPROVED BUDGET HEAD:</span>
+                                            <span class="ec-slip-value" data-preview="approvedBudget"></span>
+                                        </div>
+                                        <div class="ec-slip-field">
+                                            <span class="ec-slip-label">BUDGET PERIOD:</span>
+                                            <span class="ec-slip-value" data-preview="budgetPeriod"></span>
+                                        </div>
+                                    </div>
+                                    <div class="ec-slip-meta-row">
+                                        <div class="ec-slip-field">
+                                            <span class="ec-slip-label">VENDOR CODE:</span>
+                                            <span class="ec-slip-value" data-preview="vendorCode"></span>
+                                        </div>
+                                        <div class="ec-slip-field">
+                                            <span class="ec-slip-label">PAYMENT MODE:</span>
+                                            <span class="ec-slip-value" data-preview="paymentMode"></span>
+                                        </div>
+                                    </div>
+                                    <div class="ec-slip-meta-row" id="preview-cash-row">
+                                        <div class="ec-slip-field">
+                                            <span class="ec-slip-label">GL:</span>
+                                            <span class="ec-slip-value" data-preview="gl"></span>
+                                        </div>
+                                        <div class="ec-slip-field">
+                                            <span class="ec-slip-label">COST CENTER:</span>
+                                            <span class="ec-slip-value" data-preview="costCenter"></span>
+                                        </div>
+                                    </div>
+                                    <div class="ec-slip-meta-row is-hidden" id="preview-online-row">
+                                        <div class="ec-slip-field">
+                                            <span class="ec-slip-label">ONLINE TXN ID:</span>
+                                            <span class="ec-slip-value" data-preview="onlineTxnId"></span>
+                                        </div>
+                                        <div class="ec-slip-field">
+                                            <span class="ec-slip-label">BENEFICIARY BANK:</span>
+                                            <span class="ec-slip-value" data-preview="beneficiaryBank"></span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <table class="expense-claim-preview-table">
+                                    <thead>
+                                        <tr>
+                                            <th rowspan="2" class="ec-col-sn">S. NO.</th>
+                                            <th rowspan="2">DESCRIPTION</th>
+                                            <th colspan="2">EXPENSE CHARGED TO DEPARTMENT</th>
+                                            <th rowspan="2" class="ec-col-amt">AMOUNT</th>
+                                        </tr>
+                                        <tr>
+                                            <th>DEPTT. NAME</th>
+                                            <th>SIGN.</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="line-rows"></tbody>
+                                    <tfoot>
+                                        <tr class="ec-total-row">
+                                            <td colspan="4" class="ec-total-label">TOTAL</td>
+                                            <td class="text-right" id="line-total">0</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+
+                                <div class="sig-grid">
+                                    <div class="sig-block">
+                                        <label>Signature</label>
+                                        <div class="sig-line"></div>
+                                        <label style="margin-top:8px;">Name</label>
+                                        <div class="sig-line"></div>
+                                        <label style="margin-top:8px;">Address</label>
+                                        <div class="sig-line"></div>
+                                    </div>
+                                    <div class="sig-block">
+                                        <label>Verified by Division Head</label>
+                                        <div class="sig-line"></div>
+                                        <label style="margin-top:8px;">Approved by Finance Div.</label>
+                                        <div class="sig-line"></div>
+                                    </div>
+                                </div>
+
+                                <div class="ec-slip-footer-box">
+                                    <div class="ec-slip-footer-cell">
+                                        <div class="ec-slip-footer-key">Version:</div>
+                                        <div>1</div>
+                                    </div>
+                                    <div class="ec-slip-footer-cell">
+                                        <div class="ec-slip-footer-key">Published date:</div>
+                                        <div>25.11.2022</div>
+                                    </div>
+                                    <div class="ec-slip-footer-cell">
+                                        <div class="ec-slip-footer-key">Number:</div>
+                                        <div>FIN-BKP-FM-07</div>
+                                    </div>
+                                </div>
+                                <div class="ec-slip-footer-meta">
+                                    <span>ID: 5778</span>
+                                    <span>Page 1 of 1</span>
+                                </div>
+                            </article>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer class="site-footer">
+        <span>© 2026. DataSphere Global All rights reserved.</span>
+        <button type="button" class="back-top" id="back-top" title="Back to top">↑</button>
+    </footer>
+
+    <div class="modal-backdrop" id="sap-modal" role="dialog" aria-modal="true" aria-labelledby="sap-modal-title">
+        <div class="modal">
+            <header>
+                <h2 id="sap-modal-title" style="margin:0;font-size:18px;">Live SAP Payload</h2>
+                <button type="button" class="btn btn-outline" id="sap-modal-close">Close</button>
+            </header>
+            <pre id="sap-payload-json"></pre>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            /** Conditional visibility rules (same behavior as Gemini share prototype). */
+            const CONDITIONAL_RULES = [
+                { field: 'gl', showWhen: { paymentMode: 'Cash' } },
+                { field: 'costCenter', showWhen: { paymentMode: 'Cash' } },
+                { field: 'onlineTxnId', showWhen: { paymentMode: 'Online' } },
+                { field: 'beneficiaryBank', showWhen: { paymentMode: 'Online' } }
+            ];
+
+            const LINE_COUNT = 8;
+            const state = {
+                zoom: 0.9,
+                lines: Array.from({ length: LINE_COUNT }, () => ({ description: '', deptName: '', sign: '', amount: '' }))
+            };
+
+            const els = {
+                toast: document.getElementById('toast'),
+                clock: document.getElementById('clock'),
+                previewScale: document.getElementById('preview-scale-wrap'),
+                zoomLabel: document.getElementById('zoom-label'),
+                previewScroll: document.getElementById('preview-scroll'),
+                lineRows: document.getElementById('line-rows'),
+                lineTotal: document.getElementById('line-total'),
+                previewCashRow: document.getElementById('preview-cash-row'),
+                previewOnlineRow: document.getElementById('preview-online-row'),
+                vendorHint: document.getElementById('vendorCodeHint'),
+                sapModal: document.getElementById('sap-modal'),
+                sapPayload: document.getElementById('sap-payload-json')
+            };
+
+            const inputs = {
+                vendorCode: document.getElementById('vendorCode'),
+                accountHead: document.getElementById('accountHead'),
+                approvedBudget: document.getElementById('approvedBudget'),
+                budgetPeriod: document.getElementById('budgetPeriod'),
+                claimDate: document.getElementById('claimDate'),
+                gl: document.getElementById('gl'),
+                costCenter: document.getElementById('costCenter'),
+                onlineTxnId: document.getElementById('onlineTxnId'),
+                beneficiaryBank: document.getElementById('beneficiaryBank')
+            };
+
+            function todayIso() {
+                const d = new Date();
+                const pad = (n) => String(n).padStart(2, '0');
+                return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+            }
+
+            function formatDisplayDate(iso) {
+                if (!iso) return '';
+                const parts = iso.split('-');
+                if (parts.length !== 3) return iso;
+                return parts[1] + '/' + parts[2] + '/' + parts[0];
+            }
+
+            function getPaymentMode() {
+                const checked = document.querySelector('input[name="paymentMode"]:checked');
+                return checked ? checked.value : 'Cash';
+            }
+
+            function readFormValues() {
+                return {
+                    vendorCode: inputs.vendorCode.value.trim(),
+                    paymentMode: getPaymentMode(),
+                    gl: inputs.gl.value.trim(),
+                    costCenter: inputs.costCenter.value.trim(),
+                    onlineTxnId: inputs.onlineTxnId.value.trim(),
+                    beneficiaryBank: inputs.beneficiaryBank.value.trim(),
+                    accountHead: inputs.accountHead.value.trim(),
+                    approvedBudget: inputs.approvedBudget.value.trim(),
+                    budgetPeriod: inputs.budgetPeriod.value.trim(),
+                    claimDate: inputs.claimDate.value || todayIso(),
+                    lines: state.lines.map((row, index) => ({
+                        sno: index + 1,
+                        ...row
+                    }))
+                };
+            }
+
+            function applyConditionalVisibility() {
+                const values = readFormValues();
+                CONDITIONAL_RULES.forEach((rule) => {
+                    const panel = document.querySelector('.value-field[data-field-id="' + rule.field + '"]');
+                    if (!panel) return;
+                    const visible = Object.entries(rule.showWhen).every(([key, expected]) => {
+                        if (key === 'paymentMode') return values.paymentMode === expected;
+                        return values[key] === expected;
+                    });
+                    panel.classList.toggle('is-hidden', !visible);
+                });
+
+                const isCash = values.paymentMode === 'Cash';
+                els.previewCashRow.classList.toggle('is-hidden', !isCash);
+                els.previewOnlineRow.classList.toggle('is-hidden', isCash);
+            }
+
+            function resolveVendorHint(code) {
+                if (!code) {
+                    els.vendorHint.textContent = 'Maps to SAP LIFNR on the claim payload.';
+                    els.vendorHint.classList.remove('is-success');
+                    return;
+                }
+                const lifnr = code.startsWith('V') ? code : 'V' + code.replace(/^0+/, '');
+                els.vendorHint.textContent = 'Linked LIFNR ' + lifnr + ' (Staff Payable Subledger).';
+                els.vendorHint.classList.add('is-success');
+            }
+
+            function syncPreviewFields() {
+                const values = readFormValues();
+                document.querySelectorAll('[data-preview]').forEach((node) => {
+                    const key = node.getAttribute('data-preview');
+                    if (key === 'claimDate') {
+                        node.textContent = formatDisplayDate(values.claimDate);
+                        return;
+                    }
+                    node.textContent = values[key] || '';
+                });
+                applyConditionalVisibility();
+            }
+
+            function parseAmount(raw) {
+                const n = parseFloat(String(raw || '').replace(/,/g, ''));
+                return Number.isFinite(n) ? n : 0;
+            }
+
+            function renderLineRows() {
+                els.lineRows.innerHTML = '';
+                let total = 0;
+                state.lines.forEach((row, index) => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML =
+                        '<td class="text-center">' + (index + 1) + '</td>' +
+                        '<td><input type="text" data-line="' + index + '" data-col="description" value="' + escapeAttr(row.description) + '" style="width:100%;border:0;font:inherit;font-size:10px;" /></td>' +
+                        '<td><input type="text" data-line="' + index + '" data-col="deptName" value="' + escapeAttr(row.deptName) + '" style="width:100%;border:0;font:inherit;font-size:10px;" /></td>' +
+                        '<td><input type="text" data-line="' + index + '" data-col="sign" value="' + escapeAttr(row.sign) + '" style="width:100%;border:0;font:inherit;font-size:10px;" /></td>' +
+                        '<td><input type="text" data-line="' + index + '" data-col="amount" value="' + escapeAttr(row.amount) + '" style="width:100%;border:0;font:inherit;font-size:10px;text-align:right;" /></td>';
+                    els.lineRows.appendChild(tr);
+                    total += parseAmount(row.amount);
+                });
+                els.lineTotal.textContent = total ? total.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '';
+            }
+
+            function escapeAttr(value) {
+                return String(value || '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/</g, '&lt;');
+            }
+
+            function buildSapPayload() {
+                const v = readFormValues();
+                const payload = {
+                    COMP_CODE: '1000',
+                    CAJO: 'CJ01',
+                    CURR: 'PKR',
+                    DOC_TYPE: 'KR',
+                    LIFNR: v.vendorCode.startsWith('V') ? v.vendorCode : (v.vendorCode ? 'V' + v.vendorCode : ''),
+                    DOC_DATE: v.claimDate,
+                    PSTNG_DATE: v.claimDate,
+                    PAYMENT_MODE: v.paymentMode,
+                    ACCOUNT_HEAD: v.accountHead,
+                    APPROVED_BUDGET: v.approvedBudget,
+                    BUDGET_PERIOD: v.budgetPeriod,
+                    ITEMS: v.lines.filter((row) => row.description || row.amount).map((row) => ({
+                        DESCRIPTION: row.description,
+                        DEPT: row.deptName,
+                        AMOUNT: parseAmount(row.amount),
+                        GL: v.paymentMode === 'Cash' ? v.gl : undefined,
+                        KOSTL: v.paymentMode === 'Cash' ? v.costCenter : undefined,
+                        BANK_REF: v.paymentMode === 'Online' ? v.onlineTxnId : undefined,
+                        HOUSE_BANK: v.paymentMode === 'Online' ? v.beneficiaryBank : undefined
+                    }))
+                };
+                return payload;
+            }
+
+            function showToast(message) {
+                els.toast.textContent = message;
+                els.toast.classList.add('is-visible');
+                window.setTimeout(() => els.toast.classList.remove('is-visible'), 4000);
+            }
+
+            function applyZoom() {
+                els.previewScale.style.transform = 'scale(' + state.zoom + ')';
+                els.zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
+            }
+
+            function tickClock() {
+                const now = new Date();
+                els.clock.textContent = now.toLocaleString(undefined, {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+            }
+
+            // Events
+            Object.values(inputs).forEach((input) => {
+                input.addEventListener('input', () => {
+                    if (input === inputs.vendorCode) resolveVendorHint(input.value.trim());
+                    syncPreviewFields();
+                });
+            });
+
+            document.querySelectorAll('input[name="paymentMode"]').forEach((radio) => {
+                radio.addEventListener('change', syncPreviewFields);
+            });
+
+            els.lineRows.addEventListener('input', (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLInputElement)) return;
+                const index = Number(target.getAttribute('data-line'));
+                const col = target.getAttribute('data-col');
+                if (!Number.isFinite(index) || !col || !state.lines[index]) return;
+                state.lines[index][col] = target.value;
+                const total = state.lines.reduce((sum, row) => sum + parseAmount(row.amount), 0);
+                els.lineTotal.textContent = total ? total.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '';
+            });
+
+            document.getElementById('zoom-in').addEventListener('click', () => {
+                state.zoom = Math.min(1.25, Math.round((state.zoom + 0.05) * 100) / 100);
+                applyZoom();
+            });
+
+            document.getElementById('zoom-out').addEventListener('click', () => {
+                state.zoom = Math.max(0.5, Math.round((state.zoom - 0.05) * 100) / 100);
+                applyZoom();
+            });
+
+            els.previewScroll.addEventListener('wheel', (event) => {
+                if (!event.ctrlKey) return;
+                event.preventDefault();
+                const delta = event.deltaY > 0 ? -0.05 : 0.05;
+                state.zoom = Math.min(1.25, Math.max(0.5, Math.round((state.zoom + delta) * 100) / 100));
+                applyZoom();
+            }, { passive: false });
+
+            document.getElementById('btn-save-draft').addEventListener('click', () => {
+                showToast('Draft saved locally (prototype). Wire Save as Draft to your Velocity API when integrating.');
+            });
+
+            document.getElementById('btn-submit').addEventListener('click', () => {
+                showToast('Submit captured in Live SAP Payload — open the payload viewer to copy JSON.');
+                els.sapPayload.textContent = JSON.stringify(buildSapPayload(), null, 2);
+                els.sapModal.classList.add('is-open');
+            });
+
+            document.getElementById('btn-sap-payload').addEventListener('click', () => {
+                els.sapPayload.textContent = JSON.stringify(buildSapPayload(), null, 2);
+                els.sapModal.classList.add('is-open');
+            });
+
+            document.getElementById('sap-modal-close').addEventListener('click', () => {
+                els.sapModal.classList.remove('is-open');
+            });
+
+            els.sapModal.addEventListener('click', (event) => {
+                if (event.target === els.sapModal) els.sapModal.classList.remove('is-open');
+            });
+
+            document.getElementById('back-top').addEventListener('click', () => {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+
+            // Init
+            inputs.claimDate.value = todayIso();
+            renderLineRows();
+            syncPreviewFields();
+            applyZoom();
+            tickClock();
+            window.setInterval(tickClock, 1000);
+        })();
+    </script>
+</body>
+</html>

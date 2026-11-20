@@ -28,6 +28,7 @@ import {
 import { stripEditorTableChromeFromHtml } from 'src/app/utils/word-editor-table.util';
 import { applyWordEditorAlignmentClasses, getTemplateFieldNgStyle } from 'src/app/utils/word-editor-display.util';
 import { normalizeDocumentBodyHtmlForDisplay } from 'src/app/utils/document-body-html.util';
+import { prepareDocumentBodyTablesForPdfCapture } from 'src/app/utils/document-body-table-pdf.util';
 import { finalizeTableFormulaHtml } from 'src/app/utils/template-table-formula.util';
 import {
     resolveDocumentHeaderAddress,
@@ -432,8 +433,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         if (!this.isInlineWordEditorField(field) || !this.canCurrentStepEditField(field)) {
             return;
         }
+        this.revertingWordEditorFields.delete(field.id);
         this.activeInlineWordEditorFieldId = field.id;
-        this.attachInlineWordEditorToolbar(field.id);
+        setTimeout(() => this.attachInlineWordEditorToolbar(field.id), 0);
     }
 
     onInlineWordEditorReady(field: TemplateField, editor: any): void {
@@ -446,7 +448,7 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
             editable.setAttribute('data-inline-word-editor-field-id', field.id);
         }
         if (this.activeInlineWordEditorFieldId === field.id) {
-            this.attachInlineWordEditorToolbar(field.id);
+            setTimeout(() => this.attachInlineWordEditorToolbar(field.id), 0);
         }
     }
 
@@ -1021,13 +1023,15 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         const nextValue = normalizeWordEditorValueForCkeditor(this.values[field.id]);
         const previousValue = this.acceptedWordEditorValues[field.id] || '';
         this.values[field.id] = nextValue;
-        this.onPanelValueChanged(field);
 
         if (!field.placement) {
             this.acceptedWordEditorValues[field.id] = nextValue;
+            this.onPanelValueChanged(field);
+            this.scheduleBodyContentPageCountUpdate();
             return;
         }
 
+        this.onPanelValueChanged(field);
         setTimeout(() => {
             if (!this.doesWordEditorFieldOverflow(field.id)) {
                 this.acceptedWordEditorValues[field.id] = nextValue;
@@ -1994,6 +1998,31 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
 
     private rebuildPreviewHtml(): void {
         this.safeHtml = this.sanitizer.bypassSecurityTrustHtml(this.getFillHtml(this.template?.html || ''));
+        this.scheduleBodyContentPageCountUpdate();
+    }
+
+    private scheduleBodyContentPageCountUpdate(): void {
+        if (!this.template?.page) {
+            return;
+        }
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                const pageHeight = Number(this.template?.page?.height) || 1123;
+                const pageGap = Number.isFinite(Number(this.template?.page?.gap)) && Number(this.template?.page?.gap) >= 0
+                    ? Number(this.template?.page?.gap)
+                    : 16;
+                const liveRoot = this.elementRef?.nativeElement?.querySelector?.('.document-html') as HTMLElement | null;
+                const height = liveRoot
+                    ? Math.max(liveRoot.scrollHeight, pageHeight)
+                    : pageHeight;
+                const contentPages = Math.max(1, Math.ceil(height / (pageHeight + pageGap)));
+                const current = Number(this.template?.page?.count) || 1;
+                if (this.template?.page) {
+                    this.template.page.count = Math.max(current, contentPages);
+                }
+                this.cdr.markForCheck();
+            });
+        });
     }
 
     private refreshDerivedState(): void {
@@ -2544,10 +2573,19 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
     private createInlineValue(doc: Document, field: TemplateField): HTMLElement {
         const tagName = field.type === 'word_editor' ? 'div' : 'span';
         const element = doc.createElement(tagName);
-        element.className = `inline-filled-value${field.type === 'textarea' ? ' inline-filled-textarea-value' : ''}${field.type === 'word_editor' ? ' inline-filled-word-editor-value' : ''}`;
+        const isBodyWordEditor = field.type === 'word_editor' && !field.placement;
+        element.className = `inline-filled-value${field.type === 'textarea' ? ' inline-filled-textarea-value' : ''}${field.type === 'word_editor' ? ' inline-filled-word-editor-value' : ''}${isBodyWordEditor ? ' document-body-word-editor' : ''}`;
         element.dataset['fieldId'] = field.id;
+        if (isBodyWordEditor) {
+            element.setAttribute('data-body-word-editor', 'true');
+        }
         if (field.type === 'word_editor') {
             element.innerHTML = this.normalizeWordEditorHtmlForDisplay(String(this.values[field.id] || ''));
+            element.style.display = 'block';
+            element.style.width = '100%';
+            element.style.maxWidth = '100%';
+            element.style.boxSizing = 'border-box';
+            element.style.minHeight = '120px';
         } else if (field.type === 'table') {
             element.textContent = '';
         } else {
@@ -3717,17 +3755,29 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         this.activeToolbarOriginParent = toolbarElement.parentElement;
         this.activeToolbarOriginNextSibling = toolbarElement.nextSibling;
         toolbarHost.appendChild(toolbarElement);
+        try {
+            editor.editing?.view?.focus?.();
+            if (typeof editor.disableReadOnlyMode === 'function') {
+                editor.disableReadOnlyMode('template-approval-inline');
+            }
+        } catch {
+            // Best effort only.
+        }
     }
 
     private restoreDetachedInlineWordEditorToolbar(): void {
-        if (!this.activeToolbarElement || !this.activeToolbarOriginParent) {
+        if (!this.activeToolbarElement) {
+            this.activeToolbarOriginParent = null;
+            this.activeToolbarOriginNextSibling = null;
             return;
         }
 
-        if (this.activeToolbarOriginNextSibling && this.activeToolbarOriginNextSibling.parentNode === this.activeToolbarOriginParent) {
-            this.activeToolbarOriginParent.insertBefore(this.activeToolbarElement, this.activeToolbarOriginNextSibling);
-        } else {
-            this.activeToolbarOriginParent.appendChild(this.activeToolbarElement);
+        if (this.activeToolbarOriginParent && this.activeToolbarOriginParent.isConnected) {
+            if (this.activeToolbarOriginNextSibling && this.activeToolbarOriginNextSibling.parentNode === this.activeToolbarOriginParent) {
+                this.activeToolbarOriginParent.insertBefore(this.activeToolbarElement, this.activeToolbarOriginNextSibling);
+            } else {
+                this.activeToolbarOriginParent.appendChild(this.activeToolbarElement);
+            }
         }
 
         this.activeToolbarElement = null;
@@ -4175,7 +4225,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
         const jsPDF = (jsPDFModule.default || jsPDFModule) as any;
         const pageWidth = Number(this.template?.page?.width || 794);
         const pageHeight = Number(this.template?.page?.height || 1123);
-        const pageGap = Number(this.template?.page?.gap || 32);
+        const pageGap = Number.isFinite(Number(this.template?.page?.gap)) && Number(this.template?.page?.gap) >= 0
+            ? Number(this.template?.page?.gap)
+            : 16;
         const pageCount = Number(this.template?.page?.count || 1);
         const orientation = pageWidth > pageHeight ? 'landscape' : 'portrait';
         const pdfWidthMm = orientation === 'landscape' ? 297 : 210;
@@ -4211,7 +4263,9 @@ export class TemplateApprovalComponent implements OnInit, OnDestroy {
                 this.applyIndividualFooterPdfLayout(clone);
                 pageViewport.appendChild(clone);
                 captureHost.appendChild(pageViewport);
-                await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+                prepareDocumentBodyTablesForPdfCapture(clone, sourceFrame);
+                await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
                 const canvas = await html2canvas(pageViewport, {
                     scale: 3,
                     useCORS: true,

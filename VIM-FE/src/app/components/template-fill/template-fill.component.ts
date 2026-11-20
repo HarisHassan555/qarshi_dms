@@ -1,8 +1,9 @@
-import { Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { ChangeDetectorRef, Component, ElementRef, HostListener, NgZone, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { NotificationService } from 'src/app/NotificationService';
+import { DepartmentService } from 'src/app/services/department/department.service';
 import { UserService } from 'src/app/services/user/user.service';
 import { UserDelegationDto, UserDelegationService } from 'src/app/services/user-delegation/user-delegation.service';
 import {
@@ -38,6 +39,13 @@ import {
 } from 'src/app/utils/template-table-formula.util';
 import { applyWordEditorAlignmentClasses, getTemplateFieldNgStyle } from 'src/app/utils/word-editor-display.util';
 import { normalizeDocumentBodyHtmlForDisplay } from 'src/app/utils/document-body-html.util';
+import {
+    paginateBodyTablesInRoot,
+    syncBodyTableGroupColumnWidths,
+    TEMPLATE_TABLE_GROUP_ATTR,
+    TEMPLATE_TABLE_HEADER_CLONE_ATTR,
+} from 'src/app/utils/template-body-table-pagination.util';
+import { prepareDocumentBodyTablesForPdfCapture } from 'src/app/utils/document-body-table-pdf.util';
 import {
     resolveDocumentHeaderAddress,
     resolveDocumentHeaderBrandTitle,
@@ -145,6 +153,19 @@ interface IndividualPipelineFooterSection {
     users: any[];
 }
 
+type InitiatorChoiceType = 'department' | 'individual' | 'role';
+type InitiatorChoiceApprovalMode = 'AND' | 'OR';
+
+interface InitiatorChoiceSelection {
+    stepId: string;
+    stepName: string;
+    choiceType: InitiatorChoiceType | '';
+    approvalMode: InitiatorChoiceApprovalMode;
+    serDepartmentId: number | null;
+    serRoleId: number | null;
+    users: any[];
+}
+
 interface PipelineFieldPermission {
     fieldId: string;
     fieldLabel?: string;
@@ -199,6 +220,10 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     private individualFooterBandsCacheKey = '';
     private individualFooterBandsCache: ReturnType<typeof buildIndividualFooterTableBands> = [];
     private documentTableBindVersion = 0;
+    private boundDocumentTableMenus = new WeakSet<HTMLTableElement>();
+    /** Body-table content changed and needs live page re-split after leave. */
+    private bodyTableLayoutDirty = false;
+    private bodyTableRepaginateTimer: ReturnType<typeof setTimeout> | null = null;
     template: any = null;
     @ViewChild('documentHtml') documentHtmlRef?: ElementRef<HTMLElement>;
     /** Opened from template builder Preview — show document only, no submit. */
@@ -214,7 +239,15 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     values: { [fieldId: string]: any } = {};
     persistedValues: { [fieldId: string]: any } = {};
     allUsers: any[] = [];
+    departments: any[] = [];
+    roles: any[] = [];
     userPipeline: IndividualPipelineFooterSection[] = [];
+    initiatorChoiceSelections: InitiatorChoiceSelection[] = [];
+    readonly initiatorChoiceTypes: { value: InitiatorChoiceType; label: string }[] = [
+        { value: 'department', label: 'Department' },
+        { value: 'individual', label: 'Individual' },
+        { value: 'role', label: 'Role' }
+    ];
     submittedCode = '';
     generatedApplicationCode = '';
     isSendingTestEmail = false;
@@ -238,6 +271,10 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     private activeToolbarElement: HTMLElement | null = null;
     private activeToolbarOriginParent: HTMLElement | null = null;
     private activeToolbarOriginNextSibling: ChildNode | null = null;
+    private bodyWordEditorInstances = new Map<string, any>();
+    private bodyWordEditorMountVersion = 0;
+    private bodyWordEditorMountTimer: ReturnType<typeof setTimeout> | null = null;
+    private bodyWordEditorMounting = new Set<string>();
 
     constructor(
         private elementRef: ElementRef<HTMLElement>,
@@ -247,13 +284,18 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         private notificationService: NotificationService,
         private templateWorkflowService: TemplateWorkflowService,
         private userService: UserService,
-        private userDelegationService: UserDelegationService
+        private departmentService: DepartmentService,
+        private userDelegationService: UserDelegationService,
+        private ngZone: NgZone,
+        private changeDetectorRef: ChangeDetectorRef
     ) { }
 
     async ngOnInit(): Promise<void> {
         document.body.classList.add(TEMPLATE_FILL_HIDE_CKEDITOR_BADGE_CLASS);
         this.builderPreviewMode = this.route.snapshot.queryParamMap.get('builderPreview') === '1';
         this.loadUsers();
+        this.loadDepartments();
+        this.loadRoles();
         await this.loadDelegateAccessFlag();
         const templateId = this.route.snapshot.paramMap.get('id');
         this.routeTemplateId = templateId || '';
@@ -306,8 +348,12 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         if (this.builderPreviewMode) {
             this.applyBuilderPreviewSampleData();
         }
+        if (!this.editingApplication) {
+            this.syncInitiatorChoiceSelectionsFromPipeline();
+        }
         this.safeHtml = this.sanitizer.bypassSecurityTrustHtml(this.getFillHtml(this.template.html || ''));
         this.queueDocumentTableBinding();
+        this.scheduleMountDocumentBodyWordEditors();
     }
 
     get isEditingExistingApplication(): boolean {
@@ -357,7 +403,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     get templateFrameHeight(): number {
         const pageHeight = Number(this.template?.page?.height) || 1123;
         const pageCount = Number(this.template?.page?.count) || 1;
-        const gap = Number(this.template?.page?.gap) || 32;
+        const gap = this.resolveTemplatePageGap();
         return pageCount * pageHeight + (pageCount - 1) * gap;
     }
 
@@ -423,7 +469,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     get panelFields(): TemplateField[] {
-        return this.fillableFields.filter((field: TemplateField) => !this.isInlineWordEditorField(field));
+        // Floating + document-body word editors are edited in the preview canvas.
+        return this.fillableFields.filter((field: TemplateField) => field.type !== 'word_editor');
     }
 
     get hideTestEmailAdminButton(): boolean {
@@ -1234,16 +1281,24 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         return field.type === 'word_editor' && !!field.placement;
     }
 
+    /** Word editor embedded in document HTML (no fixed overlay box). */
+    isDocumentBodyWordEditorField(field: TemplateField): boolean {
+        return field.type === 'word_editor' && !field.placement;
+    }
+
     isInlineWordEditorActive(field: TemplateField): boolean {
         return this.activeInlineWordEditorFieldId === field.id;
     }
 
     activateInlineWordEditor(field: TemplateField): void {
-        if (!this.isInlineWordEditorField(field)) {
+        if (field?.type !== 'word_editor') {
             return;
         }
+        this.revertingWordEditorFields.delete(field.id);
         this.activeInlineWordEditorFieldId = field.id;
-        this.attachInlineWordEditorToolbar(field.id);
+        // Defer so the toolbar host exists after *ngIf creates the panel.
+        setTimeout(() => this.attachInlineWordEditorToolbar(field.id), 0);
+        this.changeDetectorRef.markForCheck();
     }
 
     onInlineWordEditorReady(field: TemplateField, editor: any): void {
@@ -1256,8 +1311,19 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             editable.setAttribute('data-inline-word-editor-field-id', field.id);
         }
         if (this.activeInlineWordEditorFieldId === field.id) {
-            this.attachInlineWordEditorToolbar(field.id);
+            setTimeout(() => this.attachInlineWordEditorToolbar(field.id), 0);
         }
+    }
+
+    trackPanelFieldById(_index: number, field: TemplateField): string {
+        return field?.id || String(_index);
+    }
+
+    onPanelWordEditorFocus(field: TemplateField): void {
+        if (!field?.id) {
+            return;
+        }
+        this.revertingWordEditorFields.delete(field.id);
     }
 
     ngOnDestroy(): void {
@@ -1265,6 +1331,13 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         if (this.fillExcelIndicatorTimer) {
             clearTimeout(this.fillExcelIndicatorTimer);
         }
+        if (this.bodyWordEditorMountTimer) {
+            clearTimeout(this.bodyWordEditorMountTimer);
+            this.bodyWordEditorMountTimer = null;
+        }
+        this.bodyWordEditorMountVersion += 1;
+        this.restoreDetachedInlineWordEditorToolbar();
+        void this.destroyDocumentBodyWordEditors();
         this.elementRef.nativeElement.querySelectorAll('.fill-excel-indicator-layer').forEach((node: Element) => node.remove());
         document.body.classList.remove(TEMPLATE_FILL_HIDE_CKEDITOR_BADGE_CLASS);
     }
@@ -1905,14 +1978,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     onPanelValueChanged(): void {
-        this.persistDocumentTableEdits();
-        (this.template?.fields || []).forEach((field: TemplateField) => {
-            if (field.type === 'table') {
-                this.refreshTableFieldFormulas(field);
-            }
-        });
-        this.safeHtml = this.sanitizer.bypassSecurityTrustHtml(this.getFillHtml(this.template.html || ''));
-        this.queueDocumentTableBinding();
+        void this.rebuildDocumentPreviewAfterBodyWordEditorTeardown();
     }
 
     private refreshTableFieldFormulas(field: TemplateField): void {
@@ -1924,24 +1990,31 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     onWordEditorChanged(field: TemplateField, event: any): void {
+        // Document-body editors are mounted in the preview canvas; keep this path for floating shells.
+        if (this.isDocumentBodyWordEditorField(field)) {
+            const nextBodyValue = normalizeWordEditorValueForCkeditor(
+                event?.editor?.getData?.() ?? this.values[field.id]
+            );
+            this.values[field.id] = nextBodyValue;
+            this.acceptedWordEditorValues[field.id] = nextBodyValue;
+            this.scheduleBodyContentPageCountUpdate();
+            return;
+        }
+
         if (this.revertingWordEditorFields.has(field.id)) {
             const restoredValue = normalizeWordEditorValueForCkeditor(event?.editor?.getData?.() ?? this.values[field.id]);
             this.values[field.id] = restoredValue;
             this.acceptedWordEditorValues[field.id] = restoredValue;
-            this.onPanelValueChanged();
             this.revertingWordEditorFields.delete(field.id);
+            this.onPanelValueChanged();
             return;
         }
 
         const nextValue = normalizeWordEditorValueForCkeditor(this.values[field.id]);
         const previousValue = this.acceptedWordEditorValues[field.id] || '';
         this.values[field.id] = nextValue;
-        this.onPanelValueChanged();
-        if (!field.placement) {
-            this.acceptedWordEditorValues[field.id] = nextValue;
-            return;
-        }
 
+        this.onPanelValueChanged();
         setTimeout(() => {
             if (!this.doesWordEditorFieldOverflow(field.id)) {
                 this.acceptedWordEditorValues[field.id] = nextValue;
@@ -1967,11 +2040,19 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         }
         if (
             target.closest('.inline-word-editor-shell')
+            || target.closest('.document-body-word-editor')
+            || target.closest('[data-body-word-editor="true"]')
             || target.closest('.inline-word-editor-toolbar-panel')
+            || target.closest('.panel-word-editor')
             || target.closest('.ck.ck-balloon-panel')
             || target.closest('.ck-body-wrapper')
         ) {
             return;
+        }
+        // Leaving a floating word editor: put its toolbar back so a later focus works.
+        if (this.activeInlineWordEditorFieldId) {
+            this.restoreDetachedInlineWordEditorToolbar();
+            this.activeInlineWordEditorFieldId = null;
         }
     }
 
@@ -2130,10 +2211,11 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         if (!this.savedTemplate || this.isSavingDraft || this.isSubmitting) {
             return;
         }
-        this.persistDocumentTableEdits();
+        this.flushDocumentBodyWordEditorsToValues();
+        this.syncLiveDocumentHtmlForSubmission();
         (this.template?.fields || []).forEach((field: TemplateField) => {
-            if (field.type === 'word_editor' && field.placement) {
-                this.values[field.id] = this.acceptedWordEditorValues[field.id] || '';
+            if (field.type === 'word_editor') {
+                this.values[field.id] = this.acceptedWordEditorValues[field.id] || this.values[field.id] || '';
             }
         });
 
@@ -2146,6 +2228,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         this.isSavingDraft = true;
         const allowedValues = this.getAllowedSubmissionValues();
         const userPipeline = this.hasIndividualPipelineFooter() ? this.getNormalizedUserPipeline() : [];
+        const initiatorChoiceSelections = this.getNormalizedInitiatorChoiceSelections();
         const submitAccess = this.getTemplateSubmitAccessContext();
 
         try {
@@ -2157,6 +2240,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                     applicationId: this.editingApplication?.serApplicationId,
                     formCode: this.editingApplication?.txtFormCode || this.generatedApplicationCode,
                     submitAccess,
+                    initiatorChoiceSelections,
                 }
             ));
             this.generatedApplicationCode = draft.formCode || this.generatedApplicationCode;
@@ -2190,10 +2274,11 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         if (!this.savedTemplate || this.isSubmitting || this.isPostSubmitProcessing || this.isSavingDraft) {
             return;
         }
-        this.persistDocumentTableEdits();
+        this.flushDocumentBodyWordEditorsToValues();
+        this.syncLiveDocumentHtmlForSubmission();
         (this.template?.fields || []).forEach((field: TemplateField) => {
-            if (field.type === 'word_editor' && field.placement) {
-                this.values[field.id] = this.acceptedWordEditorValues[field.id] || '';
+            if (field.type === 'word_editor') {
+                this.values[field.id] = this.acceptedWordEditorValues[field.id] || this.values[field.id] || '';
             }
         });
 
@@ -2215,6 +2300,12 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             return;
         }
 
+        const initiatorChoiceError = this.validateInitiatorChoiceSelections();
+        if (initiatorChoiceError) {
+            this.notificationService.showMessage(initiatorChoiceError, 'danger');
+            return;
+        }
+
         const accessError = this.validateSubmitAccessSelection();
         if (accessError) {
             this.notificationService.showMessage(accessError, 'danger');
@@ -2227,6 +2318,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
 
         try {
             const userPipeline = this.hasIndividualPipelineFooter() ? this.getNormalizedUserPipeline() : [];
+            const initiatorChoiceSelections = this.getNormalizedInitiatorChoiceSelections();
             if (this.isDraftApplication) {
                 const submission = await firstValueFrom(this.templateWorkflowService.submitTemplate(
                     this.savedTemplate,
@@ -2234,7 +2326,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                     userPipeline,
                     this.editingApplication?.txtFormCode || this.generatedApplicationCode,
                     this.editingApplication?.serApplicationId,
-                    submitAccess
+                    submitAccess,
+                    initiatorChoiceSelections
                 ));
                 this.submittedCode = submission.code || this.generatedApplicationCode;
                 this.generatedApplicationCode = this.submittedCode;
@@ -2254,7 +2347,12 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 }
 
                 const emailResponse: any = await firstValueFrom(
-                    this.templateWorkflowService.sendTemplatePostApprovalEmails(submission.id)
+                    this.templateWorkflowService.sendTemplatePostApprovalEmails(
+                        submission.id,
+                        pdfBlob,
+                        pdfBlob,
+                        filename
+                    )
                 );
                 if (!emailResponse || emailResponse.status !== 'Success') {
                     throw new Error(emailResponse?.message || 'Approval email could not be queued');
@@ -2269,7 +2367,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                     this.editingApplication,
                     allowedValues,
                     this.savedTemplate.payload,
-                    userPipeline
+                    userPipeline,
+                    { initiatorChoiceSelections }
                 ));
                 const resubmitResponse = await firstValueFrom(this.templateWorkflowService.resubmitTemplateApplicationFromInitiator(
                     this.editingApplication.serApplicationId,
@@ -2298,7 +2397,12 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 }
 
                 const emailResponse: any = await firstValueFrom(
-                    this.templateWorkflowService.sendTemplatePostApprovalEmails(this.editingApplication.serApplicationId)
+                    this.templateWorkflowService.sendTemplatePostApprovalEmails(
+                        this.editingApplication.serApplicationId,
+                        pdfBlob,
+                        pdfBlob,
+                        filename
+                    )
                 );
                 if (!emailResponse || emailResponse.status !== 'Success') {
                     throw new Error(emailResponse?.message || 'Approval email could not be queued');
@@ -2315,7 +2419,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 userPipeline,
                 this.generatedApplicationCode,
                 null,
-                submitAccess
+                submitAccess,
+                initiatorChoiceSelections
             ));
             this.submittedCode = submission.code || this.generatedApplicationCode;
             this.generatedApplicationCode = this.submittedCode;
@@ -2335,7 +2440,12 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             }
 
             const emailResponse: any = await firstValueFrom(
-                this.templateWorkflowService.sendTemplatePostApprovalEmails(submission.id)
+                this.templateWorkflowService.sendTemplatePostApprovalEmails(
+                    submission.id,
+                    pdfBlob,
+                    pdfBlob,
+                    filename
+                )
             );
             if (!emailResponse || emailResponse.status !== 'Success') {
                 throw new Error(emailResponse?.message || 'Approval email could not be queued');
@@ -2408,6 +2518,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             order: Number(section?.order || index + 1),
             users: Array.isArray(section?.users) ? section.users : []
         }));
+        this.syncInitiatorChoiceSelectionsFromPipeline(applicationData?.initiatorChoiceSelections);
     }
 
     private parseApplicationData(raw: any): any {
@@ -2916,7 +3027,11 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     private async renderTemplatePreviewPdfBlob(): Promise<Blob> {
         const previousZoom = this.previewZoom;
         this.previewZoom = 1;
+        this.flushDocumentBodyWordEditorsToValues();
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+        // Capture the live paginated layout as-is. Remeasuring columns here (or on the
+        // off-screen clone) changes wrap heights and drifts content off the page cuts.
 
         const sourceFrame = this.elementRef.nativeElement.querySelector('.fill-frame') as HTMLElement | null;
         if (!sourceFrame) {
@@ -2940,7 +3055,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         const jsPDF = (jsPDFModule.default || jsPDFModule) as any;
         const pageWidth = Number(this.template?.page?.width || 794);
         const pageHeight = Number(this.template?.page?.height || 1123);
-        const pageGap = Number(this.template?.page?.gap || 32);
+        const pageGap = this.resolveTemplatePageGap();
+        this.updatePageCountFromDocumentHtml(this.template?.html || '');
         const pageCount = Number(this.template?.page?.count || 1);
         const orientation = pageWidth > pageHeight ? 'landscape' : 'portrait';
         const pdfWidthMm = orientation === 'landscape' ? 297 : 210;
@@ -2984,7 +3100,9 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 pageViewport.appendChild(clone);
                 captureHost.appendChild(pageViewport);
 
-                await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+                prepareDocumentBodyTablesForPdfCapture(clone, sourceFrame);
+                await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
                 const canvas = await html2canvas(pageViewport, {
                     scale: 3,
                     useCORS: true,
@@ -3035,6 +3153,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             }
             shell.replaceWith(staticValue);
         });
+        this.writeStaticDocumentBodyWordEditorHtml(root);
 
         root.querySelectorAll('.word-editor-filled-value').forEach((node) => {
             const valueEl = node as HTMLElement;
@@ -3150,17 +3269,30 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         this.activeToolbarOriginParent = toolbarElement.parentElement;
         this.activeToolbarOriginNextSibling = toolbarElement.nextSibling;
         toolbarHost.appendChild(toolbarElement);
+        // Re-enable editing after field switches that may have left the instance stale.
+        try {
+            editor.editing?.view?.focus?.();
+            if (typeof editor.disableReadOnlyMode === 'function') {
+                editor.disableReadOnlyMode('template-fill-inline');
+            }
+        } catch {
+            // Best effort only.
+        }
     }
 
     private restoreDetachedInlineWordEditorToolbar(): void {
-        if (!this.activeToolbarElement || !this.activeToolbarOriginParent) {
+        if (!this.activeToolbarElement) {
+            this.activeToolbarOriginParent = null;
+            this.activeToolbarOriginNextSibling = null;
             return;
         }
 
-        if (this.activeToolbarOriginNextSibling && this.activeToolbarOriginNextSibling.parentNode === this.activeToolbarOriginParent) {
-            this.activeToolbarOriginParent.insertBefore(this.activeToolbarElement, this.activeToolbarOriginNextSibling);
-        } else {
-            this.activeToolbarOriginParent.appendChild(this.activeToolbarElement);
+        if (this.activeToolbarOriginParent && this.activeToolbarOriginParent.isConnected) {
+            if (this.activeToolbarOriginNextSibling && this.activeToolbarOriginNextSibling.parentNode === this.activeToolbarOriginParent) {
+                this.activeToolbarOriginParent.insertBefore(this.activeToolbarElement, this.activeToolbarOriginNextSibling);
+            } else {
+                this.activeToolbarOriginParent.appendChild(this.activeToolbarElement);
+            }
         }
 
         this.activeToolbarElement = null;
@@ -3221,12 +3353,28 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
 
     private queueDocumentTableBinding(): void {
         const version = ++this.documentTableBindVersion;
-        setTimeout(() => {
+        const attemptBind = (attempt: number) => {
             if (version !== this.documentTableBindVersion) {
                 return;
             }
+            const root = this.documentHtmlRef?.nativeElement;
+            const tableCount = root?.querySelectorAll('table').length || 0;
+            if (!root || (tableCount === 0 && attempt < 8)) {
+                setTimeout(() => attemptBind(attempt + 1), 40);
+                return;
+            }
             this.bindDocumentTables();
-        });
+            // One follow-up pass after excel indicators / layout settle.
+            if (attempt < 2) {
+                setTimeout(() => {
+                    if (version === this.documentTableBindVersion) {
+                        this.bindDocumentTables();
+                    }
+                }, 80);
+            }
+        };
+        // Wait for Angular to paint [innerHTML] before attaching cell menus.
+        setTimeout(() => attemptBind(0), 0);
     }
 
     private bindDocumentTables(): void {
@@ -3234,6 +3382,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         if (!root) {
             return;
         }
+        this.bindDocumentBodyTableFocusOut(root);
         root.querySelectorAll('table').forEach((node) => {
             const table = node as HTMLTableElement;
             if (this.isDocumentTableLocked(table)) {
@@ -3257,6 +3406,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                     }
                     cell.contentEditable = 'true';
                     cell.classList.add('document-fill-cell');
+                    this.bindDocumentBodyTableCellHeightWatch(table, cell);
                 });
             });
             if (table.dataset['fillBound'] === '1') {
@@ -3264,11 +3414,131 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 return;
             }
             table.dataset['fillBound'] = '1';
-            table.addEventListener('input', () => this.recalculateDocumentTable(table));
+            table.addEventListener('input', () => {
+                if (this.isDocumentBodyTable(table)) {
+                    this.bodyTableLayoutDirty = true;
+                    // Grow/shrink shared columns across page fragments immediately.
+                    this.syncLiveBodyTableColumnWidths();
+                    // innerHTML edits can skip focusout; still re-pack once the cell is idle.
+                    this.scheduleRepaginateDocumentBodyTables(500);
+                }
+                this.recalculateDocumentTable(table);
+            });
             this.bindDocumentTableFormulaPaste(table);
             this.recalculateDocumentTable(table);
         });
+        this.syncLiveBodyTableColumnWidths();
         this.scheduleFillExcelIndicators();
+    }
+
+    private syncLiveBodyTableColumnWidths(): void {
+        const root = this.documentHtmlRef?.nativeElement;
+        if (!root) {
+            return;
+        }
+        syncBodyTableGroupColumnWidths(root, Number(this.previewZoom) || 1);
+    }
+
+    /** After leaving a body fill cell, re-pack once idle if content changed or the cell is tall. */
+    private bindDocumentBodyTableCellHeightWatch(table: HTMLTableElement, cell: HTMLTableCellElement): void {
+        if (!this.isDocumentBodyTable(table) || cell.dataset['fillHeightWatch'] === '1') {
+            return;
+        }
+        cell.dataset['fillHeightWatch'] = '1';
+        cell.addEventListener('blur', () => {
+            // Tall cells (multi-line growth) must re-pack even when input events were skipped.
+            if (cell.offsetHeight > 48) {
+                this.bodyTableLayoutDirty = true;
+            }
+            if (this.bodyTableLayoutDirty) {
+                this.scheduleRepaginateDocumentBodyTables(180);
+            }
+        });
+    }
+
+    /**
+     * Root-level leave handler so page splits recompute after a cell grows/shrinks,
+     * even when table nodes were replaced by a previous re-paginate.
+     *
+     * Important: do NOT re-paginate on every focus change. Replacing [innerHTML]
+     * destroys the click menu. Only re-split when content actually changed, and
+     * never while the row/column menu is open.
+     */
+    private bindDocumentBodyTableFocusOut(root: HTMLElement): void {
+        if (root.dataset['bodyTableFocusBound'] === '1') {
+            return;
+        }
+        root.dataset['bodyTableFocusBound'] = '1';
+        // Capture on the stable root so input still marks dirty after table nodes are replaced.
+        root.addEventListener('input', (event) => {
+            const cell = (event.target as HTMLElement | null)?.closest('td, th') as HTMLTableCellElement | null;
+            const table = cell?.closest('table') as HTMLTableElement | null;
+            if (!table || !root.contains(table) || this.isDocumentTableLocked(table) || !this.isDocumentBodyTable(table)) {
+                return;
+            }
+            this.bodyTableLayoutDirty = true;
+            this.scheduleRepaginateDocumentBodyTables(500);
+        }, true);
+        root.addEventListener('focusout', (event) => {
+            const cell = (event.target as HTMLElement | null)?.closest('td, th') as HTMLTableCellElement | null;
+            if (!cell || !root.contains(cell)) {
+                return;
+            }
+            const table = cell.closest('table') as HTMLTableElement | null;
+            if (!table || this.isDocumentTableLocked(table) || !this.isDocumentBodyTable(table)) {
+                return;
+            }
+            const next = (event as FocusEvent).relatedTarget as Node | null;
+            if (next && (table.contains(next) || (next as HTMLElement).closest?.('.fill-table-context-menu'))) {
+                return;
+            }
+            // Delay so multi-line cell height has settled before measure/re-pack.
+            window.setTimeout(() => {
+                this.ngZone.run(() => {
+                    if (cell.isConnected && cell.offsetHeight > 48) {
+                        this.bodyTableLayoutDirty = true;
+                    }
+                    if (!this.bodyTableLayoutDirty) {
+                        return;
+                    }
+                    this.scheduleRepaginateDocumentBodyTables(50);
+                });
+            }, 220);
+        });
+    }
+
+    private cancelScheduledBodyTableRepaginate(): void {
+        if (this.bodyTableRepaginateTimer) {
+            clearTimeout(this.bodyTableRepaginateTimer);
+            this.bodyTableRepaginateTimer = null;
+        }
+    }
+
+    private scheduleRepaginateDocumentBodyTables(delayMs = 180): void {
+        this.cancelScheduledBodyTableRepaginate();
+        this.bodyTableRepaginateTimer = setTimeout(() => {
+            this.bodyTableRepaginateTimer = null;
+            this.ngZone.run(() => {
+                if (this.documentTableMenu) {
+                    // Keep the add/delete menu usable; re-split after it closes.
+                    this.scheduleRepaginateDocumentBodyTables(200);
+                    return;
+                }
+                if (!this.bodyTableLayoutDirty) {
+                    return;
+                }
+                const active = document.activeElement as HTMLElement | null;
+                const editingFillCell = !!active?.closest?.(
+                    '.document-html td[contenteditable="true"], .document-html th[contenteditable="true"], .document-html .document-fill-cell'
+                );
+                if (editingFillCell || active?.closest?.('.fill-table-context-menu')) {
+                    this.scheduleRepaginateDocumentBodyTables(200);
+                    return;
+                }
+                this.repaginateDocumentBodyTables();
+                this.changeDetectorRef.detectChanges();
+            });
+        }, delayMs);
     }
 
     private isLabelHeaderRow(row: HTMLTableRowElement): boolean {
@@ -3350,7 +3620,16 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             if (!cell || !table.contains(cell) || (next && cell.contains(next))) {
                 return;
             }
-            window.setTimeout(() => this.recalculateDocumentTable(table), 0);
+            // Formula sync only here. Layout re-split is handled by the root
+            // focusout binder when bodyTableLayoutDirty is set — never on every
+            // click, or the row/column menu gets destroyed with the DOM.
+            window.setTimeout(() => {
+                if (!table.isConnected) {
+                    return;
+                }
+                this.recalculateDocumentTable(table);
+                this.scheduleFillExcelIndicators();
+            }, 0);
         });
         const remember = (event: ClipboardEvent) => this.rememberCopiedDocumentFormula(table, event);
         table.addEventListener('copy', remember, true);
@@ -3517,6 +3796,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         const rowGutter = 22;
         const columnGutter = 16;
         let needsRetry = false;
+        const groupRowCursor = new Map<string, number>();
         tables.forEach((table) => {
             const rows = Array.from(table.rows);
             const headerCells = Array.from(rows[0]?.cells || []);
@@ -3545,9 +3825,19 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                     columnGutter
                 ));
             });
-            rows.forEach((row, rowIndex) => {
+            const groupId =
+                table.getAttribute(TEMPLATE_TABLE_GROUP_ATTR)
+                || table.closest(`[${TEMPLATE_TABLE_GROUP_ATTR}]`)?.getAttribute(TEMPLATE_TABLE_GROUP_ATTR)
+                || '';
+            let nextRowNumber = groupId ? (groupRowCursor.get(groupId) || 1) : 1;
+            rows.forEach((row) => {
                 const firstCell = row.cells[0];
                 if (!firstCell) {
+                    return;
+                }
+                // Repeated header clones on continuation pages stay unlabeled so
+                // body row numbers continue from the previous fragment.
+                if (row.getAttribute(TEMPLATE_TABLE_HEADER_CLONE_ATTR) === 'true') {
                     return;
                 }
                 const box = this.boxWithinFill(firstCell, frame);
@@ -3556,13 +3846,17 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                     return;
                 }
                 layer.appendChild(this.createFillExcelLabel(
-                    String(rowIndex + 1),
+                    String(nextRowNumber),
                     box.left - rowGutter,
                     box.top,
                     rowGutter,
                     box.height
                 ));
+                nextRowNumber += 1;
             });
+            if (groupId) {
+                groupRowCursor.set(groupId, nextRowNumber);
+            }
         });
 
         if (needsRetry && attempt < 8) {
@@ -3647,7 +3941,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
 
     private isDocumentTableLocked(table: HTMLTableElement): boolean {
         return !!table.closest(
-            '.word-editor-value, .inline-filled-word-editor-value, .inline-word-editor-shell, .filled-field, .document-footer-preview, .individual-footer-preview'
+            '.word-editor-value, .inline-filled-word-editor-value, .inline-word-editor-shell, .document-body-word-editor, [data-body-word-editor], .ck-editor, .filled-field, .document-footer-preview, .individual-footer-preview'
         ) || !!table.parentElement?.closest('table');
     }
 
@@ -3668,15 +3962,22 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     };
 
     private bindDocumentTableMenu(table: HTMLTableElement): void {
-        if (this.builderPreviewMode || table.dataset['fillMenuBound'] === '1') {
+        if (this.builderPreviewMode || this.boundDocumentTableMenus.has(table)) {
             return;
         }
+        // WeakSet survives HTML re-injection correctly: new <table> nodes are unbound
+        // even if a stale data-fill-menu-bound attribute leaked into saved HTML.
+        this.boundDocumentTableMenus.add(table);
         table.dataset['fillMenuBound'] = '1';
         table.title = 'Click a cell to add or delete a row or column at that position';
         const openFromClick = (event: Event) => {
             const mouseEvent = event as MouseEvent;
             const cell = (mouseEvent.target as HTMLElement | null)?.closest('td, th') as HTMLTableCellElement | null;
             if (!cell || !table.contains(cell)) {
+                return;
+            }
+            // Ignore clicks that originate from the floating context menu itself.
+            if ((mouseEvent.target as HTMLElement | null)?.closest?.('.fill-table-context-menu, [data-fill-table-tools]')) {
                 return;
             }
             const row = cell.parentElement as HTMLTableRowElement | null;
@@ -3704,7 +4005,9 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         cell: HTMLTableCellElement,
         onAction?: (action: string) => void
     ): void {
-        this.removeDocumentTableMenu();
+        // Opening the menu must win over any pending re-paginate from focusout.
+        this.removeDocumentTableMenu({ rescheduleLayout: false });
+        this.cancelScheduledBodyTableRepaginate();
         table.querySelectorAll('.document-table-target-cell').forEach((node) => {
             node.classList.remove('document-table-target-cell');
         });
@@ -3749,7 +4052,8 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             event.preventDefault();
             event.stopPropagation();
             const action = (event.target as HTMLElement | null)?.closest('button')?.getAttribute('data-table-action');
-            this.removeDocumentTableMenu();
+            // Structural actions re-paginate themselves; don't fight them with a dirty reschedule.
+            this.removeDocumentTableMenu({ rescheduleLayout: false });
             if (!action) {
                 return;
             }
@@ -3782,7 +4086,7 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         });
     }
 
-    removeDocumentTableMenu(): void {
+    removeDocumentTableMenu(options?: { rescheduleLayout?: boolean }): void {
         document.removeEventListener('mousedown', this.dismissDocumentTableMenu, true);
         document.removeEventListener('keydown', this.dismissDocumentTableMenuOnEscape, true);
         this.documentTableMenu?.remove();
@@ -3790,6 +4094,26 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         this.elementRef.nativeElement.querySelectorAll('.document-table-target-cell').forEach((node: Element) => {
             node.classList.remove('document-table-target-cell');
         });
+        // If the user typed (dirty) then opened/dismissed the menu, still re-split once idle.
+        if (options?.rescheduleLayout !== false && this.bodyTableLayoutDirty) {
+            this.scheduleRepaginateDocumentBodyTables(180);
+        }
+    }
+
+    /** All live fragments for a body table group (column edits must hit every fragment). */
+    private getDocumentBodyTableGroup(table: HTMLTableElement): HTMLTableElement[] {
+        const root = this.documentHtmlRef?.nativeElement;
+        if (!root || !this.isDocumentBodyTable(table)) {
+            return [table];
+        }
+        const groupId = table.getAttribute(TEMPLATE_TABLE_GROUP_ATTR);
+        if (!groupId) {
+            return [table];
+        }
+        const grouped = Array.from(
+            root.querySelectorAll(`table[${TEMPLATE_TABLE_GROUP_ATTR}="${groupId}"]`)
+        ) as HTMLTableElement[];
+        return grouped.length ? grouped : [table];
     }
 
     private addDocumentTableRow(table: HTMLTableElement, rowIndex = table.rows.length - 1, place: 'above' | 'below' = 'below'): void {
@@ -3797,7 +4121,11 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         if (!sourceRow || table.rows.length >= TemplateFillComponent.TABLE_RENDER_HARD_MAX_ROWS) {
             return;
         }
-        if (this.wouldTableLeavePage(table, 'row')) {
+        // Body tables (document HTML) must grow across pages. Only absolute placed
+        // floating table fields stay clipped to their page box.
+        const bodyTable = this.isDocumentBodyTable(table);
+        const placedField = !bodyTable && this.isPlacedDocumentTable(table);
+        if (placedField && this.wouldTableLeavePage(table, 'row')) {
             this.notificationService.showMessage(
                 'This row would take the table outside the page, so it was not added.',
                 'warning'
@@ -3810,8 +4138,12 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         });
         const parent = sourceRow.parentElement || table.tBodies[0] || table;
         parent.insertBefore(row, place === 'above' ? sourceRow : sourceRow.nextSibling);
-        this.replaceStoredDocumentTable(table);
-        this.scheduleFillExcelIndicators();
+        if (bodyTable) {
+            this.repaginateDocumentBodyTables();
+        } else {
+            this.replaceStoredDocumentTable(table);
+            this.scheduleFillExcelIndicators();
+        }
     }
 
     private addDocumentTableColumn(
@@ -3823,7 +4155,9 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         if (!columnCount || columnCount >= TemplateFillComponent.TABLE_RENDER_HARD_MAX_COLUMNS) {
             return;
         }
-        if (this.wouldTableLeavePage(table, 'column')) {
+        const bodyTable = this.isDocumentBodyTable(table);
+        const placedField = !bodyTable && this.isPlacedDocumentTable(table);
+        if (placedField && this.wouldTableLeavePage(table, 'column')) {
             this.notificationService.showMessage(
                 this.isLandscapePage()
                     ? 'This column would take the table outside the page, so it was not added.'
@@ -3833,21 +4167,29 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             return;
         }
         const insertAt = place === 'before' ? columnIndex : columnIndex + 1;
-        Array.from(table.rows).forEach((row) => {
-            const sourceCell = row.cells[Math.min(columnIndex, row.cells.length - 1)];
-            if (!sourceCell) {
-                return;
-            }
-            const cell = this.createBlankDocumentTableCell(sourceCell);
-            const reference = row.cells[insertAt];
-            if (reference) {
-                row.insertBefore(cell, reference);
-            } else {
-                row.appendChild(cell);
-            }
+        // Split body tables share one logical grid — mutate every fragment before re-pack.
+        const targets = bodyTable ? this.getDocumentBodyTableGroup(table) : [table];
+        targets.forEach((target) => {
+            Array.from(target.rows).forEach((row) => {
+                const sourceCell = row.cells[Math.min(columnIndex, row.cells.length - 1)];
+                if (!sourceCell) {
+                    return;
+                }
+                const cell = this.createBlankDocumentTableCell(sourceCell);
+                const reference = row.cells[insertAt];
+                if (reference) {
+                    row.insertBefore(cell, reference);
+                } else {
+                    row.appendChild(cell);
+                }
+            });
         });
-        this.replaceStoredDocumentTable(table);
-        this.scheduleFillExcelIndicators();
+        if (bodyTable) {
+            this.repaginateDocumentBodyTables();
+        } else {
+            this.replaceStoredDocumentTable(table);
+            this.scheduleFillExcelIndicators();
+        }
     }
 
     private removeDocumentTableLine(table: HTMLTableElement, axis: 'row' | 'column', index: number): void {
@@ -3863,15 +4205,190 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             this.notificationService.showMessage('Keep at least one column in the table.', 'warning');
             return;
         }
-        this.shiftDocumentTableFormulasForDeletion(table, axis, index);
+        const bodyTable = this.isDocumentBodyTable(table);
         if (axis === 'row') {
+            this.shiftDocumentTableFormulasForDeletion(table, axis, index);
             table.rows[index]?.remove();
         } else {
-            Array.from(table.rows).forEach((row) => row.cells[index]?.remove());
+            const targets = bodyTable ? this.getDocumentBodyTableGroup(table) : [table];
+            targets.forEach((target) => {
+                this.shiftDocumentTableFormulasForDeletion(target, axis, index);
+                Array.from(target.rows).forEach((row) => row.cells[index]?.remove());
+            });
         }
-        this.replaceStoredDocumentTable(table);
-        this.recalculateDocumentTable(table);
-        this.scheduleFillExcelIndicators();
+        if (bodyTable) {
+            this.repaginateDocumentBodyTables();
+        } else {
+            this.replaceStoredDocumentTable(table);
+            this.recalculateDocumentTable(table);
+            this.scheduleFillExcelIndicators();
+        }
+    }
+
+    /** True for canvas/document-body tables (not absolute placed floating table fields). */
+    private isDocumentBodyTable(table: HTMLTableElement): boolean {
+        if (!table.closest('.document-html')) {
+            return false;
+        }
+        // Tables inside word editors are content, not document-body layout tables.
+        if (table.closest(
+            '.document-body-word-editor, [data-body-word-editor], .ck-editor, .inline-word-editor-shell, .inline-filled-word-editor-value, .word-editor-value'
+        )) {
+            return false;
+        }
+        return true;
+    }
+
+    private isPlacedDocumentTable(table: HTMLTableElement): boolean {
+        if (this.isDocumentBodyTable(table)) {
+            return false;
+        }
+        return !!table.closest('.inline-table-shell');
+    }
+
+    /** Page gap used by canvas stripes, boundaries, and body-table splits (must match). */
+    private resolveTemplatePageGap(page: { gap?: number | string } | null | undefined = this.template?.page): number {
+        const raw = Number(page?.gap);
+        return Number.isFinite(raw) && raw >= 0 ? raw : 16;
+    }
+
+    private resolveTemplatePageHeight(page: { height?: number | string } | null | undefined = this.template?.page): number {
+        const raw = Number(page?.height);
+        return Number.isFinite(raw) && raw > 0 ? raw : 1123;
+    }
+
+    /**
+     * After document-body table structure changes, collapse/split tables across
+     * page edges using the live canvas geometry so spacers land in the gray gutter.
+     */
+    private repaginateDocumentBodyTables(): void {
+        void this.repaginateDocumentBodyTablesAsync();
+    }
+
+    private async repaginateDocumentBodyTablesAsync(): Promise<void> {
+        const root = this.documentHtmlRef?.nativeElement;
+        if (!this.template || !root) {
+            return;
+        }
+        const mountVersion = ++this.bodyWordEditorMountVersion;
+        this.flushDocumentBodyWordEditorsToValues();
+        await this.destroyDocumentBodyWordEditors();
+        if (mountVersion !== this.bodyWordEditorMountVersion) {
+            return;
+        }
+        this.writeStaticDocumentBodyWordEditorHtml(root);
+        this.cancelScheduledBodyTableRepaginate();
+        this.removeDocumentTableMenu();
+        // Drop fill-only chrome before measuring so row boxes match saved HTML.
+        this.stripDocumentTableFillChromeFromElement(root);
+        const pageHeight = this.resolveTemplatePageHeight();
+        const pageGap = this.resolveTemplatePageGap();
+        paginateBodyTablesInRoot(root, {
+            pageHeight,
+            pageGap,
+            repeatHeader: true,
+            coordinateScale: Number(this.previewZoom) || 1
+        });
+        this.persistLiveDocumentHtml();
+        this.template.html = this.stripDocumentTableFillChrome(finalizeTableFormulaHtml(String(this.template.html || '')));
+        this.updatePageCountFromDocumentHtml(this.template.html);
+        this.bodyTableLayoutDirty = false;
+        this.safeHtml = this.sanitizer.bypassSecurityTrustHtml(this.getFillHtml(this.template.html));
+        this.queueDocumentTableBinding();
+        this.scheduleMountDocumentBodyWordEditors(mountVersion);
+    }
+
+    private persistLiveDocumentHtml(): void {
+        const root = this.documentHtmlRef?.nativeElement;
+        if (!root || !this.template) {
+            return;
+        }
+        this.flushDocumentBodyWordEditorsToValues();
+        const clone = root.cloneNode(true) as HTMLElement;
+        this.writeStaticDocumentBodyWordEditorHtml(clone);
+        this.stripDocumentTableFillChromeFromElement(clone);
+        this.template.html = finalizeTableFormulaHtml(clone.innerHTML);
+    }
+
+    /**
+     * Capture the live document body (including body-table row/column edits and
+     * page splits) into both `template.html` and `savedTemplate.payload.html`.
+     * Submit/draft read `savedTemplate.payload.html`, which is a separate object
+     * from the working `template` copy — without this sync the application view
+     * keeps the original empty builder table.
+     */
+    private syncLiveDocumentHtmlForSubmission(): void {
+        this.flushDocumentBodyWordEditorsToValues();
+        this.persistDocumentTableEdits();
+        this.persistLiveDocumentHtml();
+        if (!this.template) {
+            return;
+        }
+        this.template.html = this.stripDocumentTableFillChrome(
+            finalizeTableFormulaHtml(String(this.template.html || ''))
+        );
+        if (this.savedTemplate?.payload) {
+            this.savedTemplate.payload = {
+                ...this.savedTemplate.payload,
+                html: this.template.html
+            };
+        }
+    }
+
+    /** Remove fill-only attrs so rebound tables get fresh click menus after re-paginate. */
+    private stripDocumentTableFillChrome(html: string): string {
+        if (!html || typeof document === 'undefined') {
+            return html || '';
+        }
+        const host = document.createElement('div');
+        host.innerHTML = html;
+        this.stripDocumentTableFillChromeFromElement(host);
+        return host.innerHTML;
+    }
+
+    private stripDocumentTableFillChromeFromElement(root: ParentNode): void {
+        root.querySelectorAll('[contenteditable]').forEach((node) => {
+            (node as HTMLElement).removeAttribute('contenteditable');
+        });
+        root.querySelectorAll('.document-fill-cell, .document-formula-cell, .document-table-target-cell').forEach((node) => {
+            node.classList.remove('document-fill-cell', 'document-formula-cell', 'document-table-target-cell');
+        });
+        root.querySelectorAll('[data-fill-bound], [data-fill-menu-bound]').forEach((node) => {
+            node.removeAttribute('data-fill-bound');
+            node.removeAttribute('data-fill-menu-bound');
+        });
+        root.querySelectorAll('table[title]').forEach((node) => {
+            const title = node.getAttribute('title') || '';
+            if (title.includes('Click a cell to add or delete')) {
+                node.removeAttribute('title');
+            }
+        });
+        root.querySelectorAll('.fill-excel-indicator-layer, .fill-table-context-menu').forEach((node) => node.remove());
+        // Keep shared column-width locks so page-split fragments stay aligned.
+    }
+
+    private updatePageCountFromDocumentHtml(html: string): void {
+        if (!this.template?.page) {
+            return;
+        }
+        const pageHeight = this.resolveTemplatePageHeight();
+        const pageGap = this.resolveTemplatePageGap();
+        const liveRoot = this.documentHtmlRef?.nativeElement;
+        const height = liveRoot
+            ? Math.max(liveRoot.scrollHeight, pageHeight)
+            : (() => {
+                const host = document.createElement('div');
+                host.className = 'ck-content document-html';
+                host.style.cssText = `position:absolute;left:-100000px;width:${Number(this.template.page.width) || 794}px;box-sizing:border-box;padding:22mm 18mm;`;
+                host.innerHTML = html || '';
+                document.body.appendChild(host);
+                const measured = Math.max(host.scrollHeight, pageHeight);
+                host.remove();
+                return measured;
+            })();
+        const contentPages = Math.max(1, Math.ceil(height / (pageHeight + pageGap)));
+        const current = Number(this.template.page.count) || 1;
+        this.template.page.count = Math.max(current, contentPages);
     }
 
     private shiftDocumentTableFormulasForDeletion(table: HTMLTableElement, axis: 'row' | 'column', deleteAt: number): void {
@@ -4011,8 +4528,15 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
             return;
         }
         const doc = new DOMParser().parseFromString(String(this.template.html), 'text/html');
-        const storedTables = Array.from(doc.body.querySelectorAll('table'));
-        const liveTables = Array.from(root.querySelectorAll('table'));
+        const storedTables = Array.from(doc.body.querySelectorAll('table')).filter((table) => {
+            // Ignore tables that live inside word-editor / floating shells in stored HTML.
+            return !table.closest(
+                '.template-word-editor-body, .inline-filled-word-editor-value, .document-body-word-editor, [data-body-word-editor], .word-editor-value, .inline-word-editor-shell, .inline-table-shell, .filled-field'
+            );
+        });
+        const liveTables = Array.from(root.querySelectorAll('table')).filter((table) =>
+            this.isDocumentBodyTable(table as HTMLTableElement)
+        );
         if (storedTables.length === 0 || liveTables.length === 0) {
             return;
         }
@@ -4069,6 +4593,21 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
                 return;
             }
 
+            node.replaceWith(this.createInlineValue(doc, field));
+        });
+
+        // After a body-table persist, markers may already be inline hosts — refresh them
+        // from current values so word-editor remounts stay in sync.
+        doc.querySelectorAll('[data-body-word-editor="true"]').forEach((node) => {
+            const fieldId = node.getAttribute('data-field-id') || '';
+            const field = fields.get(fieldId);
+            if (!field || !this.isDocumentBodyWordEditorField(field)) {
+                return;
+            }
+            if (this.isFieldHiddenForCurrentStep(field)) {
+                node.remove();
+                return;
+            }
             node.replaceWith(this.createInlineValue(doc, field));
         });
 
@@ -4488,6 +5027,10 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     }
 
     private getPipelineTargetFallbackLabel(step: any): string {
+        if (step?.type === 'initiator_choice') {
+            return step?.name || 'Initiator Choice';
+        }
+
         if (step?.type === 'department') {
             return step?.hrTblDepartment?.txtDepartmentName || step?.name || 'Department';
         }
@@ -4497,6 +5040,180 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         }
 
         return step?.name || 'Approver';
+    }
+
+    hasInitiatorChoiceSteps(): boolean {
+        return this.initiatorChoiceSelections.length > 0;
+    }
+
+    onInitiatorChoiceTypeChanged(selection: InitiatorChoiceSelection): void {
+        selection.serDepartmentId = null;
+        selection.serRoleId = null;
+        selection.users = [];
+        selection.approvalMode = 'OR';
+    }
+
+    shouldShowInitiatorChoiceApprovalMode(selection: InitiatorChoiceSelection): boolean {
+        if (!selection?.choiceType) {
+            return false;
+        }
+        if (selection.choiceType === 'individual') {
+            return (selection.users || []).length > 1;
+        }
+        return true;
+    }
+
+    getDepartmentDisplayName(department: any): string {
+        return String(department?.txtDepartmentName || department?.departmentName || department?.name || '').trim();
+    }
+
+    getRoleDisplayName(role: any): string {
+        return String(role?.txtRoleName || role?.roleName || role?.name || '').trim();
+    }
+
+    private syncInitiatorChoiceSelectionsFromPipeline(savedSelections?: any): void {
+        const steps = (Array.isArray(this.template?.pipeline) ? this.template.pipeline : [])
+            .filter((step: any) => step && String(step.type || '').toLowerCase() === 'initiator_choice');
+        const savedMap = this.asInitiatorChoiceSelectionMap(savedSelections);
+        this.initiatorChoiceSelections = steps.map((step: any, index: number) => {
+            const stepId = String(step?.id || `initiator-choice-${index + 1}`);
+            const saved = savedMap[stepId] || {};
+            const choiceType = this.normalizeInitiatorChoiceType(saved.choiceType || saved.type);
+            const users = Array.isArray(saved.users)
+                ? saved.users.map((user: any) => this.findFillUserById(user?.serUserId ?? user?.userId ?? user?.id) || user).filter(Boolean)
+                : [];
+            if (users.length === 0 && Array.isArray(saved.userIds)) {
+                saved.userIds.forEach((userId: any) => {
+                    const user = this.findFillUserById(userId);
+                    if (user) {
+                        users.push(user);
+                    }
+                });
+            }
+            return {
+                stepId,
+                stepName: String(step?.name || `Initiator Choice ${index + 1}`),
+                choiceType,
+                approvalMode: String(saved.approvalMode || 'OR').toUpperCase() === 'AND' ? 'AND' : 'OR',
+                serDepartmentId: saved.serDepartmentId != null
+                    ? Number(saved.serDepartmentId)
+                    : (saved.hrTblDepartment?.serDepartmentId != null ? Number(saved.hrTblDepartment.serDepartmentId) : null),
+                serRoleId: saved.serRoleId != null
+                    ? Number(saved.serRoleId)
+                    : (saved.cfgTblRole?.serRoleId != null ? Number(saved.cfgTblRole.serRoleId) : null),
+                users
+            } as InitiatorChoiceSelection;
+        });
+    }
+
+    private asInitiatorChoiceSelectionMap(raw: any): Record<string, any> {
+        if (!raw) {
+            return {};
+        }
+        if (Array.isArray(raw)) {
+            return raw.reduce((acc: Record<string, any>, item: any) => {
+                const stepId = String(item?.stepId || item?.id || '').trim();
+                if (stepId) {
+                    acc[stepId] = item;
+                }
+                return acc;
+            }, {});
+        }
+        if (typeof raw === 'object') {
+            return raw as Record<string, any>;
+        }
+        return {};
+    }
+
+    private normalizeInitiatorChoiceType(value: any): InitiatorChoiceType | '' {
+        const normalized = String(value || '').trim().toLowerCase();
+        if (normalized === 'department' || normalized === 'individual' || normalized === 'role') {
+            return normalized;
+        }
+        return '';
+    }
+
+    private findFillUserById(userId: any): any | null {
+        const id = Number(userId);
+        if (!Number.isFinite(id) || id <= 0) {
+            return null;
+        }
+        return (this.allUsers || []).find((user: any) => Number(user?.serUserId ?? user?.userId ?? user?.id) === id) || null;
+    }
+
+    private validateInitiatorChoiceSelections(): string | null {
+        if (!this.hasInitiatorChoiceSteps()) {
+            return null;
+        }
+        for (const selection of this.initiatorChoiceSelections) {
+            const label = selection.stepName || 'Initiator Choice';
+            if (!selection.choiceType) {
+                return `Please choose department, individual, or role for "${label}".`;
+            }
+            if (selection.choiceType === 'department' && !(Number(selection.serDepartmentId) > 0)) {
+                return `Please select a department for "${label}".`;
+            }
+            if (selection.choiceType === 'role' && !(Number(selection.serRoleId) > 0)) {
+                return `Please select a role for "${label}".`;
+            }
+            if (selection.choiceType === 'individual' && !(selection.users || []).length) {
+                return `Please select at least one employee for "${label}".`;
+            }
+        }
+        return null;
+    }
+
+    private getNormalizedInitiatorChoiceSelections(): Record<string, any> {
+        const result: Record<string, any> = {};
+        this.initiatorChoiceSelections.forEach((selection) => {
+            if (!selection?.stepId || !selection.choiceType) {
+                return;
+            }
+            const approvalMode = this.shouldShowInitiatorChoiceApprovalMode(selection)
+                ? selection.approvalMode
+                : 'OR';
+            const payload: Record<string, any> = {
+                stepId: selection.stepId,
+                stepName: selection.stepName,
+                choiceType: selection.choiceType,
+                type: selection.choiceType,
+                approvalMode
+            };
+            if (selection.choiceType === 'department') {
+                const department = (this.departments || []).find(
+                    (item) => Number(item?.serDepartmentId) === Number(selection.serDepartmentId)
+                );
+                if (!department) {
+                    return;
+                }
+                payload['serDepartmentId'] = Number(department.serDepartmentId);
+                payload['hrTblDepartment'] = department;
+                payload['name'] = selection.stepName || this.getDepartmentDisplayName(department);
+            } else if (selection.choiceType === 'role') {
+                const role = (this.roles || []).find(
+                    (item) => Number(item?.serRoleId) === Number(selection.serRoleId)
+                );
+                if (!role) {
+                    return;
+                }
+                payload['serRoleId'] = Number(role.serRoleId);
+                payload['cfgTblRole'] = role;
+                payload['name'] = selection.stepName || this.getRoleDisplayName(role);
+            } else {
+                const users = Array.isArray(selection.users) ? selection.users : [];
+                if (users.length === 0) {
+                    return;
+                }
+                payload['users'] = users;
+                payload['userIds'] = users
+                    .map((user) => Number(user?.serUserId ?? user?.userId ?? user?.id))
+                    .filter((id) => Number.isFinite(id) && id > 0);
+                payload['name'] = selection.stepName
+                    || users.map((user) => String(user?.txtUserName || user?.userName || user?.name || '').trim()).filter(Boolean).join(', ');
+            }
+            result[selection.stepId] = payload;
+        });
+        return result;
     }
 
     private getResolvedDynamicSlotLabel(step: any): string {
@@ -4520,15 +5237,202 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
     private createInlineValue(doc: Document, field: TemplateField): HTMLElement {
         const tagName = field.type === 'word_editor' ? 'div' : 'span';
         const element = doc.createElement(tagName);
-        element.className = `inline-filled-value${field.type === 'textarea' ? ' inline-filled-textarea-value' : ''}${field.type === 'word_editor' ? ' inline-filled-word-editor-value' : ''}`;
+        const isBodyWordEditor = this.isDocumentBodyWordEditorField(field);
+        const canEditBodyWordEditor = isBodyWordEditor
+            && !this.builderPreviewMode
+            && this.canCurrentStepFillField(field);
+        element.className = `inline-filled-value${field.type === 'textarea' ? ' inline-filled-textarea-value' : ''}${field.type === 'word_editor' ? ' inline-filled-word-editor-value' : ''}${isBodyWordEditor ? ' document-body-word-editor' : ''}`;
         element.dataset['fieldId'] = field.id;
+        if (isBodyWordEditor) {
+            element.setAttribute('data-body-word-editor', 'true');
+        }
         if (field.type === 'word_editor') {
-            element.innerHTML = this.normalizeWordEditorHtmlForDisplay(String(this.values[field.id] || ''));
+            // Editable body editors mount CKEditor after paint; leave a host shell.
+            element.innerHTML = canEditBodyWordEditor
+                ? ''
+                : this.normalizeWordEditorHtmlForDisplay(String(this.values[field.id] || ''));
+            element.style.display = 'block';
+            element.style.width = '100%';
+            element.style.maxWidth = '100%';
+            element.style.boxSizing = 'border-box';
+            element.style.minHeight = isBodyWordEditor ? '120px' : element.style.minHeight;
         } else {
             element.textContent = this.getFieldValueText(field);
         }
         this.applyInlineValueAttributes(element, field, field.type !== 'word_editor');
         return element;
+    }
+
+    /** After body content (word editor / tables) grows, extend page stripes like body tables. */
+    private scheduleBodyContentPageCountUpdate(): void {
+        if (!this.template?.page) {
+            return;
+        }
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                this.updatePageCountFromDocumentHtml(this.template?.html || '');
+            });
+        });
+    }
+
+    private async rebuildDocumentPreviewAfterBodyWordEditorTeardown(): Promise<void> {
+        const mountVersion = ++this.bodyWordEditorMountVersion;
+        this.flushDocumentBodyWordEditorsToValues();
+        await this.destroyDocumentBodyWordEditors();
+        if (mountVersion !== this.bodyWordEditorMountVersion) {
+            return;
+        }
+        this.persistDocumentTableEdits();
+        (this.template?.fields || []).forEach((field: TemplateField) => {
+            if (field.type === 'table') {
+                this.refreshTableFieldFormulas(field);
+            }
+        });
+        this.safeHtml = this.sanitizer.bypassSecurityTrustHtml(this.getFillHtml(this.template?.html || ''));
+        this.queueDocumentTableBinding();
+        this.scheduleBodyContentPageCountUpdate();
+        this.scheduleMountDocumentBodyWordEditors(mountVersion);
+        this.changeDetectorRef.markForCheck();
+    }
+
+    private flushDocumentBodyWordEditorsToValues(): void {
+        this.bodyWordEditorInstances.forEach((editor, fieldId) => {
+            try {
+                const data = normalizeWordEditorValueForCkeditor(editor?.getData?.() ?? this.values[fieldId] ?? '');
+                this.values[fieldId] = data;
+                this.acceptedWordEditorValues[fieldId] = data;
+            } catch {
+                // Best effort only.
+            }
+        });
+    }
+
+    private writeStaticDocumentBodyWordEditorHtml(root: HTMLElement): void {
+        root.querySelectorAll('[data-body-word-editor="true"]').forEach((node) => {
+            const host = node as HTMLElement;
+            const fieldId = String(host.getAttribute('data-field-id') || host.dataset['fieldId'] || '').trim();
+            if (!fieldId) {
+                return;
+            }
+            host.innerHTML = this.normalizeWordEditorHtmlForDisplay(String(this.values[fieldId] || ''));
+            delete host.dataset['bodyWordEditorMounted'];
+        });
+    }
+
+    private async destroyDocumentBodyWordEditors(): Promise<void> {
+        this.restoreDetachedInlineWordEditorToolbar();
+        if (this.activeInlineWordEditorFieldId) {
+            const activeField = (this.template?.fields || []).find(
+                (field: TemplateField) => field.id === this.activeInlineWordEditorFieldId
+            );
+            if (activeField && this.isDocumentBodyWordEditorField(activeField)) {
+                this.activeInlineWordEditorFieldId = null;
+            }
+        }
+        const entries = [...this.bodyWordEditorInstances.entries()];
+        this.bodyWordEditorInstances.clear();
+        this.bodyWordEditorMounting.clear();
+        await Promise.all(entries.map(async ([fieldId, editor]) => {
+            this.inlineWordEditors.delete(fieldId);
+            try {
+                await editor?.destroy?.();
+            } catch {
+                // Instance may already be detached after an [innerHTML] rebuild.
+            }
+        }));
+    }
+
+    private scheduleMountDocumentBodyWordEditors(expectedVersion?: number): void {
+        if (this.builderPreviewMode) {
+            return;
+        }
+        const version = expectedVersion ?? ++this.bodyWordEditorMountVersion;
+        if (this.bodyWordEditorMountTimer) {
+            clearTimeout(this.bodyWordEditorMountTimer);
+        }
+        this.bodyWordEditorMountTimer = setTimeout(() => {
+            this.bodyWordEditorMountTimer = null;
+            void this.mountDocumentBodyWordEditors(version);
+        }, 0);
+    }
+
+    private async mountDocumentBodyWordEditors(expectedVersion: number): Promise<void> {
+        if (expectedVersion !== this.bodyWordEditorMountVersion || this.builderPreviewMode || !this.template) {
+            return;
+        }
+        const root = this.documentHtmlRef?.nativeElement;
+        if (!root) {
+            setTimeout(() => {
+                if (expectedVersion === this.bodyWordEditorMountVersion) {
+                    void this.mountDocumentBodyWordEditors(expectedVersion);
+                }
+            }, 40);
+            return;
+        }
+
+        const hosts = Array.from(root.querySelectorAll('[data-body-word-editor="true"]')) as HTMLElement[];
+        for (const host of hosts) {
+            if (expectedVersion !== this.bodyWordEditorMountVersion) {
+                return;
+            }
+            const fieldId = String(host.getAttribute('data-field-id') || host.dataset['fieldId'] || '').trim();
+            if (!fieldId || this.bodyWordEditorInstances.has(fieldId) || this.bodyWordEditorMounting.has(fieldId)) {
+                continue;
+            }
+            const field = (this.template.fields || []).find((item: TemplateField) => item.id === fieldId);
+            if (!field || !this.isDocumentBodyWordEditorField(field) || !this.canCurrentStepFillField(field)) {
+                continue;
+            }
+
+            this.bodyWordEditorMounting.add(fieldId);
+            host.innerHTML = '';
+            const source = document.createElement('div');
+            source.className = 'document-body-word-editor-editable';
+            host.appendChild(source);
+
+            try {
+                const editor = await WORD_EDITOR_CKEDITOR.create(source, {
+                    ...WORD_EDITOR_CKEDITOR_CONFIG,
+                    initialData: normalizeWordEditorValueForCkeditor(this.values[fieldId] || ''),
+                });
+                if (expectedVersion !== this.bodyWordEditorMountVersion) {
+                    try {
+                        await editor.destroy();
+                    } catch {
+                        // Ignore teardown races.
+                    }
+                    continue;
+                }
+
+                this.bodyWordEditorInstances.set(fieldId, editor);
+                this.inlineWordEditors.set(fieldId, editor);
+                host.dataset['bodyWordEditorMounted'] = '1';
+
+                const editable = editor?.ui?.view?.editable?.element as HTMLElement | undefined;
+                if (editable) {
+                    editable.setAttribute('data-inline-word-editor-field-id', fieldId);
+                    editable.setAttribute('data-body-word-editor-field-id', fieldId);
+                }
+
+                editor.editing.view.document.on('focus', () => {
+                    this.ngZone.run(() => this.activateInlineWordEditor(field));
+                });
+                editor.model.document.on('change:data', () => {
+                    this.ngZone.run(() => {
+                        const nextValue = normalizeWordEditorValueForCkeditor(editor.getData());
+                        this.values[fieldId] = nextValue;
+                        this.acceptedWordEditorValues[fieldId] = nextValue;
+                        this.scheduleBodyContentPageCountUpdate();
+                    });
+                });
+            } catch (error) {
+                console.error('Failed to mount document-body word editor', fieldId, error);
+                host.innerHTML = this.normalizeWordEditorHtmlForDisplay(String(this.values[fieldId] || ''));
+            } finally {
+                this.bodyWordEditorMounting.delete(fieldId);
+            }
+        }
+        this.changeDetectorRef.markForCheck();
     }
 
     private normalizeWordEditorHtmlForDisplay(html: string): string {
@@ -4789,9 +5693,45 @@ export class TemplateFillComponent implements OnInit, OnDestroy {
         this.userService.getUsers().subscribe({
             next: (data: any) => {
                 this.allUsers = Array.isArray(data) ? data : [];
+                this.rehydrateInitiatorChoiceUsers();
             },
             error: () => {
                 this.allUsers = [];
+            }
+        });
+    }
+
+    private rehydrateInitiatorChoiceUsers(): void {
+        this.initiatorChoiceSelections.forEach((selection) => {
+            if (!Array.isArray(selection.users) || selection.users.length === 0) {
+                return;
+            }
+            selection.users = selection.users
+                .map((user) => this.findFillUserById(user?.serUserId ?? user?.userId ?? user?.id) || user)
+                .filter(Boolean);
+        });
+    }
+
+    private loadDepartments(): void {
+        this.departmentService.getAll().subscribe({
+            next: (data: any) => {
+                this.departments = Array.isArray(data)
+                    ? data.filter((dept: any) => dept && dept.blIsDeleted !== true && dept.blnStatus !== false)
+                    : [];
+            },
+            error: () => {
+                this.departments = [];
+            }
+        });
+    }
+
+    private loadRoles(): void {
+        this.userService.getRoles().subscribe({
+            next: (data: any) => {
+                this.roles = Array.isArray(data) ? data : [];
+            },
+            error: () => {
+                this.roles = [];
             }
         });
     }
